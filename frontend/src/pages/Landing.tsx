@@ -17,6 +17,28 @@ const heroPromises = [
   },
 ]
 
+const heroProofStats = [
+  {
+    value: '18 labs',
+    label: 'shipping weekly updates',
+  },
+  {
+    value: '43% fewer',
+    label: 'revision loops recorded',
+  },
+  {
+    value: '<2 minutes',
+    label: 'to export journal-ready LaTeX',
+  },
+]
+
+const heroTestimonial = {
+  quote:
+    'ScholarHub let us keep timelines and reviewer decisions in one place—every submission closes with complete context.',
+  author: 'Dr. Laila Hassan',
+  role: 'PI, Precision Therapeutics Lab',
+}
+
 const Landing = () => {
   const [isVisible, setIsVisible] = useState(false)
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false)
@@ -64,7 +86,7 @@ const Landing = () => {
     },
     {
       Icon: MessageSquare,
-      title: 'Meeting Sync Space',
+      title: 'Meeting workspace',
       description: 'Run lab stand-ups, capture decisions, and assign follow-ups without leaving your manuscript workspace.',
     },
     {
@@ -161,6 +183,28 @@ const Landing = () => {
                 </li>
               ))}
             </ul>
+
+            <div className="mt-12 flex flex-col gap-6 rounded-[28px] border border-indigo-100 bg-white/90 px-6 py-8 shadow-lg shadow-indigo-100/60 lg:flex-row lg:items-center lg:justify-between">
+              <div className="grid flex-1 gap-4 sm:grid-cols-3">
+                {heroProofStats.map(stat => (
+                  <div
+                    key={stat.label}
+                    className="rounded-2xl border border-indigo-100 bg-indigo-50/60 px-4 py-4 text-left shadow-sm shadow-indigo-100/50"
+                  >
+                    <p className="text-xl font-semibold text-slate-900">{stat.value}</p>
+                    <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-indigo-600">
+                      {stat.label}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <div className="flex-1 rounded-2xl border border-slate-200 bg-white px-6 py-5 text-left shadow-sm shadow-slate-100 lg:max-w-md">
+                <p className="text-sm text-slate-700 leading-relaxed">“{heroTestimonial.quote}”</p>
+                <p className="mt-3 text-xs text-slate-500">
+                  {heroTestimonial.author} · {heroTestimonial.role}
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -178,7 +222,7 @@ const Landing = () => {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 text-left w-full lg:w-auto">
               <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
                 <p className="text-sm font-semibold text-gray-900">Every decision stays linked</p>
-                <p className="mt-1 text-sm text-gray-600">Meeting Sync Space snapshots and action lists stay beside the manuscript so no follow-up gets lost.</p>
+                <p className="mt-1 text-sm text-gray-600">Live meeting notes and action lists stay beside the manuscript so no follow-up gets lost.</p>
               </div>
               <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
                 <p className="text-sm font-semibold text-gray-900">No more progress ambiguity</p>
