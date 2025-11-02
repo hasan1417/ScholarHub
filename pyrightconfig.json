@@ -1,0 +1,12 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/pyright/main/packages/vscode-pyright/schemas/pyrightconfig.schema.json",
+  "include": [
+    "backend/app"
+  ],
+  "venvPath": "backend",
+  "venv": "scholarenv",
+  "extraPaths": [
+    "backend/app"
+  ],
+  "pythonVersion": "3.11"
+}

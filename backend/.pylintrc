@@ -1,0 +1,9 @@
+[MASTER]
+ignore=__pycache__,migrations
+
+[MESSAGES CONTROL]
+disable=all
+enable=F
+
+[FORMAT]
+max-line-length=120

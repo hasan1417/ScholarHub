@@ -1,0 +1,349 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 transition-colors duration-200 dark:bg-slate-900 dark:text-slate-100;
+  }
+
+  .dark .bg-white {
+    @apply bg-slate-800;
+  }
+
+  .dark .bg-gray-50 {
+    @apply bg-slate-800/80;
+  }
+
+  .dark .border-gray-200 {
+    @apply border-slate-700;
+  }
+
+  .dark .text-gray-900 {
+    @apply text-slate-100;
+  }
+
+  .dark .text-gray-800 {
+    @apply text-slate-100;
+  }
+
+  .dark .text-gray-700 {
+    @apply text-slate-200;
+  }
+
+  .dark .text-gray-600 {
+    @apply text-slate-300;
+  }
+
+  .dark .text-gray-500 {
+    @apply text-slate-400;
+  }
+}
+
+:root {
+  --latex-editor-bg: #fbfbfe;
+  --latex-editor-fg: #1b2330;
+  --latex-editor-font-size: 14px;
+  --latex-editor-font-family: 'Monaco', 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+  --latex-editor-gutter-bg: #f0f3fb;
+  --latex-editor-gutter-fg: #7a8199;
+  --latex-editor-gutter-border: #d7dbe8;
+  --latex-editor-active-line-bg: rgba(232, 241, 255, 0.65);
+  --latex-editor-active-line-gutter-bg: #e8f1ff;
+  --latex-editor-active-line-fg: #1b2330;
+  --latex-editor-selection-bg: #9fc2ff;
+  --latex-editor-focus-ring: #4c8bf5;
+  --latex-editor-fold-bg: #eef3ff;
+  --latex-editor-fold-fg: #3f4a6b;
+  --latex-editor-fold-border: #cbd5f5;
+  --latex-editor-tooltip-bg: #1f2937;
+  --latex-editor-tooltip-fg: #e5e7eb;
+  --latex-editor-tooltip-border: #4b5563;
+  --latex-editor-caret: #1f55b5;
+  --latex-editor-selection-match: #87b4ff;
+  --latex-editor-spell: #d14343;
+  --latex-editor-comment: #5c7a5b;
+  --latex-editor-string: #ad2f45;
+  --latex-editor-command: #1f55b5;
+  --latex-editor-text: #1b2330;
+  --latex-editor-keyword: #8c3fc8;
+  --latex-editor-math: #8b2bb9;
+  --latex-editor-number: #b65700;
+  --latex-editor-bracket: #1f55b5;
+  --latex-editor-operator: #1f55b5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --latex-editor-bg: #1e2133;
+    --latex-editor-fg: #e9ecf8;
+    --latex-editor-gutter-bg: #262a3d;
+    --latex-editor-gutter-fg: #8b92b5;
+    --latex-editor-gutter-border: #343850;
+    --latex-editor-active-line-bg: rgba(42, 49, 72, 0.55);
+    --latex-editor-active-line-gutter-bg: #2a3148;
+    --latex-editor-active-line-fg: #f0f3ff;
+    --latex-editor-selection-bg: #2d4f91;
+    --latex-editor-focus-ring: #5b8dff;
+    --latex-editor-fold-bg: #2f3652;
+    --latex-editor-fold-fg: #b7c4ff;
+    --latex-editor-fold-border: #3f4768;
+    --latex-editor-tooltip-bg: #101522;
+    --latex-editor-tooltip-fg: #e9ecf8;
+    --latex-editor-tooltip-border: #3c4a6e;
+    --latex-editor-caret: #7ab7ff;
+    --latex-editor-selection-match: #334a78;
+    --latex-editor-spell: #ff7b7b;
+    --latex-editor-comment: #8fb996;
+    --latex-editor-string: #f4a6b3;
+    --latex-editor-command: #79aaff;
+    --latex-editor-text: #e9ecf8;
+    --latex-editor-keyword: #ffc76f;
+    --latex-editor-math: #d6a7ff;
+    --latex-editor-number: #f9c97d;
+    --latex-editor-bracket: #9ac5ff;
+    --latex-editor-operator: #7ab7ff;
+  }
+}
+
+body.dark, [data-theme='dark'], :root.dark {
+  --latex-editor-bg: #1e2133;
+  --latex-editor-fg: #e9ecf8;
+  --latex-editor-gutter-bg: #262a3d;
+  --latex-editor-gutter-fg: #8b92b5;
+  --latex-editor-gutter-border: #343850;
+  --latex-editor-active-line-bg: rgba(42, 49, 72, 0.55);
+  --latex-editor-active-line-gutter-bg: #2a3148;
+  --latex-editor-active-line-fg: #f0f3ff;
+  --latex-editor-selection-bg: #2d4f91;
+  --latex-editor-focus-ring: #5b8dff;
+  --latex-editor-fold-bg: #2f3652;
+  --latex-editor-fold-fg: #b7c4ff;
+  --latex-editor-fold-border: #3f4768;
+  --latex-editor-tooltip-bg: #101522;
+  --latex-editor-tooltip-fg: #e9ecf8;
+  --latex-editor-tooltip-border: #3c4a6e;
+  --latex-editor-caret: #7ab7ff;
+  --latex-editor-selection-match: #334a78;
+  --latex-editor-spell: #ff7b7b;
+  --latex-editor-comment: #8fb996;
+  --latex-editor-string: #f4a6b3;
+  --latex-editor-command: #79aaff;
+  --latex-editor-text: #e9ecf8;
+  --latex-editor-keyword: #ffc76f;
+  --latex-editor-math: #d6a7ff;
+  --latex-editor-number: #f9c97d;
+  --latex-editor-bracket: #9ac5ff;
+  --latex-editor-operator: #7ab7ff;
+}
+
+:root[data-theme='light'], body[data-theme='light'], :root.light {
+  --latex-editor-bg: #fbfbfe;
+  --latex-editor-fg: #1b2330;
+  --latex-editor-gutter-bg: #f0f3fb;
+  --latex-editor-gutter-fg: #7a8199;
+  --latex-editor-gutter-border: #d7dbe8;
+  --latex-editor-active-line-bg: rgba(232, 241, 255, 0.65);
+  --latex-editor-active-line-gutter-bg: #e8f1ff;
+  --latex-editor-active-line-fg: #1b2330;
+  --latex-editor-selection-bg: #9fc2ff;
+  --latex-editor-focus-ring: #4c8bf5;
+  --latex-editor-fold-bg: #eef3ff;
+  --latex-editor-fold-fg: #3f4a6b;
+  --latex-editor-fold-border: #cbd5f5;
+  --latex-editor-tooltip-bg: #1f2937;
+  --latex-editor-tooltip-fg: #e5e7eb;
+  --latex-editor-tooltip-border: #4b5563;
+  --latex-editor-caret: #1f55b5;
+  --latex-editor-selection-match: #87b4ff;
+  --latex-editor-spell: #d14343;
+  --latex-editor-comment: #5c7a5b;
+  --latex-editor-string: #ad2f45;
+  --latex-editor-command: #1f55b5;
+  --latex-editor-text: #1b2330;
+  --latex-editor-keyword: #8c3fc8;
+  --latex-editor-math: #8b2bb9;
+  --latex-editor-number: #b65700;
+  --latex-editor-bracket: #1f55b5;
+  --latex-editor-operator: #1f55b5;
+}
+
+/* Academic Editor Custom Styles using Tailwind */
+@layer components {
+  .academic-editor {
+    @apply font-serif text-gray-800 leading-relaxed;
+  }
+  
+  .academic-editor h1 {
+    @apply text-4xl font-bold text-gray-900 mb-8 mt-0 pb-2 border-b-2 border-gray-200;
+  }
+  
+  .academic-editor h2 {
+    @apply text-3xl font-bold text-gray-800 mb-6 mt-8 pb-1 border-b border-gray-200;
+  }
+  
+  .academic-editor h3 {
+    @apply text-2xl font-bold text-gray-700 mb-4 mt-6;
+  }
+  
+  .academic-editor p {
+    @apply mb-4 text-justify;
+  }
+  
+  /* Modern academic style: no indentation, use spacing instead */
+  /* This follows APA, MLA, and most modern academic standards */
+  .academic-editor p {
+    @apply indent-0;
+  }
+  
+  /* Add extra spacing between paragraphs for better readability */
+  .academic-editor p + p {
+    @apply mt-2;
+  }
+  
+  .academic-editor ul,
+  .academic-editor ol {
+    @apply mb-4 pl-8;
+  }
+  
+  .academic-editor li {
+    @apply mb-2 leading-7;
+  }
+  
+  .academic-editor blockquote {
+    @apply my-6 py-4 px-6 border-l-4 border-blue-500 bg-gray-50 italic text-gray-700;
+  }
+  
+  .academic-editor blockquote p {
+    @apply mb-0 indent-0;
+  }
+  
+  .academic-editor pre {
+    @apply bg-gray-50 border border-gray-200 rounded-md p-4 my-4 overflow-x-auto font-mono text-sm;
+  }
+  
+  .academic-editor code {
+    @apply bg-gray-50 border border-gray-200 rounded px-1 py-0.5 font-mono text-sm;
+  }
+  
+  .academic-editor table {
+    @apply w-full border-collapse my-6 text-sm;
+  }
+  
+  .academic-editor th,
+  .academic-editor td {
+    @apply border border-gray-200 p-3 text-left;
+  }
+  
+  .academic-editor th {
+    @apply bg-gray-50 font-bold text-gray-800;
+  }
+  
+  .academic-editor hr {
+    @apply border-none border-t-2 border-gray-200 my-8;
+  }
+  
+  .academic-editor a {
+    @apply text-blue-600 underline;
+  }
+  
+  .academic-editor a:hover {
+    @apply text-blue-800;
+  }
+  
+  /* Page break line (screen only; print handled below) */
+  .page-break {
+    height: 0;
+    width: 100%;
+    border-top: 1px dashed #cbd5e1; /* slate-300 */
+    margin: 12px 0;
+  }
+
+  
+  /* Enhanced editor styling */
+  .academic-editor.ProseMirror {
+    @apply min-h-full;
+  }
+  
+  /* Ensure content respects page boundaries */
+  .academic-editor p:last-child {
+    @apply mb-0;
+  }
+}
+
+/* Custom scrollbar styles */
+@layer utilities {
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    @apply bg-gray-100 rounded-full;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-gray-300 rounded-full;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-400;
+  }
+
+  /* Firefox scrollbar */
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(209 213 219) rgb(243 244 246); /* gray-300 gray-100 */
+  }
+}
+
+/* Print styles for academic papers */
+@media print {
+  @page {
+    size: A4;
+    margin: 0; /* Remove default margins since our pages handle this */
+  }
+  
+  /* Reset page layout for printing */
+  .space-y-8 {
+    @apply space-y-0;
+  }
+  
+  .academic-editor {
+    @apply text-black bg-white;
+  }
+  
+  .academic-editor h1,
+  .academic-editor h2,
+  .academic-editor h3 {
+    page-break-after: avoid;
+  }
+  
+  .academic-editor p,
+  .academic-editor blockquote,
+  .academic-editor pre {
+    page-break-inside: avoid;
+  }
+  
+  .academic-editor table {
+    page-break-inside: avoid;
+  }
+  
+  /* Each discrete page should print on its own page */
+  [data-page-index]:not([data-page-index="0"]) {
+    page-break-before: always;
+  }
+  
+  /* Hide interactive elements when printing */
+  .print\\:hidden {
+    display: none !important;
+  }
+  
+  /* Ensure page breaks create real pagination in print */
+  .page-break {
+    break-before: page;
+    page-break-before: always;
+    border: 0;
+    height: 0;
+    margin: 0;
+  }
+}

@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ScholarHub OnlyOffice Plugin Installation</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            color: #333;
+        }
+        .header {
+            background: linear-gradient(135deg, #3B82F6, #1E40AF);
+            color: white;
+            padding: 30px;
+            border-radius: 12px;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 2.5rem;
+        }
+        .header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+        }
+        .section {
+            background: white;
+            border: 1px solid #E5E7EB;
+            border-radius: 8px;
+            padding: 25px;
+            margin-bottom: 20px;
+        }
+        .section h2 {
+            margin-top: 0;
+            color: #1F2937;
+            border-bottom: 2px solid #E5E7EB;
+            padding-bottom: 10px;
+        }
+        .step {
+            background: #F8FAFC;
+            border-left: 4px solid #3B82F6;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        .step h3 {
+            margin: 0 0 10px 0;
+            color: #1E40AF;
+        }
+        .code {
+            background: #1F2937;
+            color: #F9FAFB;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            overflow-x: auto;
+            margin: 10px 0;
+        }
+        .url {
+            background: #EFF6FF;
+            border: 1px solid #DBEAFE;
+            padding: 10px;
+            border-radius: 6px;
+            font-family: monospace;
+            color: #1E40AF;
+            word-break: break-all;
+        }
+        .button {
+            display: inline-block;
+            background: #3B82F6;
+            color: white;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 6px;
+            margin: 10px 10px 10px 0;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .button:hover {
+            background: #2563EB;
+        }
+        .button.secondary {
+            background: #6B7280;
+        }
+        .button.secondary:hover {
+            background: #4B5563;
+        }
+        .warning {
+            background: #FEF3C7;
+            border: 1px solid #F59E0B;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+        }
+        .success {
+            background: #D1FAE5;
+            border: 1px solid #10B981;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+        }
+        .feature-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .feature-item {
+            background: #F8FAFC;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #E5E7EB;
+            text-align: center;
+        }
+        .feature-icon {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎓 ScholarHub Assistant</h1>
+        <p>OnlyOffice Plugin for AI-Powered Academic Writing</p>
+    </div>
+
+    <div class="section">
+        <h2>🎯 Plugin Features</h2>
+        <div class="feature-list">
+            <div class="feature-item">
+                <div class="feature-icon">📝</div>
+                <h4>AI Summarize</h4>
+                <p>Create concise summaries of selected text</p>
+            </div>
+            <div class="feature-item">
+                <div class="feature-icon">🔄</div>
+                <h4>AI Paraphrase</h4>
+                <p>Rephrase content for better clarity</p>
+            </div>
+            <div class="feature-item">
+                <div class="feature-icon">📚</div>
+                <h4>Generate Citations</h4>
+                <p>Auto-generate academic references</p>
+            </div>
+            <div class="feature-item">
+                <div class="feature-icon">✏️</div>
+                <h4>Grammar Check</h4>
+                <p>Fix grammar and writing issues</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>🚀 Quick Installation (Recommended)</h2>
+        <div class="step">
+            <h3>Step 1: Open OnlyOffice Document</h3>
+            <p>Open a document in OnlyOffice (click the "Try OnlyOffice" button in ScholarHub)</p>
+        </div>
+        <div class="step">
+            <h3>Step 2: Open Developer Console</h3>
+            <p>Press <code>F12</code> or right-click and select "Inspect" → "Console" tab</p>
+        </div>
+        <div class="step">
+            <h3>Step 3: Download & Run Installation Script</h3>
+            <a href="/onlyoffice/install-plugin-script" class="button" download="install-scholarhub-plugin.js">Download Installation Script</a>
+            <p>Or copy the script content and paste it into the console</p>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>🛠️ Manual Installation</h2>
+        <div class="step">
+            <h3>Method 1: Plugin Manager (If Available)</h3>
+            <ol>
+                <li>In OnlyOffice, look for a "Plugins" tab or menu</li>
+                <li>Find "Plugin Manager" or "Manage Plugins"</li>
+                <li>Look for "Add Plugin" or "Install from URL"</li>
+                <li>Use one of these URLs:</li>
+            </ol>
+            <div class="url">/onlyoffice/plugins/scholarhub-assistant/config.json</div>
+            <div class="url" style="margin-top:8px;">/onlyoffice/plugins/hello-world/config.json</div>
+        </div>
+        
+        <div class="step">
+            <h3>Method 2: Developer Console Installation</h3>
+            <p>Copy and paste this code into the browser console while on an OnlyOffice document:</p>
+            <div class="code" id="installScript">
+// Loading installation script...
+fetch('/onlyoffice/install-plugin-script')
+  .then(r => r.text())
+  .then(script => {
+    document.getElementById('installScript').textContent = script;
+  });
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>📋 Plugin Information</h2>
+        <table style="width: 100%; border-collapse: collapse;">
+            <tr style="border-bottom: 1px solid #E5E7EB;">
+                <td style="padding: 10px; font-weight: bold;">Plugin Name:</td>
+                <td style="padding: 10px;">ScholarHub Assistant</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #E5E7EB;">
+                <td style="padding: 10px; font-weight: bold;">Version:</td>
+                <td style="padding: 10px;">1.0.0</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #E5E7EB;">
+                <td style="padding: 10px; font-weight: bold;">GUID:</td>
+                <td style="padding: 10px; font-family: monospace;">asc.{8515F8A6-2B7B-4B31-A78B-9C4F17C6B357}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #E5E7EB;">
+                <td style="padding: 10px; font-weight: bold;">Supported Editors:</td>
+                <td style="padding: 10px;">Word Processor</td>
+            </tr>
+            <tr>
+                <td style="padding: 10px; font-weight: bold;">Plugin Files:</td>
+                <td style="padding: 10px;">
+                    <div><a href="/static/onlyoffice-plugins/scholarhub-assistant/">ScholarHub Assistant Files</a></div>
+                    <div style="margin-top:6px;"><a href="/static/plugins/hello-world/">Hello World Files</a></div>
+                </td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>❓ Troubleshooting</h2>
+        <div class="warning">
+            <h4>⚠️ Common Issues:</h4>
+            <ul>
+                <li><strong>Plugin not visible:</strong> Make sure OnlyOffice supports plugins and you have a document open</li>
+                <li><strong>Installation failed:</strong> Try refreshing the OnlyOffice page and running the script again</li>
+                <li><strong>Console access:</strong> Some OnlyOffice instances may have developer tools disabled</li>
+                <li><strong>Network issues:</strong> Ensure your browser can access http://192.168.100.121:8000</li>
+            </ul>
+        </div>
+        
+        <div class="success">
+            <h4>✅ Success Indicators:</h4>
+            <ul>
+                <li>Plugin appears in OnlyOffice Plugins menu/tab</li>
+                <li>You can open the ScholarHub Assistant dialog</li>
+                <li>AI features work with selected text</li>
+                <li>Console shows "Plugin installed successfully" message</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>🔗 Useful Links</h2>
+        <a href="/onlyoffice/plugins" class="button secondary">View All Plugins</a>
+        <a href="/onlyoffice/status" class="button secondary">Check OnlyOffice Status</a>
+        <a href="javascript:window.close()" class="button secondary">Close This Page</a>
+    </div>
+
+    <script>
+        // Load the installation script content
+        fetch('/onlyoffice/install-plugin-script')
+            .then(r => r.text())
+            .then(script => {
+                document.getElementById('installScript').textContent = script;
+            })
+            .catch(e => {
+                document.getElementById('installScript').textContent = 'Error loading script: ' + e.message;
+            });
+    </script>
+</body>
+</html>

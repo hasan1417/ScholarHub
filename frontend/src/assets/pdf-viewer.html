@@ -1,0 +1,321 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PDF Viewer</title>
+    <style>
+      html, body { height: 100%; margin: 0; background: #f9fafb; }
+      #viewer { position: relative; height: 100%; width: 100%; overflow: auto; padding: 8px; box-sizing: border-box; }
+      #sizer { width: 1px; height: 100%; }
+      #scaler { position: absolute; top: 8px; left: 8px; transform-origin: top left; will-change: transform; transform: translateZ(0); }
+      canvas { display: block; margin: 0 0 8px 0; background: white; box-shadow: 0 1px 2px rgba(0,0,0,0.06); image-rendering: auto; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+    <script>
+      // Configure worker
+      if (window['pdfjsLib']) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js'
+      }
+    </script>
+  </head>
+  <body>
+    <div id="viewer" aria-label="PDF document">
+      <div id="sizer"></div>
+      <div id="scaler"></div>
+    </div>
+    <script>
+      (function() {
+        let fileUrl = null
+        let loadSeq = 0
+        const viewer = document.getElementById('viewer')
+        const token = localStorage.getItem('access_token') || ''
+        let pdfDoc = null
+        let currentScaleMode = 'page-width' // or 'page-fit'
+        let pageViewports = [] // last rendered viewports (per page)
+        let rendering = false
+        let baseWidth = 0
+        let baseTotalHeight = 0
+        let maxSeenWidth = 0
+        let suppressCommit = false
+        let canvases = [] // HTMLCanvasElement[]
+        let preRendering = false
+        let ignoreResize = false
+        let shrinkTimer = null
+
+        async function loadUrl(url, seq) {
+          try {
+            console.log('[pdf-viewer] loading url', url)
+            const task = pdfjsLib.getDocument({ url, httpHeaders: token ? { 'Authorization': `Bearer ${token}` } : undefined })
+            const doc = await task.promise
+            if (seq !== loadSeq) return // stale
+            pdfDoc = doc
+            console.log('[pdf-viewer] document loaded', { pages: pdfDoc.numPages })
+            pageViewports = new Array(pdfDoc.numPages)
+            await renderAll()
+          } catch (e) {
+            if (seq === loadSeq) {
+              console.error('PDF load error', e)
+              viewer.innerHTML = '<div style="color:#b91c1c">Failed to load PDF</div>'
+            }
+          }
+        }
+
+        async function renderAll() {
+          if (!pdfDoc || rendering) return
+          console.log('[pdf-viewer] renderAll start')
+          ignoreResize = true
+          rendering = true
+          const scaler = document.getElementById('scaler')
+          const sizer = document.getElementById('sizer')
+          if (!scaler || !sizer) { rendering = false; return }
+          // Minimize layout thrash: reuse canvases when possible instead of full clear
+          if (!canvases || canvases.length === 0) {
+            scaler.innerHTML = ''
+          } else {
+            // Keep existing canvases; we'll replace or append as needed
+            while (scaler.firstChild) scaler.removeChild(scaler.firstChild)
+          }
+          // Set a new base width (fit to current container)
+          baseWidth = Math.max(200, viewer.clientWidth - 16)
+          maxSeenWidth = Math.max(maxSeenWidth, baseWidth)
+          baseTotalHeight = 0
+          for (let i = 1; i <= pdfDoc.numPages; i++) {
+            const page = await pdfDoc.getPage(i)
+            const vp = page.getViewport({ scale: 1 })
+            let scaleForWidth = baseWidth / vp.width
+            if (currentScaleMode === 'page-fit') {
+              const fitH = (viewer.clientHeight - 16) / vp.height
+              scaleForWidth = Math.min(scaleForWidth, fitH)
+            }
+            const viewport = page.getViewport({ scale: scaleForWidth })
+            pageViewports[i-1] = viewport
+            const canvas = document.createElement('canvas')
+            const ctx = canvas.getContext('2d')
+            // Higher DPR for better quality in split view
+            const dpr = Math.min(4, window.devicePixelRatio * 1.5 || 1)
+            canvas.width = Math.floor(viewport.width * dpr)
+            canvas.height = Math.floor(viewport.height * dpr)
+            canvas.style.width = Math.floor(viewport.width) + 'px'
+            canvas.style.height = Math.floor(viewport.height) + 'px'
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+            scaler.appendChild(canvas)
+            await page.render({ canvasContext: ctx, viewport }).promise
+            baseTotalHeight += viewport.height + 8
+            canvases[i-1] = canvas
+          }
+          sizer.style.height = Math.ceil(baseTotalHeight) + 'px'
+          rendering = false
+          ignoreResize = false
+          console.log('[pdf-viewer] renderAll complete')
+        }
+
+        async function preRenderHighRes(targetBase) {
+          if (!pdfDoc || preRendering) return
+          if (targetBase <= baseWidth * 1.05) return
+          preRendering = true
+          try {
+            const scaler = document.getElementById('scaler')
+            const sizer = document.getElementById('sizer')
+            if (!scaler || !sizer) return
+            const tmp = document.createElement('div')
+            tmp.style.position = 'absolute'
+            tmp.style.top = '-99999px'
+            tmp.style.left = '-99999px'
+            document.body.appendChild(tmp)
+            let totalH = 0
+            const newCanvases = []
+            const newViewports = []
+            // Higher DPR for better quality in split view
+            const dpr = Math.min(4, window.devicePixelRatio * 1.5 || 1)
+            for (let i = 1; i <= pdfDoc.numPages; i++) {
+              const page = await pdfDoc.getPage(i)
+              const vp1 = page.getViewport({ scale: 1 })
+              let scaleForWidth = targetBase / vp1.width
+              if (currentScaleMode === 'page-fit') {
+                const fitH = (viewer.clientHeight - 16) / vp1.height
+                scaleForWidth = Math.min(scaleForWidth, fitH)
+              }
+              const viewport = page.getViewport({ scale: scaleForWidth })
+              newViewports[i-1] = viewport
+              const canvas = document.createElement('canvas')
+              const ctx = canvas.getContext('2d')
+              canvas.width = Math.floor(viewport.width * dpr)
+              canvas.height = Math.floor(viewport.height * dpr)
+              canvas.style.width = Math.floor(viewport.width) + 'px'
+              canvas.style.height = Math.floor(viewport.height) + 'px'
+              ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+              tmp.appendChild(canvas)
+              await page.render({ canvasContext: ctx, viewport }).promise
+              totalH += viewport.height + 8
+              newCanvases[i-1] = canvas
+            }
+            // Swap in
+            // Atomic swap without layout trashing existing DOM where possible
+            scaler.innerHTML = ''
+            newCanvases.forEach(c => scaler.appendChild(c))
+            canvases = newCanvases
+            pageViewports = newViewports
+            baseWidth = targetBase
+            baseTotalHeight = totalH
+            sizer.style.height = Math.ceil(baseTotalHeight) + 'px'
+            // Apply scale to current pane width
+            const w = Math.max(200, viewer.clientWidth - 16)
+            const scale = Math.min(1, w / Math.max(1, baseWidth))
+            scaler.style.transform = `scale(${scale})`
+          } catch (e) {
+            console.warn('preRenderHighRes failed', e)
+          } finally {
+            try { const tmp = document.body.querySelector('div[style*="-99999px"]'); if (tmp) document.body.removeChild(tmp) } catch {}
+            preRendering = false
+          }
+        }
+
+        // Debounced resize to fit width
+        let resizeTimer = null
+        function onResize() {
+          if (!pdfDoc) return
+          if (ignoreResize) return
+          const sizer = document.getElementById('sizer')
+          const scaler = document.getElementById('scaler')
+          if (!sizer || !scaler) return
+          const w = Math.max(200, viewer.clientWidth - 16)
+          // If expanded beyond baseWidth by > 8%, re-render immediately for crispness
+          if (!suppressCommit && w > baseWidth * 1.08) {
+            renderAll()
+            return
+          }
+          // If shrunk below baseWidth by > 4%, adjust base immediately to avoid tiny multi-page view
+          if (w < baseWidth * 0.96) {
+            if (suppressCommit) {
+              if (shrinkTimer) clearTimeout(shrinkTimer)
+              shrinkTimer = setTimeout(() => { renderAll() }, 60)
+            } else {
+              renderAll()
+            }
+            return
+          }
+          // Smooth CSS scale
+          let scale = w / Math.max(1, baseWidth)
+          if (currentScaleMode === 'page-fit') {
+            const h = Math.max(200, viewer.clientHeight - 16)
+            const fitH = h / Math.max(1, baseTotalHeight)
+            scale = Math.min(scale, fitH)
+          }
+          scaler.style.transform = `scale(${scale})`
+          sizer.style.height = Math.ceil(baseTotalHeight * scale) + 'px'
+          if (resizeTimer) cancelAnimationFrame(resizeTimer)
+          resizeTimer = requestAnimationFrame(() => {
+            if (suppressCommit) return
+            if (commitTimer) clearTimeout(commitTimer)
+            commitTimer = setTimeout(() => { renderAll() }, 300)
+          })
+        }
+        window.addEventListener('resize', onResize)
+        let commitTimer = null
+        // Observe viewer size for more reliable updates inside iframe
+        try {
+          const roViewer = new ResizeObserver(() => onResize())
+          roViewer.observe(viewer)
+        } catch {}
+
+        // Listen for parent scale messages
+      window.addEventListener('message', (e) => {
+        try {
+          const data = e.data || {}
+          if (data && data.type === 'setScale') {
+              const s = String(data.scale)
+              if (s === 'page-width' || s === 'page-fit') {
+                currentScaleMode = s
+                onResize()
+              }
+            } else if (data && data.type === 'loadFile' && data.url) {
+              // Revision guard: ignore stale revs
+              const incomingRev = typeof data.rev === 'number' ? data.rev : 0
+              if (incomingRev <= loadSeq) {
+                return
+              }
+              fileUrl = String(data.url)
+              loadSeq = incomingRev
+              const my = loadSeq
+            console.log('[pdf-viewer] loadFile', { url: fileUrl, rev: my })
+            loadUrl(fileUrl, my)
+            } else if (data && data.type === 'dragStart') {
+              suppressCommit = true
+              // Pre-render a larger base so we only downscale during this drag
+              const maxTarget = Math.min(Math.max(viewer.clientWidth * 2, 1200), 3000)
+              console.log('[pdf-viewer] dragStart')
+              preRenderHighRes(maxTarget)
+            } else if (data && data.type === 'dragEnd') {
+              console.log('[pdf-viewer] dragEnd')
+              suppressCommit = false
+              if (shrinkTimer) { clearTimeout(shrinkTimer); shrinkTimer = null }
+              if (commitTimer) { clearTimeout(commitTimer); commitTimer = null }
+              if (resizeTimer) { cancelAnimationFrame(resizeTimer); resizeTimer = null }
+              // Offscreen full re-render to avoid any visual jump after release
+              (async () => {
+                ignoreResize = true
+                const scaler = document.getElementById('scaler')
+                const sizer = document.getElementById('sizer')
+                if (!scaler || !sizer) { ignoreResize = false; return }
+                const w = Math.max(200, viewer.clientWidth - 16)
+                // Higher DPR for better quality in split view
+            const dpr = Math.min(4, window.devicePixelRatio * 1.5 || 1)
+                const tmp = document.createElement('div')
+                tmp.style.position = 'absolute'
+                tmp.style.top = '-99999px'
+                tmp.style.left = '-99999px'
+                document.body.appendChild(tmp)
+                let totalH = 0
+                const newCanvases = []
+                const newViewports = []
+                for (let i = 1; i <= pdfDoc.numPages; i++) {
+                  const page = await pdfDoc.getPage(i)
+                  const vp1 = page.getViewport({ scale: 1 })
+                  let scaleForWidth = w / vp1.width
+                  if (currentScaleMode === 'page-fit') {
+                    const fitH = (viewer.clientHeight - 16) / vp1.height
+                    scaleForWidth = Math.min(scaleForWidth, fitH)
+                  }
+                  const viewport = page.getViewport({ scale: scaleForWidth })
+                  newViewports[i-1] = viewport
+                  const canvas = document.createElement('canvas')
+                  const ctx = canvas.getContext('2d')
+                  canvas.width = Math.floor(viewport.width * dpr)
+                  canvas.height = Math.floor(viewport.height * dpr)
+                  canvas.style.width = Math.floor(viewport.width) + 'px'
+                  canvas.style.height = Math.floor(viewport.height) + 'px'
+                  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+                  tmp.appendChild(canvas)
+                  await page.render({ canvasContext: ctx, viewport }).promise
+                  totalH += viewport.height + 8
+                  newCanvases[i-1] = canvas
+                }
+                // Atomically swap
+                scaler.innerHTML = ''
+                newCanvases.forEach(c => scaler.appendChild(c))
+                canvases = newCanvases
+                pageViewports = newViewports
+                baseWidth = w
+                baseTotalHeight = totalH
+                sizer.style.height = Math.ceil(baseTotalHeight) + 'px'
+                scaler.style.transform = 'scale(1)'
+                try { document.body.removeChild(tmp) } catch {}
+                ignoreResize = false
+              })()
+          }
+        } catch {}
+      })
+
+      try {
+        window.parent?.postMessage({ type: 'viewer-ready' }, '*')
+        console.log('[pdf-viewer] viewer-ready sent')
+      } catch (err) {
+        console.warn('[pdf-viewer] viewer-ready failed', err)
+      }
+
+      // initial: wait for parent to send loadFile
+    })()
+    </script>
+  </body>
+  </html>

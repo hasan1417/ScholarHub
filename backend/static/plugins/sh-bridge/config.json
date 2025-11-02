@@ -1,0 +1,21 @@
+{
+  "name": "ScholarHub Bridge",
+  "guid": "asc.{B3D0CE7E-6A90-4D65-A9B0-1E2B7D88F0B5}",
+  "version": "1.0.0",
+  "variations": [
+    {
+      "description": "Background bridge for host <-> OnlyOffice messaging",
+      "url": "index.html?v=1",
+      "isViewer": false,
+      "EditorsSupport": ["word"],
+      "isVisual": false,
+      "isModal": false,
+      "isInsideMode": false,
+      "initDataType": "none",
+      "initData": "",
+      "isUpdateOleOnResize": false,
+      "isAutoStart": true
+    }
+  ]
+}
+

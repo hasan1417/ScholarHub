@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Hello World Plugin</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 10px;
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+    <h3>Hello World Plugin</h3>
+    <p>Click the button to insert "Hello World" into your document.</p>
+    
+    <!-- Load plugin SDK from official CDN to avoid versioned path issues -->
+    <script type="text/javascript" src="https://onlyoffice.github.io/sdkjs-plugins/v1/plugins.js"></script>
+    <script type="text/javascript">
+        (function(window, undefined) {
+            console.log('Hello World Plugin loaded');
+
+            function insertHello() {
+                try {
+                    // Prefer callCommand with API for reliability in Word editor
+                    window.Asc.plugin.callCommand(function() {
+                        var oDocument = Api.GetDocument();
+                        var oParagraph = Api.CreateParagraph();
+                        oParagraph.AddText('Hello World from ScholarHub OnlyOffice Plugin!');
+                        oDocument.InsertContent([oParagraph]);
+                    }, true);
+                    console.log('Hello World inserted via callCommand');
+                } catch (e) {
+                    console.log('callCommand failed, trying PasteText...', e);
+                    window.Asc.plugin.executeMethod('PasteText', ['Hello World from ScholarHub OnlyOffice Plugin!'], function() {
+                        console.log('Hello World inserted via PasteText');
+                    });
+                }
+                // Close plugin after action
+                window.Asc.plugin.executeCommand('close', '');
+            }
+
+            function waitAsc(cb){
+              if (window.Asc && window.Asc.plugin) return cb();
+              var tries=0; var t=setInterval(function(){ if (window.Asc && window.Asc.plugin){ clearInterval(t); cb(); } else if(++tries>50){ clearInterval(t);} }, 100);
+            }
+            waitAsc(function(){
+              window.Asc.plugin.init = function() {
+                  console.log('Hello World Plugin initialized');
+                  insertHello();
+              };
+
+              // Header button handler (still supported)
+              window.Asc.plugin.button = function(id) {
+                  console.log('Button clicked:', id);
+                  insertHello();
+              };
+            });
+
+        })(window, undefined);
+    </script>
+</body>
+</html>

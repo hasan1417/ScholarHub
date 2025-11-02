@@ -1,0 +1,10 @@
+{
+  "request": "POST /api/v1/projects/7ce05847-1dc3-4ebb-b930-0b093ee63f3e/sync-sessions/8e4d6f94-6065-445d-ab42-58d508072eca/token",
+  "response": {
+    "session_id": "8e4d6f94-6065-445d-ab42-58d508072eca",
+    "provider": "daily",
+    "room_name": "sync-7ce058-8e4d6f946065445dab4258d508072eca",
+    "join_url": "https://scholarhub.daily.co/sync-7ce058-8e4d6f946065445dab4258d508072eca?t=eyJhbGciOiJIUzI1NiIs...",
+    "expires_at": "2025-09-26T15:42:18.123456+00:00"
+  }
+}

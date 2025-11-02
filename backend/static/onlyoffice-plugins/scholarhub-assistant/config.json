@@ -1,0 +1,48 @@
+{
+  "name": "ScholarHub Assistant",
+  "nameLocale": {
+    "en": "ScholarHub Assistant",
+    "es": "Asistente ScholarHub",
+    "fr": "Assistant ScholarHub"
+  },
+  "guid": "asc.{8515F8A6-2B7B-4B31-A78B-9C4F17C6B357}",
+  "version": "1.0.0",
+  "variations": [
+    {
+      "description": "AI-powered research assistant for academic writing",
+      "descriptionLocale": {
+        "en": "AI-powered research assistant for academic writing",
+        "es": "Asistente de investigación con IA para escritura académica",
+        "fr": "Assistant de recherche IA pour l'écriture académique"
+      },
+      "url": "index.html",
+      "icons": [ "icon.png", "icon@2x.png" ],
+      "isViewer": false,
+      "EditorsSupport": [ "word" ],
+      "isVisual": true,
+      "isModal": true,
+      "isInsideMode": false,
+      "initDataType": "text",
+      "initData": "",
+      "isUpdateOleOnResize": false,
+      "buttons": [
+        {
+          "text": "AI Summarize",
+          "primary": true
+        },
+        {
+          "text": "AI Paraphrase", 
+          "primary": false
+        },
+        {
+          "text": "Generate Citations",
+          "primary": false
+        },
+        {
+          "text": "Cancel",
+          "primary": false
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,862 @@
+"""
+Paper Discovery Service - Refactored with Clean Architecture
+"""
+
+import asyncio
+import aiohttp
+import logging
+import os
+import time
+from typing import List, Dict, Any, Optional, Set
+from datetime import datetime
+from urllib.parse import urlencode, urljoin, urlparse, quote, parse_qs
+import json
+import io
+import xml.etree.ElementTree as ET
+import re
+
+from app.services.paper_discovery.config import DiscoveryConfig
+from app.services.paper_discovery.interfaces import (
+    PaperEnricher,
+    PaperRanker,
+    PaperSearcher,
+)
+from app.services.paper_discovery.models import DiscoveredPaper, PaperSource
+from app.services.paper_discovery.query import QueryEnhancer
+
+logger = logging.getLogger(__name__)
+
+
+# ============= Concrete Implementations =============
+
+from app.services.paper_discovery.searchers import (
+    ArxivSearcher,
+    CrossrefSearcher,
+    OpenAlexSearcher,
+    PubMedSearcher,
+    ScienceDirectSearcher,
+    SemanticScholarSearcher,
+)
+
+from app.services.paper_discovery.enrichers import (
+    CrossrefEnricher,
+    UnpaywallEnricher,
+)
+
+from app.services.paper_discovery.rankers import (
+    GptRanker,
+    LexicalRanker,
+    SimpleRanker,
+)
+
+class SearchOrchestrator:
+    """Orchestrates the paper discovery process"""
+    
+    def __init__(
+        self,
+        searchers: List[PaperSearcher],
+        enrichers: List[PaperEnricher],
+        ranker: PaperRanker,
+        config: DiscoveryConfig
+    ):
+        self.searchers = searchers
+        self.enrichers = enrichers
+        self.ranker = ranker
+        self.config = config
+    
+    async def discover_papers(
+        self,
+        query: str,
+        max_results: int = 20,
+        target_text: Optional[str] = None,
+        target_keywords: Optional[List[str]] = None,
+        sources: Optional[List[str]] = None,
+        *,
+        fast_mode: bool = False,
+    ) -> List[DiscoveredPaper]:
+        """Orchestrate paper discovery"""
+
+        logger.info(f"SearchOrchestrator.discover_papers called with query='{query}', sources={sources}")
+
+        active_searchers = self.searchers
+        if sources is not None and len(sources) > 0:
+            wanted = {s.lower() for s in sources}
+            logger.info(f"Filtering searchers: requested {wanted}, available {[s.get_source_name().lower() for s in self.searchers]}")
+            filtered = [searcher for searcher in self.searchers if searcher.get_source_name().lower() in wanted]
+            if filtered:
+                active_searchers = filtered
+                logger.info(f"Using {len(filtered)} filtered searchers: {[s.get_source_name() for s in filtered]}")
+            else:
+                logger.warning("No matching searchers for requested sources %s; using defaults", sources)
+        else:
+            logger.info(f"Using all {len(active_searchers)} searchers: {[s.get_source_name() for s in active_searchers]}")
+
+        if fast_mode:
+            priority_order = {
+                'semantic_scholar': 0,
+                'openalex': 1,
+                'arxiv': 2,
+                'crossref': 3,
+                'pubmed': 4,
+                'sciencedirect': 5,
+            }
+            active_searchers = sorted(
+                active_searchers,
+                key=lambda s: priority_order.get(s.get_source_name(), len(priority_order))
+            )
+            if max_results <= 5 and len(active_searchers) > 3:
+                active_searchers = active_searchers[:3]
+
+        # Phase 1: Concurrent search
+        sem = asyncio.Semaphore(self.config.max_concurrent_searches)
+
+        async def limited_search(searcher: PaperSearcher):
+            async with sem:
+                timeout = self.config.search_timeout
+                if fast_mode:
+                    if max_results <= 5:
+                        timeout = min(timeout, 12.0)
+                    else:
+                        timeout = min(timeout, 18.0)
+                try:
+                    return await asyncio.wait_for(
+                        searcher.search(query, max_results),
+                        timeout=timeout
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(f"{searcher.get_source_name()} timed out")
+                    return []
+                except Exception as e:  # pragma: no cover - network variability
+                    logger.error(f"{searcher.get_source_name()} failed: {e}")
+                    return []
+
+        tasks = [asyncio.create_task(limited_search(s)) for s in active_searchers]
+
+        # Flatten and deduplicate progressively so we can early-exit in fast mode
+        all_papers: List[DiscoveredPaper] = []
+        seen_keys: Set[str] = set()
+        stop_threshold = max(max_results * 3, max_results + 2 if max_results < 5 else max_results)
+
+        try:
+            for fut in asyncio.as_completed(tasks):
+                try:
+                    result = await fut
+                except asyncio.CancelledError:
+                    continue
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.error("Discovery task failed: %s", exc)
+                    result = []
+
+                if isinstance(result, list):
+                    for paper in result:
+                        key = paper.get_unique_key()
+                        if key not in seen_keys:
+                            seen_keys.add(key)
+                            all_papers.append(paper)
+                if fast_mode and len(all_papers) >= stop_threshold:
+                    for task in tasks:
+                        if not task.done():
+                            task.cancel()
+                    break
+        finally:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Phase 2: Enrichment
+        enrichment_tasks = [
+            enricher.enrich(all_papers) for enricher in self.enrichers
+        ]
+        await asyncio.gather(*enrichment_tasks, return_exceptions=True)
+        
+        # Phase 3: Ranking
+        ranked_papers = await self.ranker.rank(
+            all_papers,
+            query,
+            target_text=target_text,
+            target_keywords=target_keywords
+        )
+        
+        return ranked_papers[:max_results]
+
+
+# ============= Main Service Factory =============
+class PaperDiscoveryServiceFactory:
+    """Factory for creating the discovery service"""
+    
+    @staticmethod
+    async def create(
+        config: Optional[DiscoveryConfig] = None,
+        openai_api_key: Optional[str] = None,
+        semantic_scholar_api_key: Optional[str] = None,
+        unpaywall_email: Optional[str] = None,
+        ncbi_email: Optional[str] = None,
+    ) -> 'PaperDiscoveryService':
+        """Create a configured discovery service"""
+        
+        if config is None:
+            config = DiscoveryConfig()
+        
+        if config.ncbi_email is None and ncbi_email is not None:
+            config.ncbi_email = ncbi_email
+
+        # Create HTTP session
+        timeout = aiohttp.ClientTimeout(total=30, connect=5)
+        connector = aiohttp.TCPConnector(limit=10, limit_per_host=3)
+        session = aiohttp.ClientSession(timeout=timeout, connector=connector)
+        
+        # Create searchers
+        resolved_ncbi_email = (
+            config.ncbi_email
+            or ncbi_email
+            or os.getenv('NCBI_EMAIL')
+            or unpaywall_email
+            or os.getenv('UNPAYWALL_EMAIL')
+        )
+        sciencedirect_api_key = (
+            config.sciencedirect_api_key
+            or os.getenv('SCIENCEDIRECT_API_KEY')
+        )
+        if config.sciencedirect_api_key is None and sciencedirect_api_key is not None:
+            config.sciencedirect_api_key = sciencedirect_api_key
+
+        searchers = [
+            ArxivSearcher(session, config),
+            SemanticScholarSearcher(session, config, semantic_scholar_api_key),
+            CrossrefSearcher(session, config),
+            PubMedSearcher(session, config, email=resolved_ncbi_email),
+            ScienceDirectSearcher(session, config, api_key=sciencedirect_api_key),
+            OpenAlexSearcher(session, config),
+        ]
+        
+        # Purged advanced ranking flags: no-op
+
+        # Create enrichers
+        enrichers: List[PaperEnricher] = [
+            CrossrefEnricher(session, config),
+        ]
+        if unpaywall_email:
+            enrichers.append(UnpaywallEnricher(session, config, unpaywall_email))
+        
+        # Create ranker: GPT-based when OPENAI_API_KEY is set, else SimpleRanker
+        service_ranker: PaperRanker
+        if os.getenv("OPENAI_API_KEY"):
+            service_ranker = GptRanker(config)
+        else:
+            service_ranker = SimpleRanker(config)
+        
+        # Create orchestrator
+        orchestrator = SearchOrchestrator(searchers, enrichers, service_ranker, config)
+        
+        # Create query enhancer
+        openai_client = None
+        if openai_api_key:
+            from openai import OpenAI
+            openai_client = OpenAI(api_key=openai_api_key)
+        query_enhancer = QueryEnhancer(openai_client)
+        
+        return PaperDiscoveryService(
+            orchestrator=orchestrator,
+            query_enhancer=query_enhancer,
+            session=session,
+            config=config,
+            ncbi_email=resolved_ncbi_email,
+            unpaywall_email=unpaywall_email,
+            owns_session=True
+        )
+
+
+class PaperDiscoveryService:
+    """Main paper discovery service with clean architecture"""
+    
+    def __init__(
+        self,
+        orchestrator: Optional[SearchOrchestrator] = None,
+        query_enhancer: Optional[QueryEnhancer] = None,
+        session: Optional[aiohttp.ClientSession] = None,
+        config: Optional[DiscoveryConfig] = None,
+        *,
+        openai_api_key: Optional[str] = None,
+        semantic_scholar_api_key: Optional[str] = None,
+        unpaywall_email: Optional[str] = None,
+        ncbi_email: Optional[str] = None,
+        owns_session: Optional[bool] = None,
+    ):
+        """Initialize discovery service.
+
+        Legacy call sites still instantiate the service without arguments. To maintain
+        backwards compatibility we lazily construct the orchestrator, session, and
+        enhancer when they are not provided. Newer code paths may still supply
+        pre-built components (e.g., via the factory) without penalty.
+        """
+
+        self.config = config or DiscoveryConfig()
+        self.unpaywall_email = unpaywall_email or os.getenv('UNPAYWALL_EMAIL')
+        self._unpaywall_cache: Dict[str, Optional[str]] = {}
+
+        # HTTP session management
+        self._owns_session = owns_session if owns_session is not None else session is None
+        if session is None:
+            timeout = aiohttp.ClientTimeout(total=30, connect=5)
+            connector = aiohttp.TCPConnector(limit=10, limit_per_host=3)
+            session = aiohttp.ClientSession(timeout=timeout, connector=connector)
+            self._owns_session = True
+        self.session = session
+
+        # Query enhancement (optional OpenAI support)
+        if query_enhancer is None:
+            if openai_api_key is None:
+                openai_api_key = os.getenv("OPENAI_API_KEY")
+            openai_client = None
+            if openai_api_key:
+                try:
+                    from openai import OpenAI
+
+                    openai_client = OpenAI(api_key=openai_api_key)
+                except Exception as exc:  # pragma: no cover - network/client import errors
+                    logger.warning("Failed to initialize OpenAI client: %s", exc)
+            query_enhancer = QueryEnhancer(openai_client)
+        self.query_enhancer = query_enhancer
+
+        resolved_ncbi_email = (
+            ncbi_email
+            or self.config.ncbi_email
+            or os.getenv('NCBI_EMAIL')
+            or unpaywall_email
+            or os.getenv('UNPAYWALL_EMAIL')
+        )
+        if self.config.ncbi_email is None and resolved_ncbi_email is not None:
+            self.config.ncbi_email = resolved_ncbi_email
+
+        sciencedirect_api_key = (
+            self.config.sciencedirect_api_key
+            or os.getenv('SCIENCEDIRECT_API_KEY')
+        )
+        if self.config.sciencedirect_api_key is None and sciencedirect_api_key is not None:
+            self.config.sciencedirect_api_key = sciencedirect_api_key
+
+        # Orchestrator with default searchers/enrichers/ranker
+        if orchestrator is None:
+            searchers: List[PaperSearcher] = [
+                ArxivSearcher(self.session, self.config),
+                SemanticScholarSearcher(
+                    self.session,
+                    self.config,
+                    api_key=semantic_scholar_api_key or os.getenv("SEMANTIC_SCHOLAR_API_KEY"),
+                ),
+                # Ensure Crossref is available when filtering to sources=['crossref']
+                CrossrefSearcher(self.session, self.config),
+                PubMedSearcher(self.session, self.config, email=resolved_ncbi_email),
+                ScienceDirectSearcher(self.session, self.config, api_key=sciencedirect_api_key),
+                OpenAlexSearcher(self.session, self.config),
+            ]
+
+            enrichers: List[PaperEnricher] = [
+                CrossrefEnricher(self.session, self.config),
+            ]
+            email = unpaywall_email or os.getenv("UNPAYWALL_EMAIL")
+            if email:
+                enrichers.append(UnpaywallEnricher(self.session, self.config, email))
+
+            # Create ranker per env
+            ranker_for_env: PaperRanker
+            if os.getenv("OPENAI_API_KEY"):
+                ranker_for_env = GptRanker(self.config)
+            else:
+                ranker_for_env = SimpleRanker(self.config)
+            orchestrator = SearchOrchestrator(searchers, enrichers, ranker_for_env, self.config)
+        self.orchestrator = orchestrator
+
+        self._metrics: Dict[str, Any] = {}
+    
+    async def discover_papers(
+        self,
+        query: str,
+        research_topic: Optional[str] = None,
+        max_results: int = 20,
+        target_text: Optional[str] = None,
+        target_keywords: Optional[List[str]] = None,
+        sources: Optional[List[str]] = None,
+        debug: bool = False,
+        fast_mode: bool = False,
+    ) -> List[DiscoveredPaper]:
+        """Main discovery method with clean orchestration"""
+
+        start_time = time.time()
+        timings = {}
+
+        logger.info(f"PaperDiscoveryService.discover_papers called with query='{query}', research_topic='{research_topic}', sources={sources}")
+
+        try:
+            # Enhance query
+            phase_start = time.time()
+            enhanced_queries = await self.query_enhancer.enhance_query(
+                query, research_topic
+            )
+            timings['query_enhancement'] = time.time() - phase_start
+
+            # Use best enhanced query
+            best_query = enhanced_queries[0] if enhanced_queries else query
+            logger.info(f"Enhanced queries: {enhanced_queries}, using best: '{best_query}'")
+            
+            # Run discovery
+            phase_start = time.time()
+            papers = await self.orchestrator.discover_papers(
+                best_query,
+                max_results,
+                target_text=target_text,
+                target_keywords=target_keywords,
+                sources=sources,
+                fast_mode=fast_mode,
+            )
+            await self._augment_pdf_links(papers, fast_mode=fast_mode)
+            for paper in papers:
+                if getattr(paper, 'pdf_url', None):
+                    paper.is_open_access = True
+                else:
+                    paper.is_open_access = False
+            timings['discovery'] = time.time() - phase_start
+            
+            timings['total'] = time.time() - start_time
+            
+            # Store metrics
+            self._metrics = {
+                'timings': timings,
+                'papers_found': len(papers),
+                'timestamp': datetime.utcnow().isoformat()
+            }
+            
+            if debug:
+                logger.info(f"Discovery metrics: {self._metrics}")
+            
+            return papers
+            
+        except Exception as e:
+            logger.error(f"Discovery failed: {e}")
+            return []
+    
+    async def close(self):
+        """Clean up resources"""
+        if self._owns_session and not self.session.closed:
+            await self.session.close()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()
+
+    async def _augment_pdf_links(self, papers: List[DiscoveredPaper], *, fast_mode: bool = False) -> None:
+        """Best-effort augmentation to ensure open-access papers expose direct PDF URLs."""
+        if not papers:
+            return
+
+        sem = asyncio.Semaphore(self.config.max_concurrent_pdf_checks)
+
+        if fast_mode:
+            fast_verify_tasks = [
+                self._verify_existing_pdf_link(paper, sem)
+                for paper in papers
+                if paper.source == PaperSource.OPENALEX.value and paper.pdf_url
+            ]
+            if fast_verify_tasks:
+                await asyncio.gather(*fast_verify_tasks, return_exceptions=True)
+            return
+
+        verify_tasks = [
+            self._verify_existing_pdf_link(paper, sem)
+            for paper in papers
+            if paper.pdf_url
+        ]
+        if verify_tasks:
+            await asyncio.gather(*verify_tasks, return_exceptions=True)
+
+        tasks = []
+        for paper in papers:
+            if paper.pdf_url:
+                continue
+            candidates = self._candidate_pdf_urls(paper)
+            if not candidates:
+                continue
+            tasks.append(self._resolve_pdf_for_paper(paper, candidates, sem))
+
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _verify_existing_pdf_link(
+        self,
+        paper: DiscoveredPaper,
+        sem: asyncio.Semaphore,
+    ) -> None:
+        original = getattr(paper, 'pdf_url', None)
+        if not original:
+            return
+
+        resolved = await self._check_pdf_candidate(original, sem)
+        if resolved:
+            paper.pdf_url = resolved
+            if not getattr(paper, 'open_access_url', None):
+                paper.open_access_url = resolved
+            paper.is_open_access = True
+            return
+
+        if getattr(paper, 'pdf_url', None) == original:
+            paper.pdf_url = None
+        if paper.source == PaperSource.OPENALEX.value:
+            try:
+                if paper.open_access_url and paper.open_access_url == original:
+                    paper.open_access_url = None
+                elif paper.open_access_url and paper.open_access_url.lower().endswith('.pdf'):
+                    paper.open_access_url = None
+            except Exception:
+                paper.open_access_url = None
+        paper.is_open_access = False
+
+    def _candidate_pdf_urls(self, paper: DiscoveredPaper) -> List[str]:
+        candidates: List[str] = []
+
+        def add(url: Optional[str]) -> None:
+            if url and url not in candidates:
+                candidates.append(url)
+
+        host = ''
+        if paper.url:
+            try:
+                host = urlparse(paper.url).netloc.lower()
+            except Exception:
+                host = ''
+
+        allow_hosts = {
+            'arxiv.org',
+            'www.arxiv.org',
+            'biorxiv.org',
+            'www.biorxiv.org',
+            'medrxiv.org',
+            'www.medrxiv.org',
+            'ncbi.nlm.nih.gov',
+            'pubmed.ncbi.nlm.nih.gov',
+            'openaccess.thecvf.com',
+            'proceedings.mlr.press',
+            'cran.r-project.org',
+            'papers.ssrn.com',
+            'hdl.handle.net',
+            'boa.unimib.it',
+            'dl.acm.org',
+            'semanticscholar.org',
+            'www.semanticscholar.org',
+        }
+
+        if not paper.is_open_access and not paper.open_access_url and host not in allow_hosts:
+            return candidates
+
+        add(paper.open_access_url)
+        if paper.url and (host in allow_hosts):
+            add(paper.url)
+
+        if host == 'papers.ssrn.com' and paper.url:
+            parsed = urlparse(paper.url)
+            params = parse_qs(parsed.query.lower())
+            abstract_id = (
+                params.get('abstract_id')
+                or params.get('abstractid')
+                or params.get('abstractid[]')
+            )
+            if abstract_id:
+                aid = abstract_id[0]
+                delivery = f"https://papers.ssrn.com/sol3/Delivery.cfm?abstractid={aid}&type=2"
+                add(delivery)
+
+        if host == 'ieeexplore.ieee.org' and paper.url:
+            try:
+                path = urlparse(paper.url).path
+                match = re.search(r'/document/(\d+)', path)
+                if match:
+                    arnumber = match.group(1)
+                    stamp_url = f"https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber={arnumber}"
+                    add(stamp_url)
+            except Exception:
+                pass
+
+        if host.endswith('dl.acm.org') and paper.url:
+            try:
+                if '/doi/' in paper.url:
+                    add(paper.url.replace('/doi/', '/doi/pdf/'))
+            except Exception:
+                pass
+
+        if host.endswith('semanticscholar.org') and paper.url:
+            try:
+                if '/paper/' in paper.url and '/pdf' not in paper.url:
+                    add(paper.url.rstrip('/') + '/pdf')
+            except Exception:
+                pass
+
+        if paper.doi:
+            host = ''
+            if paper.url:
+                host = urlparse(paper.url).netloc.lower()
+            if 'arxiv.org' in host or 'doi.org' in (urlparse(additional).netloc if (additional := paper.open_access_url) else ''):
+                add(f"https://doi.org/{paper.doi}")
+
+        # Special-case heuristics per source
+        if paper.source == PaperSource.ARXIV.value and paper.url:
+            try:
+                alt = paper.url.replace('/abs/', '/pdf/')
+                if not alt.endswith('.pdf'):
+                    alt = f"{alt}.pdf"
+                add(alt)
+            except Exception:
+                pass
+
+        return candidates
+
+    async def _resolve_pdf_for_paper(
+        self,
+        paper: DiscoveredPaper,
+        candidates: List[str],
+        sem: asyncio.Semaphore,
+    ) -> None:
+        if paper.pdf_url:
+            return
+
+        if paper.doi and self.unpaywall_email:
+            pdf_from_unpaywall = await self._fetch_unpaywall_pdf(paper.doi, sem)
+            if pdf_from_unpaywall:
+                paper.pdf_url = pdf_from_unpaywall
+                if not paper.open_access_url:
+                    paper.open_access_url = pdf_from_unpaywall
+                return
+
+        for candidate in candidates:
+            pdf_url = await self._check_pdf_candidate(candidate, sem)
+            if pdf_url:
+                paper.pdf_url = pdf_url
+                if not paper.open_access_url:
+                    paper.open_access_url = pdf_url
+                paper.is_open_access = True
+                return
+            try:
+                parsed = urlparse(candidate)
+                host = (parsed.netloc or '').lower()
+                path = (parsed.path or '').lower()
+            except Exception:
+                host = ''
+                path = ''
+            if host.endswith('dl.acm.org') and '/doi/pdf/' in path:
+                paper.pdf_url = candidate
+                if not paper.open_access_url:
+                    paper.open_access_url = candidate
+                paper.is_open_access = True
+                return
+            if host.endswith('semanticscholar.org') and path.endswith('/pdf'):
+                paper.pdf_url = candidate
+                if not paper.open_access_url:
+                    paper.open_access_url = candidate
+                paper.is_open_access = True
+                return
+
+        # As a final fallback, scrape the landing/open-access page for embedded PDF links.
+        for landing in filter(None, [paper.open_access_url, paper.url]):
+            pdf_url = await self._scrape_pdf_from_page(landing, sem)
+            if pdf_url:
+                paper.pdf_url = pdf_url
+                if not paper.open_access_url:
+                    paper.open_access_url = pdf_url
+                paper.is_open_access = True
+                return
+
+    async def _check_pdf_candidate(
+        self,
+        url: str,
+        sem: asyncio.Semaphore,
+        depth: int = 0,
+    ) -> Optional[str]:
+        if depth > 2:
+            return None
+
+        timeout = aiohttp.ClientTimeout(total=self.config.pdf_check_timeout)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36'
+        }
+
+        parsed_url = urlparse(url)
+        host = (parsed_url.netloc or '').lower()
+        path = (parsed_url.path or '').lower()
+        is_nature_pdf = host.endswith('nature.com') and path.endswith('.pdf')
+
+        try:
+            async with sem:
+                async with self.session.head(url, allow_redirects=True, timeout=timeout, headers=headers) as resp:
+                    if resp.status < 400:
+                        content_type = (resp.headers.get('content-type') or '').lower()
+                        if 'pdf' in content_type:
+                            return str(resp.url)
+        except Exception:
+            pass
+
+        try:
+            async with sem:
+                range_headers = {
+                    **headers,
+                    'Range': 'bytes=0-2048',
+                    'Accept': 'application/pdf,application/octet-stream,text/html;q=0.9,*/*;q=0.8',
+                }
+                async with self.session.get(url, allow_redirects=True, timeout=timeout, headers=range_headers) as resp:
+                    if resp.status >= 400:
+                        return None
+                    content_type = (resp.headers.get('content-type') or '').lower()
+                    disposition = (resp.headers.get('content-disposition') or '').lower()
+                    if 'pdf' in disposition:
+                        return str(resp.url)
+                    if 'pdf' in content_type:
+                        return str(resp.url)
+
+                    if 'html' in content_type:
+                        if is_nature_pdf:
+                            return None
+                        snippet_bytes = await resp.content.read(120000)
+                        snippet = snippet_bytes.decode('utf-8', errors='ignore')
+                        if snippet.lstrip().startswith('%PDF'):
+                            return str(resp.url)
+                        for link in self._extract_pdf_links(snippet, str(resp.url)):
+                            resolved = await self._check_pdf_candidate(link, sem, depth + 1)
+                            if resolved:
+                                return resolved
+                    else:
+                        # Unknown content type; check magic number for PDF
+                        snippet_bytes = await resp.content.read(8)
+                        if snippet_bytes.startswith(b'%PDF'):
+                            return str(resp.url)
+        except Exception:
+            pass
+
+        return None
+
+    async def _scrape_pdf_from_page(
+        self,
+        url: str,
+        sem: asyncio.Semaphore,
+    ) -> Optional[str]:
+        """Fetch the HTML for a landing page and extract the first PDF link."""
+        timeout = aiohttp.ClientTimeout(total=max(self.config.pdf_check_timeout * 2, 10))
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        }
+
+        try:
+            async with sem:
+                async with self.session.get(url, allow_redirects=True, timeout=timeout, headers=headers) as resp:
+                    if resp.status >= 400:
+                        return None
+                    html = await resp.text()
+                    links = self._extract_pdf_links(html, str(resp.url))
+        except Exception:
+            return None
+
+        for link in links[:6]:
+            try:
+                verified = await self._check_pdf_candidate(link, sem, depth=1)
+            except Exception:
+                verified = None
+            if verified:
+                return verified
+            # If verification fails but link looks like a PDF, return it optimistically.
+            lower = link.lower()
+            if lower.endswith('.pdf'):
+                try:
+                    host = urlparse(link).netloc.lower()
+                except Exception:
+                    host = ''
+                if host.endswith('nature.com'):
+                    continue
+                return link
+
+        return None
+
+    def _extract_pdf_links(self, html: str, base_url: str) -> List[str]:
+        matches = re.findall(r'href=["\']([^"\']+\.pdf(?:\?[^"\']*)?)', html, flags=re.IGNORECASE)
+        meta_matches = re.findall(r'content=["\']([^"\']+\.pdf(?:\?[^"\']*)?)["\']', html, flags=re.IGNORECASE)
+        citation_meta = re.findall(r'name=["\']citation_pdf_url["\']\s+content=["\']([^"\']+)["\']', html, flags=re.IGNORECASE)
+        links = matches + meta_matches + citation_meta
+        resolved: List[str] = []
+        for link in links:
+            candidate = urljoin(base_url, link)
+            if candidate not in resolved:
+                resolved.append(candidate)
+        return resolved
+
+    async def _fetch_unpaywall_pdf(
+        self,
+        doi: str,
+        sem: Optional[asyncio.Semaphore] = None,
+    ) -> Optional[str]:
+        if not self.unpaywall_email:
+            return None
+
+        key = doi.strip().lower()
+        if not key:
+            return None
+
+        if key in self._unpaywall_cache:
+            return self._unpaywall_cache[key]
+
+        params = {'email': self.unpaywall_email}
+        url = f"https://api.unpaywall.org/v2/{quote(key)}"
+        timeout = aiohttp.ClientTimeout(total=max(5.0, self.config.pdf_check_timeout * 2))
+
+        try:
+            async with self.session.get(url, params=params, timeout=timeout) as resp:
+                if resp.status != 200:
+                    self._unpaywall_cache[key] = None
+                    return None
+                data = await resp.json()
+        except Exception:
+            self._unpaywall_cache[key] = None
+            return None
+
+        best = data.get('best_oa_location') or {}
+        candidate = best.get('url_for_pdf') or best.get('url')
+        if not candidate:
+            self._unpaywall_cache[key] = None
+            return None
+
+        candidate = candidate.strip()
+        if candidate.lower().endswith('.pdf'):
+            try:
+                host = urlparse(candidate).netloc.lower()
+            except Exception:
+                host = ''
+            if not host.endswith('nature.com'):
+                self._unpaywall_cache[key] = candidate
+                return candidate
+
+        if sem is None:
+            sem = asyncio.Semaphore(self.config.max_concurrent_pdf_checks)
+        resolved = await self._check_pdf_candidate(candidate, sem)
+        self._unpaywall_cache[key] = resolved
+        return resolved
+
+
+# ============= Usage Example =============
+async def example_usage():
+    """Example of how to use the refactored service"""
+    
+    # Create service using factory
+    service = await PaperDiscoveryServiceFactory.create(
+        config=DiscoveryConfig(
+            max_concurrent_searches=3,
+            search_timeout=10.0
+        ),
+        openai_api_key="your-api-key",
+        semantic_scholar_api_key="your-api-key",
+        unpaywall_email="your-email@example.com"
+    )
+    
+    async with service:
+        papers = await service.discover_papers(
+            query="machine learning optimization",
+            max_results=20,
+            debug=True
+        )
+        
+        for paper in papers[:5]:
+            print(f"{paper.title} (Score: {paper.relevance_score:.2f})")

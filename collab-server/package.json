@@ -1,0 +1,20 @@
+{
+  "name": "scholarhub-collab-server",
+  "version": "0.1.0",
+  "description": "Local Hocuspocus server for collaborative LaTeX editing",
+  "type": "module",
+  "main": "index.mjs",
+  "license": "MIT",
+  "scripts": {
+    "start": "node index.mjs",
+    "dev": "node --watch index.mjs"
+  },
+  "dependencies": {
+    "@hocuspocus/extension-logger": "^3.2.5",
+    "@hocuspocus/extension-redis": "^3.2.5",
+    "@hocuspocus/server": "^3.2.5",
+    "jsonwebtoken": "^9.0.2",
+    "pino": "^9.3.0",
+    "yjs": "^13.6.27"
+  }
+}

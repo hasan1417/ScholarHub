@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>ScholarHub References (New)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://onlyoffice.github.io/sdkjs-plugins/v1/plugins.js"></script>
+  <script id="csl-lib" data-loaded="false"></script>
+  <style>
+    /* Force black text for style select and options (native selects vary by OS) */
+    #style { color: #111827 !important; -webkit-text-fill-color: #111827; }
+    #style option, #style optgroup { color: #111827 !important; background-color: #ffffff !important; }
+  </style>
+  <script>
+    // State & storage
+    function getStore(){ try { return JSON.parse(localStorage.getItem('sh_refs_new')||'{}') } catch { return {} } }
+    function setStore(k,v){ const s=getStore(); s[k]=v; localStorage.setItem('sh_refs_new', JSON.stringify(s)) }
+    let AUTO_LOADED=false; let PAPER_ID=''; let REFS=[];
+
+    // Utilities
+    const $ = (id) => document.getElementById(id)
+    async function fetchJSON(url, opts){ const r = await fetch(url, opts); if(!r.ok) throw new Error('HTTP '+r.status); return r.json() }
+
+    // Number map for numeric style
+    function numKey(){ const pid=getPaperId(); return pid?('sh_nummap_new_'+pid):'sh_nummap_new_global' }
+    function getNumMap(){ try{ return JSON.parse(localStorage.getItem(numKey())||'{}') }catch{return {}} }
+    function setNumMap(m){ try{ localStorage.setItem(numKey(), JSON.stringify(m)) }catch{} }
+
+    // Style helpers
+    function currentStyle(){ const el=$('style'); return el?el.value:'apa' }
+
+    // Paper ID detection
+    function getPaperId(){ return PAPER_ID || getStore().paperId || '' }
+    function setPaperId(pid){ if(!pid) return; PAPER_ID=pid; setStore('paperId', pid); maybeAutoLoad() }
+    function maybeAutoLoad(){ if(!AUTO_LOADED){ const pid=getPaperId(); if(pid){ AUTO_LOADED=true; loadRefs(pid) } } }
+    function tryDetect(name){
+      if(!name || PAPER_ID) return false;
+      const uuid = String(name).match(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}/);
+      if(uuid){ setPaperId(uuid[0]); return true }
+      const m = String(name).match(/paper\s*([0-9a-zA-Z\-_:]+)/i);
+      if(m && m[1]){ setPaperId(m[1]); return true }
+      return false;
+    }
+    function tryTitle(){ try { return tryDetect(window.top && window.top.document && window.top.document.title) } catch { return false } }
+    function tryUrlKey(){ try { const href = String(window.top && window.top.location && window.top.location.href || ''); const km = href.match(/key=([^&]+)/); if(!km) return false; const key = decodeURIComponent(km[1]); const m = key.match(/paper-([0-9a-zA-Z\-_:]+)/); if(m && m[1]) return tryDetect('Paper '+m[1]); } catch{} return false }
+
+    // Data loading
+    async function loadRefs(pid){
+      const paperId = pid || getPaperId(); if(!paperId) return;
+      setStore('paperId', paperId); PAPER_ID = paperId;
+      const url = `http://localhost:8000/onlyoffice/references?paperId=${encodeURIComponent(paperId)}`
+      try {
+        const data = await fetchJSON(url, {})
+        REFS = data.references || []
+        renderRefs(REFS)
+      } catch(e){ alert('Failed to fetch references: '+(e&&e.message?e.message:'unknown error')) }
+    }
+
+    // Rendering
+    function renderRefs(refs){
+      const box = $('refs'); box.innerHTML=''
+      refs.forEach((r, idx) => {
+        const row = document.createElement('div'); row.className='ref-row flex items-start gap-3 px-3 py-2 border-b last:border-b-0 bg-white hover:bg-slate-50 cursor-pointer'; row.tabIndex=0
+        row.dataset.id=r.id||''; row.dataset.year=r.year||''; row.dataset.authors=(r.authors||[]).join(', ')
+        const checkWrap = document.createElement('div'); checkWrap.className='pt-1'
+        const check = document.createElement('input'); check.type='checkbox'; check.className='sel w-4 h-4'; check.dataset.id=r.id||''; checkWrap.appendChild(check)
+        const body = document.createElement('div'); body.className='flex-1 min-w-0'
+        const title = document.createElement('div'); title.className='text-sm font-medium text-gray-900 break-words'; title.textContent=r.title||'Untitled'
+        const meta = document.createElement('div'); meta.className='text-xs text-gray-600'; meta.textContent=(r.authors||[]).join(', ')+(r.year?(' • '+r.year):'')
+        body.appendChild(title); body.appendChild(meta)
+        row.appendChild(checkWrap); row.appendChild(body)
+        row.addEventListener('click', (ev)=>{ const t=String((ev.target&&ev.target.tagName)||'').toLowerCase(); if(t==='input') return; selectRef(row) })
+        box.appendChild(row)
+      })
+    }
+
+    function selectRef(row){
+      document.querySelectorAll('.ref-row').forEach(n=>n.classList.remove('ring','ring-blue-200','bg-blue-50'))
+      row.classList.add('ring','ring-blue-200','bg-blue-50')
+      const sel=$('selectedText')
+      sel.textContent = `${row.dataset.authors||''} ${row.dataset.year?('('+row.dataset.year+')'):''}`.trim()
+      sel.dataset.refId = row.dataset.id || ''
+      sel.dataset.citation = `(${(row.dataset.authors||'').split(',')[0]||'Author'}${row.dataset.year?(', '+row.dataset.year):''})`
+    }
+
+    // Insert actions
+    function insertCitation(){
+      const sel=$('selectedText');
+      let text = sel.dataset.citation || sel.textContent || ''
+      const refId = sel.dataset.refId || ''
+      if(currentStyle()==='numeric'){
+        const map=getNumMap(); let n=map[refId]; if(!n){ const nums=Object.values(map).map(v=>Number(v)||0); const next=nums.length?(Math.max.apply(null,nums)+1):1; map[refId]=next; setNumMap(map); n=next } text=`[${n}]`
+      }
+      if(!text){ alert('Select a reference'); return }
+      try { window.Asc.plugin.executeMethod('PasteText', [text]); } catch(e) {
+        try{ window.Asc.scope = window.Asc.scope || {} }catch(_){ window.Asc=window.Asc||{}; window.Asc.scope={} }
+        window.Asc.scope.TEXT=text;
+        window.Asc.plugin.callCommand(function(){ var doc=Api.GetDocument(); var p=Api.CreateParagraph(); p.AddText(Asc.scope.TEXT); doc.InsertContent([p]); }, true);
+      }
+    }
+
+    async function insertBibliography(){
+      const checks = Array.from(document.querySelectorAll('.sel')).filter(ch=>ch.checked)
+      const chosen = checks.length ? REFS.filter(r => checks.some(ch => ch.dataset.id===(r.id||''))) : REFS
+      if(!chosen.length){ alert('No references selected or loaded'); return }
+      const style=currentStyle(); let lines=[]
+      if(style!=='numeric'){
+        try{
+          const tag=$('csl-lib'); if(tag && tag.getAttribute('data-loaded')!=='true'){
+            await new Promise((res,rej)=>{ tag.onload=()=>{ tag.setAttribute('data-loaded','true'); res(null) }; tag.onerror=()=>rej(new Error('csl load failed')); tag.src='https://unpkg.com/citation-js@0.7.17/build/citation.min.js'; document.head.appendChild(tag) })
+          }
+          const Cite=window.Cite; if(Cite){
+            const cslItems = chosen.map(r=>({ id:r.id||r.title||Math.random().toString(36).slice(2), type:r.journal?'article-journal':'article', title:r.title||'', author:(r.authors||[]).map(a=>{ const parts=String(a).trim().split(/\s+/); const family=parts.pop()||''; const given=parts.join(' '); return { given, family } }), issued:r.year?{'date-parts':[[Number(r.year)]]}:undefined, DOI:r.doi||undefined, URL:r.url||undefined, 'container-title': r.journal||undefined }))
+            const cite = new Cite(cslItems)
+            const tmpl = style==='mla' ? 'modern-language-association' : (style==='chicago' ? 'chicago-author-date' : 'apa')
+            const formatted=cite.format('bibliography',{ format:'text', template:tmpl })
+            lines=String(formatted).split(/\n+/).filter(Boolean)
+          }
+        }catch(e){ console.warn('CSL failed, fallback:', e) }
+      }
+      if(!lines.length){
+        function initials(name){ return name.split(/\s+/).filter(Boolean).map(w=>w[0].toUpperCase()+'.').join(' ') }
+        function authorAPA(a){ const parts=String(a||'').trim().split(/\s+/); const family=parts.pop()||''; const given=parts.join(' '); const init=initials(given); return (family? (family+', '):'')+init }
+        function authorsAPA(list){ const arr=(list||[]).map(authorAPA).filter(Boolean); if(arr.length<=2) return arr.join(' & '); return arr.slice(0,-1).join(', ')+', & '+arr[arr.length-1] }
+        lines = chosen.map(r=>{ const auth=authorsAPA(r.authors||[]); const yr=r.year?String(r.year):'n.d.'; const title=(r.title||'').trim(); const journal=(r.journal||'').trim(); let s=''; if(auth) s+=auth+' '; s+=`(${yr}). `; if(title) s+=title.replace(/\s+/g,' ').trim()+'. '; if(journal) s+=journal; return s.trim().replace(/\.?$/,'.') })
+      }
+      if(style==='numeric'){
+        const map=getNumMap(); const ensure=(id)=>{ let n=map[id]; if(!n){ const nums=Object.values(map).map(v=>Number(v)||0); const next=nums.length?(Math.max.apply(null,nums)+1):1; map[id]=next; setNumMap(map); n=next } return n }
+        lines = chosen.map((r,i)=>`[${ensure(r.id||String(i+1))}] ${lines[i]||''}`)
+      }
+      try{ window.Asc.scope = window.Asc.scope || {} }catch(_){ window.Asc=window.Asc||{}; window.Asc.scope={} }
+      window.Asc.scope.LINES=lines;
+      window.Asc.plugin.callCommand(function(){ var doc=Api.GetDocument(); var title=Api.CreateParagraph(); title.AddText('References'); title.SetStyle('Heading 2'); var arr=[title]; for(var i=0;i<Asc.scope.LINES.length;i++){ var p=Api.CreateParagraph(); p.AddText(Asc.scope.LINES[i]); arr.push(p) } doc.InsertContent(arr); }, true);
+      try{ setTimeout(function(){ try{ window.Asc.plugin.executeCommand('close','') }catch(e){} }, 30) }catch(e){}
+    }
+
+    // Init
+    function init(){
+      const s=getStore(); if(s.paperId) PAPER_ID=s.paperId;
+      const fallback=()=>{ if(!tryTitle()) tryUrlKey() };
+      try {
+        window.Asc.plugin.executeMethod('GetFileName', [], function(n1){
+          let ok = tryDetect(n1);
+          const doNext = () => {
+            if(!ok){
+              try { window.Asc.plugin.executeMethod('GetFileName', [true], function(n2){ ok = tryDetect(n2); if(!ok) fallback(); else maybeAutoLoad(); }); } catch { fallback(); }
+            }
+          };
+          try { doNext(); } catch { fallback(); }
+        });
+      } catch { setTimeout(fallback, 100) }
+      if(s.paperId){ setTimeout(()=>maybeAutoLoad(), 60) }
+    }
+
+    (function waitAsc(cb){ if(window.Asc&&window.Asc.plugin) cb(); else setTimeout(()=>waitAsc(cb),100) })(function(){
+      window.Asc.plugin.init = function(){ init() }
+    })
+  </script>
+</head>
+<body class="bg-white">
+  <div class="px-3 py-2 border-b border-gray-200 bg-gray-50 text-sm font-medium text-gray-800">ScholarHub References (New)</div>
+  <div class="flex flex-col h-96 p-3 gap-2">
+    <span id="selectedText" class="hidden"></span>
+    <div class="flex items-center gap-2">
+      <input id="q" class="w-full px-2 py-1.5 border border-gray-300 rounded-md text-sm" placeholder="Search..." oninput="(function(){ const s=document.getElementById('q').value.toLowerCase(); const f=REFS.filter(r => (r.title||'').toLowerCase().includes(s) || (r.authors||[]).join(',').toLowerCase().includes(s)); renderRefs(f) })()" />
+    </div>
+    <div id="refs" class="flex-1 overflow-auto border border-gray-200 rounded-md bg-white divide-y divide-gray-200"></div>
+    <div class="flex flex-wrap items-center gap-2">
+      <div class="flex-1"></div>
+      <label class="text-xs text-black">Style:</label>
+      <select id="style" class="px-2 py-1.5 border border-gray-300 rounded-md text-sm w-auto text-black"><option value="apa">APA</option><option value="mla">MLA</option><option value="chicago">Chicago</option><option value="numeric">Numeric</option></select>
+      <label class="text-xs text-gray-600 flex items-center gap-2"><input type="checkbox" id="useCSL"/>Use CSL</label>
+      <button class="px-3 py-1.5 border border-gray-300 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700" onclick="insertCitation()">Insert Citation</button>
+      <button class="px-3 py-1.5 border border-gray-300 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700" onclick="insertBibliography()">Insert Bibliography</button>
+    </div>
+  </div>
+</body>
+</html>

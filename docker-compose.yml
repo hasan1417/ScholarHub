@@ -1,0 +1,349 @@
+services:
+  # PostgreSQL Database with pgvector extension
+  postgres:
+    image: pgvector/pgvector:pg15
+    environment:
+      POSTGRES_DB: scholarhub
+      POSTGRES_USER: scholarhub
+      POSTGRES_PASSWORD: scholarhub
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-pgvector.sql:/docker-entrypoint-initdb.d/init-pgvector.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scholarhub"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching and message queues
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Collaborative editing backend (Hocuspocus)
+  collab:
+    build: ./collab-server
+    environment:
+      - PORT=3001
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - LOG_LEVEL=${COLLAB_LOG_LEVEL:-info}
+      - COLLAB_JWT_SECRET=${COLLAB_JWT_SECRET:-development-only-secret}
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD-SHELL", "node /app/healthcheck.mjs"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - LOG_LEVEL=warning
+      - DATABASE_URL=postgresql://scholarhub:scholarhub@postgres:5432/scholarhub
+      - REDIS_URL=redis://redis:6379
+      - SECRET_KEY=${SECRET_KEY:-your-super-secret-key-change-this-in-production}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_CONVERSION_MODEL=${OPENAI_CONVERSION_MODEL:-gpt-5}
+      - OPENAI_RERANK_MODEL=${OPENAI_RERANK_MODEL:-gpt-5-mini}
+      - SCIENCEDIRECT_API_KEY=${SCIENCEDIRECT_API_KEY:-}
+      - UNPAYWALL_EMAIL=${UNPAYWALL_EMAIL:-oa@scholarhub.dev}
+      - NCBI_EMAIL=${NCBI_EMAIL:-}
+      - ENABLE_UNIVERSITY_SSO_DETECTION=${ENABLE_UNIVERSITY_SSO_DETECTION:-true}
+      - ENABLE_PDF_REDIRECT_SEARCH=${ENABLE_PDF_REDIRECT_SEARCH:-true}
+      - ENABLE_ALTERNATIVE_ACCESS=${ENABLE_ALTERNATIVE_ACCESS:-true}
+      - PROJECTS_API_ENABLED=${PROJECTS_API_ENABLED:-true}
+      - PROJECT_FIRST_NAV_ENABLED=${PROJECT_FIRST_NAV_ENABLED:-true}
+      - PROJECT_REFERENCE_SUGGESTIONS_ENABLED=${PROJECT_REFERENCE_SUGGESTIONS_ENABLED:-true}
+      - PROJECT_AI_ORCHESTRATION_ENABLED=${PROJECT_AI_ORCHESTRATION_ENABLED:-true}
+      - PROJECT_MEETINGS_ENABLED=${PROJECT_MEETINGS_ENABLED:-true}
+      - PROJECT_NOTIFICATIONS_ENABLED=${PROJECT_NOTIFICATIONS_ENABLED:-true}
+      - SYNC_ROOM_PREFIX=${SYNC_ROOM_PREFIX:-sync}
+      - DAILY_API_BASE_URL=${DAILY_API_BASE_URL:-https://api.daily.co/v1}
+      - DAILY_API_KEY=${DAILY_API_KEY:-}
+      - DAILY_DOMAIN=${DAILY_DOMAIN:-}
+      - DAILY_ROOM_BASE_URL=${DAILY_ROOM_BASE_URL:-}
+      - DAILY_ROOM_TTL_SECONDS=${DAILY_ROOM_TTL_SECONDS:-21600}
+      - DAILY_TOKEN_TTL_SECONDS=${DAILY_TOKEN_TTL_SECONDS:-3600}
+      - SYNC_CALLBACK_TOKEN=${SYNC_CALLBACK_TOKEN:-}
+      - DAILY_WEBHOOK_SECRET=${DAILY_WEBHOOK_SECRET:-}
+      - DAILY_WEBHOOK_URL=${DAILY_WEBHOOK_URL:-}
+      - DAILY_ENABLE_RECORDING=${DAILY_ENABLE_RECORDING:-cloud}
+      - DAILY_START_CLOUD_RECORDING=${DAILY_START_CLOUD_RECORDING:-true}
+      - DAILY_RECORDING_AUDIO_ONLY=${DAILY_RECORDING_AUDIO_ONLY:-true}
+      - DAILY_RAW_TRACKS_S3_BUCKET=${DAILY_RAW_TRACKS_S3_BUCKET:-}
+      - DAILY_RAW_TRACKS_S3_REGION=${DAILY_RAW_TRACKS_S3_REGION:-}
+      - DAILY_RAW_TRACKS_S3_ACCESS_KEY_ID=${DAILY_RAW_TRACKS_S3_ACCESS_KEY_ID:-}
+      - DAILY_RAW_TRACKS_S3_SECRET_ACCESS_KEY=${DAILY_RAW_TRACKS_S3_SECRET_ACCESS_KEY:-}
+      - DAILY_RAW_TRACKS_S3_PREFIX=${DAILY_RAW_TRACKS_S3_PREFIX:-}
+      - TRANSCRIBER_ENABLED=${TRANSCRIBER_ENABLED:-false}
+      - TRANSCRIBER_BASE_URL=${TRANSCRIBER_BASE_URL:-http://transcriber:9000}
+      - ONLYOFFICE_DOCSERVER_URL=http://onlyoffice
+      - ONLYOFFICE_JWT_SECRET=${ONLYOFFICE_JWT_SECRET:-}
+      - BACKEND_PUBLIC_URL=${BACKEND_PUBLIC_URL:-http://backend:8000}
+      - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS:-["http://localhost:3000","http://localhost:8000","http://localhost:8082"]}
+      - PROJECT_COLLAB_REALTIME_ENABLED=${PROJECT_COLLAB_REALTIME_ENABLED:-false}
+      - COLLAB_JWT_SECRET=${COLLAB_JWT_SECRET:-}
+      - COLLAB_WS_URL=${COLLAB_WS_URL:-ws://collab:3001}
+      - COLLAB_JWT_EXPIRE_SECONDS=${COLLAB_JWT_EXPIRE_SECONDS:-300}
+      - LATEX_WARMUP_ON_STARTUP=${LATEX_WARMUP_ON_STARTUP:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./uploads:/app/uploads
+    networks:
+      - default
+      - meet.jitsi
+
+  # Frontend (Local Development)
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+  # OnlyOffice Document Server
+  onlyoffice:
+    image: onlyoffice/documentserver:9.1.0
+    container_name: scholarhub-onlyoffice
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+    environment:
+      - AI_ENABLED=true
+      - JWT_ENABLED=false
+      - JWT_SECRET=
+      - WOPI_ENABLED=false
+      - USE_UNAUTHORIZED_STORAGE=true
+      - ALLOW_PRIVATE_IP_ADDRESS=true
+    volumes:
+      - onlyoffice_data:/var/www/onlyoffice/Data
+      - onlyoffice_logs:/var/log/onlyoffice
+      # Mount custom plugins without overriding native OnlyOffice plugins
+      - ./backend/static/plugins/sh-bridge:/var/www/onlyoffice/documentserver/sdkjs-plugins/sh-bridge
+      - ./backend/static/plugins/sh-refs:/var/www/onlyoffice/documentserver/sdkjs-plugins/sh-refs
+      - ./backend/static/plugins/sch-references:/var/www/onlyoffice/documentserver/sdkjs-plugins/sch-references
+      - ./backend/static/plugins/sch-insert-text:/var/www/onlyoffice/documentserver/sdkjs-plugins/sch-insert-text
+      - ./backend/static/plugins/hello-world:/var/www/onlyoffice/documentserver/sdkjs-plugins/hello-world
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Optional Jitsi Meet stack for Sync Space calls
+  jitsi-prosody:
+    image: jitsi/prosody:${JITSI_IMAGE_VERSION:-stable-8719}
+    restart: unless-stopped
+    expose:
+      - "5222"
+      - "5347"
+      - "5280"
+    volumes:
+      - ./ops/jitsi/config/prosody:/config
+    env_file:
+      - ./ops/jitsi/jitsi.env
+    environment:
+      TZ: ${JITSI_TZ:-UTC}
+      XMPP_DOMAIN: ${JITSI_XMPP_DOMAIN:-meet.jitsi}
+      XMPP_AUTH_DOMAIN: ${JITSI_XMPP_AUTH_DOMAIN:-auth.meet.jitsi}
+      XMPP_INTERNAL_MUC_DOMAIN: ${JITSI_XMPP_INTERNAL_MUC_DOMAIN:-internal-muc.meet.jitsi}
+      XMPP_MUC_DOMAIN: ${JITSI_XMPP_MUC_DOMAIN:-muc.meet.jitsi}
+      XMPP_RECORDER_DOMAIN: ${JITSI_XMPP_RECORDER_DOMAIN:-recorder.meet.jitsi}
+      XMPP_SERVER: ${JITSI_XMPP_SERVER:-jitsi-prosody}
+      AUTH_TYPE: ${JITSI_AUTH_TYPE:-jwt}
+      ENABLE_AUTH: ${JITSI_ENABLE_AUTH:-1}
+      ENABLE_GUESTS: ${JITSI_ENABLE_GUESTS:-0}
+      XMPP_GUEST_DOMAIN: ${JITSI_XMPP_GUEST_DOMAIN:-guest.meet.jitsi}
+      JICOFO_COMPONENT_SECRET: ${JITSI_JICOFO_COMPONENT_SECRET:-dev_component_secret}
+      JICOFO_AUTH_USER: ${JITSI_JICOFO_AUTH_USER:-focus}
+      JICOFO_AUTH_PASSWORD: ${JITSI_JICOFO_AUTH_PASSWORD:-dev_focus_secret}
+      JVB_AUTH_USER: ${JITSI_JVB_AUTH_USER:-jvb}
+      JVB_AUTH_PASSWORD: ${JITSI_JVB_AUTH_PASSWORD:-dev_jvb_secret}
+      JIGASI_XMPP_PASSWORD: ${JITSI_JIGASI_XMPP_PASSWORD:-dev_jigasi_secret}
+      JIBRI_RECORDER_PASSWORD: ${JITSI_JIBRI_RECORDER_PASSWORD:-dev_jibri_recorder_secret}
+      JIBRI_XMPP_PASSWORD: ${JITSI_JIBRI_XMPP_PASSWORD:-dev_jibri_secret}
+      PUBLIC_URL: ${JITSI_PUBLIC_URL:-http://localhost:9080}
+      JICOFO_ENABLE_REST: ${JICOFO_ENABLE_REST:-1}
+      JWT_APP_ID: ${JITSI_JWT_APP_ID:-scholarhub-dev}
+      JWT_APP_SECRET: ${JITSI_JWT_APP_SECRET:-dev-secret-change-me}
+      JWT_ACCEPTED_ISSUERS: ${JITSI_JWT_ACCEPTED_ISSUERS:-scholarhub-dev}
+      JWT_ACCEPTED_AUDIENCES: ${JITSI_JWT_ACCEPTED_AUDIENCES:-scholarhub-dev}
+      JWT_ALLOW_EMPTY: ${JITSI_JWT_ALLOW_EMPTY:-0}
+      JWT_ENABLE_EXPIRE: ${JITSI_JWT_ENABLE_EXPIRE:-1}
+    networks:
+      meet.jitsi:
+        aliases:
+          - ${JITSI_XMPP_SERVER:-jitsi-prosody}
+
+  jitsi-jicofo:
+    image: jitsi/jicofo:${JITSI_IMAGE_VERSION:-stable-8719}
+    restart: unless-stopped
+    depends_on:
+      - jitsi-prosody
+    volumes:
+      - ./ops/jitsi/config/jicofo:/config
+    env_file:
+      - ./ops/jitsi/jitsi.env
+    environment:
+      TZ: ${JITSI_TZ:-UTC}
+      XMPP_DOMAIN: ${JITSI_XMPP_DOMAIN:-meet.jitsi}
+      XMPP_AUTH_DOMAIN: ${JITSI_XMPP_AUTH_DOMAIN:-auth.meet.jitsi}
+      XMPP_INTERNAL_MUC_DOMAIN: ${JITSI_XMPP_INTERNAL_MUC_DOMAIN:-internal-muc.meet.jitsi}
+      XMPP_MUC_DOMAIN: ${JITSI_XMPP_MUC_DOMAIN:-muc.meet.jitsi}
+      XMPP_RECORDER_DOMAIN: ${JITSI_XMPP_RECORDER_DOMAIN:-recorder.meet.jitsi}
+      XMPP_SERVER: ${JITSI_XMPP_SERVER:-jitsi-prosody}
+      AUTH_TYPE: ${JITSI_AUTH_TYPE:-jwt}
+      ENABLE_AUTH: ${JITSI_ENABLE_AUTH:-1}
+      ENABLE_GUESTS: ${JITSI_ENABLE_GUESTS:-0}
+      JICOFO_COMPONENT_SECRET: ${JITSI_JICOFO_COMPONENT_SECRET:-dev_component_secret}
+      JICOFO_AUTH_USER: ${JITSI_JICOFO_AUTH_USER:-focus}
+      JICOFO_AUTH_PASSWORD: ${JITSI_JICOFO_AUTH_PASSWORD:-dev_focus_secret}
+      JVB_BREWERY_MUC: ${JITSI_JVB_BREWERY_MUC:-jvbbrewery}
+      JIGASI_BREWERY_MUC: ${JITSI_JIGASI_BREWERY_MUC:-jigasibrewery}
+      JIBRI_BREWERY_MUC: ${JITSI_JIBRI_BREWERY_MUC:-jibribrewery}
+      SENTRY_DSN: "0"
+    networks:
+      - default
+      - meet.jitsi
+
+  jitsi-jvb:
+    image: jitsi/jvb:${JITSI_IMAGE_VERSION:-stable-8719}
+    restart: unless-stopped
+    depends_on:
+      - jitsi-prosody
+    ports:
+      - "${JITSI_JVB_PORT:-10000}:${JITSI_JVB_PORT:-10000}/udp"
+    volumes:
+      - ./ops/jitsi/config/jvb:/config
+      - ./ops/jitsi/config/jvb/jvb.conf.tpl:/defaults/jvb.conf:ro
+    env_file:
+      - ./ops/jitsi/jitsi.env
+    environment:
+      TZ: ${JITSI_TZ:-UTC}
+      XMPP_DOMAIN: ${JITSI_XMPP_DOMAIN:-meet.jitsi}
+      XMPP_AUTH_DOMAIN: ${JITSI_XMPP_AUTH_DOMAIN:-auth.meet.jitsi}
+      XMPP_INTERNAL_MUC_DOMAIN: ${JITSI_XMPP_INTERNAL_MUC_DOMAIN:-internal-muc.meet.jitsi}
+      XMPP_MUC_DOMAIN: ${JITSI_XMPP_MUC_DOMAIN:-muc.meet.jitsi}
+      XMPP_RECORDER_DOMAIN: ${JITSI_XMPP_RECORDER_DOMAIN:-recorder.meet.jitsi}
+      XMPP_SERVER: ${JITSI_XMPP_SERVER:-jitsi-prosody}
+      DOCKER_HOST_ADDRESS: ${JITSI_DOCKER_HOST_ADDRESS:-127.0.0.1}
+      PUBLIC_URL: ${JITSI_PUBLIC_URL:-http://localhost:9080}
+      JVB_AUTH_USER: ${JITSI_JVB_AUTH_USER:-jvb}
+      JVB_AUTH_PASSWORD: ${JITSI_JVB_AUTH_PASSWORD:-dev_jvb_secret}
+      JVB_BREWERY_MUC: ${JITSI_JVB_BREWERY_MUC:-jvbbrewery}
+      JVB_PORT: ${JITSI_JVB_PORT:-10000}
+      JVB_STUN_SERVERS: ${JITSI_JVB_STUN_SERVERS:-stun.l.google.com:19302}
+      ENABLE_COLIBRI_WEBSOCKET: ${JITSI_ENABLE_COLIBRI_WEBSOCKET:-1}
+      ENABLE_OCTO: 0
+      COLIBRI_REST_ENABLED: 1
+      SHUTDOWN_REST_ENABLED: 0
+      DISABLE_HTTPS: ${JITSI_DISABLE_HTTPS:-1}
+    networks:
+      - default
+      - meet.jitsi
+
+  jitsi-web:
+    image: jitsi/web:${JITSI_IMAGE_VERSION:-stable-8719}
+    restart: unless-stopped
+    depends_on:
+      - jitsi-prosody
+      - jitsi-jicofo
+      - jitsi-jvb
+    ports:
+      - "${JITSI_HTTP_PORT:-9080}:80"
+    volumes:
+      - ./ops/jitsi/config/web:/config
+      - ./ops/jitsi/config/web/crontabs:/var/spool/cron/crontabs
+      - ./ops/jitsi/config/transcripts:/usr/share/jitsi-meet/transcripts
+      - ./ops/jitsi/config/web/system-config.js:/defaults/system-config.js:ro
+    env_file:
+      - ./ops/jitsi/jitsi.env
+    environment:
+      TZ: ${JITSI_TZ:-UTC}
+      XMPP_DOMAIN: ${JITSI_XMPP_DOMAIN:-meet.jitsi}
+      XMPP_AUTH_DOMAIN: ${JITSI_XMPP_AUTH_DOMAIN:-auth.meet.jitsi}
+      XMPP_INTERNAL_MUC_DOMAIN: ${JITSI_XMPP_INTERNAL_MUC_DOMAIN:-internal-muc.meet.jitsi}
+      XMPP_MUC_DOMAIN: ${JITSI_XMPP_MUC_DOMAIN:-muc.meet.jitsi}
+      XMPP_RECORDER_DOMAIN: ${JITSI_XMPP_RECORDER_DOMAIN:-recorder.meet.jitsi}
+      XMPP_SERVER: ${JITSI_XMPP_SERVER:-jitsi-prosody}
+      PUBLIC_URL: ${JITSI_PUBLIC_URL:-http://localhost:9080}
+      ENABLE_AUTH: ${JITSI_ENABLE_AUTH:-1}
+      ENABLE_GUESTS: ${JITSI_ENABLE_GUESTS:-0}
+      AUTH_TYPE: ${JITSI_AUTH_TYPE:-jwt}
+      JWT_APP_ID: ${JITSI_JWT_APP_ID:-scholarhub-dev}
+      JWT_APP_SECRET: ${JITSI_JWT_APP_SECRET:-dev-secret-change-me}
+      JWT_ACCEPTED_ISSUERS: ${JITSI_JWT_ACCEPTED_ISSUERS:-scholarhub-dev}
+      JWT_ACCEPTED_AUDIENCES: ${JITSI_JWT_ACCEPTED_AUDIENCES:-scholarhub-dev}
+      JWT_ALLOW_EMPTY: ${JITSI_JWT_ALLOW_EMPTY:-0}
+      JWT_ENABLE_EXPIRE: ${JITSI_JWT_ENABLE_EXPIRE:-1}
+      ENABLE_HTTP_REDIRECT: 0
+      ENABLE_HSTS: 0
+      ENABLE_LETSENCRYPT: 0
+      ENABLE_IPV6: 0
+      ENABLE_XMPP_WEBSOCKET: ${JITSI_ENABLE_XMPP_WEBSOCKET:-1}
+      ENABLE_COLIBRI_WEBSOCKET: ${JITSI_ENABLE_COLIBRI_WEBSOCKET:-1}
+      DISABLE_HTTPS: 1
+      XMPP_BOSH_URL_BASE: http://jitsi-prosody:5280
+      XMPP_GUEST_DOMAIN: ${JITSI_XMPP_GUEST_DOMAIN:-guest.meet.jitsi}
+      ENABLE_PREJOIN_PAGE: 1
+    networks:
+      - default
+      - meet.jitsi
+
+  transcriber:
+    build:
+      context: ./ops/transcriber
+    restart: unless-stopped
+    environment:
+      WHISPER_MODEL_SIZE: ${TRANSCRIBER_MODEL_SIZE:-tiny}
+      WHISPER_DEVICE: ${TRANSCRIBER_DEVICE:-cpu}
+      MAX_AUDIO_SECONDS: ${TRANSCRIBER_MAX_AUDIO_SECONDS:-900}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    ports:
+      - "${TRANSCRIBER_PORT:-9000}:9000"
+    networks:
+      - default
+      - meet.jitsi
+
+volumes:
+  postgres_data:
+  redis_data:
+  onlyoffice_data:
+  onlyoffice_logs:
+
+networks:
+  meet.jitsi:
+    driver: bridge

@@ -1,0 +1,25 @@
+{
+  "name": "Hello World",
+  "guid": "asc.{FFE1F462-1EA2-4391-990D-4CC84940B754}",
+  "version": "1.0.0",
+  "variations": [
+    {
+      "description": "Simple Hello World plugin",
+      "url": "index.html",
+      "isViewer": false,
+      "EditorsSupport": ["word"],
+      "isVisual": true,
+      "isModal": true,
+      "isInsideMode": false,
+      "initDataType": "none",
+      "initData": "",
+      "isUpdateOleOnResize": false,
+      "buttons": [
+        {
+          "text": "Insert Hello World",
+          "primary": true
+        }
+      ]
+    }
+  ]
+}

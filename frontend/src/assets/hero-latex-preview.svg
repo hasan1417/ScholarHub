@@ -1,0 +1,54 @@
+<svg width="960" height="560" viewBox="0 0 960 560" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#EEF2FF"/>
+      <stop offset="1" stop-color="#E0E7FF"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#F8FAFC"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#6366F1"/>
+    </linearGradient>
+    <filter id="panel-shadow" x="-10%" y="-10%" width="120%" height="140%" filterUnits="objectBoundingBox">
+      <feOffset dy="16" input="SourceAlpha"/>
+      <feGaussianBlur stdDeviation="24"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.23 0 0 0 0 0.27 0 0 0 0 0.53 0 0 0 0.16 0"/>
+      <feBlend mode="normal" in="SourceGraphic" result="shape"/>
+    </filter>
+  </defs>
+  <rect width="960" height="560" rx="32" fill="url(#bg)"/>
+  <g filter="url(#panel-shadow)">
+    <rect x="80" y="68" width="800" height="424" rx="24" fill="url(#panel)"/>
+    <rect x="80" y="68" width="800" height="72" rx="24" fill="#111827" fill-opacity="0.92"/>
+    <circle cx="120" cy="104" r="8" fill="#EF4444"/>
+    <circle cx="148" cy="104" r="8" fill="#F59E0B"/>
+    <circle cx="176" cy="104" r="8" fill="#10B981"/>
+    <rect x="216" y="92" width="184" height="24" rx="12" fill="#1F2937" fill-opacity="0.7"/>
+    <rect x="420" y="92" width="132" height="24" rx="12" fill="#1F2937" fill-opacity="0.4"/>
+    <rect x="80" y="168" width="320" height="324" rx="0" fill="#0F172A" fill-opacity="0.95"/>
+    <rect x="120" y="196" width="240" height="18" rx="4" fill="#818CF8" fill-opacity="0.6"/>
+    <rect x="120" y="226" width="208" height="14" rx="4" fill="#A5B4FC" fill-opacity="0.45"/>
+    <rect x="120" y="256" width="260" height="10" rx="4" fill="#334155"/>
+    <rect x="120" y="278" width="220" height="10" rx="4" fill="#334155"/>
+    <rect x="120" y="300" width="240" height="10" rx="4" fill="#334155"/>
+    <rect x="120" y="322" width="180" height="10" rx="4" fill="#334155"/>
+    <rect x="120" y="344" width="200" height="10" rx="4" fill="#334155"/>
+    <rect x="120" y="366" width="160" height="10" rx="4" fill="#334155"/>
+    <rect x="120" y="388" width="260" height="10" rx="4" fill="#334155"/>
+    <rect x="120" y="410" width="220" height="10" rx="4" fill="#334155"/>
+    <rect x="120" y="432" width="200" height="10" rx="4" fill="#334155"/>
+    <rect x="120" y="454" width="240" height="10" rx="4" fill="#334155"/>
+    <rect x="424" y="188" width="312" height="48" rx="12" fill="url(#accent)" fill-opacity="0.12"/>
+    <rect x="424" y="252" width="352" height="20" rx="10" fill="#6366F1" fill-opacity="0.28"/>
+    <rect x="424" y="284" width="352" height="20" rx="10" fill="#6366F1" fill-opacity="0.18"/>
+    <rect x="424" y="316" width="352" height="20" rx="10" fill="#6366F1" fill-opacity="0.18"/>
+    <rect x="424" y="352" width="188" height="48" rx="12" fill="#EEF2FF" stroke="#6366F1" stroke-width="2"/>
+    <rect x="632" y="352" width="144" height="48" rx="12" fill="#4F46E5"/>
+    <rect x="424" y="420" width="352" height="16" rx="8" fill="#E2E8F0"/>
+    <rect x="424" y="444" width="314" height="12" rx="6" fill="#CBD5F5"/>
+    <rect x="752" y="420" width="24" height="16" rx="8" fill="#818CF8"/>
+  </g>
+</svg>

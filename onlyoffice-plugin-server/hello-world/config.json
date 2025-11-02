@@ -1,0 +1,26 @@
+{
+  "name": "hello world",
+  "guid": "asc.{FFE1F462-1EA2-4391-990D-4CC84940B754}",
+  "baseUrl": "",
+  "variations": [
+    {
+      "description": "hello world",
+      "url": "index.html",
+      "icons": ["icon.png", "icon@2x.png"],
+      "isViewer": false,
+      "EditorsSupport": ["word"],
+      "isVisual": false,
+      "isModal": true,
+      "isInsideMode": false,
+      "initDataType": "none",
+      "initData": "",
+      "isUpdateOleOnResize": true,
+      "buttons": [
+        {
+          "text": "Insert Hello World",
+          "primary": true
+        }
+      ]
+    }
+  ]
+}

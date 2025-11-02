@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>ScholarHub Bridge</title>
+  <script src="https://onlyoffice.github.io/sdkjs-plugins/v1/plugins.js"></script>
+  <script>
+    (function(){
+      var BRIDGE_ID = 'sh-bridge';
+      var ALLOWED_ORIGIN = null; // Set by host via SH_BRIDGE_INIT
+
+      function post(type, payload){
+        var origin = ALLOWED_ORIGIN || '*';
+        try { window.top && window.top.postMessage(Object.assign({ __shbridge: true, type, source: BRIDGE_ID }, payload||{}), origin) } catch (e) {}
+      }
+
+      function respond(evt, payload){
+        var origin = ALLOWED_ORIGIN || (evt && evt.origin) || '*';
+        try { evt && evt.source && evt.source.postMessage(Object.assign({ __shbridge: true }, payload||{}), origin) } catch (e) {}
+      }
+
+      function handleCommand(evt){
+        var data = evt && evt.data || {};
+        if (!data || !data.__shbridge) return;
+        if (data.type === 'SH_BRIDGE_INIT'){
+          if (typeof data.allowedOrigin === 'string' && data.allowedOrigin.length){ ALLOWED_ORIGIN = data.allowedOrigin }
+          respond(evt, { type: 'SH_BRIDGE_INIT_ACK', ok: true, allowedOrigin: ALLOWED_ORIGIN })
+          return;
+        }
+        if (data.type !== 'SH_BRIDGE_CMD') return;
+        if (ALLOWED_ORIGIN && evt.origin !== ALLOWED_ORIGIN) return;
+        var cmd = data.cmd; var requestId = data.requestId; var text = data.text || '';
+        if (!cmd) return;
+
+        if (cmd === 'getSelection'){
+          try {
+            window.Asc.plugin.executeMethod('GetSelectedText', null, function(result){
+              respond(evt, { type: 'SH_BRIDGE_RESP', requestId: requestId, ok: true, result: String(result||'') })
+            })
+          } catch (e){ respond(evt, { type: 'SH_BRIDGE_RESP', requestId, ok:false, error: String(e&&e.message||e) }) }
+          return;
+        }
+        if (cmd === 'insertText' || cmd === 'replaceSelection'){
+          try {
+            window.Asc.plugin.executeMethod('PasteText', [text], function(){
+              respond(evt, { type: 'SH_BRIDGE_RESP', requestId: requestId, ok: true })
+            })
+          } catch (e){
+            try { window.Asc.scope = window.Asc.scope || {} } catch(_) { window.Asc = window.Asc || {}; window.Asc.scope = {} }
+            window.Asc.scope.TEXT = text;
+            window.Asc.plugin.callCommand(function(){ var doc=Api.GetDocument(); var p=Api.CreateParagraph(); p.AddText(Asc.scope.TEXT); doc.InsertContent([p]) }, true);
+            respond(evt, { type: 'SH_BRIDGE_RESP', requestId: requestId, ok: true, note: 'fallback-callCommand' })
+          }
+          return;
+        }
+        if (cmd === 'insertBibliography'){
+          try {
+            var heading = String(data.heading||'References');
+            var items = Array.isArray(data.items) ? data.items : [];
+            try { window.Asc.scope = window.Asc.scope || {} } catch(_) { window.Asc = window.Asc || {}; window.Asc.scope = {} }
+            window.Asc.scope.HEADING = heading;
+            window.Asc.scope.ITEMS = items;
+            window.Asc.plugin.callCommand(function(){
+              var doc = Api.GetDocument();
+              var title = Api.CreateParagraph();
+              title.AddText(Asc.scope.HEADING);
+              try { title.SetBold(true) } catch(e) {}
+              try { title.SetFontSize(12) } catch(e) {}
+              var arr = [title];
+              for (var i=0;i<Asc.scope.ITEMS.length;i++){
+                var p = Api.CreateParagraph();
+                p.AddText('\u2022 ' + String(Asc.scope.ITEMS[i]||''));
+                try { p.SetFontSize(11) } catch(e) {}
+                arr.push(p);
+              }
+              doc.InsertContent(arr);
+            }, true);
+            respond(evt, { type: 'SH_BRIDGE_RESP', requestId: requestId, ok: true })
+          } catch (e){
+            respond(evt, { type: 'SH_BRIDGE_RESP', requestId: requestId, ok:false, error: String(e&&e.message||e) })
+          }
+          return;
+        }
+        if (cmd === 'ping'){
+          respond(evt, { type: 'SH_BRIDGE_RESP', requestId: requestId, ok: true, result: 'pong' })
+          return;
+        }
+      }
+
+      (function waitAsc(cb){ if(window.Asc&&window.Asc.plugin) cb(); else setTimeout(()=>waitAsc(cb),100) })(function(){
+        window.Asc.plugin.init = function(){
+          try { window.addEventListener('message', handleCommand, false) } catch {}
+          post('SH_BRIDGE_READY', { bridge: BRIDGE_ID, version: '1' })
+        }
+        window.Asc.plugin.button = function(id){ /* no buttons */ }
+      })
+    })();
+  </script>
+</head>
+<body>
+  <!-- Background bridge (no UI) -->
+</body>
+</html>
