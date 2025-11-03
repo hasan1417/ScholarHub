@@ -121,12 +121,15 @@ async def login(login_data: UserLogin, response: Response, db: Session = Depends
     
     # Create refresh token
     refresh_token = create_refresh_token()
-    refresh_token_expires = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    now = datetime.now(timezone.utc)
+    refresh_token_expires = now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     
     # Store refresh token in database
     try:
         user.refresh_token = hash_refresh_token(refresh_token)
         user.refresh_token_expires_at = refresh_token_expires
+        user.refresh_token_last_hash = None
+        user.refresh_token_last_seen_at = now
         db.commit()
     except SQLAlchemyError:
         db.rollback()
@@ -167,10 +170,18 @@ async def refresh_token(
 
     try:
         user = db.query(User).filter(User.refresh_token == token_hash).first()
+        legacy_user = None
         if not user:
-            user = db.query(User).filter(User.refresh_token == provided_token).first()
+            legacy_user = db.query(User).filter(User.refresh_token == provided_token).first()
     except SQLAlchemyError:
         raise HTTPException(status_code=503, detail="Database unavailable")
+
+    if not user and legacy_user:
+        # Allow legacy plain-text tokens once and migrate to hashed
+        user = legacy_user
+        token_hash = hash_refresh_token(provided_token)
+        user.refresh_token = token_hash
+        db.commit()
 
     if not user:
         clear_refresh_cookie(response)
@@ -180,7 +191,23 @@ async def refresh_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    if user.refresh_token_expires_at < datetime.now(timezone.utc):
+    now = datetime.now(timezone.utc)
+
+    # Reuse detection: if provided token matches the previous token hash, treat as compromise
+    if user.refresh_token_last_hash and user.refresh_token_last_hash == token_hash:
+        user.refresh_token = None
+        user.refresh_token_expires_at = None
+        user.refresh_token_last_hash = None
+        user.refresh_token_last_seen_at = now
+        db.commit()
+        clear_refresh_cookie(response)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token reuse detected",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if user.refresh_token_expires_at < now:
         clear_refresh_cookie(response)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -204,7 +231,10 @@ async def refresh_token(
     new_refresh_token_expires = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
 
     try:
-        user.refresh_token = hash_refresh_token(new_refresh_token)
+        current_hash = hash_refresh_token(new_refresh_token)
+        user.refresh_token_last_hash = user.refresh_token
+        user.refresh_token_last_seen_at = now
+        user.refresh_token = current_hash
         user.refresh_token_expires_at = new_refresh_token_expires
         db.commit()
     except SQLAlchemyError:
