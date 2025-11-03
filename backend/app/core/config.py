@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_COOKIE_NAME: str = Field(default="scholarhub_rt", alias="REFRESH_TOKEN_COOKIE_NAME")
     COOKIE_DOMAIN: Optional[str] = Field(default=None, alias="COOKIE_DOMAIN")
 
+    # Rate limiting
+    RATE_LIMIT_BACKEND: str = Field(default="5/minute", alias="RATE_LIMIT_BACKEND")
+    RATE_LIMIT_REGISTER: str = Field(default="2/minute", alias="RATE_LIMIT_REGISTER")
+
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = Field(
         default_factory=lambda: [

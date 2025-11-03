@@ -24,6 +24,8 @@ from app.api.deps import get_current_active_user
 from app.core.config import settings
 from datetime import timedelta, datetime, timezone
 
+from app.core.rate_limiter import limiter
+
 
 ACCESS_COOKIE_NAME = settings.ACCESS_TOKEN_COOKIE_NAME
 REFRESH_COOKIE_NAME = settings.REFRESH_TOKEN_COOKIE_NAME
@@ -56,6 +58,7 @@ def clear_refresh_cookie(response: Response) -> None:
 router = APIRouter()
 
 @router.post("/register", response_model=UserInDB, status_code=status.HTTP_201_CREATED)
+@limiter.limit(settings.RATE_LIMIT_REGISTER)
 async def register(user_data: UserCreate, db: Session = Depends(get_db)):
     """Register a new user."""
     # Check if user already exists
@@ -89,6 +92,7 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
     return db_user
 
 @router.post("/login", response_model=Token)
+@limiter.limit(settings.RATE_LIMIT_BACKEND)
 async def login(login_data: UserLogin, response: Response, db: Session = Depends(get_db)):
     """Login user and return access token."""
     # Find user by email
