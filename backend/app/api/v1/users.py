@@ -60,8 +60,10 @@ async def change_password(
     
     # Hash and update new password
     current_user.password_hash = get_password_hash(password_data.new_password)
+    current_user.refresh_token = None
+    current_user.refresh_token_expires_at = None
     db.commit()
-    
+
     return {"message": "Password changed successfully"}
 
 @router.get("/users/lookup-by-email")
