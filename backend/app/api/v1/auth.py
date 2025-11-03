@@ -59,7 +59,7 @@ router = APIRouter()
 
 @router.post("/register", response_model=UserInDB, status_code=status.HTTP_201_CREATED)
 @limiter.limit(settings.RATE_LIMIT_REGISTER)
-async def register(user_data: UserCreate, db: Session = Depends(get_db)):
+async def register(request: Request, user_data: UserCreate, db: Session = Depends(get_db)):
     """Register a new user."""
     # Check if user already exists
     try:
@@ -93,7 +93,7 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=Token)
 @limiter.limit(settings.RATE_LIMIT_BACKEND)
-async def login(login_data: UserLogin, response: Response, db: Session = Depends(get_db)):
+async def login(request: Request, login_data: UserLogin, response: Response, db: Session = Depends(get_db)):
     """Login user and return access token."""
     # Find user by email
     try:
