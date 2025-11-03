@@ -262,13 +262,18 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     if (!collab.providerVersion) return
 
     const yText = collab.doc.getText('main')
-    if (yText.length === 0 && initialLatexSource) {
-      try {
+    try {
+      const current = yText.toString()
+      if (typeof initialLatexSource === 'string' && initialLatexSource.length > 0 && current !== initialLatexSource) {
+        yText.delete(0, current.length)
         yText.insert(0, initialLatexSource)
-      } catch (error) {
-        console.warn('[DocumentShell] failed to seed collab doc', error)
+      } else if (current.length === 0 && initialLatexSource) {
+        yText.insert(0, initialLatexSource)
       }
+    } catch (error) {
+      console.warn('[DocumentShell] failed to align collab doc with initial content', error)
     }
+
     collabBootstrappedRef.current = true
   }, [collab.enabled, collab.doc, collab.status, collab.providerVersion, initialLatexSource])
 
