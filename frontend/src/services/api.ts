@@ -76,10 +76,11 @@ export const buildApiUrl = (path: string) => {
 // Create axios instance with base configuration
 const api = axios.create({
   baseURL: API_BASE_URL || '/api/v1',
-  timeout: 60000, // Increased to 60s to handle slow APIs like Crossref
+  timeout: 60000,
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: true,
 })
 
 // Track if we're currently refreshing tokens to avoid concurrent refreshes
@@ -104,28 +105,14 @@ const processQueue = (error: unknown, token: string | null = null) => {
 
 // Function to refresh token
 export const refreshAuthToken = async (): Promise<string> => {
-  const refreshToken = localStorage.getItem('refresh_token')
-  
-  if (!refreshToken) {
-    throw new Error('No refresh token available')
-  }
-
   try {
-    const response = await axios.post<{ access_token: string; refresh_token: string }>(buildApiUrl('/refresh'), {
-      refresh_token: refreshToken
-    })
-
-    const { access_token, refresh_token: newRefreshToken } = response.data
-    
-    // Store new tokens
+    const response = await api.post<{ access_token: string; refresh_token?: string }>('/refresh')
+    const { access_token } = response.data
     localStorage.setItem('access_token', access_token)
-    localStorage.setItem('refresh_token', newRefreshToken)
-    
+    setupTokenRefreshTimer()
     return access_token
   } catch (error) {
-    // Clear tokens if refresh fails
     localStorage.removeItem('access_token')
-    localStorage.removeItem('refresh_token')
     localStorage.removeItem('user')
     throw error
   }
@@ -221,6 +208,8 @@ api.interceptors.request.use(
         config.headers = {}
       }
       config.headers.Authorization = `Bearer ${token}`
+    } else if (config.headers && 'Authorization' in config.headers) {
+      delete config.headers.Authorization
     }
     return config
   },
@@ -263,7 +252,6 @@ api.interceptors.response.use(
       try {
         const newToken = await refreshAuthToken()
         
-        // Update the authorization header
         ;(api.defaults.headers.common as Record<string, string>)['Authorization'] = `Bearer ${newToken}`
         originalRequest.headers = {
           ...(originalRequest.headers ?? {}),
@@ -281,7 +269,6 @@ api.interceptors.response.use(
         
         // Redirect to login
         localStorage.removeItem('access_token')
-        localStorage.removeItem('refresh_token')
         localStorage.removeItem('user')
         window.location.href = '/login'
         
@@ -305,8 +292,7 @@ export const authAPI = {
   }) => api.post('/register', userData),
 
   login: (credentials: { email: string; password: string }) => {
-    // Send as JSON with email and password
-    return api.post<{ access_token: string; refresh_token: string }>('/login', {
+    return api.post<{ access_token: string; refresh_token?: string }>('/login', {
       email: credentials.email,
       password: credentials.password
     }, {
@@ -316,11 +302,9 @@ export const authAPI = {
     })
   },
 
-  refresh: (refreshToken: string) => {
-    return api.post<{ access_token: string; refresh_token: string }>('/refresh', {
-      refresh_token: refreshToken
-    })
-  },
+  refresh: () => api.post<{ access_token: string; refresh_token?: string }>('/refresh'),
+
+  logout: () => api.post('/logout'),
 
   getCurrentUser: () => api.get<User>('/me'),
 

@@ -27,8 +27,11 @@ class Settings(BaseSettings):
     # Security
     SECRET_KEY: str = Field(default=DEV_SECRET, alias="SECRET_KEY")
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours (adjust in hardening step)
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    ACCESS_TOKEN_COOKIE_NAME: str = Field(default="scholarhub_at", alias="ACCESS_TOKEN_COOKIE_NAME")
+    REFRESH_TOKEN_COOKIE_NAME: str = Field(default="scholarhub_rt", alias="REFRESH_TOKEN_COOKIE_NAME")
+    COOKIE_DOMAIN: Optional[str] = Field(default=None, alias="COOKIE_DOMAIN")
 
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = Field(
@@ -177,4 +180,3 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
-

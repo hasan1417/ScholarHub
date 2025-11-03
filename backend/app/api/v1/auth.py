@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
+from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from app.database import get_db
@@ -23,6 +23,35 @@ from app.core.security import (
 from app.api.deps import get_current_active_user
 from app.core.config import settings
 from datetime import timedelta, datetime, timezone
+
+
+ACCESS_COOKIE_NAME = settings.ACCESS_TOKEN_COOKIE_NAME
+REFRESH_COOKIE_NAME = settings.REFRESH_TOKEN_COOKIE_NAME
+COOKIE_DOMAIN = settings.COOKIE_DOMAIN
+COOKIE_SECURE = not settings.DEBUG
+COOKIE_SAMESITE = "lax"
+REFRESH_COOKIE_MAX_AGE = settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
+
+
+def set_refresh_cookie(response: Response, refresh_token: str) -> None:
+    response.set_cookie(
+        key=REFRESH_COOKIE_NAME,
+        value=refresh_token,
+        max_age=REFRESH_COOKIE_MAX_AGE,
+        secure=COOKIE_SECURE,
+        httponly=True,
+        samesite=COOKIE_SAMESITE,
+        domain=COOKIE_DOMAIN,
+        path="/",
+    )
+
+
+def clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=REFRESH_COOKIE_NAME,
+        domain=COOKIE_DOMAIN,
+        path="/",
+    )
 
 router = APIRouter()
 
@@ -60,7 +89,7 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
     return db_user
 
 @router.post("/login", response_model=Token)
-async def login(login_data: UserLogin, db: Session = Depends(get_db)):
+async def login(login_data: UserLogin, response: Response, db: Session = Depends(get_db)):
     """Login user and return access token."""
     # Find user by email
     try:
@@ -99,57 +128,77 @@ async def login(login_data: UserLogin, db: Session = Depends(get_db)):
         db.rollback()
         raise HTTPException(status_code=503, detail="Database unavailable")
     
+    set_refresh_cookie(response, refresh_token)
+
     return {
-        "access_token": access_token, 
+        "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer",
         "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
     }
 
 @router.post("/refresh", response_model=Token)
-async def refresh_token(refresh_data: RefreshTokenRequest, db: Session = Depends(get_db)):
-    """Refresh access token using refresh token."""
-    token_hash = hash_refresh_token(refresh_data.refresh_token)
+async def refresh_token(
+    request: Request,
+    response: Response,
+    refresh_data: Optional[RefreshTokenRequest] = None,
+    db: Session = Depends(get_db)
+):
+    """Refresh access token using refresh token stored in cookies (or request body for legacy clients)."""
+    provided_token = None
+    if refresh_data and refresh_data.refresh_token:
+        provided_token = refresh_data.refresh_token
+    else:
+        provided_token = request.cookies.get(REFRESH_COOKIE_NAME)
+
+    if not provided_token:
+        clear_refresh_cookie(response)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token missing",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    token_hash = hash_refresh_token(provided_token)
 
     try:
         user = db.query(User).filter(User.refresh_token == token_hash).first()
         if not user:
-            user = db.query(User).filter(User.refresh_token == refresh_data.refresh_token).first()
+            user = db.query(User).filter(User.refresh_token == provided_token).first()
     except SQLAlchemyError:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    
+
     if not user:
+        clear_refresh_cookie(response)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    # Check if refresh token is expired
+
     if user.refresh_token_expires_at < datetime.now(timezone.utc):
+        clear_refresh_cookie(response)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token expired",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     if not user.is_active:
+        clear_refresh_cookie(response)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Inactive user"
         )
-    
-    # Create new access token
+
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user.email}, expires_delta=access_token_expires
     )
-    
-    # Generate new refresh token (optional but more secure)
+
     new_refresh_token = create_refresh_token()
     new_refresh_token_expires = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-    
-    # Update refresh token in database
+
     try:
         user.refresh_token = hash_refresh_token(new_refresh_token)
         user.refresh_token_expires_at = new_refresh_token_expires
@@ -157,7 +206,9 @@ async def refresh_token(refresh_data: RefreshTokenRequest, db: Session = Depends
     except SQLAlchemyError:
         db.rollback()
         raise HTTPException(status_code=503, detail="Database unavailable")
-    
+
+    set_refresh_cookie(response, new_refresh_token)
+
     return {
         "access_token": access_token,
         "refresh_token": new_refresh_token,
@@ -169,6 +220,22 @@ async def refresh_token(refresh_data: RefreshTokenRequest, db: Session = Depends
 async def read_users_me(current_user: User = Depends(get_current_active_user)):
     """Get current user information."""
     return current_user
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(response: Response, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    """Invalidate the current refresh token and clear auth cookies."""
+    try:
+        current_user.refresh_token = None
+        current_user.refresh_token_expires_at = None
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    clear_refresh_cookie(response)
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 @router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED)
 async def request_password_reset(payload: PasswordResetRequest, db: Session = Depends(get_db)):
