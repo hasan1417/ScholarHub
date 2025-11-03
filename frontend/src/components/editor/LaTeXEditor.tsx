@@ -498,9 +498,8 @@ function LaTeXEditorImpl(
 
   const createView = useCallback((parent: HTMLElement) => {
     clearContainer(parent)
-    const initialDoc = realtime?.doc ? '' : (latestDocRef.current || '')
     const state = EditorState.create({
-      doc: initialDoc,
+      doc: latestDocRef.current || '',
       extensions: cmExtensions,
     })
 
