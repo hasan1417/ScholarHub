@@ -112,24 +112,24 @@ const Landing = () => {
   ]
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50">
+    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950">
       {/* Navigation */}
-      <nav className="border-b border-gray-200 bg-white/80 backdrop-blur-sm">
+      <nav className="border-b border-gray-200 bg-white/80 backdrop-blur-sm dark:border-gray-800 dark:bg-gray-900/80">
         <div className="max-w-6xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
-            <Link to="/" className="text-2xl font-bold text-gray-900">
+            <Link to="/" className="text-2xl font-bold text-gray-900 dark:text-gray-100">
               ScholarHub
             </Link>
             <div className="flex items-center gap-4">
               <Link
                 to="/login"
-                className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
+                className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors dark:text-gray-300 dark:hover:text-white"
               >
                 Sign in
               </Link>
               <Link
                 to="/register"
-                className="px-5 py-2.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm"
+                className="px-5 py-2.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm dark:shadow-indigo-900/50"
               >
                 Get started
               </Link>
@@ -147,25 +147,25 @@ const Landing = () => {
             <span className="inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.28em] text-indigo-600">
               Research-ready by design
             </span>
-            <h1 className="mt-6 text-5xl sm:text-6xl font-bold text-gray-900 leading-tight">
+            <h1 className="mt-6 text-5xl sm:text-6xl font-bold text-gray-900 leading-tight dark:text-gray-100">
               Ship papers faster with one workspace for your lab
             </h1>
 
-            <p className="mt-6 text-xl text-gray-600 max-w-2xl mx-auto">
+            <p className="mt-6 text-xl text-gray-600 max-w-2xl mx-auto dark:text-gray-300">
               Keep your team aligned from first draft to submission. ScholarHub ties LaTeX, rich-text, comments, and exports into one cadence so every milestone stays visible.
             </p>
 
             <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link
                 to="/register"
-                className="group inline-flex items-center gap-2 px-7 py-3.5 text-base font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-all shadow-lg hover:shadow-xl"
+                className="group inline-flex items-center gap-2 px-7 py-3.5 text-base font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-all shadow-lg hover:shadow-xl dark:shadow-indigo-900/60"
               >
                 Get started free
                 <ArrowRight className="h-5 w-5 group-hover:translate-x-1 transition-transform" />
               </Link>
               <Link
                 to="/docs/overview"
-                className="inline-flex items-center gap-2 px-7 py-3.5 text-base font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors border border-indigo-100"
+                className="inline-flex items-center gap-2 px-7 py-3.5 text-base font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors border border-indigo-100 dark:text-indigo-200 dark:bg-indigo-500/10 dark:border-indigo-500/40 dark:hover:bg-indigo-500/20"
               >
                 Explore overview
                 <ArrowRight className="h-5 w-5" />
@@ -176,31 +176,31 @@ const Landing = () => {
               {heroPromises.map(({ icon: Icon, text }) => (
                 <li
                   key={text}
-                  className="flex items-start gap-3 rounded-2xl border border-indigo-100 bg-white/80 px-4 py-4 shadow-sm shadow-indigo-100/60"
+                  className="flex items-start gap-3 rounded-2xl border border-indigo-100 bg-white/80 px-4 py-4 shadow-sm shadow-indigo-100/60 dark:bg-gray-900/70 dark:border-indigo-900 dark:shadow-indigo-950/40"
                 >
                   <Icon className="mt-0.5 h-5 w-5 text-emerald-600" aria-hidden />
-                  <span className="text-sm text-slate-700 leading-relaxed">{text}</span>
+                  <span className="text-sm text-slate-700 leading-relaxed dark:text-gray-300">{text}</span>
                 </li>
               ))}
             </ul>
 
-            <div className="mt-12 flex flex-col gap-6 rounded-[28px] border border-indigo-100 bg-white/90 px-6 py-8 shadow-lg shadow-indigo-100/60 lg:flex-row lg:items-center lg:justify-between">
+            <div className="mt-12 flex flex-col gap-6 rounded-[28px] border border-indigo-100 bg-white/90 px-6 py-8 shadow-lg shadow-indigo-100/60 lg:flex-row lg:items-center lg:justify-between dark:border-indigo-900 dark:bg-gray-900/80 dark:shadow-indigo-950/40">
               <div className="grid flex-1 gap-4 sm:grid-cols-3">
                 {heroProofStats.map(stat => (
                   <div
                     key={stat.label}
-                    className="rounded-2xl border border-indigo-100 bg-indigo-50/60 px-4 py-4 text-left shadow-sm shadow-indigo-100/50"
+                    className="rounded-2xl border border-indigo-100 bg-indigo-50/60 px-4 py-4 text-left shadow-sm shadow-indigo-100/50 dark:border-indigo-900 dark:bg-indigo-500/15 dark:shadow-indigo-950/30"
                   >
-                    <p className="text-xl font-semibold text-slate-900">{stat.value}</p>
-                    <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-indigo-600">
+                    <p className="text-xl font-semibold text-slate-900 dark:text-gray-100">{stat.value}</p>
+                    <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-300">
                       {stat.label}
                     </p>
                   </div>
                 ))}
               </div>
-              <div className="flex-1 rounded-2xl border border-slate-200 bg-white px-6 py-5 text-left shadow-sm shadow-slate-100 lg:max-w-md">
-                <p className="text-sm text-slate-700 leading-relaxed">“{heroTestimonial.quote}”</p>
-                <p className="mt-3 text-xs text-slate-500">
+              <div className="flex-1 rounded-2xl border border-slate-200 bg-white px-6 py-5 text-left shadow-sm shadow-slate-100 lg:max-w-md dark:border-slate-700 dark:bg-slate-900/80 dark:shadow-slate-950/40">
+                <p className="text-sm text-slate-700 leading-relaxed dark:text-gray-300">“{heroTestimonial.quote}”</p>
+                <p className="mt-3 text-xs text-slate-500 dark:text-gray-400">
                   {heroTestimonial.author} · {heroTestimonial.role}
                 </p>
               </div>
