@@ -264,18 +264,28 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     const yText = collab.doc.getText('main')
     try {
       const current = yText.toString()
-      if (typeof initialLatexSource === 'string' && initialLatexSource.length > 0 && current !== initialLatexSource) {
-        yText.delete(0, current.length)
+
+      // Only seed if the Yjs doc is completely empty
+      // Never overwrite existing collaborative content
+      if (current.length === 0 && initialLatexSource && initialLatexSource.length > 0) {
+        console.info('[DocumentShell] Seeding empty Yjs doc with saved content', {
+          paperId,
+          contentLength: initialLatexSource.length
+        })
         yText.insert(0, initialLatexSource)
-      } else if (current.length === 0 && initialLatexSource) {
-        yText.insert(0, initialLatexSource)
+      } else {
+        console.info('[DocumentShell] Skipping seed - Yjs doc already has content', {
+          paperId,
+          currentLength: current.length,
+          savedLength: initialLatexSource?.length || 0
+        })
       }
     } catch (error) {
-      console.warn('[DocumentShell] failed to align collab doc with initial content', error)
+      console.warn('[DocumentShell] failed to seed collab doc with initial content', error)
     }
 
     collabBootstrappedRef.current = true
-  }, [collab.enabled, collab.doc, collab.status, collab.providerVersion, initialLatexSource])
+  }, [collab.enabled, collab.doc, collab.status, collab.providerVersion, initialLatexSource, paperId])
 
   useEffect(() => {
     if (!collabFeatureEnabled || readOnly) return
