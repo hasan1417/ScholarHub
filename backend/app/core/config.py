@@ -1,69 +1,64 @@
-from pydantic_settings import BaseSettings
+from functools import lru_cache
 from typing import List, Optional
 import os
 
+from pydantic import Field, ValidationError, model_validator
+from pydantic_settings import BaseSettings
+
+
+DEV_SECRET = "dev-secret-key"
+DEV_DATABASE_URL = "postgresql://scholarhub:scholarhub@localhost:5432/scholarhub"
+DEV_REDIS_URL = "redis://localhost:6379"
+
+
 class Settings(BaseSettings):
+    # Environment
+    ENVIRONMENT: str = Field(default="development", alias="ENVIRONMENT")
+    DEBUG: bool = Field(default=True, alias="DEBUG")
+
     # API Configuration
     API_V1_STR: str = "/api/v1"
     PROJECT_NAME: str = "ScholarHub"
-    
-    # Database
-    DATABASE_URL: str = "postgresql://scholarhub:scholarhub@localhost:5432/scholarhub"
-    
-    # Redis
-    REDIS_URL: str = "redis://localhost:6379"
-    
+
+    # Database / cache
+    DATABASE_URL: str = Field(default=DEV_DATABASE_URL, alias="DATABASE_URL")
+    REDIS_URL: str = Field(default=DEV_REDIS_URL, alias="REDIS_URL")
+
     # Security
-    SECRET_KEY: str = "your-super-secret-key-change-this-in-production"
+    SECRET_KEY: str = Field(default=DEV_SECRET, alias="SECRET_KEY")
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours for testing
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 7  # Refresh token expires in 7 days
-    
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours (adjust in hardening step)
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
     # CORS
-    BACKEND_CORS_ORIGINS: List[str] = [
-        "http://localhost:3000",
-        "http://localhost:8000",
-        "http://127.0.0.1:5500",
-        "http://localhost:5500",
-        "http://localhost:8080",
-    ]
-    
-    # Unpaywall (for OA resolution)
+    BACKEND_CORS_ORIGINS: List[str] = Field(
+        default_factory=lambda: [
+            "http://localhost:3000",
+            "http://localhost:8000",
+            "http://127.0.0.1:5500",
+            "http://localhost:5500",
+            "http://localhost:8080",
+        ]
+    )
+
+    # Optional external integrations
     UNPAYWALL_EMAIL: Optional[str] = None
-
-    # NCBI contact email for PubMed requests
     NCBI_EMAIL: Optional[str] = None
-
-    # Semantic Scholar API (optional, improves reliability and quotas)
     SEMANTIC_SCHOLAR_API_KEY: Optional[str] = None
-
-    # ScienceDirect / Elsevier API (optional)
     SCIENCEDIRECT_API_KEY: Optional[str] = None
-
-    # OpenAI (optional, for query enhancement and ranking)
     OPENAI_API_KEY: Optional[str] = None
-    # Model for Rich→LaTeX conversion (optional override)
     OPENAI_CONVERSION_MODEL: Optional[str] = None
     OPENAI_PLANNER_MODEL: Optional[str] = "gpt-5"
     USE_OPENAI_TRANSCRIBE: bool = True
     OPENAI_TRANSCRIBE_MODEL: str = "gpt-4o-transcribe"
 
-    # Development
-    DEBUG: bool = True
-    ENVIRONMENT: str = "development"
-    
-    # Chat Features
+    # Feature flags
     CHAT_ASSISTANT_SLASH_ENABLED: bool = False
-    
-    # Alternative access (for demonstration only - disable in production)
     ENABLE_ALTERNATIVE_ACCESS: bool = False
-    
-    # Enhanced paper access settings
     ENABLE_UNIVERSITY_SSO_DETECTION: bool = True
     ENABLE_PDF_REDIRECT_SEARCH: bool = True
-    PAPER_ACCESS_TIMEOUT: int = 30  # seconds
+    PAPER_ACCESS_TIMEOUT: int = 30
 
-    # Project-first flighting
     PROJECTS_API_ENABLED: bool = False
     PROJECT_FIRST_NAV_ENABLED: bool = False
     PROJECT_REFERENCE_SUGGESTIONS_ENABLED: bool = True
@@ -72,14 +67,12 @@ class Settings(BaseSettings):
     PROJECT_MEETINGS_ENABLED: bool = False
     PROJECT_NOTIFICATIONS_ENABLED: bool = False
 
-    # Collaboration (Phase 3)
     COLLAB_JWT_SECRET: Optional[str] = None
     COLLAB_JWT_ALGORITHM: str = "HS256"
     COLLAB_JWT_EXPIRE_SECONDS: int = 300
     COLLAB_WS_URL: str = "ws://localhost:3001"
-    COLLAB_DEFAULT_ROLES: List[str] = ["editor"]
+    COLLAB_DEFAULT_ROLES: List[str] = Field(default_factory=lambda: ["editor"])
 
-    # Sync Space / Meetings configuration
     SYNC_ROOM_PREFIX: str = "sync"
     DAILY_API_BASE_URL: str = "https://api.daily.co/v1"
     DAILY_API_KEY: Optional[str] = None
@@ -102,28 +95,86 @@ class Settings(BaseSettings):
     TRANSCRIBER_BASE_URL: Optional[str] = "http://localhost:9000"
     TRANSCRIBER_ENABLED: bool = False
 
-    # University authentication domains (comma-separated)
-    UNIVERSITY_DOMAINS: str = "ieee.org,acm.org,springer.com,sciencedirect.com,wiley.com,nature.com,science.org,jstor.org"
-
-    # Public base URL (reserved for future webhooks/integrations)
+    UNIVERSITY_DOMAINS: str = (
+        "ieee.org,acm.org,springer.com,sciencedirect.com,wiley.com,nature.com,science.org,jstor.org"
+    )
     PUBLIC_BASE_URL: Optional[str] = None
 
-    # Deprecated: OnlyOffice integration (kept to avoid env validation errors)
     ONLYOFFICE_DOCSERVER_URL: Optional[str] = None
     ONLYOFFICE_JWT_SECRET: Optional[str] = None
     BACKEND_PUBLIC_URL: Optional[str] = None
 
-    # Metrics / Telemetry
     ENABLE_METRICS: bool = False
-
-    # LaTeX warmup
     LATEX_WARMUP_ON_STARTUP: bool = True
 
-    # (Purged) Discovery advanced flags removed for simplicity
-    
     class Config:
         env_file = (".env", "../.env")
         case_sensitive = True
-        extra = 'ignore'
+        extra = "ignore"
 
-settings = Settings()
+    @model_validator(mode="after")
+    def validate_security_critical(self):
+        is_dev = (self.ENVIRONMENT or "development").lower() == "development"
+        missing = []
+
+        if not self.SECRET_KEY or self.SECRET_KEY == DEV_SECRET:
+            if not is_dev:
+                missing.append("SECRET_KEY")
+
+        if not self.DATABASE_URL or self.DATABASE_URL == DEV_DATABASE_URL:
+            if not is_dev:
+                missing.append("DATABASE_URL")
+
+        if not self.REDIS_URL or self.REDIS_URL == DEV_REDIS_URL:
+            if not is_dev:
+                missing.append("REDIS_URL")
+
+        if missing:
+            raise ValidationError(
+                [
+                    {
+                        "loc": ("configuration",),
+                        "msg": f"Missing required environment settings: {', '.join(missing)}",
+                        "type": "value_error.missing",
+                    }
+                ],
+                Settings,
+            )
+
+        if not is_dev and self.DEBUG:
+            raise ValidationError(
+                [
+                    {
+                        "loc": ("DEBUG",),
+                        "msg": "DEBUG must be False outside development",
+                        "type": "value_error",
+                    }
+                ],
+                Settings,
+            )
+
+        # Restrict default CORS origins in production if user hasn't overridden them
+        if not is_dev:
+            localhost_origins = {origin for origin in self.BACKEND_CORS_ORIGINS if "localhost" in origin or "127.0.0.1" in origin}
+            if localhost_origins and len(set(self.BACKEND_CORS_ORIGINS)) == len(localhost_origins):
+                raise ValidationError(
+                    [
+                        {
+                            "loc": ("BACKEND_CORS_ORIGINS",),
+                            "msg": "BACKEND_CORS_ORIGINS must be set to explicit production origins",
+                            "type": "value_error",
+                        }
+                    ],
+                    Settings,
+                )
+
+        return self
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()
+
