@@ -109,6 +109,9 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     wsUrl: collabToken?.ws_url ?? null,
   })
   const collabBootstrappedRef = useRef(false)
+  useEffect(() => {
+    collabBootstrappedRef.current = false
+  }, [collab.doc, collab.enabled])
 
   useEffect(() => {
     if (!collabFeatureEnabled || readOnly || !paperId) {
@@ -254,18 +257,20 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
 
   useEffect(() => {
     if (!collab.enabled || !collab.doc) return
+    if (collabBootstrappedRef.current) return
+    if (collab.status !== 'connected') return
+    if (!collab.providerVersion) return
+
     const yText = collab.doc.getText('main')
-    if (!collabBootstrappedRef.current) {
-      if (yText.length === 0 && initialLatexSource) {
-        try {
-          yText.insert(0, initialLatexSource)
-        } catch (error) {
-          console.warn('[DocumentShell] failed to seed collab doc', error)
-        }
+    if (yText.length === 0 && initialLatexSource) {
+      try {
+        yText.insert(0, initialLatexSource)
+      } catch (error) {
+        console.warn('[DocumentShell] failed to seed collab doc', error)
       }
-      collabBootstrappedRef.current = true
     }
-  }, [collab.enabled, collab.doc, initialLatexSource])
+    collabBootstrappedRef.current = true
+  }, [collab.enabled, collab.doc, collab.status, collab.providerVersion, initialLatexSource])
 
   useEffect(() => {
     if (!collabFeatureEnabled || readOnly) return
