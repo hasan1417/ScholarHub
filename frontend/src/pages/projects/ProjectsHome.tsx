@@ -369,7 +369,6 @@ const ProjectsHome = () => {
       ) : viewMode === 'grid' ? (
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {filteredProjects.map((project) => {
-          const keywords = Array.isArray(project.keywords) ? project.keywords : []
           const membershipStatus = project.current_user_status?.toLowerCase()
           const membershipRole = project.current_user_role?.toLowerCase()
           const canEditProject =
@@ -384,31 +383,11 @@ const ProjectsHome = () => {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">{project.title}</h3>
-                    {project.idea && (
-                      <p className="mt-2 line-clamp-2 text-sm text-gray-500 dark:text-slate-300">{project.idea}</p>
-                    )}
                   </div>
                   <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600 dark:bg-slate-700 dark:text-slate-200">
                     {project.status || 'Active'}
                   </span>
                 </div>
-                {keywords.length > 0 && (
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {keywords.slice(0, 4).map((keyword) => (
-                      <span
-                        key={keyword}
-                        className="inline-flex rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 dark:bg-indigo-400/10 dark:text-indigo-200"
-                      >
-                        {keyword}
-                      </span>
-                    ))}
-                    {keywords.length > 4 && (
-                      <span className="inline-flex rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 dark:bg-indigo-400/10 dark:text-indigo-200">
-                        +{keywords.length - 4}
-                      </span>
-                    )}
-                  </div>
-                )}
               </div>
               <div className="mt-6 flex items-center justify-between text-xs text-gray-500 dark:text-slate-300">
                 <span>Updated {formatDate(project.updated_at)}</span>
@@ -444,27 +423,18 @@ const ProjectsHome = () => {
               <tr>
                 <th className="px-6 py-3">Project</th>
                 <th className="px-6 py-3">Scope</th>
-                <th className="px-6 py-3">Keywords</th>
                 <th className="px-6 py-3">Updated</th>
                 <th className="px-6 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 text-sm text-gray-700 dark:divide-slate-700 dark:text-slate-200">
               {filteredProjects.map((project) => {
-                const keywords = Array.isArray(project.keywords) ? project.keywords : []
                 return (
                   <tr key={project.id} className="hover:bg-gray-50 dark:hover:bg-slate-700/40">
                     <td className="px-6 py-4">
                       <div className="font-medium text-gray-900 dark:text-slate-100">{project.title}</div>
-                      {project.idea && (
-                        <div className="mt-1 text-xs text-gray-500 line-clamp-1 dark:text-slate-300">{project.idea}</div>
-                      )}
                     </td>
                     <td className="px-6 py-4 text-gray-500 dark:text-slate-300">{project.scope || '—'}</td>
-                    <td className="px-6 py-4 text-gray-500 dark:text-slate-300">
-                      {keywords.length ? keywords.slice(0, 3).join(', ') : '—'}
-                      {keywords.length > 3 && `, +${keywords.length - 3}`}
-                    </td>
                     <td className="px-6 py-4 text-gray-500 dark:text-slate-300">{formatDate(project.updated_at)}</td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex justify-end gap-3">

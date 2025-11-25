@@ -100,17 +100,17 @@ const Register = () => {
     'w-full rounded-lg border px-3 py-2 transition-colors focus:outline-none sm:text-sm'
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50 px-4 py-10 sm:px-6 lg:px-8 sm:py-16 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50 px-4 py-10 sm:px-6 lg:px-8 sm:py-16 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800">
       <div className="max-w-md w-full space-y-6 sm:space-y-8">
-        <div className="bg-white/95 backdrop-blur rounded-2xl border border-gray-200/70 shadow-lg shadow-indigo-100/50 p-6 sm:p-8 dark:bg-gray-900/90 dark:border-gray-800 dark:shadow-indigo-950/40">
+        <div className="bg-white/95 backdrop-blur rounded-2xl border border-gray-200/70 shadow-lg shadow-indigo-100/50 p-6 sm:p-8 dark:bg-slate-800/95 dark:border-slate-700/70 dark:shadow-slate-900/50">
           <div className="text-center">
-            <span className="text-3xl font-bold text-gray-900 dark:text-gray-100">ScholarHub</span>
+            <span className="text-3xl font-bold text-gray-900 dark:text-slate-100">ScholarHub</span>
           </div>
 
-          <h1 className="mt-6 text-center text-2xl font-semibold text-gray-900 dark:text-gray-100">Create your account</h1>
+          <h1 className="mt-6 text-center text-2xl font-semibold text-gray-900 dark:text-slate-100">Create your account</h1>
 
           {formErrors.general && (
-            <div className="mt-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <div className="mt-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-400/10 dark:text-red-200">
               {formErrors.general}
             </div>
           )}
@@ -118,7 +118,7 @@ const Register = () => {
           <form className="mt-6 space-y-5" onSubmit={handleSubmit} noValidate>
             <div className="grid gap-4 sm:grid-cols-2 sm:gap-3">
               <div>
-                <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 dark:text-slate-300">
                   First name
                 </label>
                 <input
@@ -131,23 +131,23 @@ const Register = () => {
                   aria-describedby={formErrors.firstName ? 'firstName-error' : undefined}
                   className={`${inputBaseClasses} ${
                     formErrors.firstName
-                      ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-500'
-                      : 'border-gray-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100'
-                }`}
+                      ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-500 dark:border-red-800 dark:bg-slate-900 dark:text-slate-100'
+                      : 'border-gray-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100'
+                  }`}
                   placeholder="Ada"
                   value={formData.firstName}
                   onChange={handleChange}
                   disabled={isLoading}
                 />
                 {formErrors.firstName && (
-                  <p id="firstName-error" className="mt-1 text-xs text-red-600">
+                  <p id="firstName-error" className="mt-1 text-xs text-red-600 dark:text-red-200">
                     {formErrors.firstName}
                   </p>
                 )}
               </div>
 
               <div>
-                <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 dark:text-slate-300">
                   Last name
                 </label>
                 <input
@@ -160,16 +160,16 @@ const Register = () => {
                   aria-describedby={formErrors.lastName ? 'lastName-error' : undefined}
                   className={`${inputBaseClasses} ${
                     formErrors.lastName
-                      ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-500'
-                      : 'border-gray-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100'
-                }`}
+                      ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-500 dark:border-red-800 dark:bg-slate-900 dark:text-slate-100'
+                      : 'border-gray-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100'
+                  }`}
                   placeholder="Lovelace"
                   value={formData.lastName}
                   onChange={handleChange}
                   disabled={isLoading}
                 />
                 {formErrors.lastName && (
-                  <p id="lastName-error" className="mt-1 text-xs text-red-600">
+                  <p id="lastName-error" className="mt-1 text-xs text-red-600 dark:text-red-200">
                     {formErrors.lastName}
                   </p>
                 )}
@@ -177,7 +177,7 @@ const Register = () => {
             </div>
 
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-slate-300">
                 Email address
               </label>
               <input
@@ -190,8 +190,8 @@ const Register = () => {
                 aria-describedby={formErrors.email ? 'email-error' : undefined}
                 className={`${inputBaseClasses} ${
                   formErrors.email
-                    ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-500'
-                    : 'border-gray-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100'
+                    ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-500 dark:border-red-800 dark:bg-slate-900 dark:text-slate-100'
+                    : 'border-gray-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100'
                 }`}
                 placeholder="you@lab.org"
                 value={formData.email}
@@ -199,14 +199,14 @@ const Register = () => {
                 disabled={isLoading}
               />
               {formErrors.email && (
-                <p id="email-error" className="mt-1 text-xs text-red-600">
+                <p id="email-error" className="mt-1 text-xs text-red-600 dark:text-red-200">
                   {formErrors.email}
                 </p>
               )}
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-slate-300">
                 Password
               </label>
               <input
@@ -219,8 +219,8 @@ const Register = () => {
                 aria-describedby={formErrors.password ? 'password-error' : undefined}
                 className={`${inputBaseClasses} ${
                   formErrors.password
-                    ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-500'
-                    : 'border-gray-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100'
+                    ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-500 dark:border-red-800 dark:bg-slate-900 dark:text-slate-100'
+                    : 'border-gray-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100'
                 }`}
                 placeholder="Create a secure password"
                 value={formData.password}
@@ -228,14 +228,14 @@ const Register = () => {
                 disabled={isLoading}
               />
               {formErrors.password && (
-                <p id="password-error" className="mt-1 text-xs text-red-600">
+                <p id="password-error" className="mt-1 text-xs text-red-600 dark:text-red-200">
                   {formErrors.password}
                 </p>
               )}
             </div>
 
             <div>
-              <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 dark:text-slate-300">
                 Confirm password
               </label>
               <input
@@ -248,8 +248,8 @@ const Register = () => {
                 aria-describedby={formErrors.confirmPassword ? 'confirmPassword-error' : undefined}
                 className={`${inputBaseClasses} ${
                   formErrors.confirmPassword
-                    ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-500'
-                    : 'border-gray-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100'
+                    ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-500 dark:border-red-800 dark:bg-slate-900 dark:text-slate-100'
+                    : 'border-gray-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100'
                 }`}
                 placeholder="Re-enter your password"
                 value={formData.confirmPassword}
@@ -257,19 +257,19 @@ const Register = () => {
                 disabled={isLoading}
               />
               {formErrors.confirmPassword && (
-                <p id="confirmPassword-error" className="mt-1 text-xs text-red-600">
+                <p id="confirmPassword-error" className="mt-1 text-xs text-red-600 dark:text-red-200">
                   {formErrors.confirmPassword}
                 </p>
               )}
             </div>
 
-            <p className="text-xs text-gray-500">
-              By creating an account you agree to keep your collaborators’ data secure and follow your institution’s sharing guidelines.
+            <p className="text-xs text-gray-500 dark:text-slate-400">
+              By creating an account you agree to keep your collaborators' data secure and follow your institution's sharing guidelines.
             </p>
 
             <button
               type="submit"
-              className="w-full rounded-lg bg-indigo-600 py-3 text-sm font-medium text-white transition-colors duration-200 hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="w-full rounded-lg bg-indigo-600 py-3 text-sm font-medium text-white transition-colors duration-200 hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-indigo-500 dark:hover:bg-indigo-600"
               disabled={isLoading}
             >
               {isLoading ? (
@@ -295,9 +295,9 @@ const Register = () => {
             </button>
           </form>
 
-          <div className="mt-6 text-center text-sm text-gray-600 dark:text-gray-300">
+          <div className="mt-6 text-center text-sm text-gray-600 dark:text-slate-400">
             <span>Already have an account? </span>
-            <Link to="/login" className="font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300">
+            <Link to="/login" className="font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-300 dark:hover:text-indigo-200">
               Sign in
             </Link>
           </div>
@@ -306,7 +306,7 @@ const Register = () => {
         <div className="flex justify-center">
           <Link
             to="/"
-            className="inline-flex items-center gap-2 rounded-full border border-transparent px-4 py-2 text-sm font-medium text-gray-600 transition hover:border-gray-300 hover:bg-white dark:text-gray-300 dark:hover:bg-gray-900"
+            className="inline-flex items-center gap-2 rounded-full border border-transparent px-4 py-2 text-sm font-medium text-gray-600 transition hover:border-gray-300 hover:bg-white dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-800"
           >
             <ArrowLeft className="h-4 w-4" />
             Back to home

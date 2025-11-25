@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
 from app.database import get_db
@@ -15,6 +16,8 @@ from app.services.document_processing_service import DocumentProcessingService
 from app.schemas.ai import ChatQuery, ChatResponse, DocumentProcessingResponse
 from pydantic import BaseModel
 import logging
+import time
+from app.models.paper_reference import PaperReference
 
 logger = logging.getLogger(__name__)
 
@@ -487,6 +490,20 @@ async def generate_text(
         )
 
 
+@router.post("/writing/generate/stream")
+async def generate_text_stream(
+    request: TextGenerationRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Stream text generation response in plain text chunks.
+    """
+    base_response = await generate_text(request, db, current_user)
+    text = base_response.generated_text if isinstance(base_response, TextGenerationResponse) else str(base_response)
+    return StreamingResponse(_chunk_text_stream(text), media_type="text/plain")
+
+
 @router.post("/writing/grammar-check", response_model=GrammarCheckResponse)
 async def check_grammar_and_style(
     request: GrammarCheckRequest,
@@ -594,6 +611,16 @@ class ReferenceChatResponse(BaseModel):
     scope: str  # "paper" or "global"
     paper_title: Optional[str] = None  # If scoped to paper
 
+def _chunk_text_stream(text: str, chunk_size: int = 512):
+    """
+    Yield plain text chunks for streaming responses.
+    """
+    if not text:
+        yield ""
+        return
+    for i in range(0, len(text), chunk_size):
+        yield text[i:i + chunk_size]
+
 
 @router.post("/chat-with-references", response_model=ReferenceChatResponse)
 async def chat_with_references(
@@ -671,12 +698,54 @@ async def chat_with_references(
             logger.info(f"  - {ref.id}: status={ref.status}, title={ref.title[:50]}...")
         
         if ref_count == 0:
-            scope_msg = f"for paper '{paper_title}'" if query.paper_id else "in your library"
-            error_msg = f"No processed references found {scope_msg}. Please add references with PDFs first."
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=error_msg
-            )
+            # Allow a graceful fallback: inform the user which references are missing PDFs instead of hard-blocking
+            scoped_refs: List[Reference] = []
+            if query.paper_id:
+                scoped_refs = (
+                    db.query(Reference)
+                    .join(PaperReference, PaperReference.reference_id == Reference.id)
+                    .filter(PaperReference.paper_id == query.paper_id)
+                    .all()
+                )
+            else:
+                scoped_refs = (
+                    db.query(Reference)
+                    .filter(Reference.owner_id == current_user.id)
+                    .all()
+                )
+
+            if not scoped_refs:
+                scope_msg = f"for paper '{paper_title}'" if query.paper_id else "in your library"
+                error_msg = f"No references found {scope_msg}. Please add references with PDFs first."
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=error_msg
+                )
+
+            missing_titles = [
+                (ref.title or "Untitled reference")
+                for ref in scoped_refs
+                if not getattr(ref, "pdf_url", None)
+            ]
+            pending_processing = [
+                (ref.title or "Untitled reference")
+                for ref in scoped_refs
+                if getattr(ref, "pdf_url", None) and ref.status != "analyzed"
+            ]
+
+            if missing_titles or pending_processing:
+                missing_str = ", ".join(missing_titles[:5]) + ("…" if len(missing_titles) > 5 else "")
+                pending_str = ", ".join(pending_processing[:5]) + ("…" if len(pending_processing) > 5 else "")
+                parts = []
+                if missing_titles:
+                    parts.append(f"Missing PDFs: {missing_str}.")
+                if pending_processing:
+                    parts.append(f"Needs processing: {pending_str}.")
+                detail_msg = " ".join(parts) or "References need PDFs or processing for grounded answers."
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=detail_msg,
+                )
 
         # Perform chat with references
         logger.info(f"Calling AI service for reference chat - user {current_user.id}")
@@ -704,7 +773,7 @@ async def chat_with_references(
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail=f"AI service result missing {key}"
-                )
+        )
 
         return ReferenceChatResponse(
             response=result['response'],
@@ -723,6 +792,21 @@ async def chat_with_references(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An error occurred while processing your request: {str(e)}"
         )
+
+
+@router.post("/chat-with-references/stream")
+async def chat_with_references_stream(
+    query: ReferenceChatQuery,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Stream reference chat response in plain text chunks.
+    """
+    # Reuse the main logic but stream only the response text
+    base_response = await chat_with_references(query, db, current_user)
+    text = base_response.response if isinstance(base_response, ReferenceChatResponse) else str(base_response)
+    return StreamingResponse(_chunk_text_stream(text), media_type="text/plain")
 
 
 @router.post("/papers/{paper_id}/ingest-references")
@@ -1078,17 +1162,17 @@ async def ai_text_tools(
             )
 
         # Call OpenAI API
-        response = client.chat.completions.create(
+        response = client.responses.create(
             model="gpt-4o-mini",
-            messages=[
+            input=[
                 {"role": "system", "content": "You are a helpful writing assistant for academic and professional writing. Provide clear, concise, and accurate responses."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
-            max_tokens=1000
+            max_output_tokens=1000
         )
 
-        result = response.choices[0].message.content.strip()
+        result = (response.output_text or "").strip()
 
         return TextToolsResponse(result=result)
 

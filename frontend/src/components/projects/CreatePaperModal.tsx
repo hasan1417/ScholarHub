@@ -1,7 +1,10 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { referencesAPI } from '../../services/api'
 import ReferencePickerModal from '../references/ReferencePickerModal'
 import { ResearchPaperCreate } from '../../types'
+import { usePapers } from '../../contexts/PapersContext'
+import { hasDuplicatePaperTitle, normalizePaperTitle } from '../../utils/papers'
+import { PAPER_TEMPLATES } from '../../constants/paperTemplates'
 
 interface CreatePaperModalProps {
   isOpen: boolean
@@ -16,6 +19,7 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
   onSubmit,
   isLoading = false
 }) => {
+  const { papers } = usePapers()
   const [formData, setFormData] = useState<ResearchPaperCreate>({
     title: '',
     abstract: '',
@@ -30,6 +34,18 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
   const [myRefs, setMyRefs] = useState<Array<{ id: string; title: string; authors?: string[]; year?: number }>>([])
   const [selectedRefIds, setSelectedRefIds] = useState<Set<string>>(new Set())
   const [showRefPicker, setShowRefPicker] = useState(false)
+  const duplicateTitle = useMemo(() => {
+    if (!formData.title) return false
+    const existing = papers.map((paper) => ({
+      title: paper.title,
+      projectId: paper.project_id ?? null,
+    }))
+    return hasDuplicatePaperTitle(existing, formData.title, null)
+  }, [formData.title, papers])
+
+  const selectedTemplateDefinition = useMemo(() => {
+    return PAPER_TEMPLATES.find((template) => template.id === formData.paper_type) ?? PAPER_TEMPLATES[0]
+  }, [formData.paper_type])
 
   // Load user's references for dropdown
   useEffect(() => {
@@ -52,15 +68,6 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
     load()
     return () => { mounted = false }
   }, [])
-
-  const paperTypes = [
-    { value: 'research', label: 'Research Paper' },
-    { value: 'review', label: 'Literature Review' },
-    { value: 'case_study', label: 'Case Study' },
-    { value: 'methodology', label: 'Methodology Paper' },
-    { value: 'theoretical', label: 'Theoretical Paper' },
-    { value: 'experimental', label: 'Experimental Paper' }
-  ]
 
   const validateForm = (): boolean => {
     const newErrors: Partial<ResearchPaperCreate> = {}
@@ -96,11 +103,12 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
           if (arr.length > 0) (payload as any).keywords = arr
           else delete (payload as any).keywords
         }
-        // Seed content_json with authoring mode; for LaTeX, start blank
+        // Seed template content based on paper type selection
         if (authoringMode === 'latex') {
-          ;(payload as any).content_json = { authoring_mode: 'latex', latex_source: '' }
+          ;(payload as any).content_json = { authoring_mode: 'latex', latex_source: selectedTemplateDefinition.latexTemplate }
           payload.content = undefined
         } else {
+          payload.content = selectedTemplateDefinition.richTemplate
           ;(payload as any).content_json = { authoring_mode: 'rich' }
         }
         await onSubmit(payload, Array.from(selectedRefIds))
@@ -119,6 +127,8 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
         onClose()
       } catch (error) {
         console.error('Error creating paper:', error)
+        const detail = extractApiDetail(error) ?? 'Unable to create paper. Please try again.'
+        setErrors((prev) => ({ ...prev, title: detail }))
       }
     }
   }
@@ -164,13 +174,18 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
               value={formData.title}
               onChange={(e) => handleInputChange('title', e.target.value)}
               className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                errors.title ? 'border-red-500' : 'border-gray-300'
+                errors.title || duplicateTitle ? 'border-red-500' : 'border-gray-300'
               }`}
               placeholder="Enter paper title"
               maxLength={255}
             />
             {errors.title && (
               <p className="text-red-500 text-sm mt-1">{errors.title}</p>
+            )}
+            {!errors.title && duplicateTitle && (
+              <p className="text-red-500 text-sm mt-1">
+                A paper with this title already exists in this workspace.
+              </p>
             )}
             <p className="text-xs text-gray-500 mt-1">
               {formData.title.length}/255 characters
@@ -179,21 +194,33 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
 
           {/* Paper Type */}
           <div>
-            <label htmlFor="paper_type" className="block text-sm font-medium text-gray-700 mb-1">
-              Paper Type *
-            </label>
-            <select
-              id="paper_type"
-              value={formData.paper_type}
-              onChange={(e) => handleInputChange('paper_type', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              {paperTypes.map(type => (
-                <option key={type.value} value={type.value}>
-                  {type.label}
-                </option>
-              ))}
-            </select>
+            <p className="block text-sm font-medium text-gray-700 mb-2">Paper Type & Template *</p>
+            <div className="grid gap-3 md:grid-cols-3">
+              {PAPER_TEMPLATES.map((template) => {
+                const isSelected = template.id === selectedTemplateDefinition.id
+                return (
+                  <button
+                    type="button"
+                    key={template.id}
+                    onClick={() => handleInputChange('paper_type', template.id)}
+                    className={`rounded-xl border px-4 py-3 text-left transition ${
+                      isSelected ? 'border-indigo-500 bg-indigo-50 text-indigo-900' : 'border-gray-200 hover:border-indigo-200'
+                    }`}
+                  >
+                    <p className="text-sm font-semibold">{template.label}</p>
+                    <p className="mt-1 text-xs text-gray-600">{template.description}</p>
+                  </button>
+                )
+              })}
+            </div>
+            <div className="mt-3 rounded-lg border border-dashed border-gray-200 bg-gray-50 p-3">
+              <p className="text-xs font-semibold uppercase text-gray-500">Template sections</p>
+              <ul className="mt-1 list-disc pl-5 text-xs text-gray-700">
+                {selectedTemplateDefinition.sections.map((section) => (
+                  <li key={section}>{section}</li>
+                ))}
+              </ul>
+            </div>
           </div>
 
           {/* Abstract */}
@@ -314,7 +341,7 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || duplicateTitle || !normalizePaperTitle(formData.title)}
               className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
             >
               {isLoading ? 'Creating...' : 'Create Paper'}
@@ -334,3 +361,14 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
 }
 
 export default CreatePaperModal
+
+const extractApiDetail = (error: unknown): string | null => {
+  if (error && typeof error === 'object' && 'response' in error) {
+    const response = (error as { response?: { data?: { detail?: string } } }).response
+    const detail = response?.data?.detail
+    if (typeof detail === 'string' && detail.trim()) {
+      return detail
+    }
+  }
+  return null
+}

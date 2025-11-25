@@ -48,6 +48,13 @@ const ProjectPapers = () => {
     return date.toLocaleDateString()
   }
 
+  const formatPaperType = (paperType?: string) => {
+    if (!paperType) return null
+    return paperType
+      .split('_')
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ')
+  }
 
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -86,6 +93,12 @@ const ProjectPapers = () => {
             // Detect editor type from authoring_mode in content_json
             const authoringMode = paper.content_json?.authoring_mode
             const isLatex = authoringMode === 'latex'
+            const objectiveList = Array.isArray(paper.objectives)
+              ? paper.objectives.filter(Boolean)
+              : paper.objectives
+              ? [paper.objectives]
+              : []
+            const formattedType = formatPaperType(paper.paper_type)
 
             return (
               <Link
@@ -109,21 +122,23 @@ const ProjectPapers = () => {
                       {paper.title}
                     </h3>
                     {/* Status badge with color */}
-                    <span className={`flex-shrink-0 inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${getStatusColor(paper.status || 'draft')}`}>
+                    <span
+                      className={`flex-shrink-0 inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${getStatusColor(paper.status || 'draft')}`}
+                    >
                       {paper.status || 'Draft'}
                     </span>
                   </div>
 
                   {/* Metadata row */}
-                  <div className="mt-2 flex items-center gap-2">
-                    <span className="text-xs text-gray-500 dark:text-slate-300">
-                      Updated {formatRelativeTime(paper.updated_at)}
-                    </span>
-                    <span className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium transition-colors ${
-                      isLatex
-                        ? 'bg-purple-50 text-purple-700 dark:bg-purple-400/10 dark:text-purple-200'
-                        : 'bg-blue-50 text-blue-700 dark:bg-blue-400/10 dark:text-blue-200'
-                    }`}>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-slate-300">
+                    <span>Updated {formatRelativeTime(paper.updated_at)}</span>
+                    <span
+                      className={`inline-flex items-center gap-1 rounded px-2 py-0.5 font-medium transition-colors ${
+                        isLatex
+                          ? 'bg-purple-50 text-purple-700 dark:bg-purple-400/10 dark:text-purple-200'
+                          : 'bg-blue-50 text-blue-700 dark:bg-blue-400/10 dark:text-blue-200'
+                      }`}
+                    >
                       {isLatex ? (
                         <>
                           <FileCode className="h-3 w-3" />
@@ -136,12 +151,25 @@ const ProjectPapers = () => {
                         </>
                       )}
                     </span>
-                    {paper.paper_type && (
-                      <span className="inline-flex items-center rounded bg-gray-50 px-2 py-0.5 text-xs font-medium text-gray-700 capitalize dark:bg-slate-700 dark:text-slate-200">
-                        {paper.paper_type}
+                    {formattedType && (
+                      <span className="inline-flex items-center rounded bg-gray-50 px-2 py-0.5 font-medium text-gray-700 dark:bg-slate-700 dark:text-slate-200">
+                        {formattedType}
                       </span>
                     )}
                   </div>
+
+                  {objectiveList.length > 0 && (
+                    <div className="mt-3 rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2 dark:border-slate-600 dark:bg-slate-700/70">
+                      <p className="text-xs font-semibold text-indigo-900 dark:text-slate-100">Objectives</p>
+                      <ul className="mt-1 space-y-1 text-xs text-indigo-900/90 dark:text-slate-200 list-disc list-inside marker:text-indigo-500 dark:marker:text-slate-200">
+                        {objectiveList.map((objective, idx) => (
+                          <li key={idx} className="leading-snug">
+                            {objective}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               </Link>
             )

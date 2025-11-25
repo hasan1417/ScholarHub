@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Sequence
 from uuid import UUID
 
 from sqlalchemy.orm import Session, joinedload
@@ -13,10 +14,12 @@ from app.models import (
     ProjectDiscussionMessage,
     ProjectDiscussionResourceType,
     ProjectDiscussionTask,
+    ResearchPaper,
 )
 from app.services.discussion_ai.types import (
     ChannelContext,
     MessageDigest,
+    PaperObjectiveDigest,
     ResourceDigest,
     TaskDigest,
 )
@@ -188,11 +191,15 @@ class ChannelContextAssembler:
         channel: ProjectDiscussionChannel,
         *,
         message_limit: Optional[int] = None,
+        resource_scope: Optional[Sequence[ProjectDiscussionResourceType]] = None,
     ) -> ChannelContext:
         limit = message_limit or self.message_limit
         messages = self._load_messages(channel.id, limit)
-        resources = self._load_resources(channel)
+        resources = self._load_resources(channel, resource_scope)
         tasks = self._load_tasks(channel.id)
+        project_objectives = tuple(self._parse_project_objectives(project.scope))
+        paper_objectives = tuple(self._load_paper_objectives(project.id))
+        scope_tuple = tuple(resource_scope) if resource_scope else tuple()
 
         summary = channel.description.strip() if channel.description else None
 
@@ -206,6 +213,9 @@ class ChannelContextAssembler:
             messages=messages,
             resources=resources,
             tasks=tasks,
+            project_objectives=project_objectives,
+            paper_objectives=paper_objectives,
+            resource_scope=scope_tuple,
         )
 
     def _load_messages(self, channel_id: UUID, limit: int) -> List[MessageDigest]:
@@ -253,7 +263,11 @@ class ChannelContextAssembler:
             )
         return digests
 
-    def _load_resources(self, channel: ProjectDiscussionChannel) -> List[ResourceDigest]:
+    def _load_resources(
+        self,
+        channel: ProjectDiscussionChannel,
+        resource_scope: Optional[Sequence[ProjectDiscussionResourceType]] = None,
+    ) -> List[ResourceDigest]:
         if channel.resources:
             resources = channel.resources
         else:
@@ -263,7 +277,16 @@ class ChannelContextAssembler:
                 .order_by(ProjectDiscussionChannelResource.created_at.asc())
                 .all()
             )
-        return [self.resource_builder.build(resource) for resource in resources]
+        allowed: Optional[set[ProjectDiscussionResourceType]] = None
+        if resource_scope:
+            allowed = {ProjectDiscussionResourceType(item) for item in resource_scope}
+        digests = []
+        for resource in resources:
+            digest = self.resource_builder.build(resource)
+            if allowed and digest.resource_type not in allowed:
+                continue
+            digests.append(digest)
+        return digests
 
     def _load_tasks(self, channel_id: UUID) -> List[TaskDigest]:
         tasks = (
@@ -284,4 +307,32 @@ class ChannelContextAssembler:
                     due_date=task.due_date,
                 )
             )
+        return digests
+
+    def _parse_project_objectives(self, scope: Optional[str]) -> List[str]:
+        if not scope:
+            return []
+        entries = re.split(r"\r?\n|•", scope)
+        parsed: List[str] = []
+        for entry in entries:
+            cleaned = re.sub(r"^\s*\d+[\).\-\s]*", "", entry or "").strip()
+            if cleaned:
+                parsed.append(cleaned)
+        return parsed
+
+    def _load_paper_objectives(self, project_id: UUID) -> List[PaperObjectiveDigest]:
+        rows = (
+            self.db.query(ResearchPaper.id, ResearchPaper.title, ResearchPaper.objectives)
+            .filter(ResearchPaper.project_id == project_id)
+            .all()
+        )
+        digests: List[PaperObjectiveDigest] = []
+        for paper_id, title, objectives in rows:
+            parsed: List[str] = []
+            if isinstance(objectives, list):
+                parsed = [str(item).strip() for item in objectives if str(item).strip()]
+            elif isinstance(objectives, str) and objectives.strip():
+                parsed = [objectives.strip()]
+            if parsed:
+                digests.append(PaperObjectiveDigest(id=paper_id, title=title, objectives=tuple(parsed)))
         return digests

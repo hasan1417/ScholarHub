@@ -1104,6 +1104,7 @@ def invoke_discussion_assistant(
                     channel,
                     payload.question,
                     reasoning=payload.reasoning,
+                    scope=payload.scope,
                 ):
                     if event.get("type") == "token":
                         yield "data: " + json.dumps({"type": "token", "content": event.get("content", "")}) + "\n\n"
@@ -1148,6 +1149,7 @@ def invoke_discussion_assistant(
         channel,
         payload.question,
         reasoning=payload.reasoning,
+        scope=payload.scope,
     )
 
     response_model = _build_assistant_response_model(reply)

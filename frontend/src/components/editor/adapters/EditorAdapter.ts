@@ -2,7 +2,7 @@ export interface EditorAdapterHandle {
   getSelection: () => Promise<string>
   insertText: (text: string) => Promise<void>
   replaceSelection?: (text: string) => Promise<void>
-  setContent?: (html: string) => Promise<void>
+  setContent?: (html: string, options?: { overwriteRealtime?: boolean }) => Promise<void>
   insertHTML?: (html: string) => Promise<void>
   insertBibliography?: (heading: string, items: string[]) => Promise<void>
   save: () => Promise<void>
@@ -37,6 +37,8 @@ export interface EditorAdapterProps {
     provider?: any
     status?: 'idle' | 'connecting' | 'connected' | 'disconnected'
     peers?: Array<{ id: string; name: string; email: string; color?: string }>
+    synced?: boolean
+    enabled?: boolean
   }
   collaborationStatus?: string | null
 }

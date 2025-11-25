@@ -83,6 +83,12 @@ const createAssistantEntryId = (): string => {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
+const ASSISTANT_SCOPE_OPTIONS = [
+  { id: 'transcripts', label: 'Transcripts' },
+  { id: 'papers', label: 'Papers' },
+  { id: 'references', label: 'References' },
+]
+
 const ProjectDiscussion = () => {
   const { project } = useProjectContext()
   const { user } = useAuth()
@@ -142,6 +148,19 @@ const [newChannelName, setNewChannelName] = useState('')
 const [newChannelDescription, setNewChannelDescription] = useState('')
   const [assistantReasoning, setAssistantReasoning] = useState(false)
   const [assistantHistory, setAssistantHistory] = useState<AssistantExchange[]>([])
+  const [assistantScope, setAssistantScope] = useState<string[]>(['transcripts', 'papers', 'references'])
+
+  const toggleAssistantScope = useCallback((value: string) => {
+    setAssistantScope((prev) => {
+      if (prev.includes(value)) {
+        if (prev.length === 1) {
+          return prev
+        }
+        return prev.filter((item) => item !== value)
+      }
+      return [...prev, value]
+    })
+  }, [])
   const [openDialog, setOpenDialog] = useState<'resources' | 'tasks' | null>(null)
   const viewerDisplayName = useMemo(() => {
     if (!user) return 'You'
@@ -687,7 +706,7 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
   })
 
   const assistantMutation = useMutation({
-    mutationFn: async (variables: { id: string; question: string; reasoning: boolean }) => {
+    mutationFn: async (variables: { id: string; question: string; reasoning: boolean; scope: string[] }) => {
       if (!activeChannelId) throw new Error('Channel not selected')
 
       const url = buildApiUrl(
@@ -706,6 +725,7 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
       const body = JSON.stringify({
         question: variables.question,
         reasoning: variables.reasoning,
+        scope: variables.scope,
       })
 
       const execute = async () =>
@@ -1195,7 +1215,7 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
         return
       }
       const entryId = createAssistantEntryId()
-      assistantMutation.mutate({ id: entryId, question, reasoning })
+      assistantMutation.mutate({ id: entryId, question, reasoning, scope: assistantScope })
       return
     }
 
@@ -1512,6 +1532,34 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
               <div className="flex flex-1 min-h-0 overflow-hidden p-4">
                 <div className="flex-1 min-h-0 overflow-y-auto pr-2">
                   {renderDiscussionContent()}
+                </div>
+              </div>
+
+              <div className="border-t border-gray-100 bg-white px-4 py-3 text-xs text-gray-600 dark:border-slate-800 dark:bg-slate-900/40">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-slate-500">Scholar AI context</p>
+                    <p className="text-xs text-gray-500 dark:text-slate-400">Pick which resources the assistant can reference.</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {ASSISTANT_SCOPE_OPTIONS.map((option) => {
+                      const active = assistantScope.includes(option.id)
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          onClick={() => toggleAssistantScope(option.id)}
+                          className={`rounded-full px-3 py-1 text-xs font-medium transition border ${
+                            active
+                              ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-500/20 dark:text-indigo-100'
+                              : 'border-gray-200 text-gray-600 hover:border-indigo-200 hover:text-indigo-600 dark:border-slate-700 dark:text-slate-300 dark:hover:border-indigo-400/60'
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
               </div>
 

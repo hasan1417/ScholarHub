@@ -96,6 +96,9 @@ class DiscussionRetriever:
         scored: List[RetrievalSnippet] = []
         if query_embedding:
             for entry in entries:
+                resource = resource_map.get(entry.origin_id)
+                if resource is None:
+                    continue
                 embedding = entry.embedding
                 if isinstance(embedding, str):
                     try:
@@ -103,7 +106,6 @@ class DiscussionRetriever:
                     except Exception:  # pragma: no cover
                         continue
                 score = _cosine_similarity(query_embedding, embedding)
-                resource = resource_map.get(entry.origin_id)
                 scored.append(
                     RetrievalSnippet(
                         origin="resource",
@@ -119,10 +121,12 @@ class DiscussionRetriever:
         else:
             lowered = query.lower().split()
             for entry in entries:
+                resource = resource_map.get(entry.origin_id)
+                if resource is None:
+                    continue
                 text_lower = entry.text.lower()
                 score = sum(text_lower.count(term) for term in lowered if len(term) > 2)
                 if score:
-                    resource = resource_map.get(entry.origin_id)
                     scored.append(
                         RetrievalSnippet(
                             origin="resource",

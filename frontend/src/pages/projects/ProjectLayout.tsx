@@ -325,21 +325,6 @@ const ProjectLayout = () => {
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl">
             <h1 className="text-2xl font-semibold text-gray-900 dark:text-slate-100">{project.title}</h1>
-            {project.idea && (
-              <p className="mt-2 text-sm text-gray-600 dark:text-slate-300">{project.idea}</p>
-            )}
-            {project.keywords && project.keywords.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {project.keywords.map((keyword) => (
-                  <span
-                    key={keyword}
-                    className="inline-flex rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 dark:bg-indigo-400/10 dark:text-indigo-200"
-                  >
-                    {keyword}
-                  </span>
-                ))}
-              </div>
-            )}
           </div>
           <div className="flex flex-col items-start gap-3 text-sm text-gray-500 transition-colors dark:text-slate-300 lg:items-end">
             <div className="flex items-center gap-2">
@@ -350,10 +335,17 @@ const ProjectLayout = () => {
               <UsersIcon className="h-4 w-4 text-gray-500 dark:text-slate-400" />
               <span>{memberCount} member{memberCount === 1 ? '' : 's'}</span>
             </div>
-            {project.scope && (
-              <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600 dark:bg-slate-700 dark:text-slate-200">
-                {project.scope}
-              </span>
+            {project.keywords && project.keywords.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {project.keywords.map((keyword) => (
+                  <span
+                    key={keyword}
+                    className="inline-flex rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 dark:bg-indigo-400/10 dark:text-indigo-200"
+                  >
+                    {keyword}
+                  </span>
+                ))}
+              </div>
             )}
           </div>
         </div>

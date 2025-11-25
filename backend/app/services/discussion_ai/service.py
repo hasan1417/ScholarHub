@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Iterator, Optional
+from typing import Iterator, Optional, Sequence
 
 from sqlalchemy.orm import Session
 
-from app.models import Project, ProjectDiscussionChannel
+from app.models import Project, ProjectDiscussionChannel, ProjectDiscussionResourceType
 from app.services.ai_service import AIService
 from app.services.discussion_ai.context import ChannelContextAssembler
 from app.services.discussion_ai.prompting import PromptComposer
@@ -27,7 +27,7 @@ class DiscussionAIService:
         db: Session,
         ai_service: AIService,
         *,
-        default_reasoning_model: str = "gpt-4o",
+        default_reasoning_model: str = "gpt-5",
     ) -> None:
         self.db = db
         self.ai_service = ai_service
@@ -45,8 +45,10 @@ class DiscussionAIService:
         question: str,
         *,
         reasoning: bool = False,
+        scope: Optional[Sequence[str]] = None,
     ) -> AssistantReply:
-        context = self.context_assembler.build(project, channel)
+        resource_scope = self._resolve_resource_scope(scope)
+        context = self.context_assembler.build(project, channel, resource_scope=resource_scope)
         self.indexer.ensure_resource_embeddings(context)
         snippets = self.retriever.retrieve(question, context)
         metadata_insights = self._maybe_enrich_metadata_only(snippets, question)
@@ -61,22 +63,23 @@ class DiscussionAIService:
             logger.info("AI service not configured; returning mock discussion response")
             response_text = self._mock_response(question, context, snippets)
         else:
-            completion = self.ai_service.openai_client.chat.completions.create(
-                model=model_name,
+            completion = self.ai_service.create_response(
                 messages=messages,
+                model=model_name,
                 temperature=0.2,
-                max_tokens=900,
+                max_output_tokens=900,
             )
-            choice = completion.choices[0]
-            response_text = choice.message.content or "I'm sorry, I do not have enough information to help yet."
-            usage_meta = {
-                "prompt_tokens": getattr(completion.usage, "prompt_tokens", None),
-                "completion_tokens": getattr(completion.usage, "completion_tokens", None),
-                "total_tokens": getattr(completion.usage, "total_tokens", None),
-            }
+            response_text = self.ai_service.extract_response_text(completion) or "I'm sorry, I do not have enough information to help yet."
+            usage_meta = self.ai_service.response_usage_to_metadata(getattr(completion, "usage", None))
             reasoning_model_used = model_name != self.ai_service.chat_model
 
         message_text, suggested_actions = self._extract_suggested_actions(response_text)
+        logger.info(
+            "Discussion reply composed: response_len=%d suggested_actions=%d citations=%d",
+            len(message_text.strip()),
+            len(suggested_actions),
+            len(citations),
+        )
         citations = self._build_citations(snippets)
 
         if metadata_insights:
@@ -97,8 +100,10 @@ class DiscussionAIService:
         question: str,
         *,
         reasoning: bool = False,
+        scope: Optional[Sequence[str]] = None,
     ) -> Iterator[dict]:
-        context = self.context_assembler.build(project, channel)
+        resource_scope = self._resolve_resource_scope(scope)
+        context = self.context_assembler.build(project, channel, resource_scope=resource_scope)
         self.indexer.ensure_resource_embeddings(context)
         snippets = self.retriever.retrieve(question, context)
         messages = self.prompt_composer.build_messages(question, context, snippets)
@@ -113,32 +118,66 @@ class DiscussionAIService:
             response_text = self._mock_response(question, context, snippets)
             yield {"type": "token", "content": response_text}
         else:
-            stream = self.ai_service.openai_client.chat.completions.create(
-                model=model_name,
+            streamed_chunks: list[str] = []
+            final_response = None
+            with self.ai_service.stream_response(
                 messages=messages,
+                model=model_name,
                 temperature=0.2,
-                max_tokens=900,
-                stream=True,
+                max_output_tokens=900,
+            ) as stream:
+                for event in stream:
+                    event_type = getattr(event, "type", None)
+                    if event_type == "response.output_text.delta":
+                        delta = getattr(event, "delta", "")
+                        if delta:
+                            streamed_chunks.append(delta)
+                            yield {"type": "token", "content": delta}
+                    elif event_type == "error":
+                        message = getattr(event, "message", "An unknown streaming error occurred.")
+                        raise RuntimeError(f"OpenAI streaming error: {message}")
+                    elif event_type == "response.failed":
+                        error = getattr(getattr(event, "response", None), "error", None)
+                        message = getattr(error, "message", "The response failed to complete.")
+                        raise RuntimeError(f"OpenAI response failed: {message}")
+
+                try:
+                    final_response = stream.get_final_response()
+                except RuntimeError as err:
+                    logger.warning("Discussion stream ended without completion: %s", err)
+
+            usage_meta = (
+                self.ai_service.response_usage_to_metadata(getattr(final_response, "usage", None))
+                if final_response
+                else self.ai_service.response_usage_to_metadata(None)
             )
-            chunks: list[str] = []
-            for chunk in stream:
-                choice = chunk.choices[0] if chunk.choices else None
-                delta = getattr(choice, "delta", None)
-                content_piece = getattr(delta, "content", None) if delta else None
-                if content_piece:
-                    chunks.append(content_piece)
-                    yield {"type": "token", "content": content_piece}
-
-                if getattr(chunk, "usage", None):
-                    usage_meta = {
-                        "prompt_tokens": getattr(chunk.usage, "prompt_tokens", None),
-                        "completion_tokens": getattr(chunk.usage, "completion_tokens", None),
-                        "total_tokens": getattr(chunk.usage, "total_tokens", None),
-                    }
-
-            response_text = "".join(chunks)
+            response_text = self.ai_service.extract_response_text(final_response) if final_response else ""
+            if not response_text.strip():
+                response_text = "".join(streamed_chunks)
+            if not response_text.strip():
+                logger.warning(
+                    "Discussion stream returned no text; falling back to non-stream completion (model=%s)",
+                    model_name,
+                )
+                fallback = self.ai_service.create_response(
+                    messages=messages,
+                    model=model_name,
+                    max_output_tokens=900,
+                )
+                response_text = self.ai_service.extract_response_text(fallback)
+                usage_meta = self.ai_service.response_usage_to_metadata(getattr(fallback, "usage", None))
+                if not response_text.strip():
+                    response_text = "I'm sorry, I couldn't retrieve the project objectives right now."
+            logger.info(
+                "Discussion stream finished: model=%s response_len=%d chunks=%d final=%s",
+                model_name,
+                len(response_text.strip()),
+                len(streamed_chunks),
+                bool(final_response),
+            )
 
         message_text, suggested_actions = self._extract_suggested_actions(response_text)
+        citations = self._filter_citations_by_references(message_text, citations)
         reply = AssistantReply(
             message=message_text,
             citations=citations,
@@ -184,11 +223,13 @@ class DiscussionAIService:
         ).strip()
 
         try:
-            completion = self.ai_service.openai_client.chat.completions.create(
-                model=self.ai_service.chat_model,
-                messages=[{"role": "system", "content": "You are a helpful research assistant."}, {"role": "user", "content": metadata_prompt}]
+            completion = self.ai_service.create_response(
+                messages=[
+                    {"role": "system", "content": "You are a helpful research assistant."},
+                    {"role": "user", "content": metadata_prompt},
+                ]
             )
-            answer = completion.choices[0].message.content if completion.choices else None
+            answer = self.ai_service.extract_response_text(completion)
             if answer:
                 return (
                     "**Metadata-only insight:** "
@@ -200,13 +241,35 @@ class DiscussionAIService:
         return ""
 
     def _select_model(self, reasoning: bool) -> str:
-        if not reasoning or not self.ai_service.openai_client:
-            return self.ai_service.chat_model
-        return self.default_reasoning_model or self.ai_service.chat_model
+        if reasoning and self.ai_service.openai_client:
+            return self.default_reasoning_model or self.ai_service.chat_model
+        return self.ai_service.chat_model
+
+    def _resolve_resource_scope(
+        self,
+        scope: Optional[Sequence[str]],
+    ) -> Optional[List[ProjectDiscussionResourceType]]:
+        if not scope:
+            return None
+        mapping = {
+            "transcripts": ProjectDiscussionResourceType.MEETING,
+            "papers": ProjectDiscussionResourceType.PAPER,
+            "references": ProjectDiscussionResourceType.REFERENCE,
+        }
+        resolved: List[ProjectDiscussionResourceType] = []
+        for entry in scope:
+            if not entry:
+                continue
+            normalized = entry.strip().lower()
+            mapped = mapping.get(normalized)
+            if mapped and mapped not in resolved:
+                resolved.append(mapped)
+        return resolved or None
 
     def _build_citations(self, snippets) -> tuple[AssistantCitation, ...]:
         citations = []
         seen = set()
+        allowed_types = {"paper", "reference", "meeting"}
         for snippet in snippets:
             if snippet.origin != "resource":
                 continue
@@ -217,15 +280,43 @@ class DiscussionAIService:
             label = snippet.metadata.get("title") if snippet.metadata else None
             if not label:
                 label = f"{snippet.origin.title()} snippet"
+            resource_type = snippet.metadata.get("resource_type") if snippet.metadata else None
+            if resource_type and resource_type not in allowed_types:
+                continue
             citations.append(
                 AssistantCitation(
                     origin=snippet.origin,
                     origin_id=snippet.origin_id,
                     label=label,
-                    resource_type=snippet.metadata.get("resource_type") if snippet.metadata else None,
+                    resource_type=resource_type,
                 )
             )
         return tuple(citations)
+
+    @staticmethod
+    def _filter_citations_by_references(
+        message_text: str,
+        citations: tuple[AssistantCitation, ...],
+    ) -> tuple[AssistantCitation, ...]:
+        if not citations or not message_text:
+            return citations
+
+        import re
+
+        pattern = re.compile(r"\[(resource|message):([0-9a-fA-F-]+)\]")
+        referenced_ids = {
+            match.group(2)
+            for match in pattern.finditer(message_text)
+        }
+        if not referenced_ids:
+            return tuple()
+
+        filtered = [
+            citation
+            for citation in citations
+            if str(citation.origin_id) in referenced_ids
+        ]
+        return tuple(filtered)
 
     @staticmethod
     def _mock_response(question: str, context, snippets) -> str:

@@ -460,15 +460,15 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-lg max-w-6xl mx-auto relative">
+    <div className="bg-white dark:bg-slate-900 rounded-lg shadow-lg max-w-6xl mx-auto relative text-gray-900 dark:text-slate-100 border border-gray-100 dark:border-slate-800">
       {/* Header */}
-      <div className="p-6 border-b border-gray-200">
+      <div className="p-6 border-b border-gray-200 dark:border-slate-800">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold text-gray-900">Discover Research Papers</h2>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Discover Research Papers</h2>
           {onClose && (
             <button
               onClick={onClose}
-              className="text-gray-500 hover:text-gray-700"
+              className="text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200"
             >
               ×
             </button>
@@ -479,11 +479,11 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
         {!forcePaperMode && (
           <div className="mb-3 flex items-center gap-2">
             <button
-              className={`px-3 py-1.5 rounded ${mode==='query' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-800'}`}
+              className={`px-3 py-1.5 rounded ${mode==='query' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-800 dark:bg-slate-800 dark:text-slate-100'}`}
               onClick={() => setMode('query')}
             >Query</button>
             <button
-              className={`px-3 py-1.5 rounded ${mode==='paper' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-800'}`}
+              className={`px-3 py-1.5 rounded ${mode==='paper' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-800 dark:bg-slate-800 dark:text-slate-100'}`}
               onClick={() => setMode('paper')}
             >Paper</button>
           </div>
@@ -501,7 +501,7 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
                   placeholder="Search for research papers..."
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 placeholder:text-gray-400 dark:placeholder:text-slate-500"
                 />
               </div>
               <button
@@ -590,7 +590,7 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
                   placeholder="Optional keywords to bias search"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 placeholder:text-gray-400 dark:placeholder:text-slate-500"
                 />
               )}
               <div>
@@ -614,7 +614,7 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
                 value={researchTopic}
                 onChange={(e) => setResearchTopic(e.target.value)}
                 placeholder="Research topic/context (optional - improves relevance)"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                className="w-full px-4 py-2 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 placeholder:text-gray-400 dark:placeholder:text-slate-500"
               />
             </div>
             <button
@@ -628,12 +628,12 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
           </div>
 
           {/* Advanced Options */}
-          <div className="bg-gray-50 p-4 rounded-lg">
+          <div className="bg-gray-50 dark:bg-slate-800/70 border border-gray-100 dark:border-slate-700 p-4 rounded-lg">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* Sources */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Sources</label>
-                <div className="space-y-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-200 mb-2">Sources</label>
+                <div className="space-y-1 text-gray-800 dark:text-slate-100">
                   {availableSources.map(source => (
                     <label key={source.id} className="flex items-center">
                       <input
@@ -650,11 +650,11 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
 
               {/* Max Results */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Max Results</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-200 mb-2">Max Results</label>
                 <select
                   value={maxResults}
                   onChange={(e) => setMaxResults(Number(e.target.value))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100"
                 >
                   <option value={10}>10</option>
                   <option value={20}>20</option>
@@ -665,11 +665,11 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
 
               {/* Year Filter */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Year Filter</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-200 mb-2">Year Filter</label>
                 <select
                   value={filterByYear || ''}
                   onChange={(e) => setFilterByYear(e.target.value ? Number(e.target.value) : null)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100"
                 >
                   <option value="">All years</option>
                   <option value={2024}>2024+</option>
@@ -685,17 +685,17 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
 
       {/* Results Header */}
       {papers.length > 0 && (
-        <div className="p-4 bg-gray-50 border-b border-gray-200">
+        <div className="p-4 bg-gray-50 dark:bg-slate-800/70 border-b border-gray-200 dark:border-slate-800">
           <div className="flex justify-between items-center">
-            <div className="text-sm text-gray-600">
+            <div className="text-sm text-gray-600 dark:text-slate-200">
               Found {getSortedAndFilteredPapers().length} / {papers.length} papers in {searchTime.toFixed(2)}s{relevanceThreshold !== null ? ` (≥ ${relevanceThreshold.toFixed(1)} relevance)` : ''}
             </div>
             <div className="flex items-center gap-3">
-              <ArrowUpDown size={16} className="text-gray-400" />
+              <ArrowUpDown size={16} className="text-gray-400 dark:text-slate-400" />
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as 'relevance' | 'year' | 'citations')}
-                className="rounded-md border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="rounded-md border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-sm text-gray-700 dark:text-slate-100 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="relevance">Relevance</option>
                 <option value="year">Year</option>
@@ -707,7 +707,7 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
                   const val = e.target.value
                   setRelevanceThreshold(val === '' ? null : parseFloat(val))
                 }}
-                className="rounded-md border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="rounded-md border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-sm text-gray-700 dark:text-slate-100 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 title="Filter by minimum relevance score"
               >
                 <option value="">All relevance</option>
@@ -723,12 +723,16 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
                   onChange={(e) => setPdfOnly(e.target.checked)}
                   className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
-                <label htmlFor="pdfOnly" className="text-sm text-gray-700">PDF only</label>
+                <label htmlFor="pdfOnly" className="text-sm text-gray-700 dark:text-slate-200">PDF only</label>
               </div>
               <button
                 onClick={handleLoadMore}
                 disabled={isLoadingMore}
-                className={`inline-flex items-center rounded-md px-3 py-1.5 text-sm font-medium shadow-sm ring-1 ring-inset ${isLoadingMore ? 'bg-gray-100 text-gray-500 ring-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 ring-gray-300 hover:bg-gray-50'}`}
+                className={`inline-flex items-center rounded-md px-3 py-1.5 text-sm font-medium shadow-sm ring-1 ring-inset ${
+                  isLoadingMore
+                    ? 'bg-gray-100 text-gray-500 ring-gray-200 cursor-not-allowed dark:bg-slate-800 dark:text-slate-400 dark:ring-slate-700'
+                    : 'bg-white text-gray-700 ring-gray-300 hover:bg-gray-50 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-700 dark:hover:bg-slate-700'
+                }`}
               >
                 {isLoadingMore && <Clock className="animate-spin h-4 w-4 text-blue-600 mr-2" />}
                 More papers
@@ -752,48 +756,48 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
           <div className="flex items-center justify-center p-12">
             <div className="text-center">
               <Clock className="animate-spin h-8 w-8 text-blue-600 mx-auto mb-2" />
-              <p className="text-gray-600">Searching multiple academic databases...</p>
+              <p className="text-gray-600 dark:text-slate-200">Searching multiple academic databases...</p>
             </div>
           </div>
         ) : papers.length === 0 ? (
           <div className="text-center p-12">
-            <BookOpen className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <p className="text-gray-600">{hasSearched ? 'No papers found. Try different keywords or sources.' : 'Enter a search query to discover papers'}</p>
+            <BookOpen className="h-12 w-12 text-gray-400 dark:text-slate-400 mx-auto mb-4" />
+            <p className="text-gray-600 dark:text-slate-200">{hasSearched ? 'No papers found. Try different keywords or sources.' : 'Enter a search query to discover papers'}</p>
           </div>
         ) : (
-          <div className="divide-y divide-gray-200">
+          <div className="divide-y divide-gray-200 dark:divide-slate-800">
             {getSortedAndFilteredPapers().map((paper, index) => {
               const paperId = `${paper.title}-${paper.source}`
               const isAdding = addingPapers.has(paperId)
               const isAdded = addedPapers.has(paperId)
 
               return (
-                <div key={index} className="p-6 hover:bg-gray-50">
+                <div key={index} className="p-6 hover:bg-gray-50 dark:hover:bg-slate-800/60">
                   <div className="flex justify-between items-start">
                     <div className="flex-1 min-w-0">
                       {/* Title and Source */}
                       <div className="flex items-start justify-between mb-2">
                         <div className="pr-4">
-                          <h3 className="text-lg font-semibold text-gray-900 leading-tight">
+                          <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 leading-tight">
                             {paper.title}
                           </h3>
-                          <div className="mt-1 flex items-center gap-2">
-                            {(paper as any).is_open_access && (
-                              <span className="px-2 py-0.5 text-xs bg-green-100 text-green-800 rounded">OA</span>
-                            )}
-                            {!(paper as any).pdf_url && (
-                              <span className="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">No PDF found</span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center space-x-1 text-xs text-gray-500 flex-shrink-0">
-                          <span>{getSourceIcon(paper.source)}</span>
+                      <div className="mt-1 flex items-center gap-2">
+                        {(paper as any).is_open_access && (
+                          <span className="px-2 py-0.5 text-xs bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200 rounded">OA</span>
+                        )}
+                        {!(paper as any).pdf_url && (
+                          <span className="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 dark:bg-slate-800 dark:text-slate-200 rounded">No PDF found</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-1 text-xs text-gray-500 flex-shrink-0">
+                      <span>{getSourceIcon(paper.source)}</span>
                           <span className="capitalize">{paper.source.replace('_', ' ')}</span>
                         </div>
                       </div>
 
                       {/* Authors and Year */}
-                      <div className="flex items-center text-sm text-gray-600 mb-2 space-x-4">
+                      <div className="flex items-center text-sm text-gray-600 dark:text-slate-200 mb-2 space-x-4">
                         <div className="flex items-center">
                           <Users size={14} className="mr-1" />
                           {formatAuthors(paper.authors)}
@@ -826,11 +830,11 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
                             <>
                               <div className="flex items-center">
                                 <Star size={14} className="text-yellow-500 mr-1" />
-                                <span className="text-sm font-medium text-gray-700">
+                                <span className="text-sm font-medium text-gray-700 dark:text-slate-200">
                                   Relevance: {pct}%
                                 </span>
                               </div>
-                              <div className="ml-2 flex-1 bg-gray-200 rounded-full h-2 max-w-20">
+                              <div className="ml-2 flex-1 bg-gray-200 dark:bg-slate-700 rounded-full h-2 max-w-20">
                                 <div
                                   className="bg-yellow-500 h-2 rounded-full"
                                   style={{ width: `${bar}%` }}
@@ -842,7 +846,7 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
                       </div>
 
                       {/* Abstract */}
-                      <p className="text-sm text-gray-600 mb-3 leading-relaxed">
+                      <p className="text-sm text-gray-600 dark:text-slate-200 mb-3 leading-relaxed">
                         {paper.abstract.length > 300 
                           ? `${paper.abstract.substring(0, 300)}...`
                           : paper.abstract
@@ -865,7 +869,7 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
 
                       {/* Journal */}
                       {paper.journal && (
-                        <p className="text-sm text-gray-500 italic mb-3">{paper.journal}</p>
+                        <p className="text-sm text-gray-500 dark:text-slate-300 italic mb-3">{paper.journal}</p>
                       )}
                     </div>
 
@@ -876,10 +880,10 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
                         disabled={isAdding || isAdded}
                         className={`flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                           isAdded
-                            ? 'bg-green-100 text-green-800 cursor-not-allowed'
+                            ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200 cursor-not-allowed'
                             : isAdding
-                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                            : 'bg-blue-100 text-blue-800 hover:bg-blue-200'
+                            ? 'bg-gray-100 text-gray-400 dark:bg-slate-800 dark:text-slate-400 cursor-not-allowed'
+                            : 'bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-100 dark:hover:bg-blue-800/60'
                         }`}
                       >
                         {isAdded ? (
@@ -901,7 +905,7 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
                       </button>
                       <button
                         onClick={() => handleAddPaper(paper)}
-                        className="flex items-center px-3 py-2 bg-indigo-100 text-indigo-800 rounded-lg text-sm font-medium hover:bg-indigo-200 transition-colors"
+                        className="flex items-center px-3 py-2 bg-indigo-100 text-indigo-800 rounded-lg text-sm font-medium hover:bg-indigo-200 transition-colors dark:bg-indigo-900/40 dark:text-indigo-100 dark:hover:bg-indigo-800/60"
                       >
                         <Plus size={14} className="mr-1" />
                         Attach to Paper
@@ -910,13 +914,13 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
                       {(paper as any).pdf_url && (
                         <button
                           onClick={() => window.open((paper as any).pdf_url, '_blank', 'noopener,noreferrer')}
-                          className="flex items-center px-3 py-2 bg-blue-100 text-blue-800 rounded-lg text-sm font-medium hover:bg-blue-200 transition-colors"
+                          className="flex items-center px-3 py-2 bg-blue-100 text-blue-800 rounded-lg text-sm font-medium hover:bg-blue-200 transition-colors dark:bg-blue-900/40 dark:text-blue-100 dark:hover:bg-blue-800/60"
                         >
                           <ExternalLink size={14} className="mr-1" />
                           View PDF
                         </button>
                       )}
-                      <div className="text-xs text-gray-600 max-w-[16rem]">
+                      <div className="text-xs text-gray-600 dark:text-slate-300 max-w-[16rem]">
                         {(paper as any).pdf_url
                           ? 'Attach to Paper for improved relevance using the PDF content.'
                           : 'Upload a PDF to improve relevance scoring and enable chat.'}
@@ -927,11 +931,11 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
                           href={paper.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex items-center px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors"
-                        >
-                          <ExternalLink size={14} className="mr-1" />
-                          View
-                        </a>
+                className="flex items-center px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+              >
+                <ExternalLink size={14} className="mr-1" />
+                View
+              </a>
                       )}
                       {/* Ingest button removed; ingestion happens automatically on reference creation */}
                     </div>
@@ -965,17 +969,17 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
       {/* Select Paper Modal */}
       {showSelectPaper && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg w-full max-w-lg overflow-hidden">
-            <div className="p-4 border-b flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Add to Paper</h3>
-              <button className="text-gray-400 hover:text-gray-600 text-xl" onClick={() => setShowSelectPaper(false)}>×</button>
+          <div className="bg-white dark:bg-slate-900 rounded-lg w-full max-w-lg overflow-hidden">
+            <div className="p-4 border-b border-gray-200 dark:border-slate-800 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Add to Paper</h3>
+              <button className="text-gray-400 hover:text-gray-600 text-xl dark:text-slate-400 dark:hover:text-slate-200" onClick={() => setShowSelectPaper(false)}>×</button>
             </div>
             <div className="p-4 space-y-3 max-h-[60vh] overflow-y-auto">
               {myPapers.length === 0 ? (
-                <p className="text-sm text-gray-600">No papers found. Create a paper first.</p>
+                <p className="text-sm text-gray-600 dark:text-slate-300">No papers found. Create a paper first.</p>
               ) : (
                 myPapers.map((p) => (
-                  <label key={p.id} className="flex items-center gap-2">
+                  <label key={p.id} className="flex items-center gap-2 text-gray-800 dark:text-slate-100">
                     <input
                       type="checkbox"
                       checked={selectedTargetPapers.has(p.id)}
@@ -992,16 +996,16 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
                 ))
               )}
               {attachCandidate && (
-                <div className="mt-3 text-xs text-gray-500">
+                <div className="mt-3 text-xs text-gray-500 dark:text-slate-300">
                   Adding reference: <span className="font-medium">{attachCandidate.title}</span>
                 </div>
               )}
-              <div className="text-xs text-gray-600 mt-2">
+              <div className="text-xs text-gray-600 dark:text-slate-300 mt-2">
                 {(attachCandidate as any)?.pdf_url ? (
                   <span className="text-green-700">PDF available — a verified PDF will be attached.</span>
                 ) : (
                   <div className="space-y-2">
-                    <p className="text-gray-700">
+                    <p className="text-gray-700 dark:text-slate-200">
                       No verified PDF found. You can attach this reference now and optionally upload a PDF to improve relevance score and enable knowledge‑base answers for the selected paper.
                     </p>
                     <div className="flex items-center gap-2">
@@ -1020,19 +1024,19 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
                       >
                         {uploadingPdf ? 'Uploading…' : 'Upload PDF to selected paper'}
                       </button>
-                      <span className="text-[11px] text-gray-500">
+                      <span className="text-[11px] text-gray-500 dark:text-slate-400">
                         Select exactly one paper to upload.
                       </span>
                     </div>
                     {uploadStatus && (
-                      <div className="text-[11px] text-gray-700">{uploadStatus}</div>
+                      <div className="text-[11px] text-gray-700 dark:text-slate-200">{uploadStatus}</div>
                     )}
                   </div>
                 )}
               </div>
             </div>
-            <div className="p-4 border-t flex justify-end gap-2">
-              <button className="px-3 py-1 bg-gray-200 rounded" onClick={() => setShowSelectPaper(false)}>Cancel</button>
+            <div className="p-4 border-t border-gray-200 dark:border-slate-800 flex justify-end gap-2">
+              <button className="px-3 py-1 bg-gray-200 dark:bg-slate-800 dark:text-slate-100 rounded" onClick={() => setShowSelectPaper(false)}>Cancel</button>
               <button
                 className="px-3 py-1 bg-blue-600 text-white rounded disabled:opacity-50"
                 disabled={selectedTargetPapers.size === 0}
@@ -1075,10 +1079,10 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
       {/* Source Paper Picker Modal */}
       {showSourcePicker && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-          <div className="bg-white max-w-3xl w-full rounded-lg shadow-xl">
-            <div className="p-4 border-b flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Choose a Paper</h3>
-              <button className="text-gray-500" onClick={() => setShowSourcePicker(false)}>×</button>
+          <div className="bg-white dark:bg-slate-900 max-w-3xl w-full rounded-lg shadow-xl">
+            <div className="p-4 border-b border-gray-200 dark:border-slate-800 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Choose a Paper</h3>
+              <button className="text-gray-500 dark:text-slate-400" onClick={() => setShowSourcePicker(false)}>×</button>
             </div>
             <div className="p-4 space-y-3 max-h-[70vh] overflow-y-auto">
               <div className="flex items-center gap-2">
@@ -1087,11 +1091,11 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
                   value={sourceFilter}
                   onChange={(e) => setSourceFilter(e.target.value)}
                   placeholder="Search by title or year..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100"
                 />
                 {selectedSourcePaperTemp && (
                   <button
-                    className="px-2 py-1 text-sm text-gray-600 hover:text-gray-800"
+                    className="px-2 py-1 text-sm text-gray-600 hover:text-gray-800 dark:text-slate-300 dark:hover:text-slate-100"
                     onClick={() => { setSelectedSourcePaperTemp(null); setSelectedSourcePaperTitleTemp(null) }}
                   >
                     Clear
@@ -1100,15 +1104,15 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
               </div>
 
               {sourceLoading ? (
-                <div className="py-12 text-center text-gray-600">Loading your papers...</div>
+                <div className="py-12 text-center text-gray-600 dark:text-slate-300">Loading your papers...</div>
               ) : sourceError ? (
-                <div className="py-8 text-center text-red-600 text-sm">{sourceError}</div>
+                <div className="py-8 text-center text-red-400 text-sm">{sourceError}</div>
               ) : sourcePapers.length === 0 ? (
-                <div className="py-12 text-center text-gray-600">
+                <div className="py-12 text-center text-gray-600 dark:text-slate-300">
                   No papers found. Create a paper first from the Projects page.
                 </div>
               ) : (
-                <ul className="divide-y">
+                <ul className="divide-y divide-gray-200 dark:divide-slate-800">
                   {sourcePapers
                     .filter(p => {
                       const q = sourceFilter.trim().toLowerCase()
@@ -1118,7 +1122,7 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
                     .map((p) => (
                       <li
                         key={p.id}
-                        className={`p-3 flex items-center justify-between hover:bg-gray-50 cursor-pointer ${selectedSourcePaperTemp === p.id ? 'bg-blue-50' : ''}`}
+                        className={`p-3 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-slate-800 cursor-pointer ${selectedSourcePaperTemp === p.id ? 'bg-blue-50 dark:bg-slate-800/70' : ''}`}
                         onClick={() => { setSelectedSourcePaperTemp(p.id); setSelectedSourcePaperTitleTemp(p.title) }}
                       >
                         <div className="flex items-center gap-3 pr-4 min-w-0">
@@ -1128,10 +1132,10 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
                             onChange={() => { setSelectedSourcePaperTemp(p.id); setSelectedSourcePaperTitleTemp(p.title) }}
                           />
                           <div className="min-w-0">
-                            <div className="truncate font-medium text-gray-900" title={p.title}>{p.title}</div>
-                            <div className="mt-1 text-xs text-gray-600 flex items-center gap-2">
-                              {p.year && <span className="px-1.5 py-0.5 bg-gray-100 rounded">{p.year}</span>}
-                              {p.status && <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded capitalize">{p.status.replace('_',' ')}</span>}
+                            <div className="truncate font-medium text-gray-900 dark:text-slate-100" title={p.title}>{p.title}</div>
+                            <div className="mt-1 text-xs text-gray-600 dark:text-slate-300 flex items-center gap-2">
+                              {p.year && <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-slate-800 rounded">{p.year}</span>}
+                              {p.status && <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200 rounded capitalize">{p.status.replace('_',' ')}</span>}
                             </div>
                           </div>
                         </div>
@@ -1140,8 +1144,8 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
                 </ul>
               )}
             </div>
-            <div className="p-4 border-t flex justify-end gap-2">
-              <button className="px-3 py-1 text-gray-600" onClick={() => setShowSourcePicker(false)}>Cancel</button>
+            <div className="p-4 border-t border-gray-200 dark:border-slate-800 flex justify-end gap-2">
+              <button className="px-3 py-1 text-gray-600 dark:text-slate-300" onClick={() => setShowSourcePicker(false)}>Cancel</button>
               <button
                 className="px-3 py-1 bg-blue-600 text-white rounded disabled:opacity-50"
                 disabled={!selectedSourcePaperTemp}
@@ -1212,11 +1216,11 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
       {/* Paper Content Modal */}
       {selectedPaper && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-4xl max-h-[90vh] w-full overflow-hidden">
-            <div className="p-6 border-b border-gray-200 flex justify-between items-start">
+          <div className="bg-white dark:bg-slate-900 rounded-lg max-w-4xl max-h-[90vh] w-full overflow-hidden">
+            <div className="p-6 border-b border-gray-200 dark:border-slate-800 flex justify-between items-start">
               <div>
-                <h3 className="text-xl font-bold text-gray-900 mb-2">{selectedPaper.title}</h3>
-                <div className="flex items-center text-sm text-gray-600">
+                <h3 className="text-xl font-bold text-gray-900 dark:text-slate-100 mb-2">{selectedPaper.title}</h3>
+                <div className="flex items-center text-sm text-gray-600 dark:text-slate-300">
                   <span className="mr-4">Source: {selectedPaper.source}</span>
                   {selectedPaper.year && <span>Year: {selectedPaper.year}</span>}
                 </div>
@@ -1226,13 +1230,13 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
                   setSelectedPaper(null)
                   setViewingContent({})
                 }}
-                className="text-gray-400 hover:text-gray-600 text-2xl font-bold"
+                className="text-gray-400 hover:text-gray-600 text-2xl font-bold dark:text-slate-400 dark:hover:text-slate-200"
               >
                 ×
               </button>
             </div>
             
-            <div className="p-6 overflow-y-auto max-h-[70vh]">
+            <div className="p-6 overflow-y-auto max-h-[70vh] text-gray-900 dark:text-slate-100">
               {(() => {
                 const paperKey = `${selectedPaper.title}-${selectedPaper.source}`
                 const content = viewingContent[paperKey]

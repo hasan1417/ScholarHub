@@ -1,7 +1,7 @@
 import logging
 import os
 import time
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from sqlalchemy.orm import Session
 # from sqlalchemy import text  # No longer needed - we don't use raw SQL queries
 import openai
@@ -31,8 +31,9 @@ class AIService:
         
         # Model configuration - users can change these later
         self.embedding_model = "text-embedding-3-small"  # Latest OpenAI embedding model (better performance)
-        self.chat_model = "gpt-4o-mini"  # Latest GPT-4o mini (fastest, cheapest, most capable)
-        
+        self.chat_model = "gpt-4o-mini"  # Default chat model for chat/discussion flows
+        self.writing_model = "gpt-5-mini"  # Dedicated model for LaTeX editor writing tools
+
         # Provider configuration
         self.current_provider = "openai"  # Current AI provider
         self.available_providers = {
@@ -40,6 +41,9 @@ class AIService:
                 "name": "OpenAI",
                 "embedding_models": ["text-embedding-ada-002", "text-embedding-3-small", "text-embedding-3-large"],
                 "chat_models": [
+                    "gpt-4o-mini",
+                    "gpt-5-mini",
+                    "gpt-5",
                     "gpt-4o-mini",           # Latest GPT-4o mini (fastest, cheapest)
                     "gpt-4o",                 # Latest GPT-4o (most capable)
                     "gpt-4o-2024-05-13",     # Specific GPT-4o version
@@ -144,14 +148,111 @@ class AIService:
     def _test_openai_connection(self):
         """Test OpenAI API connection with a simple request"""
         try:
-            response = self.openai_client.chat.completions.create(
-                model=self.chat_model,
+            self.create_response(
                 messages=[{"role": "user", "content": "Hello"}],
-                max_tokens=10
+                max_output_tokens=32,
             )
             logger.info("OpenAI API connection test successful")
         except Exception as e:
             raise Exception(f"OpenAI API connection test failed: {str(e)}")
+
+    def format_messages_for_responses(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Normalize chat messages for the Responses API."""
+        normalized: List[Dict[str, Any]] = []
+        for message in messages:
+            role = message.get("role", "user")
+            content = message.get("content", "")
+            # Responses API accepts either a string or list of content blocks.
+            normalized.append(
+                {
+                    "role": role,
+                    "content": content,
+                }
+            )
+        return normalized
+
+    def create_response(
+        self,
+        *,
+        messages: List[Dict[str, Any]],
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_output_tokens: Optional[int] = None,
+        **extra_params: Any,
+    ):
+        """Create a response using the new OpenAI Responses API."""
+        if not self.openai_client:
+            raise ValueError("OpenAI client is not configured")
+
+        payload: Dict[str, Any] = {
+            "model": model or self.chat_model,
+            "input": self.format_messages_for_responses(messages),
+        }
+        target_model = payload["model"]
+
+        if temperature is not None and self._supports_sampling_params(target_model):
+            payload["temperature"] = temperature
+        if max_output_tokens is not None:
+            payload["max_output_tokens"] = max_output_tokens
+        payload.update({k: v for k, v in extra_params.items() if v is not None})
+
+        return self.openai_client.responses.create(**payload)
+
+    def stream_response(
+        self,
+        *,
+        messages: List[Dict[str, Any]],
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_output_tokens: Optional[int] = None,
+        **extra_params: Any,
+    ):
+        """Stream a response using the OpenAI Responses API."""
+        if not self.openai_client:
+            raise ValueError("OpenAI client is not configured")
+
+        payload: Dict[str, Any] = {
+            "model": model or self.chat_model,
+            "input": self.format_messages_for_responses(messages),
+        }
+        target_model = payload["model"]
+        if temperature is not None and self._supports_sampling_params(target_model):
+            payload["temperature"] = temperature
+        if max_output_tokens is not None:
+            payload["max_output_tokens"] = max_output_tokens
+        payload.update({k: v for k, v in extra_params.items() if v is not None})
+
+        return self.openai_client.responses.stream(**payload)
+
+    @staticmethod
+    def _supports_sampling_params(model_name: str) -> bool:
+        """Some reasoning models disallow temperature/top_p tweaks."""
+        reasoning_prefixes = ("gpt-5", "gpt-5.", "gpt-4o", "o4", "o3")
+        return not any(model_name.startswith(prefix) for prefix in reasoning_prefixes)
+
+    @staticmethod
+    def extract_response_text(response: Any) -> str:
+        """Concatenate assistant text output from a Responses API call."""
+        if not response:
+            return ""
+        text = getattr(response, "output_text", "") or ""
+        return text.strip()
+
+    @staticmethod
+    def response_usage_to_metadata(usage: Any) -> Dict[str, Optional[int]]:
+        """Convert Responses API usage to the legacy metadata shape."""
+        if not usage:
+            return {
+                "prompt_tokens": None,
+                "completion_tokens": None,
+                "total_tokens": None,
+            }
+
+        return {
+            "prompt_tokens": getattr(usage, "input_tokens", None),
+            "completion_tokens": getattr(usage, "output_tokens", None),
+            "total_tokens": getattr(usage, "total_tokens", None),
+        }
 
     def get_initialization_status(self) -> Dict[str, Any]:
         """Get the current initialization status"""
@@ -168,8 +269,12 @@ class AIService:
             "provider_name": self.available_providers[self.current_provider]["name"],
             "embedding_model": self.embedding_model,
             "chat_model": self.chat_model,
+            "writing_model": self.writing_model,
             "available_providers": self.available_providers,
             "model_descriptions": {
+                "gpt-5": "Most capable GPT model with latest reasoning upgrades",
+                "gpt-5-mini": "Faster GPT-5 variant suitable for interactive chats",
+                "gpt-4o-mini": "Fast GPT-4o variant ideal for streaming conversation",
                 "gpt-4o-mini": "Fastest & cheapest GPT-4o model, great for most tasks",
                 "gpt-4o": "Most capable GPT-4o model, best for complex reasoning",
                 "gpt-4-turbo": "Fast GPT-4 with latest knowledge, good balance",
@@ -262,17 +367,16 @@ class AIService:
             Answer:"""
             
             # Generate response using OpenAI
-            response = self.openai_client.chat.completions.create(
-                model=self.chat_model,
+            response = self.create_response(
                 messages=[
                     {"role": "system", "content": "You are a knowledgeable research assistant. When users ask about their documents, provide specific, detailed answers based on the document content. Be confident and helpful."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=4000,
+                max_output_tokens=4000,
                 temperature=0.7
             )
             
-            answer = response.choices[0].message.content
+            answer = self.extract_response_text(response)
             
             # Add document information
             docs_info = "\n\nDocuments Used:\n"
@@ -421,7 +525,8 @@ class AIService:
         """
         try:
             start_time = time.time()
-            logger.info(f"Generating text with instruction: {instruction}")
+            writing_model = self.writing_model
+            logger.info(f"Generating text with instruction: {instruction} using model {writing_model}")
             
             # Check if OpenAI client is available
             if not self.openai_client:
@@ -445,18 +550,17 @@ class AIService:
             
             prompt += f"\n\nPlease ensure the response is no longer than {max_length} words and maintains academic writing standards."
             
-            # Call OpenAI API
-            response = self.openai_client.chat.completions.create(
-                model=self.chat_model,
+            response = self.create_response(
                 messages=[
                     {"role": "system", "content": "You are an expert academic writing assistant. Help researchers improve their writing by providing clear, well-structured, and academically appropriate text."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=min(max_length * 2, 2000),  # Estimate tokens needed
+                model=writing_model,
+                max_output_tokens=min(max_length * 2, 2000),  # Estimate tokens needed
                 temperature=0.7
             )
             
-            generated_text = response.choices[0].message.content.strip()
+            generated_text = self.extract_response_text(response)
             processing_time = time.time() - start_time
             
             logger.info(f"Text generation completed in {processing_time:.2f}s")
@@ -477,7 +581,8 @@ class AIService:
         """
         try:
             start_time = time.time()
-            logger.info("Performing grammar and style check")
+            writing_model = self.writing_model
+            logger.info(f"Performing grammar and style check using model {writing_model}")
             
             # Check if OpenAI client is available
             if not self.openai_client:
@@ -510,18 +615,17 @@ class AIService:
             SUGGESTIONS: [list of specific suggestions]
             SCORE: [0-100 score]"""
             
-            # Call OpenAI API
-            response = self.openai_client.chat.completions.create(
-                model=self.chat_model,
+            response = self.create_response(
                 messages=[
                     {"role": "system", "content": "You are an expert academic writing editor. Analyze text for grammar, style, and clarity, providing specific, actionable feedback."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=1500,
+                model=writing_model,
+                max_output_tokens=1500,
                 temperature=0.3
             )
             
-            response_text = response.choices[0].message.content.strip()
+            response_text = self.extract_response_text(response)
             processing_time = time.time() - start_time
             
             # Parse the response
@@ -542,7 +646,8 @@ class AIService:
         """
         try:
             start_time = time.time()
-            logger.info(f"Enhancing text with research context: {query_type}")
+            writing_model = self.writing_model
+            logger.info(f"Enhancing text with research context: {query_type} using model {writing_model}")
             
             # Check if OpenAI client is available
             if not self.openai_client:
@@ -565,18 +670,17 @@ class AIService:
             
             Focus on making the text more academically rigorous, well-supported, and clear."""
             
-            # Call OpenAI API
-            response = self.openai_client.chat.completions.create(
-                model=self.chat_model,
+            response = self.create_response(
                 messages=[
                     {"role": "system", "content": "You are an expert research writing consultant. Help researchers improve their academic writing by providing research-based enhancements and suggestions."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=1500,
+                model=writing_model,
+                max_output_tokens=1500,
                 temperature=0.5
             )
             
-            enhanced_text = response.choices[0].message.content.strip()
+            enhanced_text = self.extract_response_text(response)
             processing_time = time.time() - start_time
             
             logger.info(f"Research context enhancement completed in {processing_time:.2f}s")
@@ -814,6 +918,17 @@ class AIService:
                 logger.info(f"Scoped to paper: {paper_id}")
             else:
                 logger.info("Scoped to global library")
+
+            # Handle simple greetings without invoking RAG
+            if self._is_greeting(query):
+                friendly = "Hi there! Ask me about this paper's references and I'll help summarize or answer questions."
+                chat_id = f"greet-{int(time.time())}"
+                return {
+                    "response": friendly,
+                    "sources": [],
+                    "sources_data": [],
+                    "chat_id": chat_id,
+                }
             
             # Intent: simple listing (avoid LLM + retrieval)
             intent = self._detect_listing_intent(query)
@@ -892,12 +1007,26 @@ class AIService:
             
         except Exception as e:
             logger.error(f"Error in reference chat: {str(e)}")
-            return {
-                "response": f"Error processing your request: {str(e)}",
-                "sources": [],
-                "sources_data": [],
-                "chat_id": f"error-{int(time.time())}"
-            }
+        return {
+            "response": f"Error processing your request: {str(e)}",
+            "sources": [],
+            "sources_data": [],
+            "chat_id": f"error-{int(time.time())}"
+        }
+
+    @staticmethod
+    def _is_greeting(text: str) -> bool:
+        """Detect short greeting/pleasantry to avoid unnecessary RAG calls."""
+        if not text:
+            return False
+        q = text.strip().lower()
+        if len(q) > 24:
+            return False
+        greetings = {
+            "hi", "hey", "hello", "hello there", "hi there", "hey there", "hiya", "howdy",
+            "good morning", "good afternoon", "good evening", "yo"
+        }
+        return q in greetings
 
     def _detect_listing_intent(self, query: str) -> Optional[str]:
         """Detect simple listing/summary intents to bypass RAG.
@@ -930,6 +1059,7 @@ class AIService:
         """
         from app.models.reference import Reference
         from app.models.research_paper import ResearchPaper
+        from app.models.paper_reference import PaperReference
         import uuid as _uuid
         try:
             user_uuid = user_id if not isinstance(user_id, str) else _uuid.UUID(user_id)
@@ -939,7 +1069,13 @@ class AIService:
         if intent == "references":
             # If paper scoped, list that paper's references; otherwise, user's library
             if paper_id:
-                refs = db.query(Reference).filter(Reference.paper_id == paper_id).order_by(Reference.created_at.desc()).all()
+                refs = (
+                    db.query(Reference)
+                    .join(PaperReference, PaperReference.reference_id == Reference.id)
+                    .filter(PaperReference.paper_id == paper_id)
+                    .order_by(Reference.created_at.desc())
+                    .all()
+                )
                 title = db.query(ResearchPaper.title).filter(ResearchPaper.id == paper_id).scalar() or "this paper"
                 if not refs:
                     return (f"This paper has 0 references.", [] )
@@ -991,6 +1127,7 @@ class AIService:
         """
         from app.models.document_chunk import DocumentChunk
         from app.models.reference import Reference
+        from app.models.paper_reference import PaperReference
         
         try:
             import math as _math
@@ -1029,7 +1166,9 @@ class AIService:
             # Scope to paper if provided
             if paper_id:
                 # When scoped to a paper, don't restrict by owner (paper access already validated)
-                query_base = query_base.filter(Reference.paper_id == paper_id)
+                query_base = query_base.join(
+                    PaperReference, PaperReference.reference_id == Reference.id
+                ).filter(PaperReference.paper_id == paper_id)
             else:
                 # Global scope: restrict to the user's own reference library
                 query_base = query_base.filter(Reference.owner_id == user_uuid)
@@ -1187,18 +1326,16 @@ class AIService:
 
             Answer:"""
             
-            # Generate response using OpenAI
-            response = self.openai_client.chat.completions.create(
-                model=self.chat_model,
+            response = self.create_response(
                 messages=[
                     {"role": "system", "content": "You are a knowledgeable research assistant specializing in academic literature. When users ask about their references, provide specific, well-cited answers that synthesize information across multiple sources. Always cite your sources properly."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=4000,
+                max_output_tokens=4000,
                 temperature=0.7
             )
             
-            answer = response.choices[0].message.content
+            answer = self.extract_response_text(response)
             
             # Add reference information
             refs_info = "\n\nReferences Used:\n"

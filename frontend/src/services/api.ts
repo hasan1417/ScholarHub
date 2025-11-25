@@ -73,6 +73,17 @@ export const buildApiUrl = (path: string) => {
   return `${API_BASE_URL}${sanitized}`
 }
 
+const buildAuthHeaders = () => {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  }
+  const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
+  }
+  return headers
+}
+
 // Create axios instance with base configuration
 const api = axios.create({
   baseURL: API_BASE_URL || '/api/v1',
@@ -1035,6 +1046,25 @@ export const aiAPI = {
       text, 
       max_keywords: maxKeywords 
     }),
+}
+
+export const streamAPI = {
+  chatWithReferencesStream: async (query: string, paperId?: string | null) => {
+    const url = buildApiUrl('/ai/chat-with-references/stream')
+    return fetch(url, {
+      method: 'POST',
+      headers: buildAuthHeaders(),
+      body: JSON.stringify({ query, paper_id: paperId || null }),
+    })
+  },
+  writingGenerateStream: async (text: string, instruction: string, context?: string, maxLength = 500) => {
+    const url = buildApiUrl('/ai/writing/generate/stream')
+    return fetch(url, {
+      method: 'POST',
+      headers: buildAuthHeaders(),
+      body: JSON.stringify({ text, instruction, context, max_length: maxLength }),
+    })
+  }
 }
 
 // Tags API endpoints

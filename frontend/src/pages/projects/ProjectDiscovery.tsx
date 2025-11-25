@@ -1038,7 +1038,7 @@ const ProjectDiscovery = () => {
     return (
       <div className="space-y-6">
         <section className="space-y-4 rounded-2xl border border-indigo-100 bg-white p-6 shadow-sm transition-colors dark:border-indigo-500/30 dark:bg-slate-900/40">
-          <div className="flex items-center gap-3 text-indigo-700">
+          <div className="flex items-center gap-3 text-indigo-700 dark:text-indigo-200">
             <Sparkles className="h-5 w-5" />
             <div>
               <h2 className="text-base font-semibold">Active feed preferences</h2>
@@ -1048,7 +1048,7 @@ const ProjectDiscovery = () => {
             </div>
           </div>
 
-          <div className="inline-flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1.5 text-xs text-indigo-700">
+          <div className="inline-flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1.5 text-xs text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-200">
             <Clock className="h-3.5 w-3.5" /> {refreshSummary}
           </div>
 

@@ -18,6 +18,7 @@ class ResearchPaper(Base):
     current_version = Column(String(50), default="1.0")  # Current version number
     format = Column(String(50))  # Editor format (latex, rtf, etc.)
     summary = Column(Text)
+    objectives = Column(JSONB, nullable=True, default=list)
     
     # Ownership and collaboration
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)

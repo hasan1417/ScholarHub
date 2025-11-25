@@ -39,6 +39,8 @@ services:
       - REDIS_PORT=6379
       - LOG_LEVEL=${COLLAB_LOG_LEVEL:-info}
       - COLLAB_JWT_SECRET=${COLLAB_JWT_SECRET:-development-only-secret}
+      - BACKEND_BASE_URL=${BACKEND_BASE_URL:-http://backend:8000}
+      - COLLAB_BOOTSTRAP_SECRET=${COLLAB_BOOTSTRAP_SECRET:-}
     depends_on:
       redis:
         condition: service_healthy
@@ -56,7 +58,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - LOG_LEVEL=warning
+      - LOG_LEVEL=info
       - DATABASE_URL=postgresql://scholarhub:scholarhub@postgres:5432/scholarhub
       - REDIS_URL=redis://redis:6379
       - SECRET_KEY=${SECRET_KEY:-your-super-secret-key-change-this-in-production}
@@ -101,6 +103,7 @@ services:
       - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS:-["http://localhost:3000","http://localhost:8000","http://localhost:8082"]}
       - PROJECT_COLLAB_REALTIME_ENABLED=${PROJECT_COLLAB_REALTIME_ENABLED:-false}
       - COLLAB_JWT_SECRET=${COLLAB_JWT_SECRET:-}
+      - COLLAB_BOOTSTRAP_SECRET=${COLLAB_BOOTSTRAP_SECRET:-}
       - COLLAB_WS_URL=${COLLAB_WS_URL:-ws://collab:3001}
       - COLLAB_JWT_EXPIRE_SECONDS=${COLLAB_JWT_EXPIRE_SECONDS:-300}
       - LATEX_WARMUP_ON_STARTUP=${LATEX_WARMUP_ON_STARTUP:-true}

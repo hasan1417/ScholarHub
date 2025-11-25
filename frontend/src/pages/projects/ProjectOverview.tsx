@@ -22,6 +22,21 @@ const ProjectOverview = () => {
   })
 
   const notifications = notificationsQuery.data ?? []
+  const descriptionText = project.idea?.trim() || project.scope?.trim() || ''
+  const objectivesList = useMemo(() => {
+    if (!project.scope) return []
+
+    const segments = project.scope
+      .split(/\r?\n|[•]/)
+      .map((segment) => segment.replace(/^\d+[\).\s-]*/, '').trim())
+      .filter(Boolean)
+
+    if (segments.length > 0) {
+      return segments
+    }
+
+    return project.scope.trim() ? [project.scope.trim()] : []
+  }, [project.scope])
 
   const formatDateTime = (value?: string | null) => {
     if (!value) return ''
@@ -95,28 +110,28 @@ const ProjectOverview = () => {
     const badgeToneClass = (tone: 'default' | 'positive' | 'neutral' | 'warning' | 'danger') => {
       switch (tone) {
         case 'positive':
-          return 'bg-emerald-100 text-emerald-700'
+          return 'bg-emerald-100 dark:bg-emerald-400/10 text-emerald-700 dark:text-emerald-200'
         case 'warning':
-          return 'bg-amber-100 text-amber-700'
+          return 'bg-amber-100 dark:bg-amber-400/10 text-amber-700 dark:text-amber-200'
         case 'danger':
-          return 'bg-rose-100 text-rose-700'
+          return 'bg-rose-100 dark:bg-rose-400/10 text-rose-700 dark:text-rose-200'
         case 'neutral':
-          return 'bg-gray-100 text-gray-600'
+          return 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-200'
         default:
-          return 'bg-indigo-100 text-indigo-600'
+          return 'bg-indigo-100 dark:bg-indigo-400/10 text-indigo-600 dark:text-indigo-200'
       }
     }
 
     return (
-      <li key={key} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+      <li key={key} className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 shadow-sm min-h-[120px]">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:gap-4">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 md:w-56 md:flex-shrink-0">
             <span className={`flex h-9 w-9 items-center justify-center rounded-full ${iconClassName}`}>
               {icon}
             </span>
             <div className="space-y-0.5">
-              <p className="text-sm font-semibold text-gray-900">{title}</p>
-              {subtitle && <p className="text-xs text-gray-500">{subtitle}</p>}
+              <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">{title}</p>
+              {subtitle && <p className="text-xs text-gray-500 dark:text-slate-300">{subtitle}</p>}
             </div>
           </div>
           <div className="flex-1 space-y-2">
@@ -178,9 +193,9 @@ const ProjectOverview = () => {
           </div>
         ),
         content: (
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-2.5 text-sm text-gray-700">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Session summary</p>
-            <p className="mt-1 text-xs text-gray-700">Status: {toSentence(status ?? action)}.</p>
+          <div className="rounded-lg border border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 p-2.5 text-sm text-gray-700 dark:text-slate-300">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">Session summary</p>
+            <p className="mt-1 text-xs text-gray-700 dark:text-slate-300">Status: {toSentence(status ?? action)}.</p>
           </div>
         ),
       })
@@ -213,9 +228,9 @@ const ProjectOverview = () => {
         recordedAt: recordedAtLabel,
         recordedRelative,
         content: (
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-2.5">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Paper</p>
-            <p className="mt-1 text-xs text-gray-700">{title}</p>
+          <div className="rounded-lg border border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 p-2.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">Paper</p>
+            <p className="mt-1 text-xs text-gray-700 dark:text-slate-300">{title}</p>
           </div>
         ),
       })
@@ -232,6 +247,16 @@ const ProjectOverview = () => {
       const projectTitle = typeof payload.project_title === 'string' && payload.project_title
         ? payload.project_title
         : project.title
+      const fieldLabelMap: Record<string, string> = {
+        idea: 'Description',
+        keywords: 'Keywords',
+        scope: 'Objectives',
+      }
+      const normalizedFieldLabels = updatedFields.map((field) => {
+        const normalized = field.toLowerCase()
+        if (fieldLabelMap[normalized]) return fieldLabelMap[normalized]
+        return toSentence(field.replace(/_/g, ' '))
+      })
 
       return renderNotificationCard({
         key: notification.id,
@@ -239,15 +264,15 @@ const ProjectOverview = () => {
         iconClassName: 'bg-indigo-100 text-indigo-600',
         title: 'Project updated',
         subtitle: actorName,
-        badges: updatedFields.length > 0
-          ? [{ label: updatedFields.join(', '), tone: 'neutral' }]
+        badges: normalizedFieldLabels.length > 0
+          ? [{ label: normalizedFieldLabels.join(', '), tone: 'neutral' }]
           : undefined,
         recordedAt: recordedAtLabel,
         recordedRelative,
         content: (
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-2.5 text-sm text-gray-700">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Project</p>
-            <p className="mt-1 text-xs text-gray-700">{projectTitle}</p>
+          <div className="rounded-lg border border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 p-2.5 text-sm text-gray-700 dark:text-slate-300">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">Project</p>
+            <p className="mt-1 text-xs text-gray-700 dark:text-slate-300">{projectTitle}</p>
           </div>
         ),
       })
@@ -289,13 +314,13 @@ const ProjectOverview = () => {
         recordedRelative,
         content: (
           <div className="space-y-2">
-            <div className="rounded-lg border border-gray-100 bg-gray-50 p-2.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Related paper</p>
-              <p className="mt-1 text-xs text-gray-700">{referenceTitle}</p>
+            <div className="rounded-lg border border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 p-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">Related paper</p>
+              <p className="mt-1 text-xs text-gray-700 dark:text-slate-300">{referenceTitle}</p>
             </div>
             {paperTitle && (
-              <div className="rounded-lg border border-indigo-100 bg-indigo-50 p-2.5 text-sm text-indigo-700">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-500">Linked paper</p>
+              <div className="rounded-lg border border-indigo-100 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-400/10 p-2.5 text-sm text-indigo-700 dark:text-indigo-200">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-500 dark:text-indigo-300">Linked paper</p>
                 <p className="mt-1 text-xs">{paperTitle}</p>
               </div>
             )}
@@ -318,8 +343,8 @@ const ProjectOverview = () => {
   const activityContent = useMemo(() => {
     if (notificationsQuery.isLoading) {
       return (
-        <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-500">
-          <Loader2 className="h-4 w-4 animate-spin text-indigo-600" />
+        <div className="flex items-center gap-2 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-3 text-sm text-gray-500 dark:text-slate-300">
+          <Loader2 className="h-4 w-4 animate-spin text-indigo-600 dark:text-indigo-400" />
           Fetching recent activity…
         </div>
       )
@@ -327,7 +352,7 @@ const ProjectOverview = () => {
 
     if (notificationsQuery.isError) {
       return (
-        <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600">
+        <div className="flex items-start gap-2 rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-400/10 px-4 py-3 text-sm text-rose-600 dark:text-rose-200">
           <AlertCircle className="mt-0.5 h-4 w-4" />
           Unable to load updates right now. Please refresh and try again.
         </div>
@@ -336,7 +361,7 @@ const ProjectOverview = () => {
 
     if (notifications.length === 0) {
       return (
-        <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-6 text-sm text-gray-500">
+        <div className="rounded-xl border border-dashed border-gray-300 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 p-6 text-sm text-gray-500 dark:text-slate-300">
           Project activity will appear here once teammates start collaborating (calls, paper edits, references, and more).
         </div>
       )
@@ -355,39 +380,34 @@ const ProjectOverview = () => {
       <div className="grid gap-6 lg:grid-cols-[2fr,1fr]">
         <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800">
           <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">Project context</h2>
-          <dl className="mt-4 space-y-4 text-sm text-gray-600 dark:text-slate-300">
+          <dl className="mt-4 space-y-5 text-sm text-gray-600 dark:text-slate-300">
             <div>
-              <dt className="font-medium text-gray-700 dark:text-slate-200">Idea</dt>
+              <dt className="font-medium text-gray-700 dark:text-slate-200">Description</dt>
               <dd className="mt-1 whitespace-pre-line">
-                {project.idea ? project.idea : <span className="text-gray-400 dark:text-slate-500">No idea captured yet.</span>}
-              </dd>
-            </div>
-            <div>
-              <dt className="font-medium text-gray-700 dark:text-slate-200">Scope</dt>
-              <dd className="mt-1">
-                {project.scope ? project.scope : <span className="text-gray-400 dark:text-slate-500">Not defined</span>}
-              </dd>
-            </div>
-            <div>
-              <dt className="font-medium text-gray-700 dark:text-slate-200">Keywords</dt>
-              <dd className="mt-2 flex flex-wrap gap-2">
-                {project.keywords && project.keywords.length > 0 ? (
-                  project.keywords.map((keyword) => (
-                    <span
-                      key={keyword}
-                      className="inline-flex rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 dark:bg-indigo-400/10 dark:text-indigo-200"
-                    >
-                      {keyword}
-                    </span>
-                  ))
+                {descriptionText ? (
+                  descriptionText
                 ) : (
-                  <span className="text-gray-400 dark:text-slate-500">No keywords recorded yet.</span>
+                  <span className="text-gray-400 dark:text-slate-500">No description captured yet.</span>
                 )}
+              </dd>
+            </div>
+            <div>
+              <dt className="font-medium text-gray-700 dark:text-slate-200">Objectives</dt>
+              <dd className="mt-2">
+                <ol className="list-decimal space-y-1 pl-5 text-sm text-gray-700 dark:text-slate-300">
+                  {objectivesList.length > 0 ? (
+                    objectivesList.map((objective, index) => (
+                      <li key={`${objective}-${index}`}>{objective}</li>
+                    ))
+                  ) : (
+                    <li className="text-gray-400 dark:text-slate-500">No objectives defined yet.</li>
+                  )}
+                </ol>
               </dd>
             </div>
           </dl>
         </section>
-        <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+        <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800">
           <ProjectTeamManager />
         </section>
       </div>

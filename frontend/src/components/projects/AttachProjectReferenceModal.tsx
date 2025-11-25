@@ -135,16 +135,16 @@ const AttachProjectReferenceModal: React.FC<AttachProjectReferenceModalProps> = 
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-3xl rounded-lg bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-3xl rounded-lg border border-gray-200 bg-white shadow-xl transition-colors dark:border-slate-700 dark:bg-slate-900">
+        <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4 dark:border-slate-700">
           <div>
-            <h2 className="text-lg font-semibold text-gray-900">Attach References</h2>
-            <p className="text-xs text-gray-500">Select approved project references to link them to this paper.</p>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Attach References</h2>
+            <p className="text-xs text-gray-500 dark:text-slate-400">Select approved project references to link them to this paper.</p>
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
+            className="text-gray-400 transition-colors hover:text-gray-600 dark:text-slate-500 dark:hover:text-slate-300"
             title="Close"
             disabled={isSaving}
           >
@@ -154,10 +154,10 @@ const AttachProjectReferenceModal: React.FC<AttachProjectReferenceModalProps> = 
 
         <div className="px-5 py-4 space-y-4">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-slate-500" />
             <input
               type="text"
-              className="w-full rounded-md border border-gray-200 py-2 pl-9 pr-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className="w-full rounded-md border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500"
               placeholder="Search by title, author, journal, or DOI"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
@@ -165,25 +165,25 @@ const AttachProjectReferenceModal: React.FC<AttachProjectReferenceModalProps> = 
           </div>
 
           {error && (
-            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-400/40 dark:bg-rose-900/30 dark:text-rose-100">
               {error}
             </div>
           )}
 
-          <div className="max-h-80 overflow-y-auto rounded-md border border-gray-200">
+          <div className="max-h-80 overflow-y-auto rounded-md border border-gray-200 dark:border-slate-700">
             {isLoading ? (
-              <div className="flex items-center justify-center py-12 text-sm text-gray-500">
-                <Loader2 className="mr-2 h-4 w-4 animate-spin text-indigo-600" />
+              <div className="flex items-center justify-center py-12 text-sm text-gray-500 dark:text-slate-300">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin text-indigo-600 dark:text-indigo-400" />
                 Loading project references…
               </div>
             ) : filteredReferences.length === 0 ? (
-              <div className="py-12 text-center text-sm text-gray-500">
+              <div className="py-12 text-center text-sm text-gray-500 dark:text-slate-300">
                 {references.length === 0
                   ? 'No approved project references are available yet.'
                   : 'No references match your search.'}
               </div>
             ) : (
-              <ul className="divide-y divide-gray-100 text-sm">
+              <ul className="divide-y divide-gray-100 text-sm dark:divide-slate-700">
                 {filteredReferences.map((item) => {
                   const ref = item.reference
                   const isSelected = selectedIds.has(item.id)
@@ -192,13 +192,13 @@ const AttachProjectReferenceModal: React.FC<AttachProjectReferenceModalProps> = 
                     <li key={item.id} className="flex items-start gap-3 px-4 py-3">
                       <input
                         type="checkbox"
-                        className="mt-1"
+                        className="mt-1 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:border-indigo-400 dark:checked:bg-indigo-500"
                         checked={isSelected}
                         onChange={() => toggleSelection(item.id)}
                       />
                       <div className="flex-1">
-                        <div className="font-medium text-gray-900">{ref?.title || 'Untitled reference'}</div>
-                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-600">
+                        <div className="font-medium text-gray-900 dark:text-slate-100">{ref?.title || 'Untitled reference'}</div>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-600 dark:text-slate-300">
                           {ref?.authors && ref.authors.length > 0 && <span>{ref.authors.join(', ')}</span>}
                           {ref?.year && <span>Year: {ref.year}</span>}
                           {ref?.journal && <span>{ref.journal}</span>}
@@ -207,14 +207,14 @@ const AttachProjectReferenceModal: React.FC<AttachProjectReferenceModalProps> = 
                               href={`https://doi.org/${ref.doi}`}
                               target="_blank"
                               rel="noreferrer"
-                              className="text-indigo-600 hover:underline"
+                              className="text-indigo-600 hover:underline dark:text-indigo-300"
                             >
                               DOI
                             </a>
                           )}
                         </div>
                         {attachedElsewhere.length > 0 && (
-                          <p className="mt-2 text-xs text-gray-500">
+                          <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
                             Also attached to {attachedElsewhere.length} other paper{attachedElsewhere.length === 1 ? '' : 's'} in this project.
                           </p>
                         )}
@@ -227,21 +227,21 @@ const AttachProjectReferenceModal: React.FC<AttachProjectReferenceModalProps> = 
           </div>
         </div>
 
-        <div className="flex items-center justify-between border-t border-gray-100 bg-gray-50 px-5 py-4 text-sm">
-          <span className="text-gray-500">
+        <div className="flex items-center justify-between border-t border-gray-100 bg-gray-50 px-5 py-4 text-sm dark:border-slate-700 dark:bg-slate-800">
+          <span className="text-gray-500 dark:text-slate-300">
             {selectedIds.size} reference{selectedIds.size === 1 ? '' : 's'} selected
           </span>
           <div className="flex items-center gap-3">
             <button
               onClick={onClose}
-              className="rounded-full border border-gray-200 px-4 py-2 text-gray-600 hover:bg-gray-100"
+              className="rounded-full border border-gray-200 px-4 py-2 text-gray-600 transition-colors hover:bg-gray-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
               disabled={isSaving}
             >
               Cancel
             </button>
             <button
               onClick={handleApply}
-              className="inline-flex items-center gap-2 rounded-full bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-full bg-indigo-600 px-4 py-2 font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-60 dark:bg-indigo-500 dark:hover:bg-indigo-400"
               disabled={isSaving || isLoading}
             >
               {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
