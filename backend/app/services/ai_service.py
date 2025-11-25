@@ -1274,58 +1274,13 @@ class AIService:
             return []
 
     def generate_reference_rag_response(self, query: str, chunks: List[Dict[str, Any]]) -> str:
-        """
-        Generate RAG response using reference chunks
-        """
+        """Generate RAG response using reference chunks (non-streaming)."""
         if not self.openai_client:
             return "AI service not available. Please try again later."
-        
+
         try:
-            # Prepare context from reference chunks
-            context = ""
-            references_used = {}
-            
-            for i, chunk in enumerate(chunks, 1):
-                ref_id = chunk['reference_id']
-                ref_title = chunk['reference_title'] or f"Reference {ref_id}"
-                
-                if ref_id not in references_used:
-                    references_used[ref_id] = {
-                        'title': ref_title,
-                        'authors': chunk.get('reference_authors', []),
-                        'year': chunk.get('reference_year'),
-                        'journal': chunk.get('reference_journal')
-                    }
-                
-                context += f"Chunk {i} (from '{ref_title}'):\n"
-                context += f"{chunk['text']}\n"
-                context += f"---\n\n"
-            
-            # Create the prompt
-            prompt = f"""You are an AI research assistant helping a user understand their reference library. Answer the user's question based on the provided text chunks from academic references.
+            prompt, references_used = self._build_reference_prompt(query, chunks)
 
-            IMPORTANT: 
-            - Be specific and cite the references that contain relevant information
-            - Use concrete details from the reference chunks
-            - When citing, use format: (Reference Title, Year) or (Author et al., Year)
-            - If multiple references support a point, cite all relevant ones
-            - Provide comprehensive answers that synthesize information across references
-            - If you can't find relevant information, say so clearly
-
-            Question: {query}
-
-            Available Reference Chunks:
-            {context}
-
-            Instructions:
-            - Answer the question using specific information from the reference chunks
-            - Cite references properly when using information
-            - Synthesize information from multiple sources when relevant
-            - Be detailed and provide academic-quality responses
-            - If conflicting information exists, acknowledge and explain the differences
-
-            Answer:"""
-            
             response = self.create_response(
                 messages=[
                     {"role": "system", "content": "You are a knowledgeable research assistant specializing in academic literature. When users ask about their references, provide specific, well-cited answers that synthesize information across multiple sources. Always cite your sources properly."},
@@ -1334,17 +1289,16 @@ class AIService:
                 max_output_tokens=4000,
                 temperature=0.7
             )
-            
+
             answer = self.extract_response_text(response)
-            
-            # Add reference information
+
             refs_info = "\n\nReferences Used:\n"
             for ref_id, ref_data in references_used.items():
                 title = ref_data['title']
                 authors = ref_data.get('authors', [])
                 year = ref_data.get('year')
                 journal = ref_data.get('journal')
-                
+
                 ref_citation = f"• {title}"
                 if authors:
                     authors_str = ", ".join(authors[:3])  # First 3 authors
@@ -1355,14 +1309,84 @@ class AIService:
                     ref_citation += f" ({year})"
                 if journal:
                     ref_citation += f" - {journal}"
-                
+
                 refs_info += ref_citation + "\n"
-            
+
             return answer + refs_info
-            
+
         except Exception as e:
             logger.error(f"Error generating reference RAG response: {str(e)}")
             return f"Error generating response: {str(e)}"
+
+    def stream_reference_rag_response(self, query: str, chunks: List[Dict[str, Any]]):
+        """Stream RAG response using reference chunks."""
+        if not self.openai_client:
+            yield "AI service not available. Please try again later."
+            return
+
+        try:
+            prompt, _ = self._build_reference_prompt(query, chunks)
+            stream = self.stream_response(
+                messages=[
+                    {"role": "system", "content": "You are a knowledgeable research assistant specializing in academic literature. When users ask about their references, provide specific, well-cited answers that synthesize information across multiple sources. Always cite your sources properly."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_output_tokens=4000,
+                temperature=0.7
+            )
+            for event in stream:
+                chunk_text = getattr(event, "delta", None) or getattr(event, "output_text", None) or ""
+                if chunk_text:
+                    yield chunk_text
+        except Exception as e:
+            logger.error(f"Error streaming reference response: {str(e)}")
+            yield f"[error streaming response: {str(e)}]"
+
+    def _build_reference_prompt(self, query: str, chunks: List[Dict[str, Any]]) -> Tuple[str, Dict[str, Any]]:
+        """Build prompt and metadata for reference-based RAG."""
+        context = ""
+        references_used: Dict[str, Any] = {}
+
+        for i, chunk in enumerate(chunks, 1):
+            ref_id = chunk['reference_id']
+            ref_title = chunk['reference_title'] or f"Reference {ref_id}"
+
+            if ref_id not in references_used:
+                references_used[ref_id] = {
+                    'title': ref_title,
+                    'authors': chunk.get('reference_authors', []),
+                    'year': chunk.get('reference_year'),
+                    'journal': chunk.get('reference_journal')
+                }
+
+            context += f"Chunk {i} (from '{ref_title}'):\n"
+            context += f"{chunk['text']}\n"
+            context += f"---\n\n"
+
+        prompt = f"""You are an AI research assistant helping a user understand their reference library. Answer the user's question based on the provided text chunks from academic references.
+
+IMPORTANT: 
+- Be specific and cite the references that contain relevant information
+- Use concrete details from the reference chunks
+- When citing, use format: (Reference Title, Year) or (Author et al., Year)
+- If multiple references support a point, cite all relevant ones
+- Provide comprehensive answers that synthesize information across references
+- If you can't find relevant information, say so clearly
+
+Question: {query}
+
+Available Reference Chunks:
+{context}
+
+Instructions:
+- Answer the question using specific information from the reference chunks
+- Cite references properly when using information
+- Synthesize information from multiple sources when relevant
+- Be detailed and provide academic-quality responses
+- If conflicting information exists, acknowledge and explain the differences
+
+Answer:"""
+        return prompt, references_used
 
     def _generate_mock_reference_response(self, query: str, paper_id: Optional[str] = None) -> str:
         """Generate mock response for reference-based chat"""
@@ -1388,6 +1412,45 @@ class AIService:
                 sources[ref_id]['chunk_count'] += 1
         
         return list(sources.values())
+
+    def stream_generate_text(self, text: str, instruction: str, context: Optional[str] = None, max_length: int = 500):
+        """Stream generate/expand/rephrase text using AI."""
+        if not self.openai_client:
+            yield self._generate_mock_text_response(text, instruction, context, max_length)['generated_text']
+            return
+
+        if instruction.lower() == "expand":
+            prompt = f"Please expand the following text, making it more detailed and comprehensive while maintaining the same tone and style. Add relevant examples, explanations, and context:\n\n{text}"
+        elif instruction.lower() == "rephrase":
+            prompt = f"Please rephrase the following text in a different way while keeping the same meaning and maintaining academic writing style:\n\n{text}"
+        elif instruction.lower() == "complete":
+            prompt = f"Please complete the following text, continuing the thought naturally and maintaining the same style and tone:\n\n{text}"
+        elif instruction.lower() == "summarize":
+            prompt = f"Please provide a concise summary of the following text, capturing the key points and main ideas:\n\n{text}"
+        else:
+            prompt = f"Please {instruction} the following text:\n\n{text}"
+
+        if context:
+            prompt += f"\n\nAdditional context: {context}"
+
+        prompt += f"\n\nPlease ensure the response is no longer than {max_length} words and maintains academic writing standards."
+
+        try:
+            stream = self.stream_response(
+                messages=[
+                    {"role": "system", "content": "You are an expert academic writing assistant. Help researchers improve their writing by providing clear, well-structured, and academically appropriate text."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_output_tokens=min(max_length * 2, 2000),  # Estimate tokens needed
+                temperature=0.7
+            )
+            for event in stream:
+                chunk_text = getattr(event, "delta", None) or getattr(event, "output_text", None) or ""
+                if chunk_text:
+                    yield chunk_text
+        except Exception as e:
+            logger.error(f"Error streaming text generation: {str(e)}")
+            yield f"[error streaming response: {str(e)}]"
 
     def _store_reference_chat_session(
         self,

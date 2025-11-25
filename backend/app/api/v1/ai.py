@@ -499,9 +499,30 @@ async def generate_text_stream(
     """
     Stream text generation response in plain text chunks.
     """
-    base_response = await generate_text(request, db, current_user)
-    text = base_response.generated_text if isinstance(base_response, TextGenerationResponse) else str(base_response)
-    return StreamingResponse(_chunk_text_stream(text), media_type="text/plain")
+    try:
+        if ai_service.initialization_status != "ready":
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="AI service is not ready. Please try again later."
+            )
+
+        def streamer():
+            yield from ai_service.stream_generate_text(
+                text=request.text,
+                instruction=request.instruction,
+                context=request.context,
+                max_length=request.max_length or 500
+            )
+
+        return StreamingResponse(streamer(), media_type="text/plain")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in text generation stream: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred while generating text: {str(e)}"
+        )
 
 
 @router.post("/writing/grammar-check", response_model=GrammarCheckResponse)
@@ -803,10 +824,122 @@ async def chat_with_references_stream(
     """
     Stream reference chat response in plain text chunks.
     """
-    # Reuse the main logic but stream only the response text
-    base_response = await chat_with_references(query, db, current_user)
-    text = base_response.response if isinstance(base_response, ReferenceChatResponse) else str(base_response)
-    return StreamingResponse(_chunk_text_stream(text), media_type="text/plain")
+    try:
+        # Check if AI service is ready
+        if ai_service.initialization_status != "ready":
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="AI service is not ready. Please try again later."
+            )
+
+        paper_title = None
+        if query.paper_id:
+            from app.models.research_paper import ResearchPaper
+            from app.models.paper_member import PaperMember
+
+            paper = db.query(ResearchPaper).filter(ResearchPaper.id == query.paper_id).first()
+            if not paper:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Research paper not found"
+                )
+
+            has_access = paper.owner_id == current_user.id
+            if not has_access:
+                member = db.query(PaperMember).filter(
+                    PaperMember.paper_id == query.paper_id,
+                    PaperMember.user_id == current_user.id,
+                    PaperMember.status == "accepted"
+                ).first()
+                has_access = bool(member)
+
+            if not has_access:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied to paper references"
+                )
+
+            paper_title = paper.title
+
+        # Greeting shortcut
+        if ai_service._is_greeting(query.query):
+            friendly = "Hi there! Ask me about this paper's references and I'll help summarize or answer questions."
+            return StreamingResponse(_chunk_text_stream(friendly), media_type="text/plain")
+
+        # Listing intent shortcut
+        intent = ai_service._detect_listing_intent(query.query)
+        if intent:
+            resp, _ = ai_service._handle_listing_intent(db, str(current_user.id), intent, query.paper_id)
+            return StreamingResponse(_chunk_text_stream(resp), media_type="text/plain")
+
+        # Check processed references
+        processed_refs = db.query(Reference).filter(
+            Reference.owner_id == current_user.id,
+            Reference.status == "analyzed"
+        )
+        if query.paper_id:
+            processed_refs = processed_refs.filter(Reference.paper_id == query.paper_id)
+        ref_count = processed_refs.count()
+        if ref_count == 0:
+            scoped_refs_q = db.query(Reference).filter(Reference.owner_id == current_user.id)
+            if query.paper_id:
+                scoped_refs_q = scoped_refs_q.filter(Reference.paper_id == query.paper_id)
+            scoped_refs = scoped_refs_q.all()
+
+            if not scoped_refs:
+                scope_msg = f"for paper '{paper_title}'" if query.paper_id else "in your library"
+                error_msg = f"No references found {scope_msg}. Please add references with PDFs first."
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=error_msg
+                )
+
+            missing_titles = [
+                (ref.title or "Untitled reference")
+                for ref in scoped_refs
+                if not getattr(ref, "pdf_url", None)
+            ]
+            pending_processing = [
+                (ref.title or "Untitled reference")
+                for ref in scoped_refs
+                if getattr(ref, "pdf_url", None) and ref.status != "analyzed"
+            ]
+
+            parts = []
+            if missing_titles:
+                notice_list = ", ".join(missing_titles[:5]) + ("…" if len(missing_titles) > 5 else "")
+                parts.append(f"Missing PDFs: {notice_list}.")
+            if pending_processing:
+                pending_str = ", ".join(pending_processing[:5]) + ("…" if len(pending_processing) > 5 else "")
+                parts.append(f"Needs processing: {pending_str}.")
+            detail_msg = " ".join(parts) or "References need PDFs or processing for grounded answers."
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=detail_msg,
+            )
+
+        # Get relevant reference chunks
+        logger.info("🔍 Getting relevant reference chunks (stream)...")
+        chunks = ai_service.get_relevant_reference_chunks(
+            db, query.query, str(current_user.id), query.paper_id, limit=query.max_results or 8
+        )
+        if not chunks:
+            fallback = "I couldn't find relevant content for your query. Try a more specific question, or ensure your references (with PDFs) are processed."
+            return StreamingResponse(_chunk_text_stream(fallback), media_type="text/plain")
+
+        def streamer():
+            yield from ai_service.stream_reference_rag_response(query.query, chunks)
+
+        return StreamingResponse(streamer(), media_type="text/plain")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in chat_with_references_stream: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred while processing your request: {str(e)}"
+        )
 
 
 @router.post("/papers/{paper_id}/ingest-references")
