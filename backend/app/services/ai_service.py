@@ -1326,18 +1326,19 @@ class AIService:
 
         try:
             prompt, _ = self._build_reference_prompt(query, chunks)
-            stream = self.stream_response(
-                messages=[
-                    {"role": "system", "content": "You are a knowledgeable research assistant specializing in academic literature. When users ask about their references, provide specific, well-cited answers that synthesize information across multiple sources. Always cite your sources properly."},
-                    {"role": "user", "content": prompt}
-                ],
+            messages = [
+                {
+                    "role": "system",
+                    "content": "You are a knowledgeable research assistant specializing in academic literature. When users ask about their references, provide specific, well-cited answers that synthesize information across multiple sources. Always cite your sources properly."
+                },
+                {"role": "user", "content": prompt},
+            ]
+            yield from self._stream_chat(
+                messages=messages,
+                model=self.chat_model,
+                temperature=0.7,
                 max_output_tokens=4000,
-                temperature=0.7
             )
-            for event in stream:
-                chunk_text = getattr(event, "delta", None) or getattr(event, "output_text", None) or ""
-                if chunk_text:
-                    yield chunk_text
         except Exception as e:
             logger.error(f"Error streaming reference response: {str(e)}")
             yield f"[error streaming response: {str(e)}]"
@@ -1436,20 +1437,62 @@ Answer:"""
         prompt += f"\n\nPlease ensure the response is no longer than {max_length} words and maintains academic writing standards."
 
         try:
-            stream = self.stream_response(
-                messages=[
-                    {"role": "system", "content": "You are an expert academic writing assistant. Help researchers improve their writing by providing clear, well-structured, and academically appropriate text."},
-                    {"role": "user", "content": prompt}
-                ],
-                max_output_tokens=min(max_length * 2, 2000),  # Estimate tokens needed
-                temperature=0.7
+            messages = [
+                {"role": "system", "content": "You are an expert academic writing assistant. Help researchers improve their writing by providing clear, well-structured, and academically appropriate text."},
+                {"role": "user", "content": prompt},
+            ]
+            yield from self._stream_chat(
+                messages=messages,
+                model=self.writing_model,
+                temperature=0.7,
+                max_output_tokens=min(max_length * 2, 2000),
             )
-            for event in stream:
-                chunk_text = getattr(event, "delta", None) or getattr(event, "output_text", None) or ""
-                if chunk_text:
-                    yield chunk_text
         except Exception as e:
             logger.error(f"Error streaming text generation: {str(e)}")
+            yield f"[error streaming response: {str(e)}]"
+
+    def _stream_chat(
+        self,
+        messages: List[Dict[str, Any]],
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_output_tokens: Optional[int] = None,
+        **extra_params: Any,
+    ):
+        """
+        Helper to stream tokens from OpenAI chat completions API.
+        """
+        if not self.openai_client:
+            yield ""
+            return
+        try:
+            stream = self.openai_client.chat.completions.create(
+                model=model or self.chat_model,
+                messages=messages,
+                stream=True,
+                temperature=temperature,
+                max_tokens=max_output_tokens,
+                **extra_params,
+            )
+            for chunk in stream:
+                choices = getattr(chunk, "choices", None)
+                if not choices:
+                    continue
+                delta = choices[0].delta
+                part = ""
+                # delta.content may be a list of text fragments
+                if delta and getattr(delta, "content", None):
+                    # content can be list of objects with .text attribute or plain strings
+                    try:
+                        part = "".join(
+                            [c.text if hasattr(c, "text") else str(c) for c in delta.content]
+                        )
+                    except Exception:
+                        part = "".join([str(c) for c in delta.content])
+                if part:
+                    yield part
+        except Exception as e:
+            logger.error(f"Error in _stream_chat: {str(e)}")
             yield f"[error streaming response: {str(e)}]"
 
     def _store_reference_chat_session(

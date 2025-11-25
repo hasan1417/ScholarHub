@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours for testing
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7  # Refresh token expires in 7 days
+    ACCESS_TOKEN_COOKIE_NAME: str = "access_token"
+    REFRESH_TOKEN_COOKIE_NAME: str = "refresh_token"
+    COOKIE_DOMAIN: Optional[str] = None
     
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = [
@@ -117,6 +120,9 @@ class Settings(BaseSettings):
 
     # Metrics / Telemetry
     ENABLE_METRICS: bool = False
+
+    # Rate limits
+    RATE_LIMIT_BACKEND: str = "100/minute"
 
     # LaTeX warmup
     LATEX_WARMUP_ON_STARTUP: bool = True
