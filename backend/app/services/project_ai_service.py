@@ -190,8 +190,7 @@ class ProjectAIOrchestrator:
         if not self.ai_service.openai_client:
             return prompt  # Should not happen; caller handles mock case
 
-        response = self.ai_service.openai_client.chat.completions.create(
-            model=self.ai_service.chat_model,
+        response = self.ai_service.create_response(
             messages=[
                 {
                     "role": "system",
@@ -199,10 +198,11 @@ class ProjectAIOrchestrator:
                 },
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=1200,
+            model=self.ai_service.chat_model,
+            max_output_tokens=1200,
             temperature=0.4,
         )
-        return response.choices[0].message.content
+        return self.ai_service.extract_response_text(response)
 
     def _build_prompt(
         self,

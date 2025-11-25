@@ -16,7 +16,7 @@ import {
   RefreshCw,
   Highlighter
 } from 'lucide-react'
-import { aiAPI } from '../../services/api'
+import { streamAPI } from '../../services/api'
 
 interface EnhancedAIWritingToolsProps {
   selectedText: string
@@ -99,6 +99,7 @@ const EnhancedAIWritingTools: React.FC<EnhancedAIWritingToolsProps> = ({
   const [promptText, setPromptText] = useState<string>(PROMPT_TEMPLATES[0].prompt)
   const [includeSelection, setIncludeSelection] = useState<boolean>(false)
   const [result, setResult] = useState<AIResult | null>(null)
+  const [streamedText, setStreamedText] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
   const [isProcessing, setIsProcessing] = useState<boolean>(false)
   const [lastRequest, setLastRequest] = useState<{ instruction: string; text: string; context: string } | null>(null)
@@ -300,24 +301,39 @@ const EnhancedAIWritingTools: React.FC<EnhancedAIWritingToolsProps> = ({
       setIsProcessing(true)
       setError(null)
       setResult(null)
+      setStreamedText('')
       setCopied(false)
 
-      const response = await aiAPI.generateText(
+      const response = await streamAPI.writingGenerateStream(
         textPayload,
         promptText.trim(),
         contextPayload || undefined,
         600
       )
+      if (!response.ok) {
+        const errText = await response.text()
+        throw new Error(errText || 'Failed to generate content.')
+      }
+      const reader = response.body?.getReader()
+      const decoder = new TextDecoder()
+      let fullText = ''
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          const chunk = decoder.decode(value || new Uint8Array(), { stream: true })
+          fullText += chunk
+          setStreamedText((prev) => (prev || '') + chunk)
+        }
+      }
 
-      const data = response?.data || response
-      const generated = data?.generated_text || ''
-      if (!generated.trim()) {
+      if (!fullText.trim()) {
         throw new Error('The AI response did not contain any text.')
       }
 
       setResult({
-        text: generated,
-        citations: data?.citations || []
+        text: fullText,
+        citations: []
       })
       setLastRequest({ instruction: promptText.trim(), text: textPayload, context: contextPayload })
     } catch (err: any) {
@@ -333,24 +349,38 @@ const EnhancedAIWritingTools: React.FC<EnhancedAIWritingToolsProps> = ({
       setIsProcessing(true)
       setError(null)
       setResult(null)
+      setStreamedText('')
       setCopied(false)
 
-      const response = await aiAPI.generateText(
+      const response = await streamAPI.writingGenerateStream(
         lastRequest.text,
         lastRequest.instruction,
         lastRequest.context || undefined,
         600
       )
-
-      const data = response?.data || response
-      const generated = data?.generated_text || ''
-      if (!generated.trim()) {
+      if (!response.ok) {
+        const errText = await response.text()
+        throw new Error(errText || 'Failed to regenerate content.')
+      }
+      const reader = response.body?.getReader()
+      const decoder = new TextDecoder()
+      let fullText = ''
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          const chunk = decoder.decode(value || new Uint8Array(), { stream: true })
+          fullText += chunk
+          setStreamedText((prev) => (prev || '') + chunk)
+        }
+      }
+      if (!fullText.trim()) {
         throw new Error('The AI response did not contain any text.')
       }
 
       setResult({
-        text: generated,
-        citations: data?.citations || []
+        text: fullText,
+        citations: []
       })
     } catch (err: any) {
       setError(err?.response?.data?.detail || err.message || 'Failed to regenerate content.')
@@ -367,6 +397,7 @@ const EnhancedAIWritingTools: React.FC<EnhancedAIWritingToolsProps> = ({
       onInsertText(result.text)
     }
     setResult(null)
+    setStreamedText('')
   }, [result, includeSelection, hasSelection, onReplaceText, onInsertText])
 
   const handleCopy = useCallback(async () => {
@@ -502,13 +533,13 @@ const EnhancedAIWritingTools: React.FC<EnhancedAIWritingToolsProps> = ({
           aria-labelledby="ai-assistant-title"
           tabIndex={-1}
           onKeyDown={handleKeyDown}
-          className="z-50 w-full max-w-md rounded-xl border border-slate-200 bg-white shadow-2xl focus:outline-none"
+          className="z-50 w-full max-w-md rounded-xl border border-slate-200 bg-white shadow-2xl focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
           style={panelStyle}
         >
           {position && (
             <div
               aria-hidden="true"
-              className={`pointer-events-none absolute h-3 w-3 border border-slate-200 bg-white ${
+              className={`pointer-events-none absolute h-3 w-3 border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900 ${
                 position.placement === 'bottom'
                   ? '-top-1 border-b-0 border-r-0'
                   : '-bottom-1 border-t-0 border-l-0'
@@ -520,15 +551,15 @@ const EnhancedAIWritingTools: React.FC<EnhancedAIWritingToolsProps> = ({
             />
           )}
 
-          <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
-            <div className="flex items-center gap-2 text-slate-800">
+          <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-slate-700">
+            <div className="flex items-center gap-2 text-slate-800 dark:text-slate-100">
               <Bot className="h-5 w-5" />
               <span id="ai-assistant-title" className="text-sm font-semibold">
                 AI Assistant
               </span>
             </div>
             <button
-              className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
+              className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
               onClick={closeAssistant}
               aria-label="Close AI assistant"
             >
@@ -538,7 +569,7 @@ const EnhancedAIWritingTools: React.FC<EnhancedAIWritingToolsProps> = ({
 
           <div className="max-h-[70vh] overflow-y-auto px-4 py-4 space-y-4">
             <section className="space-y-2">
-              <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2 dark:text-slate-100">
                 <Sparkles className="h-4 w-4 text-indigo-500" /> Quick Prompts
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -549,19 +580,19 @@ const EnhancedAIWritingTools: React.FC<EnhancedAIWritingToolsProps> = ({
                     onClick={() => handleTemplateSelect(template)}
                     className={`rounded-lg border px-3 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 ${
                       template.id === activeTemplateId
-                        ? 'border-indigo-400 bg-indigo-50 text-indigo-700'
-                        : 'border-slate-200 hover:border-indigo-300 hover:bg-indigo-50'
+                        ? 'border-indigo-400 bg-indigo-50 text-indigo-700 dark:border-indigo-500/60 dark:bg-indigo-500/10 dark:text-indigo-100'
+                        : 'border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-indigo-500/60 dark:hover:bg-indigo-500/10'
                     }`}
                   >
                     <div className="text-sm font-medium">{template.title}</div>
-                    <div className="text-xs text-slate-500 mt-1">{template.description}</div>
+                    <div className="text-xs text-slate-500 mt-1 dark:text-slate-300">{template.description}</div>
                   </button>
                 ))}
               </div>
             </section>
 
             <section className="space-y-2">
-              <label className="text-sm font-medium text-slate-700" htmlFor="ai-prompt-textarea">
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-100" htmlFor="ai-prompt-textarea">
                 Prompt
               </label>
               <textarea
@@ -569,7 +600,7 @@ const EnhancedAIWritingTools: React.FC<EnhancedAIWritingToolsProps> = ({
                 ref={textareaRef}
                 rows={3}
                 data-autofocus
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-200"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-indigo-500 dark:focus:ring-indigo-500/40"
                 placeholder="Describe what you want the assistant to do..."
                 value={promptText}
                 onChange={(event) => setPromptText(event.target.value)}
@@ -578,10 +609,10 @@ const EnhancedAIWritingTools: React.FC<EnhancedAIWritingToolsProps> = ({
 
             <section className="space-y-3">
               <div className="flex items-center justify-between">
-                <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                <label className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-100">
                   <input
                     type="checkbox"
-                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800"
                     checked={includeSelection && hasSelection}
                     onChange={(event) => setIncludeSelection(event.target.checked)}
                     disabled={!hasSelection}
@@ -592,15 +623,15 @@ const EnhancedAIWritingTools: React.FC<EnhancedAIWritingToolsProps> = ({
                   </span>
                 </label>
                 {!hasSelection && (
-                  <span className="text-xs text-slate-400">
+                  <span className="text-xs text-slate-400 dark:text-slate-500">
                     Highlight text in the editor to add context.
                   </span>
                 )}
               </div>
               {includeSelection && hasSelection && (
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                  <div className="text-xs font-semibold text-slate-500 mb-1">Selection preview</div>
-                  <pre className="max-h-32 overflow-y-auto whitespace-pre-wrap text-xs text-slate-700">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800">
+                  <div className="text-xs font-semibold text-slate-500 mb-1 dark:text-slate-300">Selection preview</div>
+                  <pre className="max-h-32 overflow-y-auto whitespace-pre-wrap text-xs text-slate-700 dark:text-slate-200">
                     {selectionPreview}
                   </pre>
                 </div>
@@ -608,7 +639,7 @@ const EnhancedAIWritingTools: React.FC<EnhancedAIWritingToolsProps> = ({
             </section>
 
             {error && (
-              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200">
                 {error}
               </div>
             )}
@@ -616,7 +647,7 @@ const EnhancedAIWritingTools: React.FC<EnhancedAIWritingToolsProps> = ({
             <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
+                className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                 onClick={closeAssistant}
               >
                 Close
@@ -634,12 +665,12 @@ const EnhancedAIWritingTools: React.FC<EnhancedAIWritingToolsProps> = ({
             </div>
 
             {result && (
-              <section className="space-y-3 border-t border-slate-200 pt-4">
+              <section className="space-y-3 border-t border-slate-200 pt-4 dark:border-slate-700">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-slate-700">AI Response</h3>
+                  <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-100">AI Response</h3>
                   <div className="flex items-center gap-2">
                     <button
-                      className="rounded-md border border-slate-200 p-2 text-slate-500 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
+                      className="rounded-md border border-slate-200 p-2 text-slate-500 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:border-slate-700 dark:text-slate-300 dark:hover:text-slate-100"
                       onClick={handleRegenerate}
                       disabled={isProcessing}
                       title="Regenerate response"
@@ -649,7 +680,7 @@ const EnhancedAIWritingTools: React.FC<EnhancedAIWritingToolsProps> = ({
                     <button
                       className={`rounded-md border border-slate-200 p-2 ${
                         copied ? 'text-emerald-500' : 'text-slate-500 hover:text-slate-700'
-                      } focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500`}
+                      } focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:border-slate-700 dark:text-slate-300 dark:hover:text-slate-100`}
                       onClick={handleCopy}
                       title="Copy to clipboard"
                     >
@@ -657,12 +688,12 @@ const EnhancedAIWritingTools: React.FC<EnhancedAIWritingToolsProps> = ({
                     </button>
                   </div>
                 </div>
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 whitespace-pre-wrap">
-                  {result.text}
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 whitespace-pre-wrap dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                  {streamedText || result.text}
                 </div>
                 {result.citations && result.citations.length > 0 && (
                   <div className="space-y-2">
-                    <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">
                       Citations
                     </h4>
                     <div className="space-y-1">
@@ -670,7 +701,7 @@ const EnhancedAIWritingTools: React.FC<EnhancedAIWritingToolsProps> = ({
                         <button
                           key={index}
                           onClick={() => onCitationInsert?.(citation)}
-                          className="w-full text-left text-xs text-indigo-600 hover:text-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
+                          className="w-full text-left text-xs text-indigo-600 hover:text-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:text-indigo-300 dark:hover:text-indigo-200"
                         >
                           {citation}
                         </button>
@@ -687,7 +718,7 @@ const EnhancedAIWritingTools: React.FC<EnhancedAIWritingToolsProps> = ({
                     Apply to document
                   </button>
                   <button
-                    className="rounded-md border border-slate-300 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
+                    className="rounded-md border border-slate-300 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                     onClick={() => setResult(null)}
                   >
                     Clear

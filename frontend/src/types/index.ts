@@ -283,6 +283,7 @@ export interface ResearchPaper {
   project_id?: string | null
   format?: string | null
   summary?: string | null
+  objectives?: string[] | string | null
   keywords?: string[] | string  // Support both array and string for backward compatibility
   references?: string
   current_version?: string
@@ -312,6 +313,7 @@ export interface ResearchPaperCreate {
   project_id?: string
   format?: string
   summary?: string
+  objectives?: string[] | string
 }
 
 export interface ResearchPaperUpdate {
@@ -327,6 +329,7 @@ export interface ResearchPaperUpdate {
   project_id?: string
   format?: string
   summary?: string
+  objectives?: string[] | string
 }
 
 export interface ResearchPaperList {
@@ -693,6 +696,7 @@ export interface DiscussionTaskUpdate {
 export interface DiscussionAssistantRequest {
   question: string
   reasoning?: boolean
+  scope?: Array<'transcripts' | 'papers' | 'references'>
 }
 
 export type DiscussionAssistantOrigin = 'resource' | 'message'

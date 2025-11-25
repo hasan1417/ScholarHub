@@ -78,6 +78,8 @@ class Settings(BaseSettings):
     COLLAB_JWT_EXPIRE_SECONDS: int = 300
     COLLAB_WS_URL: str = "ws://localhost:3001"
     COLLAB_DEFAULT_ROLES: List[str] = ["editor"]
+    COLLAB_BOOTSTRAP_SECRET: Optional[str] = None
+    COLLAB_BOOTSTRAP_SOURCE: str = "content_json"  # content_json or content
 
     # Sync Space / Meetings configuration
     SYNC_ROOM_PREFIX: str = "sync"

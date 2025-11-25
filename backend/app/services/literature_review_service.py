@@ -75,6 +75,31 @@ class LiteratureReviewService:
                 logger.warning("No OpenAI API key found - literature review generation will be limited")
         except Exception as e:
             logger.error(f"Failed to initialize OpenAI client: {e}")
+
+    def _create_response(
+        self,
+        messages: List[Dict[str, Any]],
+        *,
+        model: str,
+        temperature: float = 0.7,
+        max_output_tokens: Optional[int] = None,
+    ):
+        if not self.openai_client:
+            raise ValueError("OpenAI client not initialized")
+
+        payload: Dict[str, Any] = {
+            "model": model,
+            "input": messages,
+            "temperature": temperature,
+        }
+        if max_output_tokens is not None:
+            payload["max_output_tokens"] = max_output_tokens
+
+        return self.openai_client.responses.create(**payload)
+
+    @staticmethod
+    def _extract_text(response: Any) -> str:
+        return (getattr(response, "output_text", "") or "").strip()
     
     async def generate_literature_review(
         self,
@@ -242,17 +267,17 @@ THEMES:
 - [theme 2]
 - [theme 3]"""
 
-            response = self.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
+            response = self._create_response(
                 messages=[
                     {"role": "system", "content": "You are an expert academic researcher who analyzes research papers and extracts key information for literature reviews."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=800,
+                model="gpt-3.5-turbo",
+                max_output_tokens=800,
                 temperature=0.3
             )
             
-            analysis = response.choices[0].message.content.strip()
+            analysis = self._extract_text(response)
             
             # Parse the response
             parsed = self._parse_paper_analysis(analysis)
@@ -332,18 +357,18 @@ Identify 4-6 major themes that could organize a literature review. Group similar
 
 Provide themes as a simple list, one per line:"""
 
-            response = self.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
+            response = self._create_response(
                 messages=[
                     {"role": "system", "content": "You are an expert at organizing research themes for literature reviews."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=300,
+                model="gpt-3.5-turbo",
+                max_output_tokens=300,
                 temperature=0.3
             )
             
             themes = []
-            for line in response.choices[0].message.content.strip().split('\n'):
+            for line in self._extract_text(response).split('\n'):
                 theme = line.strip().lstrip('1234567890.- ')
                 if theme and len(theme) > 3:
                     themes.append(theme)
@@ -428,17 +453,17 @@ Write a well-structured section (400-600 words) that:
 
 Use academic writing style with proper citations (Author, Year format)."""
 
-            response = self.openai_client.chat.completions.create(
-                model="gpt-4",  # Use GPT-4 for better quality
+            response = self._create_response(
                 messages=[
                     {"role": "system", "content": "You are an expert academic writer specializing in literature reviews. Write comprehensive, well-cited sections."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=800,
+                model="gpt-4",
+                max_output_tokens=800,
                 temperature=0.4
             )
             
-            return response.choices[0].message.content.strip()
+            return self._extract_text(response)
             
         except Exception as e:
             logger.error(f"Error generating section content: {e}")
@@ -459,17 +484,17 @@ The introduction should (300-400 words):
 
 Use academic writing style."""
 
-            response = self.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
+            response = self._create_response(
                 messages=[
                     {"role": "system", "content": "You are an expert academic writer specializing in literature review introductions."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=500,
+                model="gpt-3.5-turbo",
+                max_output_tokens=500,
                 temperature=0.4
             )
             
-            return response.choices[0].message.content.strip()
+            return self._extract_text(response)
             
         except Exception as e:
             logger.error(f"Error generating introduction: {e}")
@@ -492,17 +517,17 @@ The abstract should (150-200 words):
 
 Use academic style."""
 
-            response = self.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
+            response = self._create_response(
                 messages=[
                     {"role": "system", "content": "You are an expert at writing concise, informative abstracts for academic literature reviews."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=300,
+                model="gpt-3.5-turbo",
+                max_output_tokens=300,
                 temperature=0.3
             )
             
-            return response.choices[0].message.content.strip()
+            return self._extract_text(response)
             
         except Exception as e:
             logger.error(f"Error generating abstract: {e}")
@@ -545,17 +570,17 @@ The synthesis should (300-400 words):
 
 Use academic writing style."""
 
-            response = self.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
+            response = self._create_response(
                 messages=[
                     {"role": "system", "content": "You are an expert at synthesizing research findings across multiple studies and themes."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=500,
+                model="gpt-3.5-turbo",
+                max_output_tokens=500,
                 temperature=0.4
             )
             
-            return response.choices[0].message.content.strip()
+            return self._extract_text(response)
             
         except Exception as e:
             logger.error(f"Error generating synthesis: {e}")
@@ -580,18 +605,18 @@ Identify 4-6 key research gaps that represent opportunities for future research.
 
 Provide as a simple list, one gap per line:"""
 
-            response = self.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
+            response = self._create_response(
                 messages=[
                     {"role": "system", "content": "You are an expert at identifying research gaps and opportunities for future studies."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=300,
+                model="gpt-3.5-turbo",
+                max_output_tokens=300,
                 temperature=0.3
             )
             
             gaps = []
-            for line in response.choices[0].message.content.strip().split('\n'):
+            for line in self._extract_text(response).split('\n'):
                 gap = line.strip().lstrip('1234567890.- ')
                 if gap and len(gap) > 10:
                     gaps.append(gap)
@@ -618,18 +643,18 @@ Suggest 4-6 specific future research directions that would address these gaps. M
 
 Provide as a simple list, one direction per line:"""
 
-            response = self.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
+            response = self._create_response(
                 messages=[
                     {"role": "system", "content": "You are an expert researcher who provides specific, actionable suggestions for future research."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=300,
+                model="gpt-3.5-turbo",
+                max_output_tokens=300,
                 temperature=0.4
             )
             
             directions = []
-            for line in response.choices[0].message.content.strip().split('\n'):
+            for line in self._extract_text(response).split('\n'):
                 direction = line.strip().lstrip('1234567890.- ')
                 if direction and len(direction) > 10:
                     directions.append(direction)
@@ -658,17 +683,17 @@ The conclusion should (200-300 words):
 
 Use academic writing style."""
 
-            response = self.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
+            response = self._create_response(
                 messages=[
                     {"role": "system", "content": "You are an expert at writing compelling, comprehensive conclusions for academic literature reviews."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=400,
+                model="gpt-3.5-turbo",
+                max_output_tokens=400,
                 temperature=0.4
             )
             
-            return response.choices[0].message.content.strip()
+            return self._extract_text(response)
             
         except Exception as e:
             logger.error(f"Error generating conclusion: {e}")
@@ -687,17 +712,17 @@ The title should be:
 
 Provide just the title:"""
 
-            response = self.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
+            response = self._create_response(
                 messages=[
                     {"role": "system", "content": "You are an expert at creating compelling, descriptive academic titles."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=100,
+                model="gpt-3.5-turbo",
+                max_output_tokens=100,
                 temperature=0.5
             )
             
-            title = response.choices[0].message.content.strip().strip('"')
+            title = self._extract_text(response).strip('"')
             return title
             
         except Exception as e:

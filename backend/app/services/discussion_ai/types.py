@@ -28,6 +28,13 @@ class ResourceDigest:
 
 
 @dataclass(slots=True)
+class PaperObjectiveDigest:
+    id: UUID
+    title: str
+    objectives: Sequence[str] = field(default_factory=tuple)
+
+
+@dataclass(slots=True)
 class TaskDigest:
     id: UUID
     title: str
@@ -81,6 +88,9 @@ class ChannelContext:
     messages: Sequence[MessageDigest]
     resources: Sequence[ResourceDigest]
     tasks: Sequence[TaskDigest]
+    project_objectives: Sequence[str] = field(default_factory=tuple)
+    paper_objectives: Sequence[PaperObjectiveDigest] = field(default_factory=tuple)
+    resource_scope: Sequence[ProjectDiscussionResourceType] = field(default_factory=tuple)
 
     @property
     def message_window(self) -> Sequence[MessageDigest]:

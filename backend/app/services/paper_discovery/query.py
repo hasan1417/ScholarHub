@@ -79,14 +79,14 @@ class QueryEnhancer:
             {"role": "user", "content": "\n".join(prompt_parts[1:])},
         ]
 
-        response = self.openai_client.chat.completions.create(
+        response = self.openai_client.responses.create(
             model='gpt-5',
-            messages=messages,
+            input=messages,
             temperature=0.2,
-            max_tokens=256,
+            max_output_tokens=256,
         )
 
-        raw = (response.choices[0].message.content or '[]').strip()
+        raw = (response.output_text or '[]').strip()
         try:
             data = json.loads(raw)
             if isinstance(data, list):

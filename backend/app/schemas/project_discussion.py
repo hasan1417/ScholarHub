@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, field_validator
 
 
 
@@ -207,10 +207,27 @@ class DiscussionAssistantSuggestedAction(BaseModel):
     summary: str
     payload: Dict[str, Any]
 
+ALLOWED_ASSISTANT_SCOPE = {"transcripts", "papers", "references"}
+
 
 class DiscussionAssistantRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=5000)
     reasoning: bool = False
+    scope: Optional[List[str]] = None
+
+    @field_validator("scope")
+    @classmethod
+    def _normalize_scope(cls, value: Optional[List[str]]):
+        if not value:
+            return None
+        normalized: List[str] = []
+        for entry in value:
+            if not entry:
+                continue
+            lowered = entry.strip().lower()
+            if lowered in ALLOWED_ASSISTANT_SCOPE and lowered not in normalized:
+                normalized.append(lowered)
+        return normalized or None
 
 
 class DiscussionAssistantResponse(BaseModel):

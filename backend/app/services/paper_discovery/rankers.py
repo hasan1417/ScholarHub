@@ -201,16 +201,16 @@ class GptRanker(PaperRanker):
                 "items": items,
                 "instruction": "Return only JSON array of {id, score}. No extra text.",
             }
-            resp = client.chat.completions.create(
+            resp = client.responses.create(
                 model=self.model_name,
-                messages=[
+                input=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": json.dumps(user_payload)},
                 ],
                 temperature=0.0,
-                max_tokens=400,
+                max_output_tokens=400,
             )
-            content = (resp.choices[0].message.content or "[]").strip()
+            content = (resp.output_text or "[]").strip()
 
             # Parse JSON
             try:

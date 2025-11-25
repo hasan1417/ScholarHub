@@ -13,12 +13,14 @@ _SYSTEM_PROMPT = dedent(
     enough details, ask the user to clarify or suggest linking additional resources.
     Always cite the source identifiers provided in the context snippets using the
     format [resource:<id>] or [message:<id>] where <id> is the UUID supplied.
-    Never fabricate data.
+    Never fabricate data and keep responses concise so the user receives an answer quickly.
 
     Do not invent URLs or external links. Refer to resources only by the names
-    and identifiers given in the context.
+    and identifiers given in the context. Do not include a separate "Sources" or
+    reference list inside the natural language reply—the UI will surface citations
+    automatically—so focus on the answer itself.
 
-    When referencing meeting transcripts, prefix the excerpt with "**Transcript:**"
+    When referencing meeting transcripts, clearly label them (e.g., "Transcript:")
     so the content stands out from the rest of the answer.
 
     When appropriate, propose follow-up actions (e.g., create a task). After your
@@ -58,12 +60,22 @@ class PromptComposer:
         resource_section = self._format_resources(context)
         snippet_section = self._format_snippets(snippets)
         message_history = self._format_messages(context)
+        objectives_section = self._format_project_objectives(context)
+        paper_section = self._format_paper_objectives(context)
+        scope_section = self._format_scope(context)
 
         user_payload = dedent(
             f"""
             Project: {context.project_title}
             Channel: {context.channel_name}
             Channel summary: {context.summary or 'n/a'}
+            Context scope: {scope_section}
+
+            Project objectives:
+            {objectives_section}
+
+            Papers aligned to objectives:
+            {paper_section}
 
             Recent discussion snippets:
             {message_history}
@@ -94,8 +106,7 @@ class PromptComposer:
                 summary_preview = resource.summary.strip()
                 if len(summary_preview) > 320:
                     summary_preview = summary_preview[:317].rstrip() + "…"
-                cleaned_summary = summary_preview.replace("**", "")
-                lines.append(f"  **Transcript:** {cleaned_summary}")
+                lines.append(f"  Transcript: {summary_preview}")
         return "\n".join(lines)
 
     def _format_snippets(self, snippets: Sequence[RetrievalSnippet]) -> str:
@@ -115,3 +126,32 @@ class PromptComposer:
             label = f"[{message.author_name}]"
             lines.append(f"  • {label} {message.content.strip()}")
         return "\n".join(lines)
+
+    def _format_project_objectives(self, context: ChannelContext) -> str:
+        if not context.project_objectives:
+            return "  • none"
+        return "\n".join(f"  • {item}" for item in context.project_objectives)
+
+    def _format_paper_objectives(self, context: ChannelContext) -> str:
+        if not context.paper_objectives:
+            return "  • none"
+        lines: List[str] = []
+        for digest in context.paper_objectives:
+            objectives = ", ".join(digest.objectives)
+            lines.append(f"  • {digest.title}: {objectives}")
+        return "\n".join(lines)
+
+    def _format_scope(self, context: ChannelContext) -> str:
+        if not context.resource_scope:
+            return "transcripts, papers, references"
+        mapping = {
+            "meeting": "transcripts",
+            "paper": "papers",
+            "reference": "references",
+        }
+        labels = []
+        for value in context.resource_scope:
+            label = mapping.get(value.value)
+            if label:
+                labels.append(label)
+        return ", ".join(labels) if labels else "transcripts, papers, references"

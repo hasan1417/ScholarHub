@@ -251,7 +251,7 @@ const OOAdapter = forwardRef<EditorAdapterHandle, EditorAdapterProps>(function O
       if (readOnly) return
       try { await sendBridge('replaceSelection', { text }) } catch (e){ alert('Replace selection failed (bridge): '+ (e as any)?.message) }
     },
-    async setContent(_html: string) {
+    async setContent(_html: string, _options?: { overwriteRealtime?: boolean }) {
       // Not supported; OnlyOffice requires server-side document replace. No-op silently.
       return
     },

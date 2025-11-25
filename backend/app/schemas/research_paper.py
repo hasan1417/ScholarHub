@@ -11,6 +11,7 @@ class ResearchPaperBase(BaseModel):
     is_public: bool = Field(default=False, description="Whether the paper is publicly visible")
     project_id: Optional[UUID] = Field(None, description="Owning project for this paper")
     format: Optional[str] = Field(None, description="Editor format for the paper (latex, rtf)")
+    objectives: Optional[List[str]] = Field(default=None, description="Linked project objectives")
 
     # Accept keywords as either a comma-separated string or a list, and normalize to List[str]
     @field_validator("keywords", mode="before")
@@ -24,6 +25,19 @@ class ResearchPaperBase(BaseModel):
         if isinstance(v, list):
             return [str(s).strip() for s in v if str(s).strip()]
         return v
+
+    @field_validator("objectives", mode="before")
+    @classmethod
+    def _coerce_objectives(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, str):
+            entries = [segment.strip() for segment in value.split( "\n" ) if segment.strip()]
+            return entries or None
+        if isinstance(value, list):
+            cleaned = [str(item).strip() for item in value if str(item).strip()]
+            return cleaned or None
+        return value
 
 class ResearchPaperCreate(ResearchPaperBase):
     content: Optional[str] = Field(None, description="Initial content for papers created from scratch")
@@ -44,6 +58,7 @@ class ResearchPaperUpdate(BaseModel):
     project_id: Optional[UUID] = None
     format: Optional[str] = None
     summary: Optional[str] = None
+    objectives: Optional[List[str]] = None
 
 class ResearchPaperResponse(ResearchPaperBase):
     id: UUID

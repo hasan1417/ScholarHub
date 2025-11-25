@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
-from app.api.v1 import auth, users, research_papers, documents, ai, team, branches, discovery, references, latex, conversion, onlyoffice, metrics, comments, section_locks, collab
+from app.api.v1 import auth, users, research_papers, documents, ai, team, branches, discovery, references, latex, onlyoffice, metrics, comments, section_locks, collab, collab_bootstrap
 from app.core.config import settings
 from app.database import engine
 import time
@@ -120,13 +120,13 @@ app.include_router(branches.router, prefix="/api/v1/branches", tags=["branch man
 app.include_router(discovery.router, prefix="/api/v1/discovery", tags=["paper discovery & literature review"])
 app.include_router(references.router, prefix="/api/v1/references", tags=["references"])
 app.include_router(latex.router, prefix="/api/v1", tags=["latex"])
-app.include_router(conversion.router, prefix="/api/v1", tags=["conversion"])
 app.include_router(onlyoffice.router, prefix="/onlyoffice", tags=["onlyoffice"])
 app.include_router(metrics.router, prefix="/api/v1", tags=["metrics"])
 app.include_router(comments.router, prefix="/api/v1", tags=["comments"])
 app.include_router(section_locks.router, prefix="/api/v1", tags=["section-locks"])
 if settings.PROJECT_COLLAB_REALTIME_ENABLED:
     app.include_router(collab.router, prefix="/api/v1/collab", tags=["collaboration"])
+    app.include_router(collab_bootstrap.router, prefix="/api/v1", tags=["collaboration"])
 
 
 @app.on_event("startup")

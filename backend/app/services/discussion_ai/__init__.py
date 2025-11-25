@@ -9,6 +9,7 @@ from .types import (
     AssistantCitation,
     AssistantReply,
     AssistantSuggestedAction,
+    PaperObjectiveDigest,
 )
 from .context import ChannelContextAssembler, ResourceDigestBuilder
 from .retrieval import DiscussionRetriever
@@ -25,6 +26,7 @@ __all__ = [
     "AssistantCitation",
     "AssistantReply",
     "AssistantSuggestedAction",
+    "PaperObjectiveDigest",
     "ChannelContextAssembler",
     "ResourceDigestBuilder",
     "ChannelEmbeddingIndexer",

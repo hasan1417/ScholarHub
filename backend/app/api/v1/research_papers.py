@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
-from typing import List, Optional
+from typing import List, Optional, Any
 from uuid import UUID
 from pathlib import Path
 import shutil
@@ -33,6 +33,55 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
+def _normalize_title(value: str) -> str:
+    trimmed = value.strip()
+    normalized_internal = " ".join(trimmed.split())
+    return normalized_internal
+
+
+def _normalize_objective_list(value: Optional[Any]) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        trimmed = value.strip()
+        return [trimmed] if trimmed else []
+    if isinstance(value, list):
+        cleaned = [str(item).strip() for item in value if str(item).strip()]
+        return cleaned
+    return []
+
+
+def _paper_title_exists(
+    db: Session,
+    *,
+    normalized_title: str,
+    project_id: Optional[UUID],
+    owner_id: UUID,
+    exclude_paper_id: Optional[UUID] = None,
+) -> bool:
+    """Return True when another paper already uses the given title in the scoped collection."""
+    normalized_lookup = normalized_title.lower()
+    normalized_db_title = func.lower(
+        func.regexp_replace(func.trim(ResearchPaper.title), r'\s+', ' ', 'g'),
+    )
+    query = db.query(ResearchPaper).filter(normalized_db_title == normalized_lookup)
+    if exclude_paper_id:
+        query = query.filter(ResearchPaper.id != exclude_paper_id)
+    if project_id:
+        query = query.filter(ResearchPaper.project_id == project_id)
+    else:
+        query = query.filter(
+            ResearchPaper.project_id.is_(None),
+            ResearchPaper.owner_id == owner_id,
+        )
+    return query.first() is not None
+
+
+def _duplicate_title_error(project_id: Optional[UUID]) -> HTTPException:
+    scope = "this project" if project_id else "your workspace"
+    return HTTPException(status_code=409, detail=f"A paper with this title already exists in {scope}.")
+
 @router.post("/", response_model=ResearchPaperResponse, status_code=status.HTTP_201_CREATED)
 async def create_research_paper(
     paper_data: ResearchPaperCreate,
@@ -41,6 +90,10 @@ async def create_research_paper(
 ):
     """Create a new research paper."""
     project: Optional[Project] = None
+    normalized_title = _normalize_title(paper_data.title)
+    paper_data.title = normalized_title
+    objectives = _normalize_objective_list(paper_data.objectives)
+
     if paper_data.project_id:
         if not settings.PROJECTS_API_ENABLED:
             raise HTTPException(status_code=400, detail="Project support is disabled")
@@ -55,6 +108,18 @@ async def create_research_paper(
             ).first()
             if not project_member:
                 raise HTTPException(status_code=403, detail="Project access denied")
+        if not objectives:
+            raise HTTPException(status_code=400, detail="Please select or create at least one project objective for this paper.")
+
+    paper_data.objectives = objectives or None
+
+    if _paper_title_exists(
+        db,
+        normalized_title=normalized_title,
+        project_id=paper_data.project_id,
+        owner_id=current_user.id,
+    ):
+        raise _duplicate_title_error(paper_data.project_id)
 
     paper = ResearchPaper(
         **paper_data.dict(),
@@ -263,6 +328,38 @@ async def update_research_paper(
             raise HTTPException(status_code=403, detail="Edit access denied")
     
     update_data = paper_update.dict(exclude_unset=True)
+    normalized_new_title: Optional[str] = None
+    if "title" in update_data and update_data["title"] is not None:
+        normalized_new_title = _normalize_title(update_data["title"])
+        if not normalized_new_title:
+            raise HTTPException(status_code=400, detail="Title cannot be empty.")
+        update_data["title"] = normalized_new_title
+
+    if "objectives" in update_data:
+        normalized_objectives = _normalize_objective_list(update_data["objectives"])
+        update_data["objectives"] = normalized_objectives or None
+
+    target_project_id = update_data.get("project_id", paper.project_id)
+    title_to_check = normalized_new_title or _normalize_title(paper.title or "")
+
+    requires_duplicate_check = False
+    if normalized_new_title is not None:
+        if normalized_new_title.lower() != (paper.title or "").strip().lower():
+            requires_duplicate_check = True
+    if "project_id" in update_data and target_project_id != paper.project_id:
+        requires_duplicate_check = True
+
+    if requires_duplicate_check and _paper_title_exists(
+        db,
+        normalized_title=title_to_check,
+        project_id=target_project_id,
+        owner_id=paper.owner_id,
+        exclude_paper_id=paper.id,
+    ):
+        raise _duplicate_title_error(target_project_id)
+
+    if target_project_id and not (update_data.get("objectives") or paper.objectives):
+        raise HTTPException(status_code=400, detail="Project papers must reference at least one objective.")
     for field, value in update_data.items():
         setattr(paper, field, value)
 
@@ -379,6 +476,19 @@ async def update_paper_content(
         try:
             incoming = content_update.content_json
             existing = paper.content_json
+            try:
+                incoming_latex = ''
+                if isinstance(incoming, dict):
+                    candidate = incoming.get('latex_source')
+                    incoming_latex = candidate if isinstance(candidate, str) else ''
+                logger.warning(
+                    "PUT paper content: paper=%s latex_len=%s head=%s",
+                    paper_id,
+                    len(incoming_latex),
+                    (incoming_latex[:40] if incoming_latex else ''),
+                )
+            except Exception:
+                logger.exception("Failed to log incoming latex payload for paper %s", paper_id)
             # Optionally prevent authoring_mode changes after creation (Phase 0 flag; default off)
             try:
                 if settings.COLLAB_LOCK_AUTHORING_MODE:
@@ -621,13 +731,13 @@ def analyze_reference_task(reference_id: str):
             if api_key and profile_text:
                 client = OpenAI(api_key=api_key)
                 prompt = f"""Title: {ref.title or ''}\n\nText:\n{profile_text[:3000]}\n\nGenerate:\n- 3-5 key findings\n- 1-2 sentence methodology\n- 2-3 limitations\nProvide as JSON with keys: summary, key_findings, methodology, limitations."""
-                resp = client.chat.completions.create(
+                resp = client.responses.create(
                     model="gpt-3.5-turbo",
-                    messages=[{"role":"user","content":prompt}],
-                    max_tokens=300,
+                    input=[{"role": "user", "content": prompt}],
+                    max_output_tokens=300,
                     temperature=0.3
                 )
-                content = resp.choices[0].message.content or ''
+                content = resp.output_text or ''
                 # naive JSON parse fallback
                 import json as _json
                 try:

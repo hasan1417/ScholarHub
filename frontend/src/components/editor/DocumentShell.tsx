@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Loader2 } from 'lucide-react'
 import { EditorAdapterHandle, EditorAdapterProps } from './adapters/EditorAdapter'
 import BranchManager from './BranchManager'
 import MergeView from './MergeView'
@@ -13,6 +14,7 @@ import { isCollabEnabled } from '../../config/collab'
 import { useCollabProvider } from '../../hooks/useCollabProvider'
 import { useThemePreference } from '../../hooks/useThemePreference'
 import EnhancedAIWritingTools from './EnhancedAIWritingTools'
+import EditorAIChat from './EditorAIChat'
 
 type AdapterComponent = React.ForwardRefExoticComponent<EditorAdapterProps & React.RefAttributes<EditorAdapterHandle>>
 
@@ -53,12 +55,24 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
   const [paperRole, setPaperRole] = useState<'admin' | 'editor' | 'viewer'>(fallbackRole)
   const [aiPanelOpen, setAiPanelOpen] = useState(false)
   const [aiAnchor, setAiAnchor] = useState<HTMLElement | null>(null)
+  const [aiChatOpen, setAiChatOpen] = useState(false)
   const readOnly = forceReadOnly || paperRole === 'viewer'
   const collabFeatureEnabled = useMemo(() => isCollabEnabled(), [])
   const [collabToken, setCollabToken] = useState<{ token: string; ws_url?: string } | null>(null)
   const [collabPeers, setCollabPeers] = useState<Array<{ id: string; name: string; email: string; color?: string }>>([])
   const [collabStatusMessage, setCollabStatusMessage] = useState<string | null>(null)
   const [collabTokenVersion, setCollabTokenVersion] = useState(0)
+  const collab = useCollabProvider({
+    paperId,
+    enabled: !readOnly && Boolean(collabToken?.token),
+    token: collabToken?.token ?? null,
+    wsUrl: collabToken?.ws_url ?? null,
+  })
+  const collabEnabled = !!(collab.enabled && !readOnly)
+  const collabSynced = !!collab.synced
+  const expectingCollab = collabFeatureEnabled && !readOnly
+  const collabReady = collabEnabled && collabSynced
+  const collabUnavailable = collabStatusMessage === 'Collaboration unavailable'
   const showToast = (text: string) => {
     setToast({ visible: true, text })
     setTimeout(() => setToast({ visible: false, text: '' }), 3000)
@@ -70,6 +84,152 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     if (!isLatex) return ''
     return typeof initialContentJson?.latex_source === 'string' ? initialContentJson?.latex_source : ''
   }, [initialContentJson, isLatex])
+  const baseInitialHtml = useMemo(() => {
+    if (isLatex) return initialLatexSource || ''
+    return typeof initialContent === 'string' ? initialContent : ''
+  }, [initialContent, initialLatexSource, isLatex])
+  const latestContentRef = useRef<{ html: string; json: any }>({
+    html: (expectingCollab && !collabUnavailable) ? '' : baseInitialHtml,
+    json: (expectingCollab && !collabUnavailable) ? undefined : initialContentJson,
+  })
+  const initialSignature = useMemo(() => {
+    if (initialContentJson && typeof initialContentJson === 'object' && initialContentJson.authoring_mode === 'latex') {
+      return typeof initialContentJson.latex_source === 'string' ? initialContentJson.latex_source : baseInitialHtml
+    }
+    return baseInitialHtml
+  }, [baseInitialHtml, initialContentJson])
+  const persistedSignatureRef = useRef<string>((expectingCollab && !collabUnavailable) ? '' : initialSignature)
+  const autosaveTimerRef = useRef<number | null>(null)
+  const autosaveInFlightRef = useRef<boolean>(false)
+  const autosavePendingReasonRef = useRef<string | null>(null)
+  const deferredAutosaveReasonRef = useRef<string | null>(null)
+  const awaitingRealtimeBootstrapRef = useRef<boolean>(false)
+  const prevCollabEnabledRef = useRef<boolean>(false)
+
+  const computeContentSignature = useCallback((html: string, json: any) => {
+    if (json && typeof json === 'object' && json.authoring_mode === 'latex') {
+      const latexSrc = json.latex_source
+      return typeof latexSrc === 'string' ? latexSrc : (html || '')
+    }
+    return html || ''
+  }, [])
+
+  const updateLatestContent = useCallback((html: string, json?: any) => {
+    latestContentRef.current = { html: html || '', json }
+  }, [])
+
+  const persistLatestContent = useCallback(async (reason: string) => {
+    if (readOnly || !paperId) return
+    const { html, json } = latestContentRef.current
+    const signature = computeContentSignature(html, json)
+    if (signature === persistedSignatureRef.current) {
+      try { console.info('[DocumentShell] autosave skipped (no content change)', { paperId, reason }) } catch {}
+      return
+    }
+    // Prevent concurrent saves
+    if (autosaveInFlightRef.current) {
+      autosavePendingReasonRef.current = reason
+      try { console.info('[DocumentShell] autosave already in flight, queuing reason', { paperId, reason }) } catch {}
+      return
+    }
+
+    autosaveInFlightRef.current = true
+    try {
+      try {
+        console.info('[DocumentShell] autosave started', {
+          paperId,
+          reason,
+          htmlLength: html?.length ?? 0,
+          hasJson: Boolean(json),
+        })
+      } catch {}
+      const payload: any = {}
+      if (json && typeof json === 'object' && json.authoring_mode === 'latex') {
+        payload.content_json = json
+      } else {
+        payload.content = html || ''
+        if (json) payload.content_json = json
+      }
+      await researchPapersAPI.updatePaperContent(paperId, payload)
+      persistedSignatureRef.current = signature
+      autosavePendingReasonRef.current = null
+      console.info('[DocumentShell] Autosaved paper content', { paperId, reason, length: signature?.length ?? 0 })
+    } catch (error) {
+      console.warn('[DocumentShell] Autosave failed', { paperId, reason, error })
+      // If save fails, allow retry on next change
+    } finally {
+      autosaveInFlightRef.current = false
+      if (autosavePendingReasonRef.current) {
+        const pendingReason = autosavePendingReasonRef.current
+        autosavePendingReasonRef.current = null
+        // schedule immediate retry
+        window.setTimeout(() => {
+          try { console.info('[DocumentShell] retrying queued autosave', { paperId, reason: pendingReason }) } catch {}
+          persistLatestContent(pendingReason)
+        }, 300)
+      }
+    }
+  }, [computeContentSignature, paperId, readOnly])
+
+  const scheduleAutosave = useCallback((reason: string) => {
+    if (readOnly || !paperId) return
+    if (autosaveTimerRef.current) {
+      try { console.info('[DocumentShell] autosave timer cleared', { paperId, previousReason: reason }) } catch {}
+      window.clearTimeout(autosaveTimerRef.current)
+      autosaveTimerRef.current = null
+    }
+    autosaveTimerRef.current = window.setTimeout(() => {
+      autosaveTimerRef.current = null
+      try { console.info('[DocumentShell] autosave timer fired', { paperId, reason }) } catch {}
+      void persistLatestContent(reason)
+    }, collabEnabled ? 1200 : 800)
+    try { console.info('[DocumentShell] autosave scheduled', { paperId, reason, delayMs: collabEnabled ? 1200 : 800 }) } catch {}
+  }, [paperId, readOnly, persistLatestContent, collabEnabled])
+  const requestAutosave = useCallback((reason: string) => {
+    if (readOnly || !paperId) return
+    if (!expectingCollab || collabReady || collabUnavailable) {
+      try {
+        console.info('[DocumentShell] autosave requested immediately', {
+          paperId,
+          reason,
+          collabEnabled,
+          collabSynced,
+          collabUnavailable,
+          expectingCollab,
+        })
+      } catch {}
+      scheduleAutosave(reason)
+    } else {
+      deferredAutosaveReasonRef.current = reason
+      try { console.info('[DocumentShell] autosave deferred until sync', { paperId, reason }) } catch {}
+    }
+  }, [collabEnabled, collabSynced, collabUnavailable, collabReady, expectingCollab, paperId, readOnly, scheduleAutosave])
+  useEffect(() => {
+    return () => {
+      if (autosaveTimerRef.current) {
+        window.clearTimeout(autosaveTimerRef.current)
+        autosaveTimerRef.current = null
+      }
+      if (!readOnly && paperId) {
+        void persistLatestContent('unmount')
+      }
+    }
+  }, [paperId, persistLatestContent, readOnly])
+  useEffect(() => {
+    const wasEnabled = prevCollabEnabledRef.current
+    if (wasEnabled && !collabEnabled && !readOnly) {
+      void persistLatestContent('collab-disabled')
+    }
+    prevCollabEnabledRef.current = collabEnabled
+  }, [collabEnabled, persistLatestContent, readOnly])
+  useEffect(() => {
+    if ((collabReady || collabUnavailable || !expectingCollab) && deferredAutosaveReasonRef.current && !readOnly) {
+      const reason = deferredAutosaveReasonRef.current
+      deferredAutosaveReasonRef.current = null
+      try { console.info('[DocumentShell] flushing deferred autosave', { paperId, reason }) } catch {}
+      scheduleAutosave(reason)
+    }
+  }, [collabReady, collabUnavailable, expectingCollab, readOnly, scheduleAutosave, paperId])
   // No global paper id; pass through props
 
   useEffect(() => {
@@ -102,13 +262,12 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     setCurrentBranchId(undefined)
   }, [paperId])
 
-  const collab = useCollabProvider({
-    paperId,
-    enabled: !readOnly && Boolean(collabToken?.token),
-    token: collabToken?.token ?? null,
-    wsUrl: collabToken?.ws_url ?? null,
-  })
   const collabBootstrappedRef = useRef(false)
+
+  useEffect(() => {
+    collabBootstrappedRef.current = false
+    awaitingRealtimeBootstrapRef.current = expectingCollab && !collabUnavailable
+  }, [paperId, collab.doc, expectingCollab, collabUnavailable])
 
   useEffect(() => {
     if (!collabFeatureEnabled || readOnly || !paperId) {
@@ -193,7 +352,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
 
   useEffect(() => {
     const awareness = collab.awareness
-    if (!awareness || !collab.enabled) {
+    if (!awareness || !collabEnabled) {
       setCollabPeers([])
       return
     }
@@ -219,10 +378,10 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     return () => {
       awareness.off('update', updatePeers)
     }
-  }, [collab.awareness, collab.enabled])
+  }, [collab.awareness, collabEnabled])
 
   useEffect(() => {
-    if (!collab.awareness || !collab.enabled) return
+    if (!collab.awareness || !collabEnabled) return
 
     const displayName = [user?.first_name, user?.last_name].filter(Boolean).join(' ') || user?.email || 'You'
 
@@ -242,7 +401,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
         collab.awareness?.setLocalStateField('user', null)
       } catch {}
     }
-  }, [collab.awareness, collab.enabled, user?.email, user?.first_name, user?.last_name, user?.id])
+  }, [collab.awareness, collabEnabled, user?.email, user?.first_name, user?.last_name, user?.id])
 
   useEffect(() => {
     if (!collabFeatureEnabled || readOnly) return
@@ -253,19 +412,62 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
   }, [collab.status, collabFeatureEnabled, readOnly, collabToken])
 
   useEffect(() => {
-    if (!collab.enabled || !collab.doc) return
+    if (!collabEnabled || !collab.doc || !collabSynced) return
+    if (collabBootstrappedRef.current) return
+
     const yText = collab.doc.getText('main')
-    if (!collabBootstrappedRef.current) {
-      if (yText.length === 0 && initialLatexSource) {
+    let remotePeerCount = collabPeers.length
+    const awareness = collab.awareness
+    if (awareness) {
+      remotePeerCount = 0
+      try {
+        awareness.getStates().forEach((_state: any, clientId: number) => {
+          if (clientId !== awareness.clientID) remotePeerCount += 1
+        })
+      } catch (error) {
+        console.warn('[DocumentShell] failed to inspect awareness states for seeding', error)
+      }
+    }
+
+    const hasInitialSeed = typeof initialLatexSource === 'string' && initialLatexSource.length > 0
+    const realtimeLen = yText.length
+
+    if (realtimeLen === 0) {
+      if (remotePeerCount > 0) {
         try {
+          console.info('[DocumentShell] Seed skipped: remote peers already connected', {
+            paperId,
+            remotePeerCount,
+          })
+        } catch {}
+      } else if (hasInitialSeed) {
+        try {
+          console.info('[DocumentShell] Seeding realtime doc with initialLatexSource', {
+            paperId,
+            seedLength: initialLatexSource.length,
+          })
           yText.insert(0, initialLatexSource)
         } catch (error) {
           console.warn('[DocumentShell] failed to seed collab doc', error)
         }
+      } else {
+        try {
+          console.info('[DocumentShell] Seed skipped: no initialLatexSource available', {
+            paperId,
+          })
+        } catch {}
       }
-      collabBootstrappedRef.current = true
+    } else {
+      try {
+        console.info('[DocumentShell] Seed skipped: realtime doc already has content', {
+          paperId,
+          realtimeLength: realtimeLen,
+        })
+      } catch {}
     }
-  }, [collab.enabled, collab.doc, initialLatexSource])
+
+    collabBootstrappedRef.current = true
+  }, [collabEnabled, collab.doc, collab.awareness, collabSynced, collabPeers.length, initialLatexSource, paperId])
 
   useEffect(() => {
     if (!collabFeatureEnabled || readOnly) return
@@ -281,7 +483,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
   // Removed mode-based content injection in one-mode workflow
 
   const realtimeContext = useMemo(() => {
-    if (!collab.enabled || !collab.doc) return undefined
+    if (!collabEnabled || !collab.doc) return undefined
     return {
       doc: collab.doc,
       awareness: collab.awareness ?? null,
@@ -289,10 +491,31 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
       status: collab.status,
       peers: collabPeers,
       version: collab.providerVersion ?? 0,
+      synced: collabSynced,
+      enabled: true,
     }
-  }, [collab.awareness, collab.doc, collab.enabled, collab.status, collab.providerVersion, collabPeers])
+  }, [collab.awareness, collab.doc, collabEnabled, collab.status, collab.providerVersion, collabPeers, collabSynced])
 
   const handleContentChange = (html: string, json?: any) => {
+    if (expectingCollab && !collabUnavailable && !collabReady) {
+      console.info('[DocumentShell] Ignoring content change before collab sync', {
+        paperId,
+        htmlLength: html?.length || 0,
+      })
+      return
+    }
+    if (expectingCollab && !collabUnavailable && awaitingRealtimeBootstrapRef.current) {
+      awaitingRealtimeBootstrapRef.current = false
+      const signature = computeContentSignature(html || '', json)
+      persistedSignatureRef.current = signature
+      updateLatestContent(html || '', json)
+      setLastHtml(html || '')
+      console.info('[DocumentShell] Captured realtime bootstrap content', {
+        paperId,
+        length: signature.length,
+      })
+      return
+    }
     console.log('[DocumentShell] 🔄 handleContentChange called:', {
       htmlLength: html?.length || 0,
       hasJson: Boolean(json),
@@ -305,6 +528,8 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     // Hook for autosave or collaboration in later milestones
     ;(window as any).__SH_LAST_HTML = html
     ;(window as any).__SH_LAST_JSON = json
+    updateLatestContent(html || '', json)
+    requestAutosave('content-change')
     try { setLastHtml(html || '') } catch {}
     // Compute hasChanges vs baseline
     try { onHostContentChange?.(html, json) } catch {}
@@ -337,26 +562,89 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
 
   // Load initial content once from the server (fallback for non-realtime or pre-CRDT bootstrap)
   useEffect(() => {
+    if (!paperId) return
+
     let mounted = true
-    ;(async () => {
+    const hydrateFromServer = async () => {
       try {
         const resp = await researchPapersAPI.getPaper(paperId)
         const data: any = resp.data || {}
-        const isLatexMode = Boolean(data?.content_json && typeof data.content_json === 'object' && data.content_json.authoring_mode === 'latex')
+        const isLatexMode = Boolean(
+          data?.content_json &&
+          typeof data.content_json === 'object' &&
+          data.content_json.authoring_mode === 'latex'
+        )
         const latexSource: string = isLatexMode ? (data.content_json?.latex_source || '') : ''
         const richHtml: string = !isLatexMode ? (data.content || '') : ''
         if (!mounted) return
+
         const working = isLatexMode ? (latexSource || '') : (richHtml || '')
-        setLastHtml(working)
-        adapterRef.current?.setContent?.(working)
+        const realtimeActive = collabEnabled && collab.doc
+        const realtimeSynced = realtimeActive && collabSynced
+        const realtimeDoc = realtimeSynced && collab.doc ? collab.doc.getText('main') : null
+        const hasRealtimeContent = Boolean(realtimeDoc && realtimeDoc.length > 0)
+        const resolvedContent = hasRealtimeContent ? realtimeDoc!.toString() : working
+
+        const serverJson = isLatexMode ? (data.content_json || { authoring_mode: 'latex', latex_source: working }) : data.content_json
+        const latestJson = isLatexMode
+          ? { ...(serverJson || {}), authoring_mode: 'latex', latex_source: resolvedContent }
+          : serverJson
+        const serverSignature = computeContentSignature(working, serverJson)
+        const resolvedSignature = computeContentSignature(resolvedContent, latestJson)
+
+        if (!expectingCollab || collabUnavailable) {
+          setLastHtml(resolvedContent)
+          updateLatestContent(resolvedContent, latestJson)
+          persistedSignatureRef.current = serverSignature
+          if (!readOnly && resolvedSignature !== serverSignature) {
+            requestAutosave('post-sync-reconcile')
+          }
+          console.info('[DocumentShell] Hydrating adapter content (realtime disabled for this session)', {
+            paperId,
+            mode: isLatex ? 'latex' : 'rich',
+          })
+          await adapterRef.current?.setContent?.(working)
+        } else {
+          console.info('[DocumentShell] Skipping local content hydrate until realtime bootstrap', {
+            paperId,
+            mode: isLatex ? 'latex' : 'rich',
+            serverLength: working.length,
+          })
+          updateLatestContent('', null)
+          setLastHtml('')
+          persistedSignatureRef.current = serverSignature
+        }
+
+        if (expectingCollab && !collabUnavailable) {
+          if (!realtimeSynced) {
+            console.info('[DocumentShell] Waiting for realtime sync before hydrating adapter', {
+              paperId,
+              mode: isLatex ? 'latex' : 'rich',
+            })
+          } else if (!hasRealtimeContent) {
+            console.info('[DocumentShell] Realtime synced but doc empty; deferring to realtime bootstrap', {
+              paperId,
+            })
+          } else {
+            console.info('[DocumentShell] Using realtime doc content post-sync; no adapter hydrate needed', {
+              paperId,
+              realtimeLength: realtimeDoc?.length ?? 0,
+            })
+          }
+        }
+
         await refreshVersions()
       } catch (e) {
         console.warn('Failed to load paper content for shell', e)
       }
-    })()
-    return () => { mounted = false }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paperId, refreshVersions])
+    }
+
+    hydrateFromServer()
+
+    return () => {
+      mounted = false
+    }
+  }, [paperId, collabEnabled, collab.doc, collabSynced, refreshVersions, isLatex, computeContentSignature, updateLatestContent, readOnly, expectingCollab, collabUnavailable, requestAutosave])
 
   const handleNavigateBack = useCallback(() => {
     navigate(projectId ? `/projects/${projectId}/papers/${paperId}` : '/projects')
@@ -397,6 +685,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
         return 'Collaboration idle'
     }
   }, [collab.status, collabStatusMessage, collabFeatureEnabled, readOnly])
+  const shouldHideEditorContent = expectingCollab && !collabUnavailable && (!collabEnabled || !collabSynced)
 
   return (
     <div className={rootCls}>
@@ -418,31 +707,50 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
         )}
       </div>
 
+      {!readOnly && !aiChatOpen && (
+        <button
+          onClick={() => setAiChatOpen(true)}
+          className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-lg transition hover:-translate-y-0.5 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
+        >
+          <span className="rounded-full bg-indigo-600 px-3 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white">AI CHAT</span>
+        </button>
+      )}
+
       <div
         ref={contentWrapRef}
         className="flex-1 min-h-0 flex flex-col p-0"
         style={fullBleed ? { } : { height: containerH }}
       >
-        <Adapter
-          ref={adapterRef}
-          content={initialContent || ''}
-          contentJson={initialContentJson}
-          paperId={paperId}
-          projectId={projectId}
-          paperTitle={paperTitle}
-          onContentChange={handleContentChange}
-          onSelectionChange={setSelection}
-          className="h-full"
-          lockedSectionKeys={Object.keys(sectionLocks)}
-          readOnly={readOnly}
-          onNavigateBack={handleNavigateBack}
-          onOpenReferences={handleOpenReferences}
-          onOpenAiAssistant={handleOpenAiAssistant}
-          onInsertBibliographyShortcut={handleInsertBibliographyShortcut}
-          realtime={realtimeContext}
-          collaborationStatus={collaborationStatus}
-          theme={theme}
-        />
+        <div className="relative flex-1">
+          {shouldHideEditorContent && (
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-slate-100/95 text-slate-600 dark:bg-slate-900/95 dark:text-slate-300">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span className="text-xs font-medium uppercase tracking-wide">Syncing latest draft…</span>
+            </div>
+          )}
+          <div className="h-full" style={{ visibility: shouldHideEditorContent ? 'hidden' : 'visible' }}>
+            <Adapter
+              ref={adapterRef}
+              content={(expectingCollab && !collabUnavailable) ? '' : (initialContent || '')}
+              contentJson={(expectingCollab && !collabUnavailable) ? undefined : initialContentJson}
+              paperId={paperId}
+              projectId={projectId}
+              paperTitle={paperTitle}
+              onContentChange={handleContentChange}
+              onSelectionChange={setSelection}
+              className="h-full"
+              lockedSectionKeys={Object.keys(sectionLocks)}
+              readOnly={readOnly}
+              onNavigateBack={handleNavigateBack}
+              onOpenReferences={handleOpenReferences}
+              onOpenAiAssistant={handleOpenAiAssistant}
+              onInsertBibliographyShortcut={handleInsertBibliographyShortcut}
+              realtime={realtimeContext}
+              collaborationStatus={collaborationStatus}
+              theme={theme}
+            />
+          </div>
+        </div>
       </div>
 
       {branchOpen && (
@@ -452,7 +760,13 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
               paperId={paperId}
               currentBranchId={currentBranchId}
               onBranchSwitch={async (_branchId) => { /* adapter will reload via onContentUpdate */ }}
-              onContentUpdate={async (html) => { await adapterRef.current?.setContent?.(html); setLastHtml(html || '') }}
+              onContentUpdate={async (html) => {
+                await adapterRef.current?.setContent?.(html, { overwriteRealtime: true })
+                setLastHtml(html || '')
+                const nextJson = isLatex ? { authoring_mode: 'latex', latex_source: html || '' } : null
+                updateLatestContent(html || '', nextJson)
+                requestAutosave('branch-update')
+              }}
             />
           </div>
         </div>
@@ -463,7 +777,15 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
           paperId={paperId}
           content={lastHtml}
           baseline={baselinePublished}
-          onRevertAll={async () => { try { await adapterRef.current?.setContent?.(baselinePublished || ''); setLastHtml(baselinePublished || '') } catch {} }}
+          onRevertAll={async () => {
+            try {
+              await adapterRef.current?.setContent?.(baselinePublished || '', { overwriteRealtime: true })
+              setLastHtml(baselinePublished || '')
+              const nextJson = isLatex ? { authoring_mode: 'latex', latex_source: baselinePublished || '' } : null
+              updateLatestContent(baselinePublished || '', nextJson)
+              requestAutosave('outline-revert')
+            } catch {}
+          }}
           lockedKeys={sectionLocks}
           onClose={()=> setOutlineOpen(false)}
           onJumpToLine={(line)=> adapterRef.current?.scrollToLine?.(line)}
@@ -491,7 +813,13 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
             </div>
             <MergeView
               paperId={paperId}
-              onMerged={async (merged) => { await adapterRef.current?.setContent?.(merged); setMergeOpen(false) }}
+              onMerged={async (merged) => {
+                await adapterRef.current?.setContent?.(merged, { overwriteRealtime: true })
+                setMergeOpen(false)
+                const nextJson = isLatex ? { authoring_mode: 'latex', latex_source: merged || '' } : null
+                updateLatestContent(merged || '', nextJson)
+                requestAutosave('merge-accepted')
+              }}
             />
           </div>
         </div>
@@ -546,7 +874,15 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
         currentVersion={currentVersion || undefined}
         pendingVersion={pendingVersion || undefined}
         onClose={() => setVersionsOpen(false)}
-        onLoadVersion={async (content) => { try { await adapterRef.current?.setContent?.(content) } catch {} }}
+        onLoadVersion={async (content) => {
+          try {
+            await adapterRef.current?.setContent?.(content, { overwriteRealtime: true })
+            setLastHtml(content || '')
+            const nextJson = isLatex ? { authoring_mode: 'latex', latex_source: content || '' } : null
+            updateLatestContent(content || '', nextJson)
+            requestAutosave('load-version')
+          } catch {}
+        }}
         onPromote={async () => {
           await refreshVersions()
           showToast('Default version updated')
@@ -564,6 +900,14 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
         onOpenChange={(next) => setAiPanelOpen(readOnly ? false : next)}
         showLauncher={false}
         anchorElement={aiAnchor}
+      />
+
+      <EditorAIChat
+        paperId={paperId}
+        projectId={projectId}
+        documentText={lastHtml}
+        open={!readOnly && aiChatOpen}
+        onOpenChange={(next) => setAiChatOpen(readOnly ? false : next)}
       />
     </div>
   )

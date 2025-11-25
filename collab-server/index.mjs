@@ -6,6 +6,8 @@ import pino from 'pino'
 import * as Y from 'yjs'
 
 const log = pino({ level: process.env.LOG_LEVEL ?? 'info' })
+const backendBaseUrl = (process.env.BACKEND_BASE_URL || 'http://backend:8000').replace(/\/$/, '')
+const bootstrapSecret = process.env.COLLAB_BOOTSTRAP_SECRET || process.env.COLLAB_JWT_SECRET || null
 
 const port = Number.parseInt(process.env.PORT ?? '3001', 10)
 const redisHost = process.env.REDIS_HOST ?? 'redis'
@@ -72,9 +74,49 @@ const server = new Server({
     payload.documentName = paperId
   },
   async onLoadDocument({ documentName, document }) {
-    if (document.getText('main').length === 0) {
-      const yText = document.getText('main')
-      yText.insert(0, '')
+    const yText = document.getText('main')
+
+    if (!bootstrapSecret) {
+      log.warn({ document: documentName }, 'Skipping bootstrap: secret not configured')
+      return
+    }
+
+    try {
+      const response = await fetch(`${backendBaseUrl}/api/v1/collab/bootstrap/${documentName}`, {
+        headers: {
+          'X-Collab-Secret': bootstrapSecret,
+          Accept: 'application/json',
+        },
+      })
+
+      if (!response.ok) {
+        log.warn({ document: documentName, status: response.status }, 'Bootstrap request failed')
+        return
+      }
+
+      const payload = await response.json()
+      const latexSource = typeof payload?.latex_source === 'string' ? payload.latex_source : ''
+
+      log.info({ document: documentName, backendLength: latexSource.length, realtimeLength: yText.length }, 'Bootstrap payload received')
+
+      if (!latexSource) {
+        log.info({ document: documentName }, 'Bootstrap skipped: backend returned empty payload')
+        return
+      }
+
+      if (yText.length > 0) {
+        yText.delete(0, yText.length)
+        log.info({ document: documentName }, 'Cleared existing realtime doc before bootstrap')
+      }
+
+      yText.insert(0, latexSource)
+      log.info({ document: documentName, length: latexSource.length }, 'Bootstrapped document from backend')
+    } catch (error) {
+      log.error({ document: documentName, error }, 'Bootstrap fetch failed')
+    } finally {
+      if (yText.length === 0) {
+        yText.insert(0, '')
+      }
     }
   },
   async onConnect(data) {
