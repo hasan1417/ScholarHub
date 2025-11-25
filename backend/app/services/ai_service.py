@@ -1036,6 +1036,9 @@ class AIService:
             q = (query or "").strip().lower()
             if not q:
                 return None
+            # Ignore auto-added context from clients
+            if "attached references:" in q:
+                return None
             # Common phrasings
             markers_refs = ["references", "citations", "sources", "refs"]
             markers_papers = ["papers", "paper list", "my papers", "projects"]

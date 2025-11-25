@@ -701,13 +701,18 @@ async def chat_with_references(
         # Check if user has any processed references
         logger.info(f"🔍 Checking references for user ID: {current_user.id} (type: {type(current_user.id)})")
         
-        processed_refs = db.query(Reference).filter(
-            Reference.owner_id == current_user.id,
-            Reference.status == "analyzed"
-        )
-        
         if query.paper_id:
-            processed_refs = processed_refs.filter(Reference.paper_id == query.paper_id)
+            processed_refs = db.query(Reference).join(
+                PaperReference, PaperReference.reference_id == Reference.id
+            ).filter(
+                PaperReference.paper_id == query.paper_id,
+                Reference.status == "analyzed"
+            )
+        else:
+            processed_refs = db.query(Reference).filter(
+                Reference.owner_id == current_user.id,
+                Reference.status == "analyzed"
+            )
         
         ref_count = processed_refs.count()
         logger.info(f"User {current_user.id} has {ref_count} processed references in scope")
@@ -872,19 +877,27 @@ async def chat_with_references_stream(
             resp, _ = ai_service._handle_listing_intent(db, str(current_user.id), intent, query.paper_id)
             return StreamingResponse(_chunk_text_stream(resp), media_type="text/plain")
 
-        # Check processed references
-        processed_refs = db.query(Reference).filter(
-            Reference.owner_id == current_user.id,
-            Reference.status == "analyzed"
-        )
+        # Check processed references (paper scoped ignores owner)
         if query.paper_id:
-            processed_refs = processed_refs.filter(Reference.paper_id == query.paper_id)
+            processed_refs = db.query(Reference).join(
+                PaperReference, PaperReference.reference_id == Reference.id
+            ).filter(
+                PaperReference.paper_id == query.paper_id,
+                Reference.status == "analyzed"
+            )
+        else:
+            processed_refs = db.query(Reference).filter(
+                Reference.owner_id == current_user.id,
+                Reference.status == "analyzed"
+            )
         ref_count = processed_refs.count()
         if ref_count == 0:
-            scoped_refs_q = db.query(Reference).filter(Reference.owner_id == current_user.id)
             if query.paper_id:
-                scoped_refs_q = scoped_refs_q.filter(Reference.paper_id == query.paper_id)
-            scoped_refs = scoped_refs_q.all()
+                scoped_refs = db.query(Reference).join(
+                    PaperReference, PaperReference.reference_id == Reference.id
+                ).filter(PaperReference.paper_id == query.paper_id).all()
+            else:
+                scoped_refs = db.query(Reference).filter(Reference.owner_id == current_user.id).all()
 
             if not scoped_refs:
                 scope_msg = f"for paper '{paper_title}'" if query.paper_id else "in your library"
