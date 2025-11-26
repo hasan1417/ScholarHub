@@ -2,6 +2,7 @@ import logging
 import os
 import time
 from typing import List, Dict, Any, Optional, Tuple
+import re
 from sqlalchemy.orm import Session
 # from sqlalchemy import text  # No longer needed - we don't use raw SQL queries
 import openai
@@ -1493,10 +1494,24 @@ Answer:"""
                     except Exception:
                         part = "".join([str(c) for c in delta.content])
                 if part:
-                    yield part
+                    yield self._strip_markdown_inline(part)
         except Exception as e:
             logger.error(f"Error in _stream_chat: {str(e)}")
             yield f"[error streaming response: {str(e)}]"
+
+    @staticmethod
+    def _strip_markdown_inline(text: str) -> str:
+        """Lightweight markdown cleaner for streaming text."""
+        if not text:
+            return text
+        cleaned = text
+        cleaned = re.sub(r"\*\*(.*?)\*\*", r"\1", cleaned)  # bold
+        cleaned = re.sub(r"\*(.*?)\*", r"\1", cleaned)      # italics
+        cleaned = re.sub(r"^\\s*[-•]\\s*", "", cleaned)
+        cleaned = re.sub(r"^\\s*#\\s*", "", cleaned)
+        cleaned = re.sub(r"^\\s*\\d+\\.\\s*", "", cleaned)
+        cleaned = cleaned.replace("###", "").replace("##", "").replace("#", "")
+        return cleaned
 
     def _store_reference_chat_session(
         self,
