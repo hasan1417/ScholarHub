@@ -1333,7 +1333,13 @@ class AIService:
             messages = [
                 {
                     "role": "system",
-                    "content": "You are a knowledgeable research assistant specializing in academic literature. Provide concise bullet points (3-5 bullets, each <= 20 words) in plain text. Prefix each bullet with '- '. Cite references inline using (Reference Title, Year). Never mention chunk numbers."
+                    "content": (
+                        "You are a knowledgeable research assistant specializing in academic literature. Respond in plain text. "
+                        "If the user explicitly asks for bullets/lists, use 3-5 concise bullets (<=20 words) prefixed with '- '. "
+                        "Otherwise, reply in 2-3 concise sentences. "
+                        "Cite references inline using (Reference Title, Year) only when needed, and avoid repeating the same citation on every line. "
+                        "Never mention chunk numbers."
+                    )
                 },
                 {"role": "user", "content": prompt},
             ]
@@ -1371,9 +1377,10 @@ class AIService:
         prompt = f"""You are an AI research assistant helping a user understand their reference library. Answer the user's question based on the provided text chunks from academic references.
 
 IMPORTANT:
-- Respond with 3-5 concise bullet points (each <= 20 words), plain text only, prefix each bullet with "- ".
+- If the user asks for bullets/lists, respond with 3-5 concise bullets (each <= 20 words) prefixed with "- ".
+- Otherwise, respond in 2-3 concise sentences.
 - Do not mention chunk numbers or positions.
-- Cite references inline using (Reference Title, Year) when you rely on them.
+- Cite references inline using (Reference Title, Year) only when needed, and avoid repeating the same citation on every line.
 - Use concrete details from the reference chunks and synthesize across sources when helpful.
 - If information is missing, say so clearly.
 
@@ -1384,8 +1391,8 @@ Available Reference Chunks:
 
 Instructions:
 - Use only the provided reference chunks.
-- Keep bullets tight and factual.
-- No headings or markdown beyond the "- " bullet prefix.
+- Keep responses tight and factual.
+- No headings or markdown beyond an optional "- " bullet prefix when requested.
 - If conflicting information exists, acknowledge briefly.
 """
         return prompt, references_used
