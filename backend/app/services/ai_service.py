@@ -1333,7 +1333,7 @@ class AIService:
             messages = [
                 {
                     "role": "system",
-                    "content": "You are a knowledgeable research assistant specializing in academic literature. Provide specific, well-cited answers in plain text (no Markdown, no bullet lists). Cite references using (Reference Title, Year)."
+                    "content": "You are a knowledgeable research assistant specializing in academic literature. Provide concise bullet points (3-5 bullets, each <= 20 words) in plain text. Prefix each bullet with '- '. Cite references inline using (Reference Title, Year). Never mention chunk numbers."
                 },
                 {"role": "user", "content": prompt},
             ]
@@ -1370,13 +1370,12 @@ class AIService:
 
         prompt = f"""You are an AI research assistant helping a user understand their reference library. Answer the user's question based on the provided text chunks from academic references.
 
-IMPORTANT: 
-- Be specific and cite the references that contain relevant information
-- Use concrete details from the reference chunks
-- When citing, use format: (Reference Title, Year) or (Author et al., Year)
-- If multiple references support a point, cite all relevant ones
-- Provide comprehensive answers that synthesize information across references
-- If you can't find relevant information, say so clearly
+IMPORTANT:
+- Respond with 3-5 concise bullet points (each <= 20 words), plain text only, prefix each bullet with "- ".
+- Do not mention chunk numbers or positions.
+- Cite references inline using (Reference Title, Year) when you rely on them.
+- Use concrete details from the reference chunks and synthesize across sources when helpful.
+- If information is missing, say so clearly.
 
 Question: {query}
 
@@ -1384,13 +1383,11 @@ Available Reference Chunks:
 {context}
 
 Instructions:
-- Answer the question using specific information from the reference chunks
-- Cite references properly when using information
-- Synthesize information from multiple sources when relevant
-- Be detailed and provide academic-quality responses
-- If conflicting information exists, acknowledge and explain the differences
-
-Answer:"""
+- Use only the provided reference chunks.
+- Keep bullets tight and factual.
+- No headings or markdown beyond the "- " bullet prefix.
+- If conflicting information exists, acknowledge briefly.
+"""
         return prompt, references_used
 
     def _generate_mock_reference_response(self, query: str, paper_id: Optional[str] = None) -> str:
@@ -1507,9 +1504,6 @@ Answer:"""
         cleaned = text
         cleaned = re.sub(r"\*\*(.*?)\*\*", r"\1", cleaned)  # bold
         cleaned = re.sub(r"\*(.*?)\*", r"\1", cleaned)      # italics
-        cleaned = re.sub(r"^\\s*[-•]\\s*", "", cleaned)
-        cleaned = re.sub(r"^\\s*#\\s*", "", cleaned)
-        cleaned = re.sub(r"^\\s*\\d+\\.\\s*", "", cleaned)
         cleaned = cleaned.replace("###", "").replace("##", "").replace("#", "")
         return cleaned
 
