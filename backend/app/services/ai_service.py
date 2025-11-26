@@ -1286,7 +1286,7 @@ class AIService:
 
             response = self.create_response(
                 messages=[
-                    {"role": "system", "content": "You are a knowledgeable research assistant specializing in academic literature. When users ask about their references, provide specific, well-cited answers that synthesize information across multiple sources. Always cite your sources properly."},
+                    {"role": "system", "content": "You are a knowledgeable research assistant specializing in academic literature. Provide specific, well-cited answers in plain text (no Markdown, no bullet lists). Cite references using (Reference Title, Year)."},
                     {"role": "user", "content": prompt}
                 ],
                 max_output_tokens=4000,
@@ -1332,7 +1332,7 @@ class AIService:
             messages = [
                 {
                     "role": "system",
-                    "content": "You are a knowledgeable research assistant specializing in academic literature. When users ask about their references, provide specific, well-cited answers that synthesize information across multiple sources. Always cite your sources properly."
+                    "content": "You are a knowledgeable research assistant specializing in academic literature. Provide specific, well-cited answers in plain text (no Markdown, no bullet lists). Cite references using (Reference Title, Year)."
                 },
                 {"role": "user", "content": prompt},
             ]
@@ -1441,7 +1441,7 @@ Answer:"""
 
         try:
             messages = [
-                {"role": "system", "content": "You are an expert academic writing assistant. Help researchers improve their writing by providing clear, well-structured, and academically appropriate text."},
+                {"role": "system", "content": "You are an expert academic writing assistant. Respond in plain text (no Markdown, no bullet lists). Provide clear, well-structured, and academically appropriate text."},
                 {"role": "user", "content": prompt},
             ]
             yield from self._stream_chat(
