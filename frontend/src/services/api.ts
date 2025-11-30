@@ -1049,12 +1049,12 @@ export const aiAPI = {
 }
 
 export const streamAPI = {
-  chatWithReferencesStream: async (query: string, paperId?: string | null) => {
+  chatWithReferencesStream: async (query: string, paperId?: string | null, documentExcerpt?: string | null) => {
     const url = buildApiUrl('/ai/chat-with-references/stream')
     return fetch(url, {
       method: 'POST',
       headers: buildAuthHeaders(),
-      body: JSON.stringify({ query, paper_id: paperId || null }),
+      body: JSON.stringify({ query, paper_id: paperId || null, document_excerpt: documentExcerpt || null }),
     })
   },
   writingGenerateStream: async (text: string, instruction: string, context?: string, maxLength = 500) => {

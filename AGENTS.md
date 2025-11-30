@@ -95,3 +95,7 @@ Run both commands if you modified both stacks.
 * Every change includes a manual test under `tests/manual/...` with Purpose, Setup, Test Data, Steps, Expected Results, Rollback, and Evidence (`tests/manual/_evidence/`).
 
 **Notes**: Do **not** run dockerized `frontend`/`backend` alongside local servers (port conflicts). No git commands are required in local workflows.
+
+## GitHub
+
+- The project is linked to GitHub; push changes to the configured remote as needed.

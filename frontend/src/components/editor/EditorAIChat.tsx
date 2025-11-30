@@ -75,17 +75,17 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
   }, [messages, open])
 
   const docContext = useMemo(() => {
-    const trimmed = (documentText || '').slice(0, MAX_DOC_CONTEXT_CHARS).trim()
-    if (!trimmed) return null
-    return trimmed
+    if (!documentText) return null
+    try {
+      const stripped = documentText.replace(/<[^>]+>/g, ' ')
+      const normalized = stripped.replace(/\s+/g, ' ').trim()
+      const truncated = normalized.slice(0, MAX_DOC_CONTEXT_CHARS)
+      return truncated || null
+    } catch {
+      const fallback = (documentText || '').slice(0, MAX_DOC_CONTEXT_CHARS).trim()
+      return fallback || null
+    }
   }, [documentText])
-
-  const referencesContext = useMemo(() => {
-    if (!references.length) return null
-    return references
-      .map((ref, idx) => `${idx + 1}. ${ref.title}`)
-      .join('\n')
-  }, [references])
 
   const missingPdfCount = useMemo(() => references.filter((r) => !r.pdfUrl).length, [references])
 
@@ -107,19 +107,9 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
         // Avoid wrapping greetings with extra context to prevent long RAG responses
         return userPrompt.trim()
       }
-      const chunks: string[] = []
-      chunks.push(`User question:\n${userPrompt}`)
-      if (docContext) {
-        chunks.push(`Document excerpt (truncated to ${MAX_DOC_CONTEXT_CHARS} chars):\n${docContext}`)
-      }
-      if (referencesContext) {
-        chunks.push('Attached references:\n' + referencesContext)
-      } else if (projectId && paperId) {
-        chunks.push('Attached references: none available for this paper yet.')
-      }
-      return chunks.join('\n\n')
+      return userPrompt.trim()
     },
-    [docContext, referencesContext, paperId, projectId]
+    []
   )
 
   const handleSend = useCallback(async () => {
@@ -130,7 +120,7 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
     setMessages((prev) => [...prev, { role: 'user', content: prompt }, { role: 'assistant', content: '' }])
     try {
       const query = buildQueryWithContext(prompt)
-      const res = await streamAPI.chatWithReferencesStream(query, paperId)
+      const res = await streamAPI.chatWithReferencesStream(query, paperId, docContext || null)
       if (!res.ok) {
         const errText = await res.text()
         throw new Error(errText || 'Chat request failed.')
@@ -180,7 +170,7 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
     } finally {
       setSending(false)
     }
-  }, [buildQueryWithContext, input, messages, paperId, sending])
+  }, [buildQueryWithContext, docContext, input, messages, paperId, sending])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

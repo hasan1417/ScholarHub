@@ -28,6 +28,7 @@ interface EnhancedAIWritingToolsProps {
   onOpenChange?: (open: boolean) => void
   showLauncher?: boolean
   anchorElement?: HTMLElement | null
+  isLatexMode?: boolean
 }
 
 interface PromptTemplate {
@@ -53,6 +54,20 @@ const PROMPT_TEMPLATES: PromptTemplate[] = [
       'Generate a literature review section that synthesizes the linked references into thematic paragraphs. Highlight key contributions and disagreements, and cite sources inline.'
   },
   {
+    id: 'latex_template',
+    title: 'LaTeX Paper Skeleton',
+    description: 'Create section headings and TODO placeholders (no preamble).',
+    prompt:
+      'Create a LaTeX article body template with an abstract, introduction, methods, results, discussion, conclusion, and references placeholder. Use \\section and \\subsection commands with brief TODO notes. Do not include \\documentclass, packages, or \\begin{document}.'
+  },
+  {
+    id: 'latex_section',
+    title: 'Write LaTeX Section',
+    description: 'Draft a new section with \\cite placeholders.',
+    prompt:
+      'Write a LaTeX \\section{} with 2–3 paragraphs on the requested topic. Include natural \\cite{key} placeholders where evidence would go. Avoid adding any preamble or \\documentclass.'
+  },
+  {
     id: 'abstract',
     title: 'Draft Abstract',
     description: 'Summarize the paper in ~200 words.',
@@ -74,6 +89,7 @@ const EnhancedAIWritingTools: React.FC<EnhancedAIWritingToolsProps> = ({
   onOpenChange,
   showLauncher = true,
   anchorElement,
+  isLatexMode = false,
 }) => {
   const isControlled = typeof open === 'boolean'
   const [internalOpen, setInternalOpen] = useState(false)
@@ -135,6 +151,13 @@ const EnhancedAIWritingTools: React.FC<EnhancedAIWritingToolsProps> = ({
     setActiveTemplateId(template.id)
     setPromptText(template.prompt)
   }, [])
+
+  const formatHint = useMemo(() => {
+    if (isLatexMode) {
+      return 'Formatting: Return LaTeX source (no Markdown/backticks); keep to document body (no \\documentclass or \\begin{document}); use \\section, \\subsection, and standard environments.'
+    }
+    return 'Formatting: Return plain text ready to paste (no Markdown fences).'
+  }, [isLatexMode])
 
   const selectionPreview = useMemo(() => {
     if (!hasSelection) return ''
@@ -276,11 +299,15 @@ const EnhancedAIWritingTools: React.FC<EnhancedAIWritingToolsProps> = ({
   }, [setOpen])
 
   const buildContextString = useCallback(() => {
+    const parts: string[] = []
     if (currentPaperContent) {
-      return `Paper context (excerpt): ${currentPaperContent.substring(0, 700)}...`
+      parts.push(`Paper context (excerpt): ${currentPaperContent.substring(0, 700)}...`)
     }
-    return ''
-  }, [currentPaperContent])
+    if (formatHint) {
+      parts.push(formatHint)
+    }
+    return parts.join('\n')
+  }, [currentPaperContent, formatHint])
 
   const handleGenerate = useCallback(async () => {
     if (!promptText.trim()) {

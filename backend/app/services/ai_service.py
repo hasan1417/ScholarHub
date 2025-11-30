@@ -3,6 +3,8 @@ import os
 import time
 from typing import List, Dict, Any, Optional, Tuple
 import re
+import json
+from app.services.reference_summary_service import summarize_paper_references
 from sqlalchemy.orm import Session
 # from sqlalchemy import text  # No longer needed - we don't use raw SQL queries
 import openai
@@ -19,6 +21,11 @@ env_path = Path(__file__).parent.parent.parent.parent / ".env"
 load_dotenv(env_path, override=True)
 
 logger = logging.getLogger(__name__)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    logger.addHandler(handler)
+logger.setLevel(logging.INFO)
 logger.info(f"Loading .env from: {env_path}")
 logger.info(f".env file exists: {env_path.exists()}")
 
@@ -32,7 +39,7 @@ class AIService:
         
         # Model configuration - users can change these later
         self.embedding_model = "text-embedding-3-small"  # Latest OpenAI embedding model (better performance)
-        self.chat_model = "gpt-4o-mini"  # Default chat model for chat/discussion flows
+        self.chat_model = "gpt-5-mini"  # Default chat model for chat/discussion flows
         self.writing_model = "gpt-5-mini"  # Dedicated model for LaTeX editor writing tools
 
         # Provider configuration
@@ -534,26 +541,36 @@ class AIService:
                 logger.warning("OpenAI client not available, using mock response")
                 return self._generate_mock_text_response(text, instruction, context, max_length)
             
-            # Build the prompt based on instruction
-            if instruction.lower() == "expand":
-                prompt = f"Please expand the following text, making it more detailed and comprehensive while maintaining the same tone and style. Add relevant examples, explanations, and context:\n\n{text}"
-            elif instruction.lower() == "rephrase":
-                prompt = f"Please rephrase the following text in a different way while keeping the same meaning and maintaining academic writing style:\n\n{text}"
-            elif instruction.lower() == "complete":
-                prompt = f"Please complete the following text, continuing the thought naturally and maintaining the same style and tone:\n\n{text}"
-            elif instruction.lower() == "summarize":
-                prompt = f"Please provide a concise summary of the following text, capturing the key points and main ideas:\n\n{text}"
+            clean_instruction = (instruction or "").strip()
+            has_text = bool(text and str(text).strip())
+            prompt_parts = []
+
+            if has_text:
+                if clean_instruction.lower() == "expand":
+                    prompt_parts.append("Expand the following text, making it more detailed and comprehensive while maintaining the same tone and style. Add relevant examples, explanations, and context.")
+                elif clean_instruction.lower() == "rephrase":
+                    prompt_parts.append("Rephrase the following text while keeping the same meaning and academic tone.")
+                elif clean_instruction.lower() == "complete":
+                    prompt_parts.append("Complete the following text, continuing the thought naturally and maintaining the same style and tone.")
+                elif clean_instruction.lower() == "summarize":
+                    prompt_parts.append("Summarize the following text concisely, capturing the key points and main ideas.")
+                else:
+                    prompt_parts.append(f"{clean_instruction} the following text.")
+                prompt_parts.append(text or "")
             else:
-                prompt = f"Please {instruction} the following text:\n\n{text}"
-            
+                prompt_parts.append(f"{clean_instruction or 'Generate new content'} even if no input text is provided.")
+
             if context:
-                prompt += f"\n\nAdditional context: {context}"
-            
-            prompt += f"\n\nPlease ensure the response is no longer than {max_length} words and maintains academic writing standards."
+                prompt_parts.append(f"Use this context when helpful:\n{context}")
+
+            prompt_parts.append(f"Return concise, publication-ready prose. Keep the response within roughly {max_length} words.")
+            prompt_parts.append("If LaTeX markup is present or implied, keep it intact and avoid adding documentclass/preamble unless explicitly asked. Do not wrap the answer in Markdown fences.")
+
+            prompt = "\n\n".join(part for part in prompt_parts if part)
             
             response = self.create_response(
                 messages=[
-                    {"role": "system", "content": "You are an expert academic writing assistant. Help researchers improve their writing by providing clear, well-structured, and academically appropriate text."},
+                    {"role": "system", "content": "You are an expert academic writing assistant. Respond in plain text without Markdown fences. Preserve any LaTeX already present and, when the task implies LaTeX, produce LaTeX-ready output using standard commands (e.g., \\section, \\begin{itemize}) without adding a preamble."},
                     {"role": "user", "content": prompt}
                 ],
                 model=writing_model,
@@ -898,7 +915,8 @@ class AIService:
         db: Session, 
         user_id: str, 
         query: str, 
-        paper_id: Optional[str] = None
+        paper_id: Optional[str] = None,
+        document_excerpt: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Chat with references using RAG (paper-scoped or global library)
@@ -908,6 +926,7 @@ class AIService:
             user_id: User ID
             query: User's question
             paper_id: If provided, scope to this paper's references; otherwise use global library
+            document_excerpt: Optional plain-text excerpt from the current draft to inform responses
             
         Returns:
             Dict with response, sources, and chat_id
@@ -930,19 +949,6 @@ class AIService:
                     "sources_data": [],
                     "chat_id": chat_id,
                 }
-            
-            # Intent: simple listing (avoid LLM + retrieval)
-            intent = self._detect_listing_intent(query)
-            if intent:
-                logger.info(f"🧭 Listing intent detected: {intent}")
-                response, sources = self._handle_listing_intent(db, user_id, intent, paper_id)
-                chat_id = self._store_reference_chat_session(db, user_id, query, response, sources, paper_id) or f"list-{int(time.time())}"
-                return {
-                    "response": response,
-                    "sources": [s["title"] for s in sources],
-                    "sources_data": sources,
-                    "chat_id": chat_id,
-                }
 
             # Check if we're in mock mode (no OpenAI API key)
             if not self.openai_client:
@@ -962,7 +968,7 @@ class AIService:
             chunks = self.get_relevant_reference_chunks(db, query, user_id, paper_id, limit=8)
             logger.info(f"🔍 Found {len(chunks)} relevant chunks")
             
-            if not chunks:
+            if not chunks and not document_excerpt:
                 logger.info("📝 No relevant reference chunks found, returning default response")
                 scope_msg = f"for paper '{paper_id}'" if paper_id else "in your library"
                 response = (
@@ -985,11 +991,63 @@ class AIService:
             
             # Generate RAG response using reference chunks
             logger.info("🤖 Generating RAG response from reference chunks...")
-            response = self.generate_reference_rag_response(query, chunks)
+            route = self._pick_resources(query, bool(document_excerpt), bool(chunks))
+            routed_excerpt = document_excerpt if route["include_doc"] else None
+            routed_chunks = chunks if route["include_refs"] else []
+
+            # Add lightweight reference summary into the prompt when references are included
+            ref_summary_lines: List[str] = []
+            ref_sources: List[Dict[str, Any]] = []
+            if route.get("include_refs"):
+                ref_summary_lines, ref_sources = summarize_paper_references(
+                    db,
+                    paper_id=paper_id,
+                    owner_id=str(user_id) if user_id else None,
+                )
+
+            if route.get("doc_requested") and not routed_excerpt:
+                response = "I don't have your draft text available to answer this question. Please provide the draft content."
+                chat_id = self._store_reference_chat_session(db, user_id, query, response, [], paper_id) or f"no-draft-{int(time.time())}"
+                return {
+                    "response": response,
+                    "sources": [],
+                    "sources_data": [],
+                    "chat_id": chat_id
+                }
+
+            if not routed_chunks and not routed_excerpt and not ref_summary_lines:
+                response = "I don't have draft text or references available to answer this yet."
+                chat_id = self._store_reference_chat_session(db, user_id, query, response, [], paper_id) or f"no-context-{int(time.time())}"
+                return {
+                    "response": response,
+                    "sources": [],
+                    "sources_data": [],
+                    "chat_id": chat_id
+                }
+
+            logger.info(
+                "[route] include_doc=%s include_refs=%s doc_requested=%s routed_chunks=%s ref_summary_count=%s doc_len=%s",
+                route.get("include_doc"),
+                route.get("include_refs"),
+                route.get("doc_requested"),
+                len(routed_chunks),
+                len(ref_summary_lines),
+                len(routed_excerpt or ""),
+            )
+
+            response = self.generate_reference_rag_response(
+                query,
+                routed_chunks,
+                document_excerpt=routed_excerpt,
+                doc_requested=route["doc_requested"],
+                reference_summary=ref_summary_lines,
+            )
             logger.info(f"🤖 Reference RAG response generated, length: {len(response)}")
             
             # Prepare source information
-            sources = self._prepare_reference_sources(chunks)
+            sources = self._prepare_reference_sources(routed_chunks)
+            if not sources and ref_sources:
+                sources = ref_sources
             
             # Store chat session
             logger.info("💾 Storing reference chat session...")
@@ -1030,27 +1088,19 @@ class AIService:
         return q in greetings
 
     def _detect_listing_intent(self, query: str) -> Optional[str]:
-        """Detect simple listing/summary intents to bypass RAG.
-        Returns one of: 'references', 'papers', or None.
-        """
+        """Detect listing intents to provide deterministic lists."""
         try:
             q = (query or "").strip().lower()
             if not q:
                 return None
-            # Ignore auto-added context from clients
-            if "attached references:" in q:
-                return None
-            # Common phrasings
             markers_refs = ["references", "citations", "sources", "refs"]
             markers_papers = ["papers", "paper list", "my papers", "projects"]
-            # Imperative/listing clues
             list_verbs = ["what", "which", "list", "show", "how many", "count"]
             if any(v in q for v in list_verbs):
                 if any(m in q for m in markers_refs):
                     return "references"
                 if any(m in q for m in markers_papers) or "what paper" in q or "what papers" in q:
                     return "papers"
-            # Very broad questions like "what paper you do have" (typo-friendly)
             if "what paper" in q:
                 return "papers"
         except Exception:
@@ -1086,8 +1136,8 @@ class AIService:
                 lines = []
                 sources = []
                 for i, r in enumerate(refs, 1):
-                    lines.append(f"{i}. {r.title} ({r.year or 'n/a'}) — status: {r.status}")
-                    sources.append({"id": str(r.id), "title": r.title, "status": r.status})
+                    lines.append(f"{i}. {r.title} ({r.year or 'n/a'})")
+                    sources.append({"id": str(r.id), "title": r.title})
                 resp = f"This paper ('{title}') has {len(refs)} references:\n" + "\n".join(lines)
                 return (resp, sources)
             else:
@@ -1254,6 +1304,16 @@ class AIService:
             scored_chunks.sort(key=lambda x: x['score'], reverse=True)
             top_items = scored_chunks[:max(1, min(limit, 20))]
 
+            # Ensure at least one chunk per reference when references exist but retrieval was sparse
+            seen_refs = {item['reference'].id for item in top_items}
+            if len(seen_refs) < len({ref.id for _, ref in chunk_results}):
+                missing: Dict[str, Any] = {}
+                for chunk, reference in chunk_results:
+                    if reference.id in seen_refs or reference.id in missing:
+                        continue
+                    missing[reference.id] = {'chunk': chunk, 'reference': reference, 'score': -1.0}
+                top_items.extend(missing.values())
+
             # Convert to expected format
             results: List[Dict[str, Any]] = []
             for item in top_items:
@@ -1277,17 +1337,29 @@ class AIService:
             logger.error(f"Error getting relevant reference chunks: {str(e)}")
             return []
 
-    def generate_reference_rag_response(self, query: str, chunks: List[Dict[str, Any]]) -> str:
+    def generate_reference_rag_response(self, query: str, chunks: List[Dict[str, Any]], document_excerpt: Optional[str] = None, doc_requested: bool = False, reference_summary: Optional[List[str]] = None) -> str:
         """Generate RAG response using reference chunks (non-streaming)."""
         if not self.openai_client:
             return "AI service not available. Please try again later."
 
         try:
-            prompt, references_used = self._build_reference_prompt(query, chunks)
+            logger.info(
+                "[rag] generating response | chunks=%s ref_summary=%s doc_len=%s",
+                len(chunks),
+                len(reference_summary or []),
+                len(document_excerpt or ""),
+            )
+            prompt, references_used = self._build_reference_prompt(
+                query,
+                chunks,
+                document_excerpt=document_excerpt,
+                doc_requested=doc_requested,
+                reference_summary=reference_summary,
+            )
 
             response = self.create_response(
                 messages=[
-                    {"role": "system", "content": "You are a knowledgeable research assistant specializing in academic literature. Provide specific, well-cited answers in plain text (no Markdown, no bullet lists). Cite references using (Reference Title, Year)."},
+                    {"role": "system", "content": "You are a knowledgeable research assistant specializing in academic literature. Respond in plain text. Skip citations when a single reference is used. When drawing from multiple references, add brief source tags like '(Title, Year)' only where attribution is helpful and do not over-repeat them. If a paper excerpt is provided, use it first for questions about the draft and do not claim you cannot see it; summarize what you have and note truncation if needed. Bring in reference details only when the user asks for literature context or supporting evidence. If no reference chunks are provided, do not mention or invent references, citations, statistics, or sources. Never mention chunk numbers."},
                     {"role": "user", "content": prompt}
                 ],
                 max_output_tokens=4000,
@@ -1296,47 +1368,62 @@ class AIService:
 
             answer = self.extract_response_text(response)
 
-            refs_info = "\n\nReferences Used:\n"
-            for ref_id, ref_data in references_used.items():
-                title = ref_data['title']
-                authors = ref_data.get('authors', [])
-                year = ref_data.get('year')
-                journal = ref_data.get('journal')
-
-                ref_citation = f"• {title}"
-                if authors:
-                    authors_str = ", ".join(authors[:3])  # First 3 authors
-                    if len(authors) > 3:
-                        authors_str += " et al."
-                    ref_citation += f" - {authors_str}"
-                if year:
-                    ref_citation += f" ({year})"
-                if journal:
-                    ref_citation += f" - {journal}"
-
-                refs_info += ref_citation + "\n"
-
-            return answer + refs_info
+            return answer
 
         except Exception as e:
             logger.error(f"Error generating reference RAG response: {str(e)}")
             return f"Error generating response: {str(e)}"
 
-    def stream_reference_rag_response(self, query: str, chunks: List[Dict[str, Any]]):
+    def stream_reference_rag_response(self, query: str, chunks: List[Dict[str, Any]], document_excerpt: Optional[str] = None, paper_id: Optional[str] = None, user_id: Optional[str] = None, db: Optional[Session] = None):
         """Stream RAG response using reference chunks."""
         if not self.openai_client:
             yield "AI service not available. Please try again later."
             return
 
         try:
-            prompt, _ = self._build_reference_prompt(query, chunks)
+            # Add lightweight reference summary into the prompt when references are included
+            ref_summary_lines: List[str] = []
+            ref_sources: List[Dict[str, Any]] = []
+            if paper_id and db is not None:
+                ref_summary_lines, ref_sources = summarize_paper_references(db, paper_id)
+
+            route = self._pick_resources(query, bool(document_excerpt), bool(chunks) or bool(ref_summary_lines))
+            routed_excerpt = document_excerpt if route["include_doc"] else None
+            routed_chunks = chunks if route["include_refs"] else []
+
+            if not routed_chunks and not routed_excerpt and not ref_summary_lines:
+                yield "I don't have draft text or references available to answer this yet."
+                return
+
+            prompt, _ = self._build_reference_prompt(
+                query,
+                routed_chunks,
+                document_excerpt=routed_excerpt,
+                doc_requested=route["doc_requested"],
+                reference_summary=ref_summary_lines,
+            )
+            logger.info(
+                "[route-stream] include_doc=%s include_refs=%s doc_requested=%s routed_chunks=%s doc_len=%s",
+                route.get("include_doc"),
+                route.get("include_refs"),
+                route.get("doc_requested"),
+                len(routed_chunks),
+                len(routed_excerpt or ""),
+            )
+            logger.info(
+                "[prompt-stream] len=%s doc_snip=%s ref_summary_snip=%s",
+                len(prompt),
+                (routed_excerpt or "")[:200],
+                (ref_summary_lines or [])[:3],
+            )
             messages = [
                 {
                     "role": "system",
                     "content": (
                         "You are a knowledgeable research assistant specializing in academic literature. Respond in plain text. "
                         "Use bullets only when the user asks for a list; otherwise reply concisely in sentences. "
-                        "Cite references inline using (Reference Title, Year) when needed, without over-repeating citations. "
+                        "Skip citations when a single reference is used. When using multiple references, add brief source labels like '(Title, Year)' only where attribution helps; avoid over-repeating labels. "
+                        "If a paper excerpt is provided, use it first for questions about the draft and do not claim you cannot see it—summarize what you have and note if it is truncated. Bring in reference details only when the user asks for literature context or supporting evidence. If no reference chunks are provided, do not mention or invent references, citations, statistics, or sources. "
                         "Never mention chunk numbers."
                     )
                 },
@@ -1352,49 +1439,194 @@ class AIService:
             logger.error(f"Error streaming reference response: {str(e)}")
             yield f"[error streaming response: {str(e)}]"
 
-    def _build_reference_prompt(self, query: str, chunks: List[Dict[str, Any]]) -> Tuple[str, Dict[str, Any]]:
+    def _build_reference_prompt(self, query: str, chunks: List[Dict[str, Any]], document_excerpt: Optional[str] = None, doc_requested: bool = False, reference_summary: Optional[List[str]] = None) -> Tuple[str, Dict[str, Any]]:
         """Build prompt and metadata for reference-based RAG."""
-        context = ""
         references_used: Dict[str, Any] = {}
+        has_refs = bool(chunks) or bool(reference_summary)
+        has_doc = bool(document_excerpt)
+        summary_text = ""
+        if reference_summary:
+            summary_text = "\n".join(reference_summary)
 
-        for i, chunk in enumerate(chunks, 1):
-            ref_id = chunk['reference_id']
-            ref_title = chunk['reference_title'] or f"Reference {ref_id}"
+        context_parts: List[str] = []
+        if has_refs:
+            for i, chunk in enumerate(chunks, 1):
+                ref_id = chunk['reference_id']
+                ref_title = chunk['reference_title'] or f"Reference {ref_id}"
 
-            if ref_id not in references_used:
-                references_used[ref_id] = {
-                    'title': ref_title,
-                    'authors': chunk.get('reference_authors', []),
-                    'year': chunk.get('reference_year'),
-                    'journal': chunk.get('reference_journal')
-                }
+                if ref_id not in references_used:
+                    references_used[ref_id] = {
+                        'title': ref_title,
+                        'authors': chunk.get('reference_authors', []),
+                        'year': chunk.get('reference_year'),
+                        'journal': chunk.get('reference_journal')
+                    }
 
-            context += f"Chunk {i} (from '{ref_title}'):\n"
-            context += f"{chunk['text']}\n"
-            context += f"---\n\n"
+                context_parts.append(f"Chunk {i} (from '{ref_title}'):\n{chunk['text']}\n---")
 
-        prompt = f"""You are an AI research assistant helping a user understand their reference library. Answer the user's question based on the provided text chunks from academic references.
+        doc_section = ""
+        if has_doc:
+            doc_section = f"Current paper excerpt (truncated):\n{document_excerpt}\n---\n"
 
-IMPORTANT:
-- Respond concisely in plain text.
-- If the user explicitly asks for bullets/lists, use short bullets prefixed with "- "; otherwise reply in brief sentences.
-- Do not mention chunk numbers or positions.
-- Cite references inline using (Reference Title, Year) when needed, without over-repeating citations.
-- Use concrete details from the reference chunks and synthesize across sources when helpful.
-- If information is missing, say so clearly.
+        instructions: List[str] = [
+            "Respond concisely in plain text.",
+            "If the user explicitly asks for bullets/lists, use short bullets prefixed with \"- \"; otherwise reply in brief sentences.",
+            "Do not mention chunk numbers or positions.",
+            "If using information from more than one reference, add brief source labels like (Reference Title, Year) beside the relevant details so the reader knows which source it came from; skip labels when only one reference is used and keep labels minimal.",
+            "When a paper excerpt is provided, answer draft-related questions from the excerpt first (e.g., “what is in my draft right now?”). If the excerpt is truncated, say so briefly. Bring in reference details only when the user asks for literature context or supporting evidence.",
+            "Use concrete details from the reference chunks and synthesize across sources when helpful.",
+            "If information is missing, say so clearly.",
+        ]
 
-Question: {query}
+        if not has_refs:
+            instructions.append("No reference chunks are provided; do not mention or invent references, citations, statistics, or sources. If the user asks about references, state that no reference context was supplied.")
+        if not has_doc:
+            if doc_requested:
+                instructions.append("The user asked about draft content but no draft text was supplied. Say that no draft text is available and do not infer draft content from references or elsewhere.")
+            else:
+                instructions.append("No paper excerpt is provided; if asked about draft content, state that no draft text was supplied.")
 
-Available Reference Chunks:
-{context}
+        context_block = "\n\n".join(context_parts) if has_refs else ""
 
-Instructions:
-- Use only the provided reference chunks.
-- Keep responses tight and factual.
-- Avoid extra markdown/headings beyond an optional "- " bullet prefix when requested.
-- If conflicting information exists, acknowledge briefly.
-"""
+        instructions_text = "- " + "\n- ".join(instructions)
+        prompt_parts = [
+            "You are an AI research assistant helping a user. Answer the user's question using only the provided context.",
+            "",
+            f"Question: {query}",
+            "",
+        ]
+        if doc_section:
+            prompt_parts.append(doc_section.rstrip())
+        if summary_text:
+            prompt_parts.append("Reference list (titles/years):")
+            prompt_parts.append(summary_text)
+            prompt_parts.append("Summarize each listed reference separately if the user asks about references. If no content is available for a listed reference, say so without inventing details.")
+        if context_block:
+            prompt_parts.append("Reference content chunks:")
+            prompt_parts.append(context_block)
+        prompt_parts.append("Instructions:")
+        prompt_parts.append(instructions_text)
+        prompt = "\n".join(prompt_parts) + "\n"
         return prompt, references_used
+
+    def _pick_resources(self, query: str, has_doc: bool, has_refs: bool) -> Dict[str, Any]:
+        """
+        Two-stage routing: first ask a lightweight classifier which resources to include,
+        then use that decision to build the main answer prompt.
+        """
+        q = (query or "").lower()
+        doc_cues = ["draft", "section", "content", "paragraph", "paper content", "my paper", "my document", "in my paper", "what is in my paper", "latex"]
+        ref_cues = ["reference", "citation", "source", "literature", "related work", "cite"]
+        compare_cues = ["compare", "versus", "vs", "difference", "summary", "summarize", "survey", "review"]
+
+        doc_requested = any(c in q for c in doc_cues)
+        ref_requested = any(c in q for c in ref_cues)
+        compare_requested = any(c in q for c in compare_cues)
+
+        # Hard guard: draft-only ask -> never include references
+        if doc_requested and not ref_requested and not compare_requested:
+            return {
+                "include_doc": has_doc,
+                "include_refs": False,
+                "doc_requested": True,
+            }
+
+        # Fallback: simple heuristics
+        def _fallback() -> Dict[str, Any]:
+            route = self._route_context(query, has_doc, has_refs)
+            return {
+                "include_doc": route.get("include_doc", False),
+                "include_refs": route.get("include_refs", False),
+                "doc_requested": route.get("doc_requested", False),
+            }
+
+        if not self.openai_client:
+            return _fallback()
+
+        # Deterministic routing only
+        return _fallback()
+
+    @staticmethod
+    def _route_context(query: str, has_doc: bool, has_refs: bool) -> Dict[str, bool]:
+        """
+        Decide which context to include based on the query.
+        Returns dict with include_doc and include_refs flags.
+        """
+        q = (query or "").lower()
+        doc_cues = ["draft", "section", "content", "paragraph", "paper content", "my paper", "my document", "in my paper", "what is in my paper", "latex"]
+        ref_cues = ["reference", "citation", "source", "literature", "related work", "cite"]
+        compare_cues = ["compare", "versus", "vs", "difference", "summary", "summarize", "survey", "review"]
+
+        doc_requested = any(c in q for c in doc_cues)
+        ref_requested = any(c in q for c in ref_cues)
+        compare_focus = any(c in q for c in compare_cues)
+
+        # Draft-specific asks: prefer draft, avoid references even if missing draft
+        if doc_requested and not ref_requested and not compare_focus:
+            wants_doc = has_doc
+            wants_refs = False
+        elif compare_focus and has_doc and has_refs:
+            wants_doc = True
+            wants_refs = True
+        elif ref_requested:
+            wants_doc = False
+            wants_refs = has_refs
+        else:
+            # Default preference: include doc if available, else refs
+            wants_doc = has_doc
+            wants_refs = has_refs and not has_doc
+
+        return {"include_doc": wants_doc, "include_refs": wants_refs, "doc_requested": doc_requested}
+
+    def _list_references_summary(self, db: Session, paper_id: Optional[str], user_id: str) -> Tuple[str, List[Dict[str, Any]]]:
+        """
+        Deterministically list references for a paper (or user library if no paper_id).
+        """
+        from app.models.reference import Reference
+        from app.models.paper_reference import PaperReference
+        from app.models.research_paper import ResearchPaper
+        import uuid as _uuid
+
+        try:
+            user_uuid = user_id if not isinstance(user_id, str) else _uuid.UUID(user_id)
+        except Exception:
+            user_uuid = user_id
+
+        if paper_id:
+            refs = (
+                db.query(Reference)
+                .join(PaperReference, PaperReference.reference_id == Reference.id)
+                .filter(PaperReference.paper_id == paper_id)
+                .order_by(Reference.created_at.desc())
+                .all()
+            )
+            title = db.query(ResearchPaper.title).filter(ResearchPaper.id == paper_id).scalar() or "this paper"
+            if not refs:
+                return (f"This paper ('{title}') has 0 references.", [] )
+            lines = []
+            sources = []
+            for i, r in enumerate(refs, 1):
+                lines.append(f"{i}. {r.title or 'Untitled reference'} ({r.year or 'n/a'})")
+                sources.append({"id": str(r.id), "title": r.title, "year": r.year})
+            resp = f"This paper ('{title}') has {len(refs)} references:\n" + "\n".join(lines)
+            return (resp, sources)
+
+        refs = (
+            db.query(Reference)
+            .filter(Reference.owner_id == user_uuid)
+            .order_by(Reference.created_at.desc())
+            .limit(50)
+            .all()
+        )
+        if not refs:
+            return ("You have 0 references in your library.", [])
+        lines = []
+        sources = []
+        for i, r in enumerate(refs, 1):
+            lines.append(f"{i}. {r.title or 'Untitled reference'} ({r.year or 'n/a'})")
+            sources.append({"id": str(r.id), "title": r.title, "year": r.year})
+        resp = f"You have {len(refs)} references in your library (showing up to 50):\n" + "\n".join(lines)
+        return (resp, sources)
 
     def _generate_mock_reference_response(self, query: str, paper_id: Optional[str] = None) -> str:
         """Generate mock response for reference-based chat"""
@@ -1427,25 +1659,36 @@ Instructions:
             yield self._generate_mock_text_response(text, instruction, context, max_length)['generated_text']
             return
 
-        if instruction.lower() == "expand":
-            prompt = f"Please expand the following text, making it more detailed and comprehensive while maintaining the same tone and style. Add relevant examples, explanations, and context:\n\n{text}"
-        elif instruction.lower() == "rephrase":
-            prompt = f"Please rephrase the following text in a different way while keeping the same meaning and maintaining academic writing style:\n\n{text}"
-        elif instruction.lower() == "complete":
-            prompt = f"Please complete the following text, continuing the thought naturally and maintaining the same style and tone:\n\n{text}"
-        elif instruction.lower() == "summarize":
-            prompt = f"Please provide a concise summary of the following text, capturing the key points and main ideas:\n\n{text}"
+        clean_instruction = (instruction or "").strip()
+        has_text = bool(text and str(text).strip())
+        prompt_parts = []
+
+        if has_text:
+            if clean_instruction.lower() == "expand":
+                prompt_parts.append("Expand the following text, making it more detailed and comprehensive while maintaining the same tone and style. Add relevant examples, explanations, and context.")
+            elif clean_instruction.lower() == "rephrase":
+                prompt_parts.append("Rephrase the following text while keeping the same meaning and academic tone.")
+            elif clean_instruction.lower() == "complete":
+                prompt_parts.append("Complete the following text, continuing the thought naturally and maintaining the same style and tone.")
+            elif clean_instruction.lower() == "summarize":
+                prompt_parts.append("Summarize the following text concisely, capturing the key points and main ideas.")
+            else:
+                prompt_parts.append(f"{clean_instruction} the following text.")
+            prompt_parts.append(text or "")
         else:
-            prompt = f"Please {instruction} the following text:\n\n{text}"
+            prompt_parts.append(f"{clean_instruction or 'Generate new content'} even if no input text is provided.")
 
         if context:
-            prompt += f"\n\nAdditional context: {context}"
+            prompt_parts.append(f"Use this context when helpful:\n{context}")
 
-        prompt += f"\n\nPlease ensure the response is no longer than {max_length} words and maintains academic writing standards."
+        prompt_parts.append(f"Return concise, publication-ready prose. Keep the response within roughly {max_length} words.")
+        prompt_parts.append("If LaTeX markup is present or implied, keep it intact and avoid adding documentclass/preamble unless explicitly asked. Do not wrap the answer in Markdown fences.")
+
+        prompt = "\n\n".join(part for part in prompt_parts if part)
 
         try:
             messages = [
-                {"role": "system", "content": "You are an expert academic writing assistant. Respond in plain text (no Markdown, no bullet lists). Provide clear, well-structured, and academically appropriate text."},
+                {"role": "system", "content": "You are an expert academic writing assistant. Respond in plain text (no Markdown fences). Preserve any LaTeX already present and, when the task implies LaTeX, produce LaTeX-ready output using standard commands without adding a preamble."},
                 {"role": "user", "content": prompt},
             ]
             yield from self._stream_chat(
@@ -1473,23 +1716,38 @@ Instructions:
             yield ""
             return
         try:
-            stream = self.openai_client.chat.completions.create(
-                model=model or self.chat_model,
-                messages=messages,
-                stream=True,
-                temperature=temperature,
-                max_tokens=max_output_tokens,
-                **extra_params,
-            )
+            target_model = model or self.chat_model
+            # gpt-5 and similar models: fall back to Responses API (non-stream) to avoid max_tokens issues
+            if target_model.startswith("gpt-5"):
+                resp = self.create_response(
+                    messages=messages,
+                    model=target_model,
+                    temperature=temperature,
+                    max_output_tokens=max_output_tokens,
+                    **extra_params,
+                )
+                yield self._strip_markdown_inline(self.extract_response_text(resp))
+                return
+
+            params: Dict[str, Any] = {
+                "model": target_model,
+                "messages": messages,
+                "stream": True,
+            }
+            if temperature is not None:
+                params["temperature"] = temperature
+            if max_output_tokens is not None:
+                params["max_completion_tokens"] = max_output_tokens
+            params.update({k: v for k, v in extra_params.items() if v is not None})
+
+            stream = self.openai_client.chat.completions.create(**params)
             for chunk in stream:
                 choices = getattr(chunk, "choices", None)
                 if not choices:
                     continue
                 delta = choices[0].delta
                 part = ""
-                # delta.content may be a list of text fragments
                 if delta and getattr(delta, "content", None):
-                    # content can be list of objects with .text attribute or plain strings
                     try:
                         part = "".join(
                             [c.text if hasattr(c, "text") else str(c) for c in delta.content]

@@ -900,6 +900,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
         onOpenChange={(next) => setAiPanelOpen(readOnly ? false : next)}
         showLauncher={false}
         anchorElement={aiAnchor}
+        isLatexMode={isLatex}
       />
 
       <EditorAIChat

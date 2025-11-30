@@ -623,6 +623,7 @@ class ReferenceChatQuery(BaseModel):
     query: str
     paper_id: Optional[str] = None  # If provided, scope to this paper's references; otherwise use global library
     max_results: Optional[int] = 8  # Maximum number of reference chunks to use
+    document_excerpt: Optional[str] = None  # Optional paper draft excerpt to provide additional context
 
 class ReferenceChatResponse(BaseModel):
     response: str
@@ -779,7 +780,8 @@ async def chat_with_references(
             db, 
             str(current_user.id), 
             query.query, 
-            query.paper_id
+            query.paper_id,
+            document_excerpt=query.document_excerpt
         )
         
         logger.info(f"AI service returned result: {result}")
@@ -866,17 +868,6 @@ async def chat_with_references_stream(
 
             paper_title = paper.title
 
-        # Greeting shortcut
-        if ai_service._is_greeting(query.query):
-            friendly = "Hi there! Ask me about this paper's references and I'll help summarize or answer questions."
-            return StreamingResponse(_chunk_text_stream(friendly), media_type="text/plain")
-
-        # Listing intent shortcut
-        intent = ai_service._detect_listing_intent(query.query)
-        if intent:
-            resp, _ = ai_service._handle_listing_intent(db, str(current_user.id), intent, query.paper_id)
-            return StreamingResponse(_chunk_text_stream(resp), media_type="text/plain")
-
         # Check processed references (paper scoped ignores owner)
         if query.paper_id:
             processed_refs = db.query(Reference).join(
@@ -891,7 +882,7 @@ async def chat_with_references_stream(
                 Reference.status == "analyzed"
             )
         ref_count = processed_refs.count()
-        if ref_count == 0:
+        if ref_count == 0 and not query.document_excerpt:
             if query.paper_id:
                 scoped_refs = db.query(Reference).join(
                     PaperReference, PaperReference.reference_id == Reference.id
@@ -931,17 +922,22 @@ async def chat_with_references_stream(
                 detail=detail_msg,
             )
 
-        # Get relevant reference chunks
+        # Get relevant reference chunks (optional if document excerpt provided)
         logger.info("🔍 Getting relevant reference chunks (stream)...")
         chunks = ai_service.get_relevant_reference_chunks(
             db, query.query, str(current_user.id), query.paper_id, limit=query.max_results or 8
         )
-        if not chunks:
-            fallback = "I couldn't find relevant content for your query. Try a more specific question, or ensure your references (with PDFs) are processed."
-            return StreamingResponse(_chunk_text_stream(fallback), media_type="text/plain")
+        # Let downstream handle empty chunks when doc excerpt is provided
 
         def streamer():
-            yield from ai_service.stream_reference_rag_response(query.query, chunks)
+            yield from ai_service.stream_reference_rag_response(
+                query.query,
+                chunks,
+                document_excerpt=query.document_excerpt,
+                paper_id=query.paper_id,
+                user_id=str(current_user.id),
+                db=db,
+            )
 
         return StreamingResponse(streamer(), media_type="text/plain")
 
