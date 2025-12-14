@@ -12,6 +12,7 @@ from app.models.document_chunk import DocumentChunk
 from app.schemas.document import DocumentResponse, DocumentUpdate, DocumentCreate, DocumentList
 from app.services.document_service import DocumentService
 from app.services.ai_service import AIService
+from app.services.paper_membership_service import ensure_paper_membership_for_project_member
 from sqlalchemy import func
 import logging
 from app.models.document_tag import DocumentTag
@@ -239,6 +240,10 @@ async def list_documents(
                 ).first()
                 if member:
                     has_access = True
+                else:
+                    ensured_member = ensure_paper_membership_for_project_member(db, paper, current_user)
+                    if ensured_member:
+                        has_access = True
             
             if not has_access:
                 raise HTTPException(status_code=403, detail="Access denied to paper documents")

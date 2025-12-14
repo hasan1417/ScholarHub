@@ -685,7 +685,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
         return 'Collaboration idle'
     }
   }, [collab.status, collabStatusMessage, collabFeatureEnabled, readOnly])
-  const shouldHideEditorContent = expectingCollab && !collabUnavailable && (!collabEnabled || !collabSynced)
+  const showSyncOverlay = expectingCollab && !collabUnavailable && (!collabEnabled || !collabSynced)
 
   return (
     <div className={rootCls}>
@@ -722,17 +722,17 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
         style={fullBleed ? { } : { height: containerH }}
       >
         <div className="relative flex-1">
-          {shouldHideEditorContent && (
+          {showSyncOverlay && (
             <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-slate-100/95 text-slate-600 dark:bg-slate-900/95 dark:text-slate-300">
               <Loader2 className="h-5 w-5 animate-spin" />
               <span className="text-xs font-medium uppercase tracking-wide">Syncing latest draft…</span>
             </div>
           )}
-          <div className="h-full" style={{ visibility: shouldHideEditorContent ? 'hidden' : 'visible' }}>
+          <div className="h-full">
             <Adapter
               ref={adapterRef}
-              content={(expectingCollab && !collabUnavailable) ? '' : (initialContent || '')}
-              contentJson={(expectingCollab && !collabUnavailable) ? undefined : initialContentJson}
+              content={initialContent || ''}
+              contentJson={initialContentJson}
               paperId={paperId}
               projectId={projectId}
               paperTitle={paperTitle}

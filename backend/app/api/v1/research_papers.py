@@ -25,6 +25,7 @@ from app.models.reference import Reference
 from fastapi import BackgroundTasks
 from app.database import SessionLocal
 from app.services.reference_ingestion_service import ingest_reference_pdf
+from app.services.paper_membership_service import ensure_paper_membership_for_project_member
 import traceback
 from app.services.activity_feed import record_project_activity, preview_text
 
@@ -260,37 +261,16 @@ async def get_research_paper(
         ).first()
 
         if not member:
-            # If the paper belongs to a project the user belongs to, allow view access
-            if paper.project_id:
-                project_member = db.query(ProjectMember).filter(
-                    ProjectMember.project_id == paper.project_id,
-                    ProjectMember.user_id == current_user.id,
-                    ProjectMember.status == "accepted",
-                ).first()
+            member = ensure_paper_membership_for_project_member(db, paper, current_user)
 
-                if project_member:
-                    logger.info(
-                        "User %s (ID: %s) accessed project paper %s via project membership",
-                        current_user.email,
-                        current_user.id,
-                        paper_id,
-                    )
-                else:
-                    logger.warning(
-                        "User %s (ID: %s) attempted unauthorized access to paper %s",
-                        current_user.email,
-                        current_user.id,
-                        paper_id,
-                    )
-                    raise HTTPException(status_code=403, detail="Access denied")
-            else:
-                logger.warning(
-                    "User %s (ID: %s) attempted unauthorized access to paper %s",
-                    current_user.email,
-                    current_user.id,
-                    paper_id,
-                )
-                raise HTTPException(status_code=403, detail="Access denied")
+        if not member:
+            logger.warning(
+                "User %s (ID: %s) attempted unauthorized access to paper %s",
+                current_user.email,
+                current_user.id,
+                paper_id,
+            )
+            raise HTTPException(status_code=403, detail="Access denied")
         elif member.status != "accepted":
             logger.warning(
                 "User %s (ID: %s) attempted access to paper %s with status: %s",
@@ -324,6 +304,8 @@ async def update_research_paper(
             PaperMember.paper_id == paper_id,
             PaperMember.user_id == current_user.id
         ).first()
+        if not member:
+            member = ensure_paper_membership_for_project_member(db, paper, current_user)
         if not member or member.role not in [PaperRole.OWNER, PaperRole.ADMIN, PaperRole.EDITOR]:
             raise HTTPException(status_code=403, detail="Edit access denied")
     
@@ -423,6 +405,8 @@ async def update_paper_content(
             PaperMember.paper_id == paper_id,
             PaperMember.user_id == current_user.id
         ).first()
+        if not member:
+            member = ensure_paper_membership_for_project_member(db, paper, current_user)
         if not member or member.role not in [PaperRole.OWNER, PaperRole.ADMIN, PaperRole.EDITOR]:
             raise HTTPException(status_code=403, detail="Edit access denied")
     
@@ -935,6 +919,8 @@ async def get_paper_versions(
             PaperMember.status == "accepted"
         ).first()
         if not member:
+            member = ensure_paper_membership_for_project_member(db, paper, current_user)
+        if not member:
             raise HTTPException(status_code=403, detail="Access denied")
     
     versions = db.query(PaperVersion).filter(
@@ -968,6 +954,8 @@ async def get_paper_version(
             PaperMember.status == "accepted"
         ).first()
         if not member:
+            member = ensure_paper_membership_for_project_member(db, paper, current_user)
+        if not member:
             raise HTTPException(status_code=403, detail="Access denied")
     
     version = db.query(PaperVersion).filter(
@@ -1000,6 +988,8 @@ async def create_paper_version(
             PaperMember.user_id == current_user.id,
             PaperMember.status == "accepted"
         ).first()
+        if not member:
+            member = ensure_paper_membership_for_project_member(db, paper, current_user)
         if not member or member.role not in [PaperRole.OWNER, PaperRole.ADMIN, PaperRole.EDITOR]:
             raise HTTPException(status_code=403, detail="Edit access denied")
     
@@ -1056,6 +1046,8 @@ async def restore_paper_version(
             PaperMember.user_id == current_user.id,
             PaperMember.status == "accepted"
         ).first()
+        if not member:
+            member = ensure_paper_membership_for_project_member(db, paper, current_user)
         if not member or member.role not in [PaperRole.OWNER, PaperRole.ADMIN, PaperRole.EDITOR]:
             raise HTTPException(status_code=403, detail="Edit access denied")
     

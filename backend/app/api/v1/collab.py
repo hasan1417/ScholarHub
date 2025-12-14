@@ -11,6 +11,7 @@ from app.database import get_db
 from app.models.paper_member import PaperMember
 from app.models.research_paper import ResearchPaper
 from app.models.user import User
+from app.services.paper_membership_service import ensure_paper_membership_for_project_member
 
 router = APIRouter()
 
@@ -43,8 +44,14 @@ def _assert_membership(db: Session, paper: ResearchPaper, user: User) -> None:
         )
         .first()
     )
-    if not membership:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Paper access denied")
+    if membership:
+        return
+
+    ensured = ensure_paper_membership_for_project_member(db, paper, user)
+    if ensured:
+        return
+
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Paper access denied")
 
 
 def _ensure_latex_authoring(paper: ResearchPaper) -> None:
