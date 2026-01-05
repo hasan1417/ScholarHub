@@ -403,11 +403,32 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     }
   }, [collab.awareness, collabEnabled, user?.email, user?.first_name, user?.last_name, user?.id])
 
+  // Handle persistent disconnections with a debounce to avoid reconnection loops
+  const disconnectTimerRef = useRef<number | null>(null)
   useEffect(() => {
     if (!collabFeatureEnabled || readOnly) return
+
+    // Clear any pending disconnect timer when status changes
+    if (disconnectTimerRef.current) {
+      window.clearTimeout(disconnectTimerRef.current)
+      disconnectTimerRef.current = null
+    }
+
     if (collab.status === 'disconnected' && collabToken) {
-      setCollabToken(null)
-      setCollabTokenVersion(v => v + 1)
+      // Wait 3 seconds before treating as a persistent disconnection
+      // This prevents reconnection loops from brief WebSocket hiccups
+      disconnectTimerRef.current = window.setTimeout(() => {
+        console.info('[DocumentShell] Persistent disconnection detected, refreshing token')
+        setCollabToken(null)
+        setCollabTokenVersion(v => v + 1)
+      }, 3000)
+    }
+
+    return () => {
+      if (disconnectTimerRef.current) {
+        window.clearTimeout(disconnectTimerRef.current)
+        disconnectTimerRef.current = null
+      }
     }
   }, [collab.status, collabFeatureEnabled, readOnly, collabToken])
 
@@ -415,59 +436,17 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     if (!collabEnabled || !collab.doc || !collabSynced) return
     if (collabBootstrappedRef.current) return
 
-    const yText = collab.doc.getText('main')
-    let remotePeerCount = collabPeers.length
-    const awareness = collab.awareness
-    if (awareness) {
-      remotePeerCount = 0
-      try {
-        awareness.getStates().forEach((_state: any, clientId: number) => {
-          if (clientId !== awareness.clientID) remotePeerCount += 1
-        })
-      } catch (error) {
-        console.warn('[DocumentShell] failed to inspect awareness states for seeding', error)
-      }
-    }
-
-    const hasInitialSeed = typeof initialLatexSource === 'string' && initialLatexSource.length > 0
-    const realtimeLen = yText.length
-
-    if (realtimeLen === 0) {
-      if (remotePeerCount > 0) {
-        try {
-          console.info('[DocumentShell] Seed skipped: remote peers already connected', {
-            paperId,
-            remotePeerCount,
-          })
-        } catch {}
-      } else if (hasInitialSeed) {
-        try {
-          console.info('[DocumentShell] Seeding realtime doc with initialLatexSource', {
-            paperId,
-            seedLength: initialLatexSource.length,
-          })
-          yText.insert(0, initialLatexSource)
-        } catch (error) {
-          console.warn('[DocumentShell] failed to seed collab doc', error)
-        }
-      } else {
-        try {
-          console.info('[DocumentShell] Seed skipped: no initialLatexSource available', {
-            paperId,
-          })
-        } catch {}
-      }
-    } else {
-      try {
-        console.info('[DocumentShell] Seed skipped: realtime doc already has content', {
-          paperId,
-          realtimeLength: realtimeLen,
-        })
-      } catch {}
-    }
-
+    // Mark as bootstrapped immediately to prevent re-entry
     collabBootstrappedRef.current = true
-  }, [collabEnabled, collab.doc, collab.awareness, collabSynced, collabPeers.length, initialLatexSource, paperId])
+
+    // NOTE: Document seeding is handled by the Hocuspocus server in onLoadDocument.
+    // The client should NOT seed - just wait for the server to provide content.
+    const yText = collab.doc.getText('main')
+    console.info('[DocumentShell] Collab synced, content from server:', {
+      paperId,
+      realtimeLength: yText.length,
+    })
+  }, [collabEnabled, collab.doc, collabSynced, paperId])
 
   useEffect(() => {
     if (!collabFeatureEnabled || readOnly) return
@@ -665,6 +644,102 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     setAiAnchor(anchor)
     setAiPanelOpen(true)
   }, [readOnly])
+
+  /** Handle AI edit approval - find and replace text in document */
+  const handleApplyAiEdit = useCallback((original: string, replacement: string): boolean => {
+    if (readOnly || !original || !replacement) return false
+
+    // Get current content from the adapter directly for most accurate state
+    // Try getContent() first (direct from Yjs), fall back to latestContentRef
+    const currentContent = adapterRef.current?.getContent?.() || latestContentRef.current.html || ''
+
+    console.log('[DocumentShell] Applying AI edit:', {
+      originalLen: original.length,
+      replacementLen: replacement.length,
+      contentLen: currentContent.length,
+      originalPreview: original.slice(0, 80),
+      contentPreview: currentContent.slice(0, 80),
+      hasGetContent: !!adapterRef.current?.getContent,
+    })
+
+    // Helper to apply the edit
+    const applyEdit = (oldContent: string, newContent: string) => {
+      const didChange = oldContent !== newContent
+      console.log('[DocumentShell] applyEdit:', {
+        didChange,
+        oldLen: oldContent.length,
+        newLen: newContent.length,
+        diff: newContent.length - oldContent.length,
+      })
+
+      if (!didChange) {
+        console.warn('[DocumentShell] No change detected - replacement may have failed')
+        return false
+      }
+
+      adapterRef.current?.setContent?.(newContent, { overwriteRealtime: true })
+      setLastHtml(newContent)
+      const nextJson = isLatex
+        ? { authoring_mode: 'latex', latex_source: newContent }
+        : latestContentRef.current.json
+      updateLatestContent(newContent, nextJson)
+      requestAutosave('ai-edit-applied')
+      return true
+    }
+
+    // Try exact match first
+    if (currentContent.includes(original)) {
+      const newContent = currentContent.replace(original, replacement)
+      return applyEdit(currentContent, newContent)
+    }
+
+    // Try with trimmed whitespace on both ends
+    const trimmedOriginal = original.trim()
+    if (trimmedOriginal && currentContent.includes(trimmedOriginal)) {
+      const newContent = currentContent.replace(trimmedOriginal, replacement.trim())
+      return applyEdit(currentContent, newContent)
+    }
+
+    // Try normalizing line endings (AI might use different line endings)
+    const normalizedOriginal = original.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+    const normalizedContent = currentContent.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+
+    if (normalizedContent.includes(normalizedOriginal)) {
+      const newContent = normalizedContent.replace(normalizedOriginal, replacement)
+      return applyEdit(currentContent, newContent)
+    }
+
+    // Try fuzzy match - collapse multiple spaces/newlines
+    const fuzzyOriginal = original.replace(/\s+/g, ' ').trim()
+    const fuzzyContent = currentContent.replace(/\s+/g, ' ')
+
+    if (fuzzyContent.includes(fuzzyOriginal)) {
+      // Find where in the original content this fuzzy match occurs
+      // by searching for the first line of the original
+      const firstLine = original.split('\n')[0].trim()
+      if (firstLine.length > 10) {
+        const idx = currentContent.indexOf(firstLine)
+        if (idx !== -1) {
+          // Try to find the end of the original text
+          const lastLine = original.split('\n').filter(l => l.trim()).pop()?.trim() || ''
+          if (lastLine.length > 5) {
+            const endIdx = currentContent.indexOf(lastLine, idx)
+            if (endIdx !== -1) {
+              const actualEnd = endIdx + lastLine.length
+              const newContent = currentContent.slice(0, idx) + replacement + currentContent.slice(actualEnd)
+              return applyEdit(currentContent, newContent)
+            }
+          }
+        }
+      }
+    }
+
+    console.warn('[DocumentShell] Could not find text to replace:', {
+      original: original.slice(0, 150),
+      contentSample: currentContent.slice(0, 300),
+    })
+    return false
+  }, [isLatex, readOnly, requestAutosave, updateLatestContent])
 
   const rootCls = fullBleed
     ? 'fixed inset-0 flex flex-col overflow-auto bg-slate-100 transition-colors duration-200 dark:bg-slate-900'
@@ -909,6 +984,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
         documentText={lastHtml}
         open={!readOnly && aiChatOpen}
         onOpenChange={(next) => setAiChatOpen(readOnly ? false : next)}
+        onApplyEdit={handleApplyAiEdit}
       />
     </div>
   )

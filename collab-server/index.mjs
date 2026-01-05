@@ -3,7 +3,6 @@ import { Logger } from '@hocuspocus/extension-logger'
 import { Redis } from '@hocuspocus/extension-redis'
 import jwt from 'jsonwebtoken'
 import pino from 'pino'
-import * as Y from 'yjs'
 
 const log = pino({ level: process.env.LOG_LEVEL ?? 'info' })
 const backendBaseUrl = (process.env.BACKEND_BASE_URL || 'http://backend:8000').replace(/\/$/, '')
@@ -127,8 +126,9 @@ const server = new Server({
     const userId = data.context?.user?.id
     log.info({ document: data.documentName, userId }, 'Client disconnected')
   },
-  async onChange({ documentName, update }) {
-    log.debug({ document: documentName, updateLength: update?.length ?? 0 }, 'Document update received')
+  async onChange(data) {
+    const { documentName, update } = data
+    log.debug({ document: documentName, updateLength: update?.length ?? 0 }, 'Document changed')
   },
   async onDestroy() {
     log.info('Collaboration server shutting down')

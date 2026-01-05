@@ -22,6 +22,7 @@ from app.schemas.reference import ReferenceCreate, ReferenceResponse, ReferenceL
 from sqlalchemy import func
 import re
 from app.models.reference import Reference
+from app.models.document_snapshot import DocumentSnapshot
 from fastapi import BackgroundTasks
 from app.database import SessionLocal
 from app.services.reference_ingestion_service import ingest_reference_pdf
@@ -534,7 +535,44 @@ async def update_paper_content(
 
     db.commit()
     db.refresh(paper)
-    
+
+    # Create a snapshot on save (only if content is not empty)
+    try:
+        # Get the latex source for materialized text
+        materialized_text = ""
+        if isinstance(paper.content_json, dict):
+            materialized_text = paper.content_json.get("latex_source", "") or ""
+        if not materialized_text and paper.content:
+            materialized_text = paper.content
+
+        # Only create snapshot if there's actual content
+        if materialized_text and len(materialized_text.strip()) > 0:
+            # Get next sequence number
+            max_seq = db.query(func.max(DocumentSnapshot.sequence_number)).filter(
+                DocumentSnapshot.paper_id == paper.id
+            ).scalar()
+            next_seq = (max_seq or 0) + 1
+
+            # Create snapshot
+            snapshot = DocumentSnapshot(
+                paper_id=paper.id,
+                yjs_state=b"",  # No Yjs state when saving from API
+                materialized_text=materialized_text,
+                snapshot_type="save",
+                label=None,
+                created_by=current_user.id,
+                sequence_number=next_seq,
+                text_length=len(materialized_text),
+            )
+            db.add(snapshot)
+            db.commit()
+            logger.info("Created save snapshot for paper %s, seq=%s, len=%s", paper_id, next_seq, len(materialized_text))
+        else:
+            logger.debug("Skipped empty snapshot for paper %s", paper_id)
+    except Exception as e:
+        logger.warning("Failed to create save snapshot for paper %s: %s", paper_id, str(e))
+        # Don't fail the save operation if snapshot creation fails
+
     return {
         "message": "Content updated successfully",
         "content": paper.content,

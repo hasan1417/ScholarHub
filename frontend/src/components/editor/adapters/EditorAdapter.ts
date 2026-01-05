@@ -1,5 +1,6 @@
 export interface EditorAdapterHandle {
   getSelection: () => Promise<string>
+  getContent?: () => string
   insertText: (text: string) => Promise<void>
   replaceSelection?: (text: string) => Promise<void>
   setContent?: (html: string, options?: { overwriteRealtime?: boolean }) => Promise<void>

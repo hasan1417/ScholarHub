@@ -73,7 +73,7 @@ export const buildApiUrl = (path: string) => {
   return `${API_BASE_URL}${sanitized}`
 }
 
-const buildAuthHeaders = () => {
+export const buildAuthHeaders = () => {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   }
@@ -1131,4 +1131,87 @@ export const conversionAPI = {
       '/convert/latex-to-rich',
       { paper_id: paperId, target: 'rich', model: model || undefined, create_copy: true, strategy }
     )
+}
+
+// Snapshots API - Document history feature
+export interface Snapshot {
+  id: string
+  paper_id: string
+  snapshot_type: 'auto' | 'manual' | 'restore'
+  label: string | null
+  created_by: string | null
+  created_at: string
+  sequence_number: number
+  text_length: number | null
+}
+
+export interface SnapshotDetail extends Snapshot {
+  materialized_text: string | null
+}
+
+export interface SnapshotListResponse {
+  snapshots: Snapshot[]
+  total: number
+  has_more: boolean
+}
+
+export interface DiffLine {
+  type: 'added' | 'deleted' | 'unchanged'
+  content: string
+  line_number: number | null
+}
+
+export interface DiffStats {
+  additions: number
+  deletions: number
+  unchanged: number
+}
+
+export interface SnapshotDiffResponse {
+  from_snapshot: Snapshot
+  to_snapshot: Snapshot
+  diff_lines: DiffLine[]
+  stats: DiffStats
+}
+
+export interface SnapshotRestoreResponse {
+  message: string
+  snapshot_id: string
+  restored_at: string
+}
+
+export const snapshotsAPI = {
+  // Create a manual snapshot
+  createSnapshot: (paperId: string, label?: string) =>
+    api.post<Snapshot>(`/papers/${paperId}/snapshots`, { label: label || null }),
+
+  // List all snapshots for a paper
+  listSnapshots: (paperId: string, options?: { skip?: number; limit?: number; snapshotType?: string }) =>
+    api.get<SnapshotListResponse>(`/papers/${paperId}/snapshots`, {
+      params: {
+        skip: options?.skip ?? 0,
+        limit: options?.limit ?? 50,
+        snapshot_type: options?.snapshotType,
+      },
+    }),
+
+  // Get a specific snapshot with content
+  getSnapshot: (paperId: string, snapshotId: string) =>
+    api.get<SnapshotDetail>(`/papers/${paperId}/snapshots/${snapshotId}`),
+
+  // Update snapshot label
+  updateSnapshotLabel: (paperId: string, snapshotId: string, label: string | null) =>
+    api.put<Snapshot>(`/papers/${paperId}/snapshots/${snapshotId}`, { label }),
+
+  // Delete a snapshot
+  deleteSnapshot: (paperId: string, snapshotId: string) =>
+    api.delete(`/papers/${paperId}/snapshots/${snapshotId}`),
+
+  // Get diff between two snapshots
+  getSnapshotDiff: (paperId: string, snapshotId1: string, snapshotId2: string) =>
+    api.get<SnapshotDiffResponse>(`/papers/${paperId}/snapshots/${snapshotId1}/diff/${snapshotId2}`),
+
+  // Restore document to a snapshot
+  restoreSnapshot: (paperId: string, snapshotId: string) =>
+    api.post<SnapshotRestoreResponse>(`/papers/${paperId}/snapshots/${snapshotId}/restore`),
 }

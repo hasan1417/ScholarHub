@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
-from app.api.v1 import auth, users, research_papers, documents, ai, team, branches, discovery, references, latex, onlyoffice, metrics, comments, section_locks, collab, collab_bootstrap
+from app.api.v1 import auth, users, research_papers, documents, ai, team, branches, discovery, references, latex, onlyoffice, metrics, comments, section_locks, collab, collab_bootstrap, snapshots
 from app.core.config import settings
 from app.database import engine
 import time
@@ -115,6 +115,11 @@ if settings.TRANSCRIBER_ENABLED:
 app.include_router(research_papers.router, prefix="/api/v1/research-papers", tags=["research papers"])
 app.include_router(documents.router, prefix="/api/v1/documents", tags=["documents"])
 app.include_router(ai.router, prefix="/api/v1/ai", tags=["ai features"])
+
+# Smart Agent (experimental)
+from app.api.v1 import agent  # noqa: F401
+app.include_router(agent.router, prefix="/api/v1/agent", tags=["smart agent"])
+
 app.include_router(team.router, prefix="/api/v1/team", tags=["team management"])
 app.include_router(branches.router, prefix="/api/v1/branches", tags=["branch management"])
 app.include_router(discovery.router, prefix="/api/v1/discovery", tags=["paper discovery & literature review"])
@@ -127,6 +132,9 @@ app.include_router(section_locks.router, prefix="/api/v1", tags=["section-locks"
 if settings.PROJECT_COLLAB_REALTIME_ENABLED:
     app.include_router(collab.router, prefix="/api/v1/collab", tags=["collaboration"])
     app.include_router(collab_bootstrap.router, prefix="/api/v1", tags=["collaboration"])
+
+# Document history/snapshots
+app.include_router(snapshots.router, prefix="/api/v1", tags=["document history"])
 
 
 @app.on_event("startup")

@@ -1087,6 +1087,28 @@ class AIService:
         }
         return q in greetings
 
+    @staticmethod
+    def _is_simple_query(text: str) -> bool:
+        """Detect simple conversational queries that don't need document/reference context."""
+        if not text:
+            return False
+        q = text.strip().lower()
+        # Very short queries (< 5 words) that are conversational
+        words = q.split()
+        if len(words) <= 4:
+            simple_patterns = {
+                "hi", "hey", "hello", "hello there", "hi there", "hey there", "hiya", "howdy",
+                "good morning", "good afternoon", "good evening", "yo", "thanks", "thank you",
+                "how are you", "what's up", "whats up", "sup", "ok", "okay", "got it",
+                "yes", "no", "sure", "help", "what can you do", "who are you"
+            }
+            if q in simple_patterns:
+                return True
+            # Check partial matches for very short queries
+            if len(words) <= 2 and not any(w in q for w in ["paper", "draft", "reference", "cite", "section"]):
+                return True
+        return False
+
     def _detect_listing_intent(self, query: str) -> Optional[str]:
         """Detect listing intents to provide deterministic lists."""
         try:
@@ -1174,10 +1196,12 @@ class AIService:
         query: str,
         user_id: str,
         paper_id: Optional[str] = None,
-        limit: int = 8
+        limit: int = 8,
+        fast_mode: bool = True  # Skip embedding API call for faster responses
     ) -> List[Dict[str, Any]]:
         """
-        Get relevant chunks from references based on scope
+        Get relevant chunks from references based on scope.
+        fast_mode=True skips embedding API call and uses keyword matching only (faster).
         """
         from app.models.document_chunk import DocumentChunk
         from app.models.reference import Reference
@@ -1233,9 +1257,10 @@ class AIService:
                 return []
 
             # Prefer embedding-based scoring if OpenAI client available and any embeddings exist
+            # fast_mode skips embedding API call for lower latency
             used_embedding = False
             scored_chunks: List[Dict[str, Any]] = []
-            if self.openai_client:
+            if self.openai_client and not fast_mode:
                 try:
                     qemb = self.openai_client.embeddings.create(
                         model=self.embedding_model,
@@ -1359,7 +1384,7 @@ class AIService:
 
             response = self.create_response(
                 messages=[
-                    {"role": "system", "content": "You are a knowledgeable research assistant specializing in academic literature. Respond in plain text. Skip citations when a single reference is used. When drawing from multiple references, add brief source tags like '(Title, Year)' only where attribution is helpful and do not over-repeat them. If a paper excerpt is provided, use it first for questions about the draft and do not claim you cannot see it; summarize what you have and note truncation if needed. Bring in reference details only when the user asks for literature context or supporting evidence. If no reference chunks are provided, do not mention or invent references, citations, statistics, or sources. Never mention chunk numbers."},
+                    {"role": "system", "content": "You are a research assistant helping with academic papers. Respond in plain text. Use bullets only if the user asks for a list. Cite sources as (Title, Year) only when using multiple references. For draft questions, use the paper excerpt first. Never invent references or statistics."},
                     {"role": "user", "content": prompt}
                 ],
                 max_output_tokens=4000,
@@ -1392,6 +1417,14 @@ class AIService:
             routed_chunks = chunks if route["include_refs"] else []
 
             if not routed_chunks and not routed_excerpt and not ref_summary_lines:
+                # Allow simple queries to proceed without context (fast path)
+                if self._is_simple_query(query):
+                    messages = [
+                        {"role": "system", "content": "You are a helpful research assistant. Be concise."},
+                        {"role": "user", "content": query},
+                    ]
+                    yield from self._stream_chat(messages=messages, model=self.chat_model, temperature=0.7, max_output_tokens=200)
+                    return
                 yield "I don't have draft text or references available to answer this yet."
                 return
 
@@ -1420,11 +1453,10 @@ class AIService:
                 {
                     "role": "system",
                     "content": (
-                        "You are a knowledgeable research assistant specializing in academic literature. Respond in plain text. "
-                        "Use bullets only when the user asks for a list; otherwise reply concisely in sentences. "
-                        "Skip citations when a single reference is used. When using multiple references, add brief source labels like '(Title, Year)' only where attribution helps; avoid over-repeating labels. "
-                        "If a paper excerpt is provided, use it first for questions about the draft and do not claim you cannot see it—summarize what you have and note if it is truncated. Bring in reference details only when the user asks for literature context or supporting evidence. If no reference chunks are provided, do not mention or invent references, citations, statistics, or sources. "
-                        "Never mention chunk numbers."
+                        "You are a research assistant helping with academic papers. "
+                        "Respond in plain text. Use bullets only if the user asks for a list. "
+                        "Cite sources as (Title, Year) only when using multiple references. "
+                        "For draft questions, use the paper excerpt first. Never invent references or statistics."
                     )
                 },
                 {"role": "user", "content": prompt},
@@ -1462,20 +1494,18 @@ class AIService:
                         'journal': chunk.get('reference_journal')
                     }
 
-                context_parts.append(f"Chunk {i} (from '{ref_title}'):\n{chunk['text']}\n---")
+                context_parts.append(f"From '{ref_title}':\n{chunk['text']}\n---")
 
         doc_section = ""
         if has_doc:
             doc_section = f"Current paper excerpt (truncated):\n{document_excerpt}\n---\n"
 
         instructions: List[str] = [
-            "Respond concisely in plain text.",
-            "If the user explicitly asks for bullets/lists, use short bullets prefixed with \"- \"; otherwise reply in brief sentences.",
-            "Do not mention chunk numbers or positions.",
-            "If using information from more than one reference, add brief source labels like (Reference Title, Year) beside the relevant details so the reader knows which source it came from; skip labels when only one reference is used and keep labels minimal.",
-            "When a paper excerpt is provided, answer draft-related questions from the excerpt first (e.g., “what is in my draft right now?”). If the excerpt is truncated, say so briefly. Bring in reference details only when the user asks for literature context or supporting evidence.",
-            "Use concrete details from the reference chunks and synthesize across sources when helpful.",
-            "If information is missing, say so clearly.",
+            "Respond concisely in plain text. Use bullets only if the user asks for a list.",
+            "When using multiple references, add brief source labels like (Title, Year); skip labels for a single reference.",
+            "For draft-related questions, use the paper excerpt first. Note if it appears truncated.",
+            "Bring in reference details only when asked for literature context or supporting evidence.",
+            "If information is missing, say so clearly. Never invent references or statistics.",
         ]
 
         if not has_refs:
@@ -1509,19 +1539,37 @@ class AIService:
         prompt = "\n".join(prompt_parts) + "\n"
         return prompt, references_used
 
+    @staticmethod
+    def _has_cue(query: str, cues: List[str]) -> bool:
+        """Check if query contains any cue with word boundaries."""
+        import re
+        q = query.lower()
+        for c in cues:
+            # Use word boundaries for single words, substring match for phrases
+            if ' ' in c:
+                if c in q:
+                    return True
+            else:
+                if re.search(rf'\b{re.escape(c)}\b', q):
+                    return True
+        return False
+
     def _pick_resources(self, query: str, has_doc: bool, has_refs: bool) -> Dict[str, Any]:
         """
         Two-stage routing: first ask a lightweight classifier which resources to include,
         then use that decision to build the main answer prompt.
         """
-        q = (query or "").lower()
-        doc_cues = ["draft", "section", "content", "paragraph", "paper content", "my paper", "my document", "in my paper", "what is in my paper", "latex"]
-        ref_cues = ["reference", "citation", "source", "literature", "related work", "cite"]
-        compare_cues = ["compare", "versus", "vs", "difference", "summary", "summarize", "survey", "review"]
+        # Fast path: skip all context for simple conversational queries (faster response)
+        if self._is_simple_query(query):
+            return {"include_doc": False, "include_refs": False, "doc_requested": False}
 
-        doc_requested = any(c in q for c in doc_cues)
-        ref_requested = any(c in q for c in ref_cues)
-        compare_requested = any(c in q for c in compare_cues)
+        doc_cues = ["draft", "section", "paragraph", "my paper", "my document", "in my paper", "what is in my paper"]
+        ref_cues = ["reference", "citation", "literature", "related work", "cite", "sources"]
+        compare_cues = ["compare", "versus", "vs", "difference", "survey", "review"]
+
+        doc_requested = self._has_cue(query, doc_cues)
+        ref_requested = self._has_cue(query, ref_cues)
+        compare_requested = self._has_cue(query, compare_cues)
 
         # Hard guard: draft-only ask -> never include references
         if doc_requested and not ref_requested and not compare_requested:
@@ -1546,20 +1594,19 @@ class AIService:
         # Deterministic routing only
         return _fallback()
 
-    @staticmethod
-    def _route_context(query: str, has_doc: bool, has_refs: bool) -> Dict[str, bool]:
+    @classmethod
+    def _route_context(cls, query: str, has_doc: bool, has_refs: bool) -> Dict[str, bool]:
         """
         Decide which context to include based on the query.
         Returns dict with include_doc and include_refs flags.
         """
-        q = (query or "").lower()
-        doc_cues = ["draft", "section", "content", "paragraph", "paper content", "my paper", "my document", "in my paper", "what is in my paper", "latex"]
-        ref_cues = ["reference", "citation", "source", "literature", "related work", "cite"]
-        compare_cues = ["compare", "versus", "vs", "difference", "summary", "summarize", "survey", "review"]
+        doc_cues = ["draft", "section", "paragraph", "my paper", "my document", "in my paper", "what is in my paper"]
+        ref_cues = ["reference", "citation", "literature", "related work", "cite", "sources"]
+        compare_cues = ["compare", "versus", "vs", "difference", "survey", "review"]
 
-        doc_requested = any(c in q for c in doc_cues)
-        ref_requested = any(c in q for c in ref_cues)
-        compare_focus = any(c in q for c in compare_cues)
+        doc_requested = cls._has_cue(query, doc_cues)
+        ref_requested = cls._has_cue(query, ref_cues)
+        compare_focus = cls._has_cue(query, compare_cues)
 
         # Draft-specific asks: prefer draft, avoid references even if missing draft
         if doc_requested and not ref_requested and not compare_focus:
@@ -1710,25 +1757,41 @@ class AIService:
         **extra_params: Any,
     ):
         """
-        Helper to stream tokens from OpenAI chat completions API.
+        Helper to stream tokens from OpenAI APIs.
+        Uses Responses API streaming for gpt-5 models, chat.completions for others.
         """
         if not self.openai_client:
             yield ""
             return
         try:
             target_model = model or self.chat_model
-            # gpt-5 and similar models: fall back to Responses API (non-stream) to avoid max_tokens issues
+
+            # gpt-5 models: use Responses API with proper streaming
             if target_model.startswith("gpt-5"):
-                resp = self.create_response(
+                with self.stream_response(
                     messages=messages,
                     model=target_model,
                     temperature=temperature,
                     max_output_tokens=max_output_tokens,
                     **extra_params,
-                )
-                yield self._strip_markdown_inline(self.extract_response_text(resp))
+                ) as stream:
+                    for event in stream:
+                        # Handle different event types from Responses API stream
+                        if hasattr(event, 'type'):
+                            if event.type == 'response.output_text.delta':
+                                delta = getattr(event, 'delta', '')
+                                if delta:
+                                    yield self._strip_markdown_inline(delta)
+                            elif event.type == 'response.content_part.delta':
+                                delta = getattr(event, 'delta', None)
+                                if delta and hasattr(delta, 'text'):
+                                    yield self._strip_markdown_inline(delta.text)
+                        # Fallback: check for text attribute directly
+                        elif hasattr(event, 'text'):
+                            yield self._strip_markdown_inline(event.text)
                 return
 
+            # Other models: use chat.completions API
             params: Dict[str, Any] = {
                 "model": target_model,
                 "messages": messages,

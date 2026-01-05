@@ -9,10 +9,11 @@ import { stex } from '@codemirror/legacy-modes/mode/stex'
 import { overleafLatexTheme } from './codemirror/overleafTheme'
 import 'katex/dist/katex.min.css'
 import pdfViewerHtml from '../../assets/pdf-viewer.html?raw'
-import { ArrowLeft, Library, Bot, Save, Loader2, Undo2, Redo2, Sparkles, Type, FileText, Lightbulb, Book } from 'lucide-react'
+import { ArrowLeft, Library, Bot, Save, Loader2, Undo2, Redo2, Sparkles, Type, FileText, Lightbulb, Book, Clock } from 'lucide-react'
 import { LATEX_FORMATTING_GROUPS } from './latexToolbarConfig'
 import FigureUploadDialog from './FigureUploadDialog'
 import CitationDialog from './CitationDialog'
+import HistoryPanel from './HistoryPanel'
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next'
 import { UndoManager } from 'yjs'
 
@@ -228,6 +229,7 @@ function LaTeXEditorImpl(
   const [redoEnabled, setRedoEnabled] = useState(false)
   const [figureDialogOpen, setFigureDialogOpen] = useState(false)
   const [citationDialogOpen, setCitationDialogOpen] = useState(false)
+  const [historyPanelOpen, setHistoryPanelOpen] = useState(false)
   const [citationAnchor, setCitationAnchor] = useState<HTMLElement | null>(null)
   const [hasTextSelected, setHasTextSelected] = useState(false)
   const [toneMenuOpen, setToneMenuOpen] = useState(false)
@@ -246,6 +248,11 @@ function LaTeXEditorImpl(
   }, [realtime, debugLog])
 
   useEffect(() => {
+    console.info('[LaTeXEditor] yText setup effect', {
+      hasRealtimeDoc: !!realtime?.doc,
+      currentYSharedText: !!ySharedTextRef.current,
+    })
+
     if (!realtime?.doc) {
       ySharedTextRef.current = null
       yUndoManagerRef.current = null
@@ -255,7 +262,15 @@ function LaTeXEditorImpl(
     }
     const yDoc = realtime.doc
     const yText = yDoc.getText('main')
+    const yTextContent = yText.toString()
     const needsInit = ySharedTextRef.current !== yText
+
+    console.info('[LaTeXEditor] yText from doc', {
+      yTextLength: yTextContent.length,
+      yTextContent: yTextContent.slice(0, 50),
+      needsInit,
+    })
+
     ySharedTextRef.current = yText
     if (!yUndoManagerRef.current) {
       yUndoManagerRef.current = new UndoManager(yText)
@@ -268,6 +283,7 @@ function LaTeXEditorImpl(
       ySetupRef.current = true
     }
     if (needsInit) {
+      console.info('[LaTeXEditor] Incrementing yTextReady')
       setYTextReady(prev => prev + 1)
     }
     // No manual observer needed - yCollab extension handles all Yjs ↔ CodeMirror sync automatically
@@ -498,12 +514,35 @@ function LaTeXEditorImpl(
 
   const createView = useCallback((parent: HTMLElement) => {
     clearContainer(parent)
+    // In realtime mode, start with empty doc - yCollab will sync from Yjs
+    // This prevents duplication when both client props and server bootstrap have content
+    const initialDoc = realtime?.doc ? '' : (latestDocRef.current || '')
+
+    // Debug: Check yText content before creating view
+    const yTextContent = ySharedTextRef.current ? ySharedTextRef.current.toString() : null
+    const hasYCollab = realtimeExtensions.length > 0
+    console.info('[LaTeXEditor] createView called', {
+      hasRealtimeDoc: !!realtime?.doc,
+      yTextLength: yTextContent?.length ?? 'N/A',
+      yTextContent: yTextContent?.slice(0, 50) ?? 'N/A',
+      hasYCollab,
+      initialDocLength: initialDoc.length,
+      realtimeExtensionsCount: realtimeExtensions.length,
+    })
+
     const state = EditorState.create({
-      doc: latestDocRef.current || '',
+      doc: initialDoc,
       extensions: cmExtensions,
     })
 
     const view = new EditorView({ state, parent })
+
+    // Debug: Check what the view has after creation
+    console.info('[LaTeXEditor] View created', {
+      viewDocLength: view.state.doc.length,
+      viewDocContent: view.state.doc.toString().slice(0, 50),
+    })
+
     const hasSelection = state.selection.ranges.some(range => !range.empty)
     if (hasSelection) view.dom.classList.add('cm-has-selection')
     else view.dom.classList.remove('cm-has-selection')
@@ -519,7 +558,7 @@ function LaTeXEditorImpl(
         realtime.awareness.setLocalStateField('selection', { anchor: main.from, head: main.to })
       } catch {}
     }
-  }, [cmExtensions, realtime?.awareness, readOnly, clearContainer])
+  }, [cmExtensions, realtime?.doc, realtime?.awareness, readOnly, clearContainer, realtimeExtensions.length])
 
   const handleContainerRef = useCallback((el: HTMLDivElement | null) => {
     if (el === containerRef.current) return
@@ -539,11 +578,44 @@ function LaTeXEditorImpl(
     clearContainer(containerRef.current)
     viewRef.current = null
     setEditorReady(false)
+    // In realtime mode, wait for yText to be ready before creating the view
+    // This ensures yCollab is included in extensions from the start
+    if (realtime?.doc && !ySharedTextRef.current) {
+      debugLog('Deferring view creation until yText is ready')
+      return
+    }
     requestAnimationFrame(() => {
       if (!containerRef.current) return
       try { createView(containerRef.current) } catch {}
     })
-  }, [createView, clearContainer])
+  }, [createView, clearContainer, realtime?.doc, debugLog])
+
+  // Create the view once yText becomes ready in realtime mode
+  useEffect(() => {
+    console.info('[LaTeXEditor] yText ready effect check', {
+      hasRealtimeDoc: !!realtime?.doc,
+      hasYSharedText: !!ySharedTextRef.current,
+      hasView: !!viewRef.current,
+      hasContainer: !!containerRef.current,
+      yTextReady,
+      yTextLength: ySharedTextRef.current?.length ?? 'N/A',
+    })
+
+    if (!realtime?.doc) return
+    if (!ySharedTextRef.current) return
+    if (viewRef.current) return // View already exists
+    if (!containerRef.current) return
+
+    const yTextContent = ySharedTextRef.current.toString()
+    console.info('[LaTeXEditor] yText ready, creating view now', {
+      yTextLength: yTextContent.length,
+      yTextContent: yTextContent.slice(0, 50),
+    })
+    requestAnimationFrame(() => {
+      if (!containerRef.current || viewRef.current) return
+      try { createView(containerRef.current) } catch {}
+    })
+  }, [realtime?.doc, yTextReady, createView, debugLog])
 
   useEffect(() => {
     const view = viewRef.current
@@ -945,6 +1017,27 @@ function LaTeXEditorImpl(
     await handleAiAction('tone', tone)
   }, [handleAiAction])
 
+  const handleRestoreFromHistory = useCallback((content: string, _snapshotId: string) => {
+    if (realtime?.doc) {
+      try {
+        const yText = realtime.doc.getText('main')
+        yText.delete(0, yText.length)
+        yText.insert(0, content)
+      } catch (err) {
+        console.warn('[LaTeXEditor] realtime restore failed', err)
+      }
+    } else {
+      try {
+        const v = viewRef.current
+        if (v) {
+          const cur = v.state.doc.toString()
+          v.dispatch({ changes: { from: 0, to: cur.length, insert: content } })
+        }
+      } catch {}
+    }
+    setHistoryPanelOpen(false)
+  }, [realtime])
+
   const handleUndo = useCallback(() => {
     const view = viewRef.current
     if (!view || !undoEnabled) return
@@ -1313,6 +1406,19 @@ function LaTeXEditorImpl(
 
             {/* Right: View Modes + Compile */}
             <div className="flex flex-wrap items-center gap-2">
+              {/* History Button */}
+              {paperId && (
+                <button
+                  type="button"
+                  onClick={() => setHistoryPanelOpen(true)}
+                  className="inline-flex items-center justify-center gap-1.5 rounded border px-2.5 py-2 text-[11px] font-medium transition-colors border-slate-200 bg-slate-100 text-slate-600 hover:bg-slate-200 hover:border-slate-300 dark:border-slate-600/40 dark:bg-slate-600/10 dark:text-slate-100 dark:hover:bg-slate-600/20 dark:hover:border-slate-500/40"
+                  title="View document history"
+                  aria-label="History"
+                >
+                  <Clock className="h-3.5 w-3.5" />
+                  <span>History</span>
+                </button>
+              )}
               {/* View Mode Toggle */}
               <div className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-100 p-0.5 text-slate-600 transition-colors dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-200">
                 {(['code', 'split', 'pdf'] as const).map((mode) => (
@@ -1564,6 +1670,17 @@ function LaTeXEditorImpl(
             </div>
           </div>
         </>
+      )}
+
+      {/* History Panel - only mount when open to avoid unnecessary API calls */}
+      {paperId && historyPanelOpen && (
+        <HistoryPanel
+          paperId={paperId}
+          isOpen={historyPanelOpen}
+          onClose={() => setHistoryPanelOpen(false)}
+          onRestore={handleRestoreFromHistory}
+          currentContent={viewRef.current?.state?.doc?.toString() || ''}
+        />
       )}
     </div>
   )

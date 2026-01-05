@@ -125,6 +125,15 @@ const LatexAdapter = forwardRef(function LatexAdapter(
       if (readOnly) return
       try { await editorRef.current?.replaceSelection?.(text) } catch {}
     },
+    // Get current content from the source of truth
+    getContent: () => {
+      if (realtimeActive && realtime?.doc) {
+        try {
+          return realtime.doc.getText('main').toString()
+        } catch {}
+      }
+      return src
+    },
     // For LaTeX, treat setContent as setting the LaTeX source (used for remote updates)
     setContent: async (text: string, options?: { overwriteRealtime?: boolean }) => {
       const next = typeof text === 'string' ? text : ''

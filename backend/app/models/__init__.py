@@ -20,6 +20,7 @@ from .notification import Notification
 from .research_paper import ResearchPaper
 from .paper_member import PaperMember, PaperRole
 from .paper_version import PaperVersion
+from .document_snapshot import DocumentSnapshot
 from .document import Document
 from .document_chunk import DocumentChunk
 from .document_tag import DocumentTag
@@ -84,6 +85,7 @@ __all__ = [
     "Tag",
     "DocumentTag",
     "PaperVersion",
+    "DocumentSnapshot",
     "CollaborationSession",
     "CollaborationParticipant",
     "ChatMessage",

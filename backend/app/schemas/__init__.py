@@ -21,9 +21,14 @@ from .branch import (
     MergeBranchesRequest, MergeBranchesResponse
 )
 from .ai import (
-    ChatQuery, ChatResponse, DocumentProcessingResponse, 
+    ChatQuery, ChatResponse, DocumentProcessingResponse,
     DocumentChunkResponse, DocumentChunksResponse,
     ChatSessionResponse, ChatHistoryResponse, AIServiceStatusResponse
+)
+from .snapshot import (
+    SnapshotCreate, SnapshotAutoCreate, SnapshotUpdate,
+    SnapshotResponse, SnapshotDetailResponse, SnapshotListResponse,
+    DiffLine, DiffStats, SnapshotDiffResponse, SnapshotRestoreResponse
 )
 
 __all__ = [
@@ -72,11 +77,22 @@ __all__ = [
     "MergeBranchesResponse",
     # AI Schemas
     "ChatQuery",
-    "ChatResponse", 
+    "ChatResponse",
     "DocumentProcessingResponse",
     "DocumentChunkResponse",
     "DocumentChunksResponse",
     "ChatSessionResponse",
     "ChatHistoryResponse",
-    "AIServiceStatusResponse"
+    "AIServiceStatusResponse",
+    # Snapshot Schemas
+    "SnapshotCreate",
+    "SnapshotAutoCreate",
+    "SnapshotUpdate",
+    "SnapshotResponse",
+    "SnapshotDetailResponse",
+    "SnapshotListResponse",
+    "DiffLine",
+    "DiffStats",
+    "SnapshotDiffResponse",
+    "SnapshotRestoreResponse",
 ]
