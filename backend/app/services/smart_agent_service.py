@@ -43,7 +43,34 @@ class SmartAgentService:
         "reference", "references", "citation", "cite", "literature",
         "papers", "studies", "research", "sources", "find", "search",
         "what do the", "according to", "evidence", "support", "related work",
-        "compare", "contrast", "gap", "review"
+        "compare", "contrast", "gap"
+    }
+
+    # Keywords that indicate user wants edits made to their document
+    EDIT_KEYWORDS = {
+        "change", "modify", "update", "fix", "rewrite", "improve", "edit",
+        "add", "remove", "delete", "replace", "insert", "make it", "rephrase",
+        "shorten", "expand", "correct", "revise", "adjust", "refine",
+        "can you change", "can you fix", "can you improve", "can you rewrite",
+        "please change", "please fix", "please improve", "please rewrite",
+        "could you change", "could you fix", "could you improve",
+        "make this", "write me", "write a", "add a", "add section",
+        "add paragraph", "remove this", "delete this"
+    }
+
+    # Keywords that indicate user wants feedback/review (offer edits after)
+    REVIEW_KEYWORDS = {
+        "review", "feedback", "check", "evaluate", "assess", "critique",
+        "what do you think", "how does this look", "is this good",
+        "any suggestions", "any improvements", "thoughts on", "opinion on",
+        "does this make sense", "is this clear", "look over", "proofread"
+    }
+
+    # Keywords that confirm user wants edits after review
+    CONFIRMATION_KEYWORDS = {
+        "yes", "yeah", "yep", "sure", "ok", "okay", "go ahead", "please",
+        "do it", "make the changes", "apply", "sounds good", "let's do it",
+        "yes please", "please do", "yes, please"
     }
 
     def __init__(self):
@@ -71,6 +98,58 @@ class SmartAgentService:
 
         # Needs full classification
         return None
+
+    def detect_edit_intent(self, query: str, has_doc: bool = False) -> Dict[str, Any]:
+        """
+        Detect the user's intent regarding edits.
+        Returns a dict with:
+          - intent: "edit" | "review" | "question" | "confirmation" | "none"
+          - should_propose_edits: bool - whether to propose edit blocks
+          - explanation: str - brief reason for the classification
+        """
+        if not has_doc:
+            return {
+                "intent": "none",
+                "should_propose_edits": False,
+                "explanation": "No document content available"
+            }
+
+        q = query.lower().strip()
+
+        # Check for confirmation (user responding to review feedback)
+        if q in self.CONFIRMATION_KEYWORDS or any(conf in q for conf in self.CONFIRMATION_KEYWORDS):
+            # Short confirmation messages trigger edit mode
+            if len(q.split()) <= 5:
+                return {
+                    "intent": "confirmation",
+                    "should_propose_edits": True,
+                    "explanation": "User confirmed they want changes made"
+                }
+
+        # Check for direct edit requests
+        for kw in self.EDIT_KEYWORDS:
+            if kw in q:
+                return {
+                    "intent": "edit",
+                    "should_propose_edits": True,
+                    "explanation": f"Direct edit request detected: '{kw}'"
+                }
+
+        # Check for review/feedback requests (give feedback, then offer to make changes)
+        for kw in self.REVIEW_KEYWORDS:
+            if kw in q:
+                return {
+                    "intent": "review",
+                    "should_propose_edits": False,  # Give feedback first, don't propose yet
+                    "explanation": f"Review request detected: '{kw}'"
+                }
+
+        # Default: treat as a question (no edit proposals)
+        return {
+            "intent": "question",
+            "should_propose_edits": False,
+            "explanation": "General question about the document"
+        }
 
     def classify_query(self, query: str, has_doc: bool = False, has_refs: bool = False) -> str:
         """
@@ -162,10 +241,11 @@ class SmartAgentService:
         project_id: Optional[str] = None,
         document_excerpt: Optional[str] = None,
         reasoning_mode: bool = False,
-        edit_mode: bool = False
+        edit_mode: bool = False  # Now used as override only, auto-detection is primary
     ) -> Generator[str, None, None]:
         """
-        Stream query response with smart routing.
+        Stream query response with smart routing and automatic edit detection.
+        The AI automatically detects when to propose edits based on user intent.
         """
         if not self.client:
             yield "AI service not available."
@@ -173,16 +253,26 @@ class SmartAgentService:
 
         has_doc = bool(document_excerpt and document_excerpt.strip())
 
-        # Edit mode: AI can suggest document modifications
-        if edit_mode and has_doc:
-            print(f"[SmartAgent-Stream] Edit mode enabled, using {self.QUALITY_MODEL}")
-            yield from self._stream_edit(db, query, user_id, paper_id, document_excerpt)
-            return
-
         # If reasoning mode is enabled, use reasoning model directly
         if reasoning_mode:
             print(f"[SmartAgent-Stream] Reasoning mode enabled, using {self.REASONING_MODEL}")
             yield from self._stream_reasoning(db, query, user_id, paper_id, document_excerpt)
+            return
+
+        # Auto-detect edit intent (this is the smart part!)
+        edit_intent = self.detect_edit_intent(query, has_doc)
+        print(f"[SmartAgent-Stream] Edit intent: {edit_intent}")
+
+        # Edit mode override from frontend OR auto-detected edit intent
+        if (edit_mode or edit_intent["should_propose_edits"]) and has_doc:
+            print(f"[SmartAgent-Stream] Edit mode (auto={edit_intent['intent']}, manual={edit_mode}), using {self.QUALITY_MODEL}")
+            yield from self._stream_edit(db, query, user_id, paper_id, document_excerpt)
+            return
+
+        # Review intent: give feedback and offer to make changes
+        if edit_intent["intent"] == "review" and has_doc:
+            print(f"[SmartAgent-Stream] Review mode detected, using {self.QUALITY_MODEL}")
+            yield from self._stream_review(db, query, user_id, paper_id, document_excerpt)
             return
 
         # Fast path: check if query is simple BEFORE any DB calls
@@ -609,6 +699,71 @@ class SmartAgentService:
             model=self.REASONING_MODEL,
             messages=messages,
             max_completion_tokens=4000,
+            stream=True
+        )
+
+        for chunk in stream:
+            if chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
+
+    # ==================== REVIEW MODE ROUTE ====================
+
+    def _stream_review(
+        self,
+        db: Session,
+        query: str,
+        user_id: str,
+        paper_id: Optional[str],
+        document_excerpt: str
+    ) -> Generator[str, None, None]:
+        """
+        Stream review/feedback for the document.
+        Provides constructive feedback and offers to make changes.
+        """
+        ref_context = self._get_reference_context(db, user_id, paper_id, query)
+
+        context_parts = []
+        if ref_context:
+            context_parts.append(
+                "=== REFERENCE LIBRARY ===\n"
+                "(Academic papers/sources for citation)\n\n"
+                f"{ref_context}"
+            )
+
+        ref_section = "\n\n".join(context_parts) if context_parts else ""
+
+        system_prompt = """You are an expert academic writing reviewer and editor. The user wants feedback on their document.
+
+IMPORTANT: Your response should:
+1. Provide specific, actionable feedback on the content
+2. Identify strengths and areas for improvement
+3. Be constructive and encouraging
+4. At the END of your feedback, always ask: "Would you like me to make any of these suggested changes to your document?"
+
+Focus on:
+- Clarity and flow of arguments
+- Academic writing style and tone
+- Structure and organization
+- Grammar and word choice (if relevant)
+- Completeness of ideas
+
+Keep your feedback focused and concise. Use bullet points for specific suggestions."""
+
+        user_content = f"=== DOCUMENT TO REVIEW ===\n{document_excerpt}\n\n"
+        if ref_section:
+            user_content += f"{ref_section}\n\n"
+        user_content += f"---\n\nUser request: {query}"
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content}
+        ]
+
+        stream = self.client.chat.completions.create(
+            model=self.QUALITY_MODEL,
+            messages=messages,
+            max_tokens=2000,
+            temperature=0.7,
             stream=True
         )
 

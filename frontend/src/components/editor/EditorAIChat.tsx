@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Bot, Brain, Check, ChevronDown, ChevronUp, Edit3, Loader2, Send, X } from 'lucide-react'
+import { Bot, Brain, Check, ChevronDown, ChevronUp, Edit3, Loader2, Send, Sparkles, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { projectReferencesAPI, buildApiUrl, buildAuthHeaders } from '../../services/api'
 
@@ -46,7 +46,8 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
   const [error, setError] = useState<string | null>(null)
   const [references, setReferences] = useState<ReferenceItem[]>([])
   const [reasoningMode, setReasoningMode] = useState(false)
-  const [editMode, setEditMode] = useState(false)
+  // Edit mode is now auto-detected by the backend based on user intent
+  // No manual toggle needed - AI automatically proposes edits when appropriate
   const [expandedProposals, setExpandedProposals] = useState<Set<string>>(new Set())
   const listRef = useRef<HTMLDivElement | null>(null)
 
@@ -158,8 +159,6 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
       setInput('')
       setError(null)
       setExpandedProposals(new Set())
-      // Reset edit mode when closing to avoid stale state
-      setEditMode(false)
     }
   }, [open])
 
@@ -199,21 +198,19 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
     setError(null)
     setMessages((prev) => [...prev, { role: 'user', content: prompt }])
 
-    // In edit mode, send full document (up to 50k chars); otherwise use excerpt
-    const MAX_EDIT_DOC_CHARS = 50000
-    const docToSend = editMode
-      ? (documentText || '').slice(0, MAX_EDIT_DOC_CHARS)
-      : docContext || null
+    // Always send full document so AI can auto-detect when to propose edits
+    const MAX_DOC_CHARS = 50000
+    const docToSend = (documentText || '').slice(0, MAX_DOC_CHARS) || docContext || null
 
     console.log('[EditorAIChat] Sending request:', {
-      editMode,
+      smartEditDetection: 'enabled',
       reasoningMode,
       docLength: docToSend?.length || 0,
       prompt: prompt.slice(0, 50),
     })
 
     try {
-      // Use smart agent endpoint
+      // Use smart agent endpoint with automatic edit detection
       const res = await fetch(buildApiUrl('/agent/chat/stream'), {
         method: 'POST',
         headers: buildAuthHeaders(),
@@ -223,7 +220,8 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
           project_id: projectId || null,
           document_excerpt: docToSend,
           reasoning_mode: reasoningMode,
-          edit_mode: editMode,
+          // edit_mode is now auto-detected by backend based on user intent
+          edit_mode: false,
         }),
       })
 
@@ -255,8 +253,8 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
         }
       }
 
-      // After streaming completes, parse edit proposals if in edit mode
-      if (editMode && fullText.includes('<<<EDIT>>>')) {
+      // After streaming completes, parse edit proposals (AI auto-detects when to propose)
+      if (fullText.includes('<<<EDIT>>>')) {
         const { cleanText, proposals } = parseEditProposals(fullText)
         setMessages((prev) => {
           const copy = [...prev]
@@ -294,7 +292,7 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
     } finally {
       setSending(false)
     }
-  }, [docContext, documentText, editMode, input, paperId, parseEditProposals, projectId, reasoningMode, sending])
+  }, [docContext, documentText, input, paperId, parseEditProposals, projectId, reasoningMode, sending])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -316,24 +314,12 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
             <Bot className="h-5 w-5" />
           </div>
           <div>
-            <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI Chat</div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">Smart agent with tiered routing</div>
+            <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI Assistant</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">Smart edit detection enabled</div>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* Edit Mode Toggle */}
-          <button
-            onClick={() => setEditMode(!editMode)}
-            className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-              editMode
-                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'
-            }`}
-            title={editMode ? 'AI can suggest document edits (requires approval)' : 'Enable to let AI suggest edits'}
-          >
-            <Edit3 className="h-3.5 w-3.5" />
-            {editMode ? 'Edit Mode' : 'Edit'}
-          </button>
+          {/* Smart Edit Detection is automatic - no toggle needed */}
           {/* Reasoning Mode Toggle */}
           <button
             onClick={() => setReasoningMode(!reasoningMode)}
@@ -357,18 +343,12 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
         </div>
       </div>
 
-      {/* Edit mode status banner */}
-      {editMode && (
-        <div className={`mx-4 mt-3 rounded-lg border px-3 py-2 text-sm shadow-sm ${
-          docStats.len > 0
-            ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-400/50 dark:bg-emerald-900/30 dark:text-emerald-100'
-            : 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-400/50 dark:bg-rose-900/30 dark:text-rose-100'
-        }`}>
-          {docStats.len > 0 ? (
-            <>Edit Mode active — AI can see your draft ({docStats.lines} lines, {Math.round(docStats.len / 1000)}k chars)</>
-          ) : (
-            <>Edit Mode active but no document content detected. Try making an edit in your draft first.</>
-          )}
+      {/* Smart edit detection info - only show when document is available */}
+      {docStats.len > 0 && (
+        <div className="mx-4 mt-3 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm shadow-sm dark:border-indigo-400/50 dark:bg-indigo-900/30 dark:text-indigo-100">
+          <span className="text-indigo-800 dark:text-indigo-100">
+            Smart Mode — AI sees your draft ({docStats.lines} lines). Ask questions, request reviews, or ask for changes — edits will be proposed when needed.
+          </span>
         </div>
       )}
 
@@ -387,10 +367,13 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
         >
           {messages.length === 0 && (
             <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-slate-500 dark:text-slate-400">
-              <Bot className="h-5 w-5" />
-              <p className="text-xs">Ask questions about your paper or references.</p>
+              <div className="flex items-center gap-1.5">
+                <Sparkles className="h-4 w-4 text-indigo-500" />
+                <Bot className="h-5 w-5" />
+              </div>
+              <p className="text-xs">Ask questions, request reviews, or ask for changes to your paper.</p>
               <p className="text-[10px] text-slate-400 dark:text-slate-500">
-                Simple queries → Fast | Research queries → Full RAG
+                AI automatically detects when to propose edits vs. just answer
               </p>
             </div>
           )}
@@ -531,7 +514,7 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             rows={3}
-            placeholder="Ask about your draft or references…"
+            placeholder="Ask questions, request feedback, or ask for changes…"
             className="w-full resize-none border-none bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none dark:text-slate-100 dark:placeholder:text-slate-500"
           />
           <div className="mt-2 flex items-center justify-between">
