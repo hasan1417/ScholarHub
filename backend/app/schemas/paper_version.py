@@ -41,3 +41,4 @@ class ContentUpdateRequest(BaseModel):
     content_json: Optional[Dict[str, Any]] = Field(None, description="Rich text content in TipTap JSON format")
     save_as_version: bool = Field(False, description="Whether to save as a new version")
     version_summary: Optional[str] = Field(None, description="Summary of changes for new version")
+    manual_save: bool = Field(False, description="True if user clicked save button (always creates snapshot)")

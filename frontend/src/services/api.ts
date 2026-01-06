@@ -741,12 +741,13 @@ export const researchPapersAPI = {
   
   // Enhanced content update with JSON support and versioning
   updatePaperContent: (
-    id: string, 
+    id: string,
     contentData: {
       content?: string;
       content_json?: any;
       save_as_version?: boolean;
       version_summary?: string;
+      manual_save?: boolean;  // True when user clicks save button (always creates snapshot)
     }
   ) => api.put(`/research-papers/${id}/content`, contentData),
   

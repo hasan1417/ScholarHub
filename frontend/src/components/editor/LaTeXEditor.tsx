@@ -1487,7 +1487,8 @@ function LaTeXEditorImpl(
                         await onSave(v, contentJson)
                       } else {
                         if (!activePaperId) throw new Error('Missing paper id')
-                        await researchPapersAPI.updatePaperContent(activePaperId, { content_json: contentJson })
+                        // manual_save: true ensures a snapshot is always created for user-initiated saves
+                        await researchPapersAPI.updatePaperContent(activePaperId, { content_json: contentJson, manual_save: true })
                       }
 
                       try { logEvent('LatexSaveClicked', { len: v.length }) } catch {}

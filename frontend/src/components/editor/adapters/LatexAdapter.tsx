@@ -279,7 +279,8 @@ const LatexAdapter = forwardRef(function LatexAdapter(
     if (!paperId) throw new Error('No paper ID available')
 
     // Save draft to paper content_json (no new version)
-    await researchPapersAPI.updatePaperContent(paperId, { content_json: contentJson })
+    // manual_save: true ensures a snapshot is always created for user-initiated saves
+    await researchPapersAPI.updatePaperContent(paperId, { content_json: contentJson, manual_save: true })
     try { dbg('manual save (draft)') } catch {}
 
     // Update local state to match

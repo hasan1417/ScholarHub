@@ -559,11 +559,14 @@ async def update_paper_content(
             should_create_snapshot = True
             skip_reason = None
 
-            if last_snapshot:
+            # Manual saves always create a snapshot (user clicked save button)
+            is_manual_save = getattr(content_update, 'manual_save', False)
+
+            if last_snapshot and not is_manual_save:
                 time_since_last = datetime.utcnow() - last_snapshot.created_at
                 length_diff = abs(current_length - (last_snapshot.text_length or 0))
 
-                # Skip if less than 30 seconds AND less than 50 character change
+                # Skip if less than 30 seconds AND less than 50 character change (only for auto-saves)
                 if time_since_last < timedelta(seconds=30) and length_diff < 50:
                     should_create_snapshot = False
                     skip_reason = f"Too soon ({time_since_last.seconds}s) and small change ({length_diff} chars)"
