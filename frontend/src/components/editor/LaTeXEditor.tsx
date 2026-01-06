@@ -169,6 +169,7 @@ interface LaTeXEditorProps {
     status?: 'idle' | 'connecting' | 'connected' | 'disconnected'
     peers?: Array<{ id: string; name: string; email: string; color?: string }>
     version?: number
+    synced?: boolean
   }
   collaborationStatus?: string | null
 }
@@ -514,17 +515,25 @@ function LaTeXEditorImpl(
 
   const createView = useCallback((parent: HTMLElement) => {
     clearContainer(parent)
-    // In realtime mode, start with empty doc - yCollab will sync from Yjs
-    // This prevents duplication when both client props and server bootstrap have content
-    const initialDoc = realtime?.doc ? '' : (latestDocRef.current || '')
+    // Safari workaround: use yText content directly instead of relying on yCollab sync
+    // Safari has timing issues where yCollab doesn't properly sync content to CodeMirror
+    const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
+    const yTextContent = ySharedTextRef.current ? ySharedTextRef.current.toString() : ''
+
+    // In realtime mode:
+    // - Safari: use yText content directly (bypasses yCollab sync timing issues)
+    // - Other browsers: start empty, let yCollab sync from Yjs
+    const initialDoc = realtime?.doc
+      ? (isSafari && yTextContent ? yTextContent : '')
+      : (latestDocRef.current || '')
 
     // Debug: Check yText content before creating view
-    const yTextContent = ySharedTextRef.current ? ySharedTextRef.current.toString() : null
     const hasYCollab = realtimeExtensions.length > 0
     console.info('[LaTeXEditor] createView called', {
+      isSafari,
       hasRealtimeDoc: !!realtime?.doc,
       yTextLength: yTextContent?.length ?? 'N/A',
-      yTextContent: yTextContent?.slice(0, 50) ?? 'N/A',
+      yTextSample: yTextContent?.slice(0, 50) ?? 'N/A',
       hasYCollab,
       initialDocLength: initialDoc.length,
       realtimeExtensionsCount: realtimeExtensions.length,
@@ -622,6 +631,70 @@ function LaTeXEditorImpl(
     if (!view) return
     view.dispatch({ effects: StateEffect.reconfigure.of(cmExtensions) })
   }, [cmExtensions])
+
+  // Safari fix: Force CodeMirror to refresh when synced becomes true
+  // Safari sometimes doesn't render the content even though yCollab has it
+  useEffect(() => {
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
+    if (!isSafari) return
+    if (!realtime?.doc) return
+
+    // Log state for debugging
+    console.info('[LaTeXEditor] Safari effect triggered:', {
+      synced: realtime?.synced,
+      hasView: !!viewRef.current,
+      hasYSharedText: !!ySharedTextRef.current,
+      hasContainer: !!containerRef.current,
+    })
+
+    if (!realtime?.synced) return
+
+    // Check periodically for content mismatch (Safari timing issues)
+    const checkAndFix = () => {
+      const yText = realtime.doc?.getText('main')
+      if (!yText) {
+        console.info('[LaTeXEditor] Safari: no yText available')
+        return
+      }
+
+      const yContent = yText.toString()
+      const viewContent = viewRef.current?.state?.doc?.toString() || ''
+
+      console.info('[LaTeXEditor] Safari sync check:', {
+        yTextLength: yContent.length,
+        viewLength: viewContent.length,
+        mismatch: yContent.length !== viewContent.length,
+      })
+
+      // If CodeMirror view is empty but Yjs has content, force refresh
+      if (viewContent.length === 0 && yContent.length > 0) {
+        console.info('[LaTeXEditor] Safari: view empty but Yjs has content, forcing refresh')
+
+        if (containerRef.current) {
+          // Destroy and recreate the view
+          if (viewRef.current) {
+            viewRef.current.destroy()
+            viewRef.current = null
+          }
+          // Update ySharedTextRef before creating view
+          ySharedTextRef.current = yText
+          setTimeout(() => {
+            if (containerRef.current && !viewRef.current) {
+              try { createView(containerRef.current) } catch (e) {
+                console.error('[LaTeXEditor] Safari: failed to recreate view', e)
+              }
+            }
+          }, 50)
+        }
+      }
+    }
+
+    // Run check immediately and after a delay (Safari timing workaround)
+    checkAndFix()
+    const timeout = setTimeout(checkAndFix, 500)
+
+    return () => clearTimeout(timeout)
+  }, [realtime?.synced, realtime?.doc, createView])
 
   // Keep external value in sync (only in non-realtime mode)
   useEffect(() => {

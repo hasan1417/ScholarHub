@@ -7,6 +7,14 @@ import { collabConfig, isCollabEnabled } from '../config/collab'
 const isSafari = typeof navigator !== 'undefined' &&
   /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
 
+// Log browser detection on load
+if (typeof navigator !== 'undefined') {
+  console.info('[useCollabProvider] Browser detection:', {
+    isSafari,
+    userAgent: navigator.userAgent,
+  })
+}
+
 interface UseCollabProviderArgs {
   paperId?: string
   enabled?: boolean
@@ -64,6 +72,12 @@ export function useCollabProvider({ paperId, enabled, token, wsUrl }: UseCollabP
     const handleSynced = () => {
       const yText = doc.getText('main')
       const textLength = yText.length
+
+      console.info('[useCollabProvider] handleSynced called:', {
+        isSafari,
+        textLength,
+        willPoll: isSafari && textLength === 0,
+      })
 
       // Safari-specific: Sometimes synced fires before content is actually received
       // Check if we have content, if not wait a bit and check again
