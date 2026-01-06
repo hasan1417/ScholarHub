@@ -536,8 +536,10 @@ async def update_paper_content(
     db.commit()
     db.refresh(paper)
 
-    # Create a snapshot on save (only if content is not empty)
+    # Create a snapshot on save (with deduplication to prevent spam)
     try:
+        from datetime import datetime, timedelta
+
         # Get the latex source for materialized text
         materialized_text = ""
         if isinstance(paper.content_json, dict):
@@ -547,26 +549,48 @@ async def update_paper_content(
 
         # Only create snapshot if there's actual content
         if materialized_text and len(materialized_text.strip()) > 0:
-            # Get next sequence number
-            max_seq = db.query(func.max(DocumentSnapshot.sequence_number)).filter(
-                DocumentSnapshot.paper_id == paper.id
-            ).scalar()
-            next_seq = (max_seq or 0) + 1
+            current_length = len(materialized_text)
 
-            # Create snapshot
-            snapshot = DocumentSnapshot(
-                paper_id=paper.id,
-                yjs_state=b"",  # No Yjs state when saving from API
-                materialized_text=materialized_text,
-                snapshot_type="save",
-                label=None,
-                created_by=current_user.id,
-                sequence_number=next_seq,
-                text_length=len(materialized_text),
-            )
-            db.add(snapshot)
-            db.commit()
-            logger.info("Created save snapshot for paper %s, seq=%s, len=%s", paper_id, next_seq, len(materialized_text))
+            # Check the last snapshot for deduplication
+            last_snapshot = db.query(DocumentSnapshot).filter(
+                DocumentSnapshot.paper_id == paper.id
+            ).order_by(DocumentSnapshot.sequence_number.desc()).first()
+
+            should_create_snapshot = True
+            skip_reason = None
+
+            if last_snapshot:
+                time_since_last = datetime.utcnow() - last_snapshot.created_at
+                length_diff = abs(current_length - (last_snapshot.text_length or 0))
+
+                # Skip if less than 30 seconds AND less than 50 character change
+                if time_since_last < timedelta(seconds=30) and length_diff < 50:
+                    should_create_snapshot = False
+                    skip_reason = f"Too soon ({time_since_last.seconds}s) and small change ({length_diff} chars)"
+
+            if should_create_snapshot:
+                # Get next sequence number
+                max_seq = db.query(func.max(DocumentSnapshot.sequence_number)).filter(
+                    DocumentSnapshot.paper_id == paper.id
+                ).scalar()
+                next_seq = (max_seq or 0) + 1
+
+                # Create snapshot
+                snapshot = DocumentSnapshot(
+                    paper_id=paper.id,
+                    yjs_state=b"",  # No Yjs state when saving from API
+                    materialized_text=materialized_text,
+                    snapshot_type="save",
+                    label=None,
+                    created_by=current_user.id,
+                    sequence_number=next_seq,
+                    text_length=current_length,
+                )
+                db.add(snapshot)
+                db.commit()
+                logger.info("Created save snapshot for paper %s, seq=%s, len=%s", paper_id, next_seq, current_length)
+            else:
+                logger.debug("Skipped duplicate snapshot for paper %s: %s", paper_id, skip_reason)
         else:
             logger.debug("Skipped empty snapshot for paper %s", paper_id)
     except Exception as e:
