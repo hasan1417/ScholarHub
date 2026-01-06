@@ -1,7 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { HocuspocusProvider } from '@hocuspocus/provider'
 import * as Y from 'yjs'
 import { collabConfig, isCollabEnabled } from '../config/collab'
+
+// Safari detection - Safari has WebSocket reconnection timing issues
+const isSafari = typeof navigator !== 'undefined' &&
+  /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
 
 interface UseCollabProviderArgs {
   paperId?: string
@@ -17,11 +21,16 @@ export function useCollabProvider({ paperId, enabled, token, wsUrl }: UseCollabP
   const [state, setState] = useState<{ instance: HocuspocusProvider; doc: Y.Doc } | null>(null)
   const [providerVersion, setProviderVersion] = useState(0)
   const [synced, setSynced] = useState(false)
+  const safariSyncCheckRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     if (!shouldEnable || !paperId || !token) {
       setStatus('idle')
       setSynced(false)
+      if (safariSyncCheckRef.current) {
+        clearTimeout(safariSyncCheckRef.current)
+        safariSyncCheckRef.current = null
+      }
       setState(prev => {
         prev?.instance?.destroy()
         return null
@@ -53,6 +62,49 @@ export function useCollabProvider({ paperId, enabled, token, wsUrl }: UseCollabP
     }
 
     const handleSynced = () => {
+      const yText = doc.getText('main')
+      const textLength = yText.length
+
+      // Safari-specific: Sometimes synced fires before content is actually received
+      // Check if we have content, if not wait a bit and check again
+      if (isSafari && textLength === 0) {
+        console.info('[useCollabProvider] Safari: synced but empty, waiting for content...')
+
+        // Clear any existing check
+        if (safariSyncCheckRef.current) {
+          clearTimeout(safariSyncCheckRef.current)
+        }
+
+        // Poll for content arrival (Safari timing issue workaround)
+        let attempts = 0
+        const maxAttempts = 10
+        const checkContent = () => {
+          attempts++
+          const currentLength = doc.getText('main').length
+          console.info(`[useCollabProvider] Safari content check #${attempts}: length=${currentLength}`)
+
+          if (currentLength > 0) {
+            console.info('[useCollabProvider] Safari: content received, marking synced')
+            setStatus('connected')
+            setSynced(true)
+            setProviderVersion(v => v + 1)
+          } else if (attempts < maxAttempts) {
+            // Check again in 200ms
+            safariSyncCheckRef.current = setTimeout(checkContent, 200)
+          } else {
+            // Give up and mark synced anyway (might be genuinely empty doc)
+            console.info('[useCollabProvider] Safari: max attempts reached, marking synced')
+            setStatus('connected')
+            setSynced(true)
+            setProviderVersion(v => v + 1)
+          }
+        }
+
+        // Start checking after a short delay
+        safariSyncCheckRef.current = setTimeout(checkContent, 100)
+        return
+      }
+
       setStatus('connected')
       setSynced(true)
       // Increment version when synced to ensure components update
@@ -66,6 +118,10 @@ export function useCollabProvider({ paperId, enabled, token, wsUrl }: UseCollabP
 
     return () => {
       setSynced(false)
+      if (safariSyncCheckRef.current) {
+        clearTimeout(safariSyncCheckRef.current)
+        safariSyncCheckRef.current = null
+      }
       instance.off('status', handleStatus)
       instance.off('synced', handleSynced)
       instance.destroy()
