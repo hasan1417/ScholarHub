@@ -75,13 +75,6 @@ const server = new Server({
   async onLoadDocument({ documentName, document }) {
     const yText = document.getText('main')
 
-    // CRITICAL: If the document already has content (synced from Redis by another collaborator),
-    // do NOT bootstrap from backend - that would overwrite the real-time collaborative state
-    if (yText.length > 0) {
-      log.info({ document: documentName, length: yText.length }, 'Document already has content from Redis, skipping bootstrap')
-      return
-    }
-
     if (!bootstrapSecret) {
       log.warn({ document: documentName }, 'Skipping bootstrap: secret not configured')
       return
@@ -110,17 +103,16 @@ const server = new Server({
         return
       }
 
-      // Only insert if still empty (race condition protection)
-      if (yText.length === 0) {
-        yText.insert(0, latexSource)
-        log.info({ document: documentName, length: latexSource.length }, 'Bootstrapped document from backend')
-      } else {
-        log.info({ document: documentName }, 'Skipping insert: document populated during fetch')
+      if (yText.length > 0) {
+        yText.delete(0, yText.length)
+        log.info({ document: documentName }, 'Cleared existing realtime doc before bootstrap')
       }
+
+      yText.insert(0, latexSource)
+      log.info({ document: documentName, length: latexSource.length }, 'Bootstrapped document from backend')
     } catch (error) {
       log.error({ document: documentName, error }, 'Bootstrap fetch failed')
     } finally {
-      // Ensure document is never completely empty (causes issues with some Yjs operations)
       if (yText.length === 0) {
         yText.insert(0, '')
       }
