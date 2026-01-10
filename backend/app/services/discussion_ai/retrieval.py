@@ -33,13 +33,19 @@ class DiscussionRetriever:
         query: str,
         context: ChannelContext,
         *,
-        limit: int = 6,
+        limit: int = 8,  # Increased default limit
     ) -> List[RetrievalSnippet]:
         snippets: List[RetrievalSnippet] = []
         lowered = query.lower().strip()
 
-        resource_snippets = self._retrieve_from_embeddings(query, context, limit)
-        snippets.extend(resource_snippets)
+        # Fetch more candidates for re-ranking
+        resource_snippets = self._retrieve_from_embeddings(query, context, limit * 2)
+
+        # Apply smart re-ranking
+        if resource_snippets:
+            resource_snippets = self._rerank_by_relevance(query, resource_snippets)
+
+        snippets.extend(resource_snippets[:limit])
 
         # Include most recent messages for conversational continuity
         for idx, message in enumerate(reversed(context.messages[-limit:])):
@@ -58,6 +64,61 @@ class DiscussionRetriever:
 
         snippets.sort(key=lambda item: item.score, reverse=True)
         return snippets[:limit]
+
+    def _rerank_by_relevance(
+        self,
+        query: str,
+        snippets: List[RetrievalSnippet],
+    ) -> List[RetrievalSnippet]:
+        """Re-rank snippets based on query relevance signals."""
+        if not snippets:
+            return snippets
+
+        query_lower = query.lower()
+        query_terms = set(query_lower.split())
+        # Remove common stopwords for term matching
+        stopwords = {"the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+                     "have", "has", "had", "do", "does", "did", "will", "would", "could",
+                     "should", "may", "might", "must", "shall", "can", "to", "of", "in",
+                     "for", "on", "with", "at", "by", "from", "as", "into", "through",
+                     "about", "what", "which", "who", "whom", "this", "that", "these",
+                     "those", "am", "or", "and", "but", "if", "because", "until", "while"}
+        query_terms = query_terms - stopwords
+
+        for snippet in snippets:
+            content_lower = snippet.content.lower()
+            original_score = snippet.score
+
+            # Boost for exact phrase match (strongest signal)
+            if len(query_lower) > 3 and query_lower in content_lower:
+                snippet.score *= 1.5
+
+            # Boost for multiple term matches
+            if query_terms:
+                term_matches = sum(1 for term in query_terms if len(term) > 2 and term in content_lower)
+                if term_matches > 1:
+                    snippet.score *= (1 + 0.1 * term_matches)
+
+            # Boost for resource type relevance based on query keywords
+            resource_type = snippet.metadata.get("resource_type") if snippet.metadata else None
+            if resource_type:
+                type_keywords = {
+                    "reference": {"reference", "references", "citation", "cite", "paper", "study", "research", "literature"},
+                    "paper": {"paper", "draft", "document", "writing", "section"},
+                    "meeting": {"meeting", "transcript", "discussion", "sync", "call", "talked", "said"},
+                }
+                type_matches = type_keywords.get(resource_type, set())
+                if type_matches & query_terms:
+                    snippet.score *= 1.3
+
+            logger.debug(
+                "Re-ranked snippet: original=%.3f, final=%.3f, type=%s",
+                original_score,
+                snippet.score,
+                resource_type,
+            )
+
+        return sorted(snippets, key=lambda s: s.score, reverse=True)
 
     def prewarm(self, contexts: Sequence[ChannelContext]) -> None:
         return None

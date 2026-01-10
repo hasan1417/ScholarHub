@@ -25,6 +25,8 @@ class ResourceDigest:
     title: str
     summary: Optional[str]
     metadata: Sequence[str] = field(default_factory=tuple)
+    content_preview: Optional[str] = None  # Paper content for AI editing
+    authoring_mode: Optional[str] = None   # 'latex' or 'rich' for papers
 
 
 @dataclass(slots=True)

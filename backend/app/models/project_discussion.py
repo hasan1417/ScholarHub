@@ -36,6 +36,8 @@ class ProjectDiscussionChannel(Base):
     description = Column(Text)
     is_default = Column(Boolean, nullable=False, server_default=text("false"))
     is_archived = Column(Boolean, nullable=False, server_default=text("false"))
+    # Scope configuration: null = project-wide (all resources), or array of types: ["papers", "references", "transcripts"]
+    scope = Column(JSONB, nullable=True, server_default=text("NULL"))
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

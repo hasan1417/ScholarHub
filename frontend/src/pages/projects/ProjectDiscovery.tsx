@@ -185,6 +185,8 @@ const ProjectDiscovery = () => {
   const [activeTab, setActiveTab] = useState<'manual' | 'active'>('manual')
   const [isDeleteMode, setIsDeleteMode] = useState(false)
   const [selectedResults, setSelectedResults] = useState<string[]>([])
+  const [promotingIds, setPromotingIds] = useState<Set<string>>(new Set())
+  const [dismissingIds, setDismissingIds] = useState<Set<string>>(new Set())
   const hasHydratedActiveForm = useRef(false)
   const activeFormDirtyRef = useRef(false)
 
@@ -496,25 +498,51 @@ const ProjectDiscovery = () => {
 
   const promoteResult = useMutation({
     mutationFn: async (resultId: string) => {
+      setPromotingIds((prev) => new Set(prev).add(resultId))
       const response = await projectDiscoveryAPI.promoteResult(project.id, resultId)
-      return response.data
+      return { data: response.data, resultId }
     },
-    onSuccess: () => {
+    onSuccess: (_data, resultId) => {
+      setPromotingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(resultId)
+        return next
+      })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryResults'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingCount'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'referenceSuggestions'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoverySettings'] })
     },
+    onError: (_error, resultId) => {
+      setPromotingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(resultId)
+        return next
+      })
+    },
   })
 
   const dismissResult = useMutation({
     mutationFn: async (resultId: string) => {
+      setDismissingIds((prev) => new Set(prev).add(resultId))
       const response = await projectDiscoveryAPI.dismissResult(project.id, resultId)
-      return response.data
+      return { data: response.data, resultId }
     },
-    onSuccess: () => {
+    onSuccess: (_data, resultId) => {
+      setDismissingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(resultId)
+        return next
+      })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryResults'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingCount'] })
+    },
+    onError: (_error, resultId) => {
+      setDismissingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(resultId)
+        return next
+      })
     },
   })
 
@@ -982,10 +1010,10 @@ const ProjectDiscovery = () => {
                             <button
                               type="button"
                               onClick={() => promoteResult.mutate(item.id)}
-                              disabled={promoteResult.isPending}
+                              disabled={promotingIds.has(item.id) || dismissingIds.has(item.id)}
                               className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-3 py-1.5 font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
                             >
-                              {promoteResult.isPending ? (
+                              {promotingIds.has(item.id) ? (
                                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                               ) : (
                                 <Check className="h-3.5 w-3.5" />
@@ -995,10 +1023,10 @@ const ProjectDiscovery = () => {
                             <button
                               type="button"
                               onClick={() => dismissResult.mutate(item.id)}
-                              disabled={dismissResult.isPending}
+                              disabled={promotingIds.has(item.id) || dismissingIds.has(item.id)}
                               className="inline-flex items-center gap-2 rounded-full border border-gray-200 px-3 py-1.5 font-medium text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
                             >
-                              {dismissResult.isPending ? (
+                              {dismissingIds.has(item.id) ? (
                                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                               ) : (
                                 <X className="h-3.5 w-3.5" />
@@ -1376,10 +1404,10 @@ const ProjectDiscovery = () => {
                               <button
                                 type="button"
                                 onClick={() => promoteResult.mutate(item.id)}
-                                disabled={promoteResult.isPending}
+                                disabled={promotingIds.has(item.id) || dismissingIds.has(item.id)}
                                 className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-3 py-1.5 font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
                               >
-                                {promoteResult.isPending ? (
+                                {promotingIds.has(item.id) ? (
                                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                 ) : (
                                   <Check className="h-3.5 w-3.5" />
@@ -1389,10 +1417,10 @@ const ProjectDiscovery = () => {
                               <button
                                 type="button"
                                 onClick={() => dismissResult.mutate(item.id)}
-                                disabled={dismissResult.isPending}
+                                disabled={promotingIds.has(item.id) || dismissingIds.has(item.id)}
                                 className="inline-flex items-center gap-2 rounded-full border border-gray-200 px-3 py-1.5 font-medium text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
                               >
-                                {dismissResult.isPending ? (
+                                {dismissingIds.has(item.id) ? (
                                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                 ) : (
                                   <X className="h-3.5 w-3.5" />

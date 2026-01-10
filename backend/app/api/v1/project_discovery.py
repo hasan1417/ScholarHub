@@ -10,10 +10,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel
 from sqlalchemy import inspect
 from sqlalchemy.orm import Session
-from starlette.responses import StreamingResponse
-import asyncio
-import json
-import time
 
 from app.api.deps import get_current_user
 from app.api.utils.project_access import ensure_project_member, get_project_or_404
@@ -37,7 +33,6 @@ from app.schemas.project import (
 from urllib.parse import urlparse
 
 from app.services.paper_discovery.models import PaperSource
-from app.services.paper_discovery_service import PaperDiscoveryService
 from app.services.reference_ingestion_service import ingest_reference_pdf
 from app.services.project_discovery_service import ProjectDiscoveryManager
 from app.services.activity_feed import record_project_activity, preview_text
@@ -360,119 +355,6 @@ def run_project_discovery(
         references_created=result.references_created,
         project_suggestions_created=result.project_suggestions_created,
         last_run_at=last_run_dt,
-    )
-
-
-@router.post("/projects/{project_id}/discovery/stream")
-async def stream_project_discovery(
-    project_id: UUID,
-    payload: DiscoveryRunRequest = DiscoveryRunRequest(),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Stream discovery results incrementally for a project."""
-    try:
-        logger.info(
-            "Project %s stream discovery payload: query=%s keywords=%s sources=%s max_results=%s",
-            project_id,
-            getattr(payload, 'query', None),
-            getattr(payload, 'keywords', None),
-            getattr(payload, 'sources', None),
-            getattr(payload, 'max_results', None),
-        )
-    except Exception:
-        pass
-
-    _guard_feature()
-    _ensure_discovery_schema(db)
-    project = get_project_or_404(db, project_id)
-    ensure_project_member(db, project, current_user, roles=[ProjectRole.ADMIN, ProjectRole.EDITOR])
-
-    try:
-        payload_dict = payload.model_dump(exclude_none=True)  # type: ignore[attr-defined]
-    except AttributeError:
-        try:
-            payload_dict = payload.dict(exclude_none=True)  # type: ignore[call-arg]
-        except Exception:  # pragma: no cover
-            payload_dict = {}
-    logger.info("Project %s stream discovery payload raw: %s", project_id, payload_dict)
-
-    async def event_stream():
-        start_ts = time.time()
-        try:
-            manager = ProjectDiscoveryManager(db)
-            preferences = manager.as_preferences(project.discovery_preferences)
-
-            # Build effective query
-            override_query = payload.query
-            query = (override_query or preferences.query or project.title or '').strip()
-            if not query:
-                yield f"data: {json.dumps({'type': 'error', 'message': 'Discovery query cannot be empty'})}\n\n"
-                return
-
-            # Get sources to search
-            sources = payload.sources or preferences.sources or ['semantic_scholar', 'arxiv', 'crossref']
-            if payload.keywords is not None:
-                preferences.keywords = payload.keywords
-            if payload.max_results is not None:
-                max_results = payload.max_results
-            else:
-                max_results = preferences.max_results or 20
-
-            logger.info(f"Streaming project discovery: query='{query}', sources={sources}, max_results={max_results}")
-
-            # Use the same discovery service as the global endpoint
-            async with PaperDiscoveryService() as svc:
-                papers = await svc.discover_papers(
-                    query=query,
-                    research_topic=project.scope,
-                    sources=sources,
-                    max_results=max_results,
-                    target_keywords=preferences.keywords,
-                    debug=False
-                )
-
-                # Stream results as a single batch (similar to global endpoint)
-                batch = []
-                for p in papers:
-                    batch.append({
-                        'title': p.title,
-                        'authors': p.authors,
-                        'abstract': p.abstract or '',
-                        'year': p.year,
-                        'doi': p.doi,
-                        'url': p.url,
-                        'source': p.source,
-                        'relevance_score': p.relevance_score,
-                        'citations_count': p.citations_count,
-                        'journal': p.journal,
-                        'keywords': p.keywords,
-                        'is_open_access': getattr(p, 'is_open_access', False),
-                        'open_access_url': getattr(p, 'open_access_url', None),
-                        'pdf_url': getattr(p, 'pdf_url', None),
-                    })
-
-                payload_data = {
-                    'type': 'final',
-                    'papers': batch,
-                    'total': len(batch),
-                    'search_time': time.time() - start_ts
-                }
-                yield f"data: {json.dumps(payload_data)}\n\n"
-
-        except asyncio.TimeoutError:
-            yield f"data: {json.dumps({'type': 'done', 'total': 0, 'timeout': True})}\n\n"
-        except Exception as e:
-            logger.error(f"Project discovery stream failed: {str(e)}")
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-
-    return StreamingResponse(
-        event_stream(),
-        media_type='text/event-stream',
-        headers={
-            'Cache-Control': 'no-cache',
-            'X-Accel-Buffering': 'no'
-        }
     )
 
 

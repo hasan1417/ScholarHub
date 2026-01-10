@@ -493,15 +493,6 @@ export const projectDiscoveryAPI = {
     api.delete<ProjectDiscoveryClearResponse>(
       `/projects/${projectId}/discovery/results/dismissed`
     ),
-  streamDiscovery: (projectId: string, payload: any) =>
-    fetch(buildApiUrl(`/projects/${projectId}/discovery/stream`), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-      },
-      body: JSON.stringify(payload),
-    }),
 }
 
 export const projectMeetingsAPI = {
@@ -697,6 +688,16 @@ export const projectDiscussionAPI = {
     api.post<DiscussionAssistantResponse>(
       `/projects/${projectId}/discussion/channels/${channelId}/assistant`,
       payload
+    ),
+
+  executePaperAction: (
+    projectId: string,
+    actionType: string,
+    payload: Record<string, unknown>
+  ) =>
+    api.post<{ success: boolean; paper_id?: string; message: string }>(
+      `/projects/${projectId}/discussion/paper-action`,
+      { action_type: actionType, payload }
     ),
 }
 

@@ -608,6 +608,13 @@ export interface DiscussionStats {
   channel_id?: string | null
 }
 
+// Channel scope: null = project-wide, or specific resource IDs
+export interface ChannelScopeConfig {
+  paper_ids?: string[] | null
+  reference_ids?: string[] | null
+  meeting_ids?: string[] | null
+}
+
 export interface DiscussionChannelSummary {
   id: string
   project_id: string
@@ -616,6 +623,7 @@ export interface DiscussionChannelSummary {
   description?: string | null
   is_default: boolean
   is_archived: boolean
+  scope?: ChannelScopeConfig | null  // null = project-wide, or specific resource IDs
   created_at: string
   updated_at: string
   stats?: DiscussionStats | null
@@ -625,12 +633,14 @@ export interface DiscussionChannelCreate {
   name: string
   description?: string | null
   slug?: string | null
+  scope?: ChannelScopeConfig | null  // null = project-wide, or specific resource IDs
 }
 
 export interface DiscussionChannelUpdate {
   name?: string
   description?: string | null
   is_archived?: boolean
+  scope?: ChannelScopeConfig | null  // null = don't change, empty = project-wide, or specific resource IDs
 }
 
 export type DiscussionResourceType = 'paper' | 'reference' | 'meeting'

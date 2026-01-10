@@ -82,6 +82,21 @@ class DiscussionStats(BaseModel):
         from_attributes = True
 
 
+class ChannelScopeConfig(BaseModel):
+    """Specific resource IDs for channel scope. null = project-wide (all resources)."""
+    paper_ids: Optional[List[UUID]] = None
+    reference_ids: Optional[List[UUID]] = None
+    meeting_ids: Optional[List[UUID]] = None
+
+    def is_empty(self) -> bool:
+        """Check if all ID lists are empty or None."""
+        return (
+            (not self.paper_ids or len(self.paper_ids) == 0) and
+            (not self.reference_ids or len(self.reference_ids) == 0) and
+            (not self.meeting_ids or len(self.meeting_ids) == 0)
+        )
+
+
 class DiscussionChannelBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = Field(default=None, max_length=2000)
@@ -89,13 +104,16 @@ class DiscussionChannelBase(BaseModel):
 
 
 class DiscussionChannelCreate(DiscussionChannelBase):
-    pass
+    # null = project-wide (all resources), or specific resource IDs
+    scope: Optional[ChannelScopeConfig] = None
 
 
 class DiscussionChannelUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=255)
     description: Optional[str] = Field(default=None, max_length=2000)
     is_archived: Optional[bool] = None
+    # null = don't change, empty object = project-wide, or specific resource IDs
+    scope: Optional[ChannelScopeConfig] = Field(default=None)
 
 
 class DiscussionChannelSummary(BaseModel):
@@ -106,6 +124,7 @@ class DiscussionChannelSummary(BaseModel):
     description: Optional[str]
     is_default: bool
     is_archived: bool
+    scope: Optional[ChannelScopeConfig] = None  # null = project-wide, or specific resource IDs
     created_at: datetime
     updated_at: datetime
     stats: Optional[DiscussionStats] = None

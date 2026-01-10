@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Iterator, Optional, Sequence
+from textwrap import dedent
+from typing import Iterator, List, Optional, Sequence
 
 from sqlalchemy.orm import Session
 
@@ -22,6 +23,18 @@ logger = logging.getLogger(__name__)
 class DiscussionAIService:
     """High-level orchestrator for the discussion assistant."""
 
+    # Model tiers for smart routing
+    FAST_MODEL = "gpt-4o-mini"      # Fast, cheap - for simple queries
+    QUALITY_MODEL = "gpt-4o"         # Balanced - for research queries
+    REASONING_MODEL = "gpt-5"        # Advanced - when reasoning enabled
+
+    # Simple query patterns that don't need RAG
+    SIMPLE_PATTERNS = {
+        "hi", "hey", "hello", "thanks", "thank you", "ok", "okay", "help",
+        "what can you do", "who are you", "how are you", "good morning",
+        "good afternoon", "good evening", "bye", "goodbye"
+    }
+
     def __init__(
         self,
         db: Session,
@@ -38,6 +51,30 @@ class DiscussionAIService:
         self.retriever = DiscussionRetriever(db, ai_service)
         self.prompt_composer = PromptComposer()
 
+    def _quick_classify(self, query: str) -> str:
+        """Fast classification for query routing - no DB calls needed."""
+        q = query.lower().strip()
+        words = q.split()
+
+        # Very short queries without research keywords are simple
+        if len(words) <= 2:
+            return "simple"
+
+        # Exact match on simple patterns
+        if q in self.SIMPLE_PATTERNS:
+            return "simple"
+
+        # Default to full processing
+        return "full"
+
+    def _select_model_smart(self, reasoning: bool, route: str) -> str:
+        """Select model based on reasoning mode and query route."""
+        if reasoning and self.ai_service.openai_client:
+            return self.REASONING_MODEL
+        if route == "simple":
+            return self.FAST_MODEL
+        return self.QUALITY_MODEL
+
     def generate_reply(
         self,
         project: Project,
@@ -47,16 +84,52 @@ class DiscussionAIService:
         reasoning: bool = False,
         scope: Optional[Sequence[str]] = None,
     ) -> AssistantReply:
+        # Smart routing for non-streaming replies
+        route = self._quick_classify(question)
+
+        # Fast path for simple queries (non-streaming)
+        if route == "simple" and not reasoning:
+            logger.info("Discussion generate_reply routed to fast path: %s", question[:50])
+            messages = [
+                {
+                    "role": "system",
+                    "content": f"You are a helpful assistant for the '{project.title}' research project discussion. "
+                               "Keep responses brief and friendly."
+                },
+                {"role": "user", "content": question}
+            ]
+            if not self.ai_service.openai_client:
+                response_text = f"Hello! I'm here to help with the {project.title} project."
+            else:
+                completion = self.ai_service.create_response(
+                    messages=messages,
+                    model=self.FAST_MODEL,
+                    temperature=0.7,
+                    max_output_tokens=300,
+                )
+                response_text = self.ai_service.extract_response_text(completion) or "Hello! How can I help?"
+
+            return AssistantReply(
+                message=response_text,
+                citations=tuple(),
+                reasoning_used=False,
+                model=self.FAST_MODEL,
+                usage=None,
+                suggested_actions=tuple(),
+            )
+
+        # Full path: context assembly + RAG
         resource_scope = self._resolve_resource_scope(scope)
         context = self.context_assembler.build(project, channel, resource_scope=resource_scope)
         self.indexer.ensure_resource_embeddings(context)
         snippets = self.retriever.retrieve(question, context)
         metadata_insights = self._maybe_enrich_metadata_only(snippets, question)
         messages = self.prompt_composer.build_messages(question, context, snippets)
+        citations = self._build_citations(snippets)
 
         response_text: str
-        reasoning_model_used = False
-        model_name = self._select_model(reasoning)
+        model_name = self._select_model_smart(reasoning, route)
+        reasoning_model_used = model_name in (self.REASONING_MODEL, self.default_reasoning_model)
         usage_meta = None
 
         if not self.ai_service.openai_client:
@@ -67,11 +140,10 @@ class DiscussionAIService:
                 messages=messages,
                 model=model_name,
                 temperature=0.2,
-                max_output_tokens=900,
+                max_output_tokens=2000,  # Increased from 900
             )
             response_text = self.ai_service.extract_response_text(completion) or "I'm sorry, I do not have enough information to help yet."
             usage_meta = self.ai_service.response_usage_to_metadata(getattr(completion, "usage", None))
-            reasoning_model_used = model_name != self.ai_service.chat_model
 
         message_text, suggested_actions = self._extract_suggested_actions(response_text)
         logger.info(
@@ -80,7 +152,6 @@ class DiscussionAIService:
             len(suggested_actions),
             len(citations),
         )
-        citations = self._build_citations(snippets)
 
         if metadata_insights:
             message_text = f"{message_text}\n\n{metadata_insights}".strip()
@@ -93,6 +164,53 @@ class DiscussionAIService:
             suggested_actions=suggested_actions,
         )
 
+    def _stream_simple(
+        self,
+        question: str,
+        project_title: str,
+    ) -> Iterator[dict]:
+        """Fast response for simple queries - no RAG, no context building."""
+        messages = [
+            {
+                "role": "system",
+                "content": f"You are a helpful assistant for the '{project_title}' research project discussion. "
+                           "Keep responses brief and friendly. You help researchers collaborate and discuss their work."
+            },
+            {"role": "user", "content": question}
+        ]
+
+        response_text = ""
+        if not self.ai_service.openai_client:
+            response_text = f"Hello! I'm here to help with the {project_title} project. How can I assist you today?"
+            yield {"type": "token", "content": response_text}
+        else:
+            streamed_chunks: list[str] = []
+            with self.ai_service.stream_response(
+                messages=messages,
+                model=self.FAST_MODEL,
+                temperature=0.7,
+                max_output_tokens=300,
+            ) as stream:
+                for event in stream:
+                    event_type = getattr(event, "type", None)
+                    if event_type == "response.output_text.delta":
+                        delta = getattr(event, "delta", "")
+                        if delta:
+                            streamed_chunks.append(delta)
+                            yield {"type": "token", "content": delta}
+            response_text = "".join(streamed_chunks)
+
+        # Simple queries don't have citations or suggested actions
+        reply = AssistantReply(
+            message=response_text,
+            citations=tuple(),
+            reasoning_used=False,
+            model=self.FAST_MODEL,
+            usage=None,
+            suggested_actions=tuple(),
+        )
+        yield {"type": "result", "reply": reply}
+
     def stream_reply(
         self,
         project: Project,
@@ -102,6 +220,15 @@ class DiscussionAIService:
         reasoning: bool = False,
         scope: Optional[Sequence[str]] = None,
     ) -> Iterator[dict]:
+        # Smart routing: fast path for simple queries
+        route = self._quick_classify(question)
+
+        if route == "simple" and not reasoning:
+            logger.info("Discussion query routed to fast path: %s", question[:50])
+            yield from self._stream_simple(question, project.title)
+            return
+
+        # Full path: context assembly + RAG for complex queries
         resource_scope = self._resolve_resource_scope(scope)
         context = self.context_assembler.build(project, channel, resource_scope=resource_scope)
         self.indexer.ensure_resource_embeddings(context)
@@ -109,8 +236,8 @@ class DiscussionAIService:
         messages = self.prompt_composer.build_messages(question, context, snippets)
         citations = self._build_citations(snippets)
 
-        model_name = self._select_model(reasoning)
-        reasoning_model_used = model_name != self.ai_service.chat_model
+        model_name = self._select_model_smart(reasoning, route)
+        reasoning_model_used = model_name in (self.REASONING_MODEL, self.default_reasoning_model)
         usage_meta = None
 
         if not self.ai_service.openai_client:
@@ -124,7 +251,7 @@ class DiscussionAIService:
                 messages=messages,
                 model=model_name,
                 temperature=0.2,
-                max_output_tokens=900,
+                max_output_tokens=2000,  # Increased from 900 for detailed responses
             ) as stream:
                 for event in stream:
                     event_type = getattr(event, "type", None)
@@ -162,7 +289,7 @@ class DiscussionAIService:
                 fallback = self.ai_service.create_response(
                     messages=messages,
                     model=model_name,
-                    max_output_tokens=900,
+                    max_output_tokens=2000,
                 )
                 response_text = self.ai_service.extract_response_text(fallback)
                 usage_meta = self.ai_service.response_usage_to_metadata(getattr(fallback, "usage", None))

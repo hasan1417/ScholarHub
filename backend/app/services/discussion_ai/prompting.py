@@ -3,6 +3,7 @@ from __future__ import annotations
 from textwrap import dedent
 from typing import Iterable, List, Sequence
 
+from app.models import ProjectDiscussionResourceType
 from app.services.discussion_ai.types import ChannelContext, RetrievalSnippet
 
 
@@ -11,34 +12,47 @@ _SYSTEM_PROMPT = dedent(
     You are ScholarHub's project discussion assistant. Help researchers by answering
     questions using only the information provided. If the context does not contain
     enough details, ask the user to clarify or suggest linking additional resources.
-    Always cite the source identifiers provided in the context snippets using the
-    format [resource:<id>] or [message:<id>] where <id> is the UUID supplied.
-    Never fabricate data and keep responses concise so the user receives an answer quickly.
 
-    Do not invent URLs or external links. Refer to resources only by the names
-    and identifiers given in the context. Do not include a separate "Sources" or
-    reference list inside the natural language reply—the UI will surface citations
-    automatically—so focus on the answer itself.
+    RESPONSE FORMAT:
+    - NEVER show UUIDs or identifiers like [reference:abc-123] in your response
+    - Just refer to resources by their title/name naturally (e.g., "Agentic AI in Enterprise (2025)")
+    - The UI will automatically link citations - you don't need to include IDs
+    - Keep responses concise and natural
 
-    When referencing meeting transcripts, clearly label them (e.g., "Transcript:")
-    so the content stands out from the rest of the answer.
+    CITATION RULES:
+    - Only cite sources when you actually use specific information FROM that source
+    - Do NOT cite a source just because it exists in the context
+    - Do NOT cite meeting transcripts unless you quote or reference specific content from them
+    - If no sources are relevant to your answer, don't include any citations
+    - For internal tracking only, use format [resource:<id>] but this will be hidden from users
 
-    When appropriate, propose follow-up actions (e.g., create a task). After your
-    answer, add a JSON array wrapped between <actions> and </actions> tags. The JSON
-    should follow this schema:
+    Never fabricate data. Do not invent URLs or external links.
 
-    <actions>
-    [
-      {
-        "type": "create_task",
-        "summary": "Short human-readable label",
-        "payload": { "title": "...", "description": "...", "message_id": "..." }
-      }
-    ]
-    </actions>
+    IMPORTANT: When the user asks to create a paper, immediately provide the create_paper action.
+    Do NOT ask for confirmation or additional details unless truly necessary.
 
-    Emit an empty array if no action is required. Do not mention the tags in the
-    natural language response.
+    SUGGESTED ACTIONS:
+    Only suggest actions when they are concrete and immediately actionable. After your answer,
+    add a JSON array wrapped between <actions> and </actions> tags.
+
+    Supported action types:
+
+    1. **create_task** - Create a specific, actionable task
+       {"type": "create_task", "summary": "Short label", "payload": {"title": "...", "description": "..."}}
+       ONLY suggest tasks that are:
+       - Specific and actionable (e.g., "Review reference X for methodology section")
+       - NOT vague organizational suggestions (e.g., "Organize by theme" is NOT a valid task)
+       - Related to concrete work the user can do
+
+    2. **create_paper** - Create a new research paper
+       {"type": "create_paper", "summary": "Create [type] paper: [title]", "payload": {"title": "Paper Title", "paper_type": "research|review|case_study", "authoring_mode": "latex|rich", "abstract": "Brief abstract", "objectives": []}}
+
+    3. **edit_paper** - Suggest an edit to an existing paper
+       {"type": "edit_paper", "summary": "Brief description", "payload": {"paper_id": "<uuid>", "original": "Exact text to find", "proposed": "Replacement text", "description": "Why this change"}}
+
+    Emit an empty array [] if no concrete action is appropriate. Most informational responses
+    should NOT have suggested actions - only suggest actions when they add real value.
+    Do not mention the tags in the natural language response.
     """
 ).strip()
 
@@ -63,6 +77,7 @@ class PromptComposer:
         objectives_section = self._format_project_objectives(context)
         paper_section = self._format_paper_objectives(context)
         scope_section = self._format_scope(context)
+        paper_contents_section = self._format_paper_contents(context)
 
         user_payload = dedent(
             f"""
@@ -76,6 +91,9 @@ class PromptComposer:
 
             Papers aligned to objectives:
             {paper_section}
+
+            Paper contents for editing:
+            {paper_contents_section}
 
             Recent discussion snippets:
             {message_history}
@@ -95,18 +113,45 @@ class PromptComposer:
 
     def _format_resources(self, context: ChannelContext) -> str:
         if not context.resources:
-            return "Channel resources: none linked."
-        lines: List[str] = ["Channel resources:"]
-        for resource in context.resources:
-            meta = f" ({', '.join(resource.metadata)})" if resource.metadata else ""
-            lines.append(
-                f"- [{resource.resource_type.value}:{resource.id}] {resource.title}{meta}"
-            )
-            if resource.summary:
-                summary_preview = resource.summary.strip()
-                if len(summary_preview) > 320:
-                    summary_preview = summary_preview[:317].rstrip() + "…"
-                lines.append(f"  Transcript: {summary_preview}")
+            return "Project resources: none available."
+
+        # Group resources by type for clarity
+        papers = [r for r in context.resources if r.resource_type == ProjectDiscussionResourceType.PAPER]
+        references = [r for r in context.resources if r.resource_type == ProjectDiscussionResourceType.REFERENCE]
+        meetings = [r for r in context.resources if r.resource_type == ProjectDiscussionResourceType.MEETING]
+
+        lines: List[str] = ["Project resources:"]
+
+        # Papers being written in the project
+        lines.append(f"\nPapers (research papers being written by the team): {len(papers)} total")
+        if papers:
+            for resource in papers:
+                meta = f" ({', '.join(resource.metadata)})" if resource.metadata else ""
+                lines.append(f"  - [{resource.resource_type.value}:{resource.id}] {resource.title}{meta}")
+        else:
+            lines.append("  - (no papers yet)")
+
+        # References in project library
+        lines.append(f"\nReferences (academic papers in project library): {len(references)} total")
+        if references:
+            for resource in references:
+                meta = f" ({', '.join(resource.metadata)})" if resource.metadata else ""
+                lines.append(f"  - [{resource.resource_type.value}:{resource.id}] {resource.title}{meta}")
+        else:
+            lines.append("  - (no references in library)")
+
+        # Meeting transcripts
+        if meetings:
+            lines.append(f"\nMeeting transcripts: {len(meetings)} total")
+            for resource in meetings:
+                meta = f" ({', '.join(resource.metadata)})" if resource.metadata else ""
+                lines.append(f"  - [{resource.resource_type.value}:{resource.id}] {resource.title}{meta}")
+                if resource.summary:
+                    summary_preview = resource.summary.strip()
+                    if len(summary_preview) > 320:
+                        summary_preview = summary_preview[:317].rstrip() + "…"
+                    lines.append(f"    Transcript: {summary_preview}")
+
         return "\n".join(lines)
 
     def _format_snippets(self, snippets: Sequence[RetrievalSnippet]) -> str:
@@ -155,3 +200,28 @@ class PromptComposer:
             if label:
                 labels.append(label)
         return ", ".join(labels) if labels else "transcripts, papers, references"
+
+    def _format_paper_contents(self, context: ChannelContext) -> str:
+        """Format paper content previews for AI editing suggestions."""
+        if not context.resources:
+            return "  • none (no papers in project)"
+
+        lines: List[str] = []
+        for resource in context.resources:
+            if resource.resource_type != ProjectDiscussionResourceType.PAPER:
+                continue
+            if not resource.content_preview:
+                lines.append(f"  • [{resource.id}] {resource.title} - (no content yet)")
+                continue
+
+            mode = resource.authoring_mode or 'rich'
+            lines.append(f"  • [{resource.id}] {resource.title} (mode: {mode})")
+            # Include content preview (truncated for prompt efficiency)
+            preview = resource.content_preview
+            if len(preview) > 1500:
+                preview = preview[:1500] + "...[truncated]"
+            lines.append(f"    Content:\n    {preview}")
+
+        if not lines:
+            return "  • none (no papers in project)"
+        return "\n".join(lines)

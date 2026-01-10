@@ -1,4 +1,4 @@
-import { Plus, MessageCircle, Archive, RotateCcw } from 'lucide-react'
+import { Plus, MessageCircle, Archive, RotateCcw, Settings } from 'lucide-react'
 import clsx from 'clsx'
 import { DiscussionChannelSummary } from '../../types'
 
@@ -9,6 +9,7 @@ interface DiscussionChannelSidebarProps {
   onCreateChannel: () => void
   isCreating?: boolean
   onArchiveToggle?: (channel: DiscussionChannelSummary) => void
+  onOpenSettings?: (channel: DiscussionChannelSummary) => void
 }
 
 const DiscussionChannelSidebar = ({
@@ -18,6 +19,7 @@ const DiscussionChannelSidebar = ({
   onCreateChannel,
   isCreating = false,
   onArchiveToggle,
+  onOpenSettings,
 }: DiscussionChannelSidebarProps) => {
   return (
     <aside className="flex h-full w-60 flex-col border-r border-gray-200 bg-gray-50 transition-colors dark:border-slate-700/80 dark:bg-slate-900/40">
@@ -69,6 +71,23 @@ const DiscussionChannelSidebar = ({
                         <div className="flex items-center gap-2">
                           {channel.is_default && (
                             <span className="text-[10px] uppercase tracking-wide text-indigo-500 dark:text-indigo-300">Default</span>
+                          )}
+                          {onOpenSettings && !channel.is_default && (
+                            <button
+                              type="button"
+                              className={clsx(
+                                'rounded-full p-1 text-gray-400 transition hover:bg-gray-200 hover:text-gray-700 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200',
+                                isActive ? 'inline-flex' : 'hidden group-hover:inline-flex'
+                              )}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                onOpenSettings(channel)
+                              }}
+                              title="Channel settings"
+                              aria-label={`Settings for ${channel.name}`}
+                            >
+                              <Settings className="h-4 w-4" />
+                            </button>
                           )}
                           {onArchiveToggle && !channel.is_default && (
                             <button

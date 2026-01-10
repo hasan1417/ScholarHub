@@ -8,12 +8,14 @@ from uuid import UUID
 from sqlalchemy.orm import Session, joinedload
 
 from app.models import (
+    Meeting,
     Project,
     ProjectDiscussionChannel,
     ProjectDiscussionChannelResource,
     ProjectDiscussionMessage,
     ProjectDiscussionResourceType,
     ProjectDiscussionTask,
+    Reference,
     ResearchPaper,
 )
 from app.services.discussion_ai.types import (
@@ -51,15 +53,15 @@ class ResourceDigestBuilder:
         metadata: List[str] = []
         if resource_type == ProjectDiscussionResourceType.PAPER:
             if details.get("status"):
-                metadata.append(details["status"])
+                metadata.append(str(details["status"]))
             if details.get("year"):
                 metadata.append(str(details["year"]))
         elif resource_type == ProjectDiscussionResourceType.REFERENCE:
             if details.get("source"):
-                metadata.append(details["source"])
+                metadata.append(str(details["source"]))
         elif resource_type == ProjectDiscussionResourceType.MEETING:
             if details.get("status"):
-                metadata.append(details["status"])
+                metadata.append(str(details["status"]))
             if details.get("has_transcript"):
                 metadata.append("Transcript available")
 
@@ -185,6 +187,26 @@ class ChannelContextAssembler:
         self.message_limit = message_limit
         self.resource_builder = ResourceDigestBuilder()
 
+    def _parse_channel_scope(self, channel_scope: Optional[dict]) -> Optional[dict]:
+        """Parse channel scope from JSONB to a usable dict with UUIDs."""
+        if not channel_scope or not isinstance(channel_scope, dict):
+            return None  # Project-wide
+
+        result = {}
+        for key in ["paper_ids", "reference_ids", "meeting_ids"]:
+            ids = channel_scope.get(key)
+            if ids and isinstance(ids, list):
+                # Convert string UUIDs to UUID objects
+                result[key] = set(UUID(str(id_val)) if not isinstance(id_val, UUID) else id_val for id_val in ids)
+            else:
+                result[key] = set()
+
+        # If all sets are empty, return None (project-wide)
+        if not any(result.values()):
+            return None
+
+        return result
+
     def build(
         self,
         project: Project,
@@ -195,7 +217,28 @@ class ChannelContextAssembler:
     ) -> ChannelContext:
         limit = message_limit or self.message_limit
         messages = self._load_messages(channel.id, limit)
-        resources = self._load_resources(channel, resource_scope)
+
+        # Parse channel-level scope (specific resource IDs)
+        channel_scope_ids = None
+        if hasattr(channel, 'scope') and channel.scope:
+            channel_scope_ids = self._parse_channel_scope(channel.scope)
+
+        # Load channel-linked resources
+        channel_resources = self._load_resources(channel, resource_scope)
+
+        # Load project-wide resources and merge (avoiding duplicates)
+        # If channel has specific scope IDs, filter by those; otherwise load all
+        project_resources = self._load_project_resources(
+            project.id,
+            resource_scope,
+            specific_ids=channel_scope_ids,
+        )
+        channel_resource_ids = {r.id for r in channel_resources}
+        all_resources = list(channel_resources)
+        for pr in project_resources:
+            if pr.id not in channel_resource_ids:
+                all_resources.append(pr)
+
         tasks = self._load_tasks(channel.id)
         project_objectives = tuple(self._parse_project_objectives(project.scope))
         paper_objectives = tuple(self._load_paper_objectives(project.id))
@@ -211,7 +254,7 @@ class ChannelContextAssembler:
             channel_description=channel.description,
             summary=summary,
             messages=messages,
-            resources=resources,
+            resources=tuple(all_resources),
             tasks=tasks,
             project_objectives=project_objectives,
             paper_objectives=paper_objectives,
@@ -285,6 +328,22 @@ class ChannelContextAssembler:
             digest = self.resource_builder.build(resource)
             if allowed and digest.resource_type not in allowed:
                 continue
+            # Skip meeting resources without meaningful content
+            # Require meaningful title OR at least 50 chars of summary/transcript
+            MIN_CONTENT_LENGTH = 50
+            if digest.resource_type == ProjectDiscussionResourceType.MEETING:
+                has_meaningful_title = (
+                    digest.title and
+                    not digest.title.lower().startswith('sync space') and
+                    not digest.title.lower().startswith('meeting ')
+                )
+                has_meaningful_content = bool(
+                    digest.summary and
+                    digest.summary.strip() and
+                    len(digest.summary.strip()) >= MIN_CONTENT_LENGTH
+                )
+                if not has_meaningful_title and not has_meaningful_content:
+                    continue
             digests.append(digest)
         return digests
 
@@ -336,3 +395,194 @@ class ChannelContextAssembler:
             if parsed:
                 digests.append(PaperObjectiveDigest(id=paper_id, title=title, objectives=tuple(parsed)))
         return digests
+
+    def _load_project_resources(
+        self,
+        project_id: UUID,
+        resource_scope: Optional[Sequence[ProjectDiscussionResourceType]] = None,
+        specific_ids: Optional[dict] = None,
+    ) -> List[ResourceDigest]:
+        """Load resources from the project, optionally filtered by specific IDs.
+
+        Args:
+            project_id: The project ID to load resources from
+            resource_scope: Optional filter by resource type (PAPER, REFERENCE, MEETING)
+            specific_ids: Optional dict with paper_ids, reference_ids, meeting_ids sets
+                         If provided, only load resources with those specific IDs
+        """
+        resources: List[ResourceDigest] = []
+        allowed: Optional[set[ProjectDiscussionResourceType]] = None
+        if resource_scope:
+            allowed = {ProjectDiscussionResourceType(item) for item in resource_scope}
+
+        # Extract specific ID sets if provided
+        specific_paper_ids = specific_ids.get("paper_ids") if specific_ids else None
+        specific_reference_ids = specific_ids.get("reference_ids") if specific_ids else None
+        specific_meeting_ids = specific_ids.get("meeting_ids") if specific_ids else None
+
+        # Always load paper IDs for reference lookup
+        papers: List[ResearchPaper] = []
+        paper_ids: List[UUID] = []
+
+        # Load project papers (filtered by specific IDs if provided)
+        should_load_papers = (
+            (not allowed or ProjectDiscussionResourceType.PAPER in allowed or ProjectDiscussionResourceType.REFERENCE in allowed) and
+            (specific_ids is None or specific_paper_ids or specific_reference_ids)
+        )
+        if should_load_papers:
+            query = self.db.query(ResearchPaper).filter(
+                ResearchPaper.project_id == project_id,
+            )
+            # If specific paper IDs given, filter to only those
+            if specific_paper_ids:
+                query = query.filter(ResearchPaper.id.in_(specific_paper_ids))
+
+            papers = query.all()
+            paper_ids = [p.id for p in papers]
+
+            # Add papers to resources if in scope
+            should_add_papers = (
+                (not allowed or ProjectDiscussionResourceType.PAPER in allowed) and
+                (specific_ids is None or specific_paper_ids)
+            )
+            if should_add_papers:
+                for paper in papers:
+                    # Skip if specific IDs provided and this paper is not in the list
+                    if specific_paper_ids and paper.id not in specific_paper_ids:
+                        continue
+                    metadata: List[str] = []
+                    if paper.status:
+                        metadata.append(str(paper.status))
+                    # Extract content preview and authoring mode for AI editing
+                    content_preview = self._get_paper_content_preview(paper)
+                    authoring_mode = self._get_authoring_mode(paper)
+                    resources.append(
+                        ResourceDigest(
+                            id=paper.id,
+                            resource_type=ProjectDiscussionResourceType.PAPER,
+                            title=paper.title or "Untitled Paper",
+                            summary=self._truncate_text(paper.abstract) if paper.abstract else None,
+                            metadata=tuple(metadata),
+                            content_preview=content_preview,
+                            authoring_mode=authoring_mode,
+                        )
+                    )
+
+        # Load project library references (via ProjectReference table)
+        should_load_refs = (
+            (not allowed or ProjectDiscussionResourceType.REFERENCE in allowed) and
+            (specific_ids is None or specific_reference_ids)
+        )
+        if should_load_refs:
+            from app.models import ProjectReference, ProjectReferenceStatus
+            # Join ProjectReference with Reference to get project library references
+            query = (
+                self.db.query(Reference)
+                .join(ProjectReference, ProjectReference.reference_id == Reference.id)
+                .filter(
+                    ProjectReference.project_id == project_id,
+                    ProjectReference.status == ProjectReferenceStatus.APPROVED,
+                )
+            )
+            # If specific reference IDs given, filter to only those
+            if specific_reference_ids:
+                query = query.filter(Reference.id.in_(specific_reference_ids))
+
+            refs = query.all()
+            for ref in refs:
+                metadata: List[str] = []
+                if ref.source:
+                    metadata.append(str(ref.source))
+                if ref.year:
+                    metadata.append(str(ref.year))
+                resources.append(
+                    ResourceDigest(
+                        id=ref.id,
+                        resource_type=ProjectDiscussionResourceType.REFERENCE,
+                        title=ref.title or "Untitled Reference",
+                        summary=self._truncate_text(ref.abstract) if ref.abstract else None,
+                        metadata=tuple(metadata),
+                    )
+                )
+
+        # Load project meetings (filtered by specific IDs if provided)
+        should_load_meetings = (
+            (not allowed or ProjectDiscussionResourceType.MEETING in allowed) and
+            (specific_ids is None or specific_meeting_ids)
+        )
+        if should_load_meetings:
+            query = self.db.query(Meeting).filter(Meeting.project_id == project_id)
+            # If specific meeting IDs given, filter to only those
+            if specific_meeting_ids:
+                query = query.filter(Meeting.id.in_(specific_meeting_ids))
+
+            meetings = query.all()
+            for meeting in meetings:
+                # Handle transcript - it's JSONB so convert to string if it's a dict
+                transcript_text = None
+                if hasattr(meeting, 'transcript') and meeting.transcript:
+                    if isinstance(meeting.transcript, dict):
+                        # Extract text from transcript dict if possible
+                        transcript_text = meeting.transcript.get('text', str(meeting.transcript))
+                    else:
+                        transcript_text = str(meeting.transcript)
+
+                # Skip meetings without meaningful content
+                # Require at least 50 characters of transcript to be considered useful
+                MIN_TRANSCRIPT_LENGTH = 50
+                has_meaningful_summary = (
+                    meeting.summary and
+                    meeting.summary.strip() and
+                    not meeting.summary.strip().lower().startswith('sync space')
+                )
+                has_meaningful_transcript = bool(
+                    transcript_text and
+                    transcript_text.strip() and
+                    len(transcript_text.strip()) >= MIN_TRANSCRIPT_LENGTH
+                )
+                if not has_meaningful_summary and not has_meaningful_transcript:
+                    continue
+
+                metadata: List[str] = []
+                if hasattr(meeting, 'status') and meeting.status:
+                    metadata.append(str(meeting.status))
+                if has_transcript:
+                    metadata.append("Transcript available")
+
+                resources.append(
+                    ResourceDigest(
+                        id=meeting.id,
+                        resource_type=ProjectDiscussionResourceType.MEETING,
+                        title=meeting.summary or f"Meeting {meeting.id}",
+                        summary=self._truncate_text(transcript_text) if transcript_text else None,
+                        metadata=tuple(metadata),
+                    )
+                )
+
+        return resources
+
+    def _truncate_text(self, text: str, limit: int = 320) -> str:
+        """Truncate text to a maximum length."""
+        if not text:
+            return ""
+        if len(text) <= limit:
+            return text
+        return text[: limit - 1].rstrip() + "…"
+
+    def _get_paper_content_preview(self, paper, max_chars: int = 2000) -> Optional[str]:
+        """Extract paper content for AI context."""
+        if isinstance(paper.content_json, dict):
+            if paper.content_json.get('authoring_mode') == 'latex':
+                latex_source = paper.content_json.get('latex_source', '')
+                if latex_source:
+                    return latex_source[:max_chars] if len(latex_source) > max_chars else latex_source
+        # Rich text fallback
+        if paper.content:
+            return paper.content[:max_chars] if len(paper.content) > max_chars else paper.content
+        return None
+
+    def _get_authoring_mode(self, paper) -> Optional[str]:
+        """Get paper authoring mode (latex or rich)."""
+        if isinstance(paper.content_json, dict):
+            return paper.content_json.get('authoring_mode', 'rich')
+        return 'rich' if paper.content else None

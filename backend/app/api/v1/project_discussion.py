@@ -29,6 +29,7 @@ from app.core.security import verify_token
 from app.database import SessionLocal, get_db
 from app.models import (
     Meeting,
+    PaperMember,
     ProjectDiscussionChannel,
     ProjectDiscussionChannelResource,
     ProjectDiscussionMessage,
@@ -43,6 +44,7 @@ from app.models import (
     ResearchPaper,
     User,
 )
+from pydantic import BaseModel
 from app.schemas.project_discussion import (
     DiscussionAssistantCitation,
     DiscussionAssistantRequest,
@@ -202,6 +204,8 @@ def _serialize_channel(
     channel: ProjectDiscussionChannel,
     stats_map: Optional[Dict[UUID, Dict[str, int]]] = None,
 ) -> DiscussionChannelSummary:
+    from app.schemas.project_discussion import ChannelScopeConfig
+
     stats = stats_map.get(channel.id) if stats_map else None
     stats_model = None
     if stats:
@@ -212,6 +216,15 @@ def _serialize_channel(
             channel_id=channel.id,
         )
 
+    # Parse scope from JSONB - convert dict to ChannelScopeConfig
+    scope_value = None
+    if channel.scope and isinstance(channel.scope, dict):
+        scope_value = ChannelScopeConfig(
+            paper_ids=channel.scope.get("paper_ids"),
+            reference_ids=channel.scope.get("reference_ids"),
+            meeting_ids=channel.scope.get("meeting_ids"),
+        )
+
     return DiscussionChannelSummary(
         id=channel.id,
         project_id=channel.project_id,
@@ -220,6 +233,7 @@ def _serialize_channel(
         description=channel.description,
         is_default=channel.is_default,
         is_archived=channel.is_archived,
+        scope=scope_value,
         created_at=channel.created_at,
         updated_at=channel.updated_at,
         stats=stats_model,
@@ -842,11 +856,21 @@ def create_discussion_channel(
     base_slug = _slugify(payload.slug or payload.name)
     slug = _generate_unique_slug(db, project.id, base_slug)
 
+    # Convert scope to dict for JSONB storage
+    scope_dict = None
+    if payload.scope and not payload.scope.is_empty():
+        scope_dict = {
+            "paper_ids": [str(pid) for pid in payload.scope.paper_ids] if payload.scope.paper_ids else None,
+            "reference_ids": [str(rid) for rid in payload.scope.reference_ids] if payload.scope.reference_ids else None,
+            "meeting_ids": [str(mid) for mid in payload.scope.meeting_ids] if payload.scope.meeting_ids else None,
+        }
+
     channel = ProjectDiscussionChannel(
         project_id=project.id,
         name=payload.name.strip(),
         slug=slug,
         description=payload.description,
+        scope=scope_dict,  # null = project-wide, or specific resource IDs
         created_by=current_user.id,
         updated_by=current_user.id,
     )
@@ -876,6 +900,16 @@ def update_discussion_channel(
         channel.description = payload.description
     if payload.is_archived is not None and not channel.is_default:
         channel.is_archived = payload.is_archived
+    if payload.scope is not None:
+        # Empty scope or all-empty lists means project-wide (set to null in DB)
+        if payload.scope.is_empty():
+            channel.scope = None
+        else:
+            channel.scope = {
+                "paper_ids": [str(pid) for pid in payload.scope.paper_ids] if payload.scope.paper_ids else None,
+                "reference_ids": [str(rid) for rid in payload.scope.reference_ids] if payload.scope.reference_ids else None,
+                "meeting_ids": [str(mid) for mid in payload.scope.meeting_ids] if payload.scope.meeting_ids else None,
+            }
 
     channel.updated_by = current_user.id
 
@@ -1393,6 +1427,225 @@ def delete_discussion_task(
     db.commit()
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ============================================================================
+# Paper Action Endpoint (for AI-suggested paper creation/editing)
+# ============================================================================
+
+class PaperActionRequest(BaseModel):
+    action_type: str  # "create_paper" or "edit_paper"
+    payload: Dict[str, Any]
+
+
+class PaperActionResponse(BaseModel):
+    success: bool
+    paper_id: Optional[str] = None
+    message: str
+
+
+@router.post("/projects/{project_id}/discussion/paper-action")
+def execute_paper_action(
+    project_id: UUID,
+    request: PaperActionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PaperActionResponse:
+    """Execute a paper action suggested by the discussion AI."""
+    project = get_project_or_404(db, project_id)
+    ensure_project_member(db, project, current_user)
+
+    if request.action_type == "create_paper":
+        return _handle_create_paper(db, project, current_user, request.payload)
+    elif request.action_type == "edit_paper":
+        return _handle_edit_paper(db, project, current_user, request.payload)
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown action type: {request.action_type}"
+        )
+
+
+def _handle_create_paper(
+    db: Session,
+    project,
+    user: User,
+    payload: Dict[str, Any],
+) -> PaperActionResponse:
+    """Create a new paper from AI suggestion."""
+    from app.constants.paper_templates import PAPER_TEMPLATES
+
+    title = str(payload.get("title", "Untitled Paper")).strip()
+    paper_type = str(payload.get("paper_type", "research")).strip()
+    authoring_mode = str(payload.get("authoring_mode", "latex")).strip()
+    abstract = payload.get("abstract")
+    objectives = payload.get("objectives", [])
+    keywords = payload.get("keywords", [])
+
+    # Ensure objectives is a list
+    if not isinstance(objectives, list):
+        objectives = []
+    objectives = [str(obj).strip() for obj in objectives if obj]
+
+    # Ensure keywords is a list
+    if not isinstance(keywords, list):
+        keywords = []
+    keywords = [str(kw).strip() for kw in keywords if kw]
+
+    # Validate paper_type
+    valid_types = {"research", "review", "case_study"}
+    if paper_type not in valid_types:
+        paper_type = "research"
+
+    # Validate authoring_mode
+    if authoring_mode not in {"latex", "rich"}:
+        authoring_mode = "latex"
+
+    # Get template content
+    template = next(
+        (t for t in PAPER_TEMPLATES if t["id"] == paper_type),
+        PAPER_TEMPLATES[0] if PAPER_TEMPLATES else None
+    )
+
+    content = None
+    content_json: Dict[str, Any] = {}
+
+    if template:
+        if authoring_mode == "latex":
+            content_json = {
+                "authoring_mode": "latex",
+                "latex_source": template.get("latexTemplate", "")
+            }
+        else:
+            content = template.get("richTemplate", "")
+            content_json = {"authoring_mode": "rich"}
+    else:
+        # Fallback if no template found
+        if authoring_mode == "latex":
+            content_json = {
+                "authoring_mode": "latex",
+                "latex_source": "\\documentclass{article}\n\\begin{document}\n\n\\end{document}"
+            }
+        else:
+            content = "# " + title + "\n\n"
+            content_json = {"authoring_mode": "rich"}
+
+    paper = ResearchPaper(
+        title=title,
+        abstract=abstract if abstract else None,
+        content=content,
+        content_json=content_json,
+        paper_type=paper_type,
+        project_id=project.id,
+        owner_id=user.id,
+        status="draft",
+        objectives=objectives if objectives else None,
+        keywords=keywords if keywords else None,
+    )
+    db.add(paper)
+    db.commit()
+    db.refresh(paper)
+
+    # Add user as paper member (owner)
+    member = PaperMember(
+        paper_id=paper.id,
+        user_id=user.id,
+        role="owner"
+    )
+    db.add(member)
+    db.commit()
+
+    logger.info(
+        "Paper created via discussion AI: paper_id=%s title=%s type=%s mode=%s",
+        paper.id, title, paper_type, authoring_mode
+    )
+
+    return PaperActionResponse(
+        success=True,
+        paper_id=str(paper.id),
+        message=f"Created '{title}' ({paper_type}, {authoring_mode})"
+    )
+
+
+def _handle_edit_paper(
+    db: Session,
+    project,
+    user: User,
+    payload: Dict[str, Any],
+) -> PaperActionResponse:
+    """Apply an edit to an existing paper from AI suggestion."""
+    paper_id = payload.get("paper_id")
+    original = str(payload.get("original", "")).strip()
+    proposed = str(payload.get("proposed", "")).strip()
+
+    if not paper_id:
+        return PaperActionResponse(success=False, message="Missing paper_id")
+    if not original:
+        return PaperActionResponse(success=False, message="Missing original text")
+    if not proposed:
+        return PaperActionResponse(success=False, message="Missing proposed text")
+    if original == proposed:
+        return PaperActionResponse(success=False, message="Original and proposed text are identical")
+
+    # Find paper
+    try:
+        paper_uuid = UUID(str(paper_id))
+    except ValueError:
+        return PaperActionResponse(success=False, message="Invalid paper_id format")
+
+    paper = db.query(ResearchPaper).filter(
+        ResearchPaper.id == paper_uuid,
+        ResearchPaper.project_id == project.id
+    ).first()
+
+    if not paper:
+        return PaperActionResponse(success=False, message="Paper not found in project")
+
+    # Check user has edit permission
+    member = db.query(PaperMember).filter(
+        PaperMember.paper_id == paper_uuid,
+        PaperMember.user_id == user.id
+    ).first()
+    if not member and paper.owner_id != user.id:
+        return PaperActionResponse(success=False, message="No permission to edit this paper")
+
+    # Apply edit based on authoring mode
+    if isinstance(paper.content_json, dict) and paper.content_json.get("authoring_mode") == "latex":
+        latex_source = paper.content_json.get("latex_source", "")
+        if original not in latex_source:
+            return PaperActionResponse(
+                success=False,
+                message="Original text not found in paper. The content may have changed."
+            )
+
+        new_latex = latex_source.replace(original, proposed, 1)
+        paper.content_json = {
+            **paper.content_json,
+            "latex_source": new_latex
+        }
+    else:
+        if not paper.content or original not in paper.content:
+            return PaperActionResponse(
+                success=False,
+                message="Original text not found in paper. The content may have changed."
+            )
+
+        paper.content = paper.content.replace(original, proposed, 1)
+
+    db.commit()
+
+    logger.info(
+        "Paper edited via discussion AI: paper_id=%s original_len=%d proposed_len=%d",
+        paper_id, len(original), len(proposed)
+    )
+
+    return PaperActionResponse(
+        success=True,
+        paper_id=str(paper.id),
+        message="Edit applied successfully"
+    )
+
+
 def _discussion_session_id(project_id: UUID, channel_id: UUID) -> str:
     return f"discussion:{project_id}:{channel_id}"
 

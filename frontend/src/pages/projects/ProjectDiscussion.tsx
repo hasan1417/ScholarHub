@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { MessageCircle, Loader2, AlertCircle, Plus, Sparkles, X, Bot } from 'lucide-react'
+import { MessageCircle, Loader2, AlertCircle, Plus, Sparkles, X, Bot, FileText, BookOpen, Calendar, Check, ChevronDown, FilePlus, Pencil, CheckSquare } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { formatDistanceToNow } from 'date-fns'
 import { useProjectContext } from './ProjectLayout'
 import { useAuth } from '../../contexts/AuthContext'
-import { projectDiscussionAPI, buildApiUrl, refreshAuthToken } from '../../services/api'
+import { projectDiscussionAPI, buildApiUrl, refreshAuthToken, researchPapersAPI, projectReferencesAPI, projectMeetingsAPI } from '../../services/api'
 import discussionWebsocket from '../../services/discussionWebsocket'
 import {
   DiscussionMessage,
@@ -19,6 +20,10 @@ import {
   DiscussionChannelResourceCreate,
   DiscussionAssistantResponse,
   DiscussionAssistantSuggestedAction,
+  ChannelScopeConfig,
+  ResearchPaper,
+  ProjectReferenceSuggestion,
+  MeetingSummary,
 } from '../../types'
 import MessageInput from '../../components/discussion/MessageInput'
 import DiscussionThread from '../../components/discussion/DiscussionThread'
@@ -92,10 +97,12 @@ const ASSISTANT_SCOPE_OPTIONS = [
 const ProjectDiscussion = () => {
   const { project } = useProjectContext()
   const { user } = useAuth()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const typingTimers = useRef<Record<string, number>>({})
   const streamingFlags = useRef<Record<string, boolean>>({})
+  const historyChannelRef = useRef<string | null>(null)
   const STORAGE_PREFIX = `assistantHistory:${project.id}`
 
   const buildStorageKey = useCallback(
@@ -106,46 +113,15 @@ const ProjectDiscussion = () => {
     [STORAGE_PREFIX],
   )
 
-  const hydrateAssistantHistory = useCallback((raw: unknown): AssistantExchange[] => {
-    if (!Array.isArray(raw)) return []
-    return raw
-      .map((item) => {
-        if (!item || typeof item !== 'object') return null
-        const entry = item as Partial<AssistantExchange> & {
-          createdAt?: string
-          completedAt?: string | null
-        }
-        const createdAt = entry.createdAt ? new Date(entry.createdAt) : new Date()
-        const completedAt = entry.completedAt ? new Date(entry.completedAt) : undefined
-        return {
-          id: entry.id || createAssistantEntryId(),
-          question: entry.question || '',
-          response: entry.response || {
-            message: '',
-            citations: [],
-            reasoning_used: false,
-            model: '',
-            usage: undefined,
-            suggested_actions: [],
-          },
-          createdAt,
-          completedAt,
-          appliedActions: entry.appliedActions || [],
-          status: entry.status === 'streaming' ? 'complete' : entry.status || 'complete',
-          displayMessage:
-            entry.displayMessage || entry.response?.message || '',
-          author: entry.author,
-        } satisfies AssistantExchange
-      })
-      .filter(Boolean) as AssistantExchange[]
-  }, [])
-
   const [replyingTo, setReplyingTo] = useState<{ id: string; userName: string } | null>(null)
   const [editingMessage, setEditingMessage] = useState<{ id: string; content: string } | null>(null)
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null)
 const [isCreateChannelModalOpen, setIsCreateChannelModalOpen] = useState(false)
 const [newChannelName, setNewChannelName] = useState('')
 const [newChannelDescription, setNewChannelDescription] = useState('')
+const [newChannelScope, setNewChannelScope] = useState<ChannelScopeConfig | null>(null) // null = project-wide
+const [isChannelSettingsOpen, setIsChannelSettingsOpen] = useState(false)
+const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary | null>(null)
   const [assistantReasoning, setAssistantReasoning] = useState(false)
   const [assistantHistory, setAssistantHistory] = useState<AssistantExchange[]>([])
   const [assistantScope, setAssistantScope] = useState<string[]>(['transcripts', 'papers', 'references'])
@@ -162,6 +138,28 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
     })
   }, [])
   const [openDialog, setOpenDialog] = useState<'resources' | 'tasks' | null>(null)
+
+  // Paper creation dialog state
+  const [paperCreationDialog, setPaperCreationDialog] = useState<{
+    open: boolean
+    exchangeId: string
+    actionIndex: number
+    suggestedTitle: string
+    suggestedType: string
+    suggestedMode: string
+    suggestedAbstract: string
+    suggestedKeywords: string[]
+  } | null>(null)
+  const [paperFormData, setPaperFormData] = useState({
+    title: '',
+    paperType: 'research',
+    authoringMode: 'latex',
+    abstract: '',
+    keywords: [] as string[],
+    objectives: [] as string[],
+  })
+  const [keywordInput, setKeywordInput] = useState('')
+
   const viewerDisplayName = useMemo(() => {
     if (!user) return 'You'
     const parts = [user.first_name, user.last_name].filter(Boolean).join(' ').trim()
@@ -306,10 +304,12 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
       return response.data
     },
     enabled: Boolean(activeChannelId),
+    placeholderData: [], // Return empty immediately when channel changes to prevent stale data
   })
 
   const serverAssistantHistory = useMemo<AssistantExchange[]>(() => {
     if (!assistantHistoryQuery.data) return []
+
     return assistantHistoryQuery.data.map((item) => {
       const createdAt = item.created_at ? new Date(item.created_at) : new Date()
       const response = item.response
@@ -328,12 +328,22 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
     })
   }, [assistantHistoryQuery.data])
 
+  // Clear history immediately when channel changes - this effect must run first
+  useEffect(() => {
+    // Clear history on channel change to prevent showing stale data
+    setAssistantHistory([])
+    historyChannelRef.current = activeChannelId
+  }, [activeChannelId])
+
   useEffect(() => {
     setOpenDialog(null)
   }, [activeChannelId])
 
+  // Merge server history with local unsynced entries
   useEffect(() => {
     if (!activeChannelId) return
+
+    // Merge server data with local unsynced entries (entries created during streaming)
     setAssistantHistory((prev) => {
       const idsFromServer = new Set(serverAssistantHistory.map((entry) => entry.id))
       const unsynced = prev.filter((entry) => !idsFromServer.has(entry.id))
@@ -370,6 +380,7 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
     }
   }, [channels, activeChannelId])
 
+  // Clear UI state when channel changes
   useEffect(() => {
     setReplyingTo(null)
     setEditingMessage(null)
@@ -377,31 +388,7 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
     Object.values(typingTimers.current).forEach((timerId) => window.clearTimeout(timerId))
     typingTimers.current = {}
     streamingFlags.current = {}
-
-    if (typeof window === 'undefined') {
-      setAssistantHistory([])
-      return
-    }
-
-    if (!activeChannelId) {
-      setAssistantHistory([])
-      return
-    }
-
-    try {
-      const storageKey = buildStorageKey(activeChannelId)
-      const rawValue = storageKey ? window.localStorage.getItem(storageKey) : null
-      if (!rawValue) {
-        setAssistantHistory([])
-        return
-      }
-      const parsed = JSON.parse(rawValue)
-      setAssistantHistory(hydrateAssistantHistory(parsed))
-    } catch (error) {
-      console.error('Failed to load assistant history from storage', error)
-      setAssistantHistory([])
-    }
-  }, [activeChannelId, buildStorageKey, hydrateAssistantHistory])
+  }, [activeChannelId])
 
   // Fetch discussion threads
   const {
@@ -556,13 +543,18 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
     mutationFn: async ({
       name,
       description,
+      scope,
     }: {
       name: string
       description?: string | null
+      scope?: ChannelScopeConfig | null
     }) => {
-      const payload = {
+      const payload: { name: string; description?: string; scope?: ChannelScopeConfig } = {
         name,
         description: description && description.trim().length > 0 ? description.trim() : undefined,
+      }
+      if (scope) {
+        payload.scope = scope
       }
       const response = await projectDiscussionAPI.createChannel(project.id, payload)
       return response.data
@@ -575,6 +567,7 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
       setIsCreateChannelModalOpen(false)
       setNewChannelName('')
       setNewChannelDescription('')
+      setNewChannelScope(null)
     },
     onError: (error) => {
       console.error('Failed to create channel:', error)
@@ -588,7 +581,7 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
       payload,
     }: {
       channelId: string
-      payload: { name?: string; description?: string | null; is_archived?: boolean }
+      payload: { name?: string; description?: string | null; is_archived?: boolean; scope?: ChannelScopeConfig | null }
     }) => {
       const response = await projectDiscussionAPI.updateChannel(project.id, channelId, payload)
       return response.data
@@ -597,6 +590,8 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
       queryClient.invalidateQueries({ queryKey: ['projectDiscussionChannels', project.id] })
       queryClient.invalidateQueries({ queryKey: ['projectDiscussionStats', project.id, channel.id] })
       queryClient.invalidateQueries({ queryKey: ['projectDiscussion', project.id, channel.id] })
+      setIsChannelSettingsOpen(false)
+      setSettingsChannel(null)
 
       if (channel.is_archived && activeChannelId === channel.id) {
         const otherChannels = channels.filter((c) => c.id !== channel.id && !c.is_archived)
@@ -634,6 +629,37 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
     staleTime: 15_000,
   })
 
+  // Fetch available resources for scope picker
+  const availablePapersQuery = useQuery<ResearchPaper[]>({
+    queryKey: ['scopePapers', project.id],
+    queryFn: async () => {
+      const response = await researchPapersAPI.getPapers({ projectId: project.id, limit: 200 })
+      return response.data.papers as ResearchPaper[]
+    },
+    enabled: isCreateChannelModalOpen || isChannelSettingsOpen,
+    staleTime: 60_000,
+  })
+
+  const availableReferencesQuery = useQuery<ProjectReferenceSuggestion[]>({
+    queryKey: ['scopeReferences', project.id],
+    queryFn: async () => {
+      const response = await projectReferencesAPI.list(project.id, { status: 'approved' })
+      return response.data.references as ProjectReferenceSuggestion[]
+    },
+    enabled: isCreateChannelModalOpen || isChannelSettingsOpen,
+    staleTime: 60_000,
+  })
+
+  const availableMeetingsQuery = useQuery<MeetingSummary[]>({
+    queryKey: ['scopeMeetings', project.id],
+    queryFn: async () => {
+      const response = await projectMeetingsAPI.listMeetings(project.id)
+      return response.data.meetings as MeetingSummary[]
+    },
+    enabled: isCreateChannelModalOpen || isChannelSettingsOpen,
+    staleTime: 60_000,
+  })
+
   const createTaskMutation = useMutation({
     mutationFn: async (payload: DiscussionTaskCreate) => {
       if (!activeChannelId) throw new Error('Channel not selected')
@@ -648,6 +674,121 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
       alert('Unable to create task right now. Please try again.')
     },
   })
+
+  const paperActionMutation = useMutation({
+    mutationFn: async (params: { actionType: string; payload: Record<string, unknown> }) => {
+      const response = await projectDiscussionAPI.executePaperAction(
+        project.id,
+        params.actionType,
+        params.payload
+      )
+      return response.data
+    },
+    onSuccess: (data, variables) => {
+      if (data.success) {
+        // Navigate to paper if created
+        if (variables.actionType === 'create_paper' && data.paper_id) {
+          navigate(`/projects/${project.id}/papers/${data.paper_id}`)
+        }
+        // Invalidate paper queries if edited
+        if (variables.actionType === 'edit_paper') {
+          queryClient.invalidateQueries({ queryKey: ['papers', project.id] })
+          queryClient.invalidateQueries({ queryKey: ['paper'] })
+        }
+      }
+    },
+    onError: (error) => {
+      console.error('Paper action failed:', error)
+      alert('Failed to execute paper action. Please try again.')
+    },
+  })
+
+  // Parse project objectives from scope string
+  const projectObjectives = useMemo(() => {
+    if (!project.scope) return []
+    const entries = project.scope.split(/\r?\n|•/)
+    const parsed: string[] = []
+    for (const entry of entries) {
+      const cleaned = entry.replace(/^\s*\d+[\).\-\s]*/, '').trim()
+      if (cleaned) {
+        parsed.push(cleaned)
+      }
+    }
+    return parsed
+  }, [project.scope])
+
+  // Handle paper creation dialog submission
+  const handlePaperCreationSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!paperCreationDialog) return
+
+    const { title, paperType, authoringMode, abstract, keywords, objectives } = paperFormData
+    if (!title.trim()) {
+      alert('Please enter a paper title.')
+      return
+    }
+
+    const payload = {
+      title: title.trim(),
+      paper_type: paperType,
+      authoring_mode: authoringMode,
+      abstract: abstract.trim() || undefined,
+      keywords: keywords.length > 0 ? keywords : undefined,
+      objectives: objectives.length > 0 ? objectives : undefined,
+    }
+
+    paperActionMutation.mutate(
+      { actionType: 'create_paper', payload },
+      {
+        onSuccess: (data) => {
+          if (data.success) {
+            markActionApplied(paperCreationDialog.exchangeId, `${paperCreationDialog.exchangeId}:${paperCreationDialog.actionIndex}`)
+            setPaperCreationDialog(null)
+            setPaperFormData({
+              title: '',
+              paperType: 'research',
+              authoringMode: 'latex',
+              abstract: '',
+              keywords: [],
+              objectives: [],
+            })
+          } else {
+            alert(data.message || 'Failed to create paper')
+          }
+        },
+      }
+    )
+  }
+
+  // Add keyword handler
+  const handleAddKeyword = () => {
+    const keyword = keywordInput.trim()
+    if (keyword && !paperFormData.keywords.includes(keyword)) {
+      setPaperFormData((prev) => ({
+        ...prev,
+        keywords: [...prev.keywords, keyword],
+      }))
+      setKeywordInput('')
+    }
+  }
+
+  // Remove keyword handler
+  const handleRemoveKeyword = (keyword: string) => {
+    setPaperFormData((prev) => ({
+      ...prev,
+      keywords: prev.keywords.filter((k) => k !== keyword),
+    }))
+  }
+
+  // Toggle objective handler
+  const handleToggleObjective = (objective: string) => {
+    setPaperFormData((prev) => ({
+      ...prev,
+      objectives: prev.objectives.includes(objective)
+        ? prev.objectives.filter((o) => o !== objective)
+        : [...prev.objectives, objective],
+    }))
+  }
 
   const updateTaskMutation = useMutation({
     mutationFn: async ({ taskId, payload }: { taskId: string; payload: DiscussionTaskUpdate }) => {
@@ -996,6 +1137,16 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
     },
   })
 
+  const markActionApplied = (exchangeId: string, actionKey: string) => {
+    setAssistantHistory((prev) =>
+      prev.map((entry) =>
+        entry.id === exchangeId
+          ? { ...entry, appliedActions: [...entry.appliedActions, actionKey] }
+          : entry,
+      ),
+    )
+  }
+
   const handleSuggestedAction = (
     exchange: AssistantExchange,
     action: DiscussionAssistantSuggestedAction,
@@ -1028,20 +1179,70 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
         message_id: messageId || undefined,
       }
       createTaskMutation.mutate(taskPayload, {
-        onSuccess: () => {
-          setAssistantHistory((prev) =>
-            prev.map((entry) =>
-              entry.id === exchange.id
-                ? { ...entry, appliedActions: [...entry.appliedActions, actionKey] }
-                : entry,
-            ),
-          )
-        },
+        onSuccess: () => markActionApplied(exchange.id, actionKey),
         onError: (error) => {
           console.error('Failed to create task from assistant suggestion:', error)
           alert('Unable to create task right now. Please try again.')
         },
       })
+      return
+    }
+
+    if (action.action_type === 'create_paper') {
+      const title = String(action.payload?.title || '').trim()
+      const paperType = String(action.payload?.paper_type || 'research').trim()
+      const authoringMode = String(action.payload?.authoring_mode || 'latex').trim()
+      const abstract = String(action.payload?.abstract || '').trim()
+      const suggestedKeywords = Array.isArray(action.payload?.keywords) ? action.payload.keywords : []
+
+      // Open the paper creation dialog instead of directly creating
+      setPaperCreationDialog({
+        open: true,
+        exchangeId: exchange.id,
+        actionIndex: index,
+        suggestedTitle: title,
+        suggestedType: paperType,
+        suggestedMode: authoringMode,
+        suggestedAbstract: abstract,
+        suggestedKeywords: suggestedKeywords,
+      })
+      // Initialize form with suggested values
+      setPaperFormData({
+        title: title,
+        paperType: paperType,
+        authoringMode: authoringMode,
+        abstract: abstract,
+        keywords: suggestedKeywords,
+        objectives: [],
+      })
+      return
+    }
+
+    if (action.action_type === 'edit_paper') {
+      const paperId = action.payload?.paper_id
+      const original = String(action.payload?.original || '').trim()
+      const proposed = String(action.payload?.proposed || '').trim()
+      const description = String(action.payload?.description || 'Apply suggested edit')
+      if (!paperId || !original || !proposed) {
+        alert('The assistant suggestion is missing required edit information.')
+        return
+      }
+      if (!window.confirm(`Apply edit: ${description}?`)) {
+        return
+      }
+      paperActionMutation.mutate(
+        { actionType: 'edit_paper', payload: action.payload as Record<string, unknown> },
+        {
+          onSuccess: (data) => {
+            if (data.success) {
+              markActionApplied(exchange.id, actionKey)
+              alert('Edit applied successfully!')
+            } else {
+              alert(data.message || 'Failed to apply edit')
+            }
+          },
+        }
+      )
       return
     }
 
@@ -1155,10 +1356,14 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [conversationItems])
 
+  // Save assistant history to localStorage - only trigger on assistantHistory changes
+  // Use ref to track which channel the history belongs to, not activeChannelId dependency
   useEffect(() => {
     if (typeof window === 'undefined') return
-    if (!activeChannelId) return
-    const storageKey = buildStorageKey(activeChannelId)
+    const channelId = historyChannelRef.current
+    if (!channelId) return
+
+    const storageKey = buildStorageKey(channelId)
     if (!storageKey) return
 
     const payload = assistantHistory.map((entry) => ({
@@ -1172,7 +1377,7 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
     } catch (error) {
       console.error('Failed to persist assistant history', error)
     }
-  }, [assistantHistory, activeChannelId, buildStorageKey])
+  }, [assistantHistory, buildStorageKey])
 
   const handleSendMessage = (content: string) => {
     const trimmed = content.trim()
@@ -1258,7 +1463,35 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
   const handleOpenCreateChannel = () => {
     setNewChannelName('')
     setNewChannelDescription('')
+    setNewChannelScope(null)
     setIsCreateChannelModalOpen(true)
+  }
+
+  const toggleScopeResource = (
+    type: 'paper' | 'reference' | 'meeting',
+    id: string,
+    setScope: React.Dispatch<React.SetStateAction<ChannelScopeConfig | null>>
+  ) => {
+    setScope((prev) => {
+      const keyMap = { paper: 'paper_ids', reference: 'reference_ids', meeting: 'meeting_ids' } as const
+      const key = keyMap[type]
+
+      if (prev === null) {
+        // Switching from project-wide to specific scope
+        return { [key]: [id] } as ChannelScopeConfig
+      }
+
+      const currentIds = prev[key] || []
+      if (currentIds.includes(id)) {
+        const filtered = currentIds.filter((existingId) => existingId !== id)
+        const newScope = { ...prev, [key]: filtered.length > 0 ? filtered : null }
+        // If all scope arrays are empty/null, return null (project-wide)
+        const hasAny = newScope.paper_ids?.length || newScope.reference_ids?.length || newScope.meeting_ids?.length
+        return hasAny ? newScope : null
+      }
+
+      return { ...prev, [key]: [...currentIds, id] }
+    })
   }
 
   const handleCloseCreateChannel = () => {
@@ -1275,6 +1508,7 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
     createChannelMutation.mutate({
       name: newChannelName.trim(),
       description: newChannelDescription.trim() || undefined,
+      scope: newChannelScope,
     })
   }
 
@@ -1376,9 +1610,14 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
                     </div>
                     <div className={responseBubbleClass}>
                       {showTyping ? (
-                        <div className="flex items-center gap-2 text-sm text-indigo-600 dark:text-indigo-300">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          Scholar AI is composing…
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 text-sm text-indigo-600 dark:text-indigo-300">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Searching project resources…
+                          </div>
+                          <div className="text-xs text-slate-400 dark:text-slate-500">
+                            Analyzing papers, references, and discussions
+                          </div>
                         </div>
                       ) : (
                         <div className="prose prose-sm max-w-none text-gray-900 prose-headings:text-gray-900 prose-p:leading-relaxed prose-li:marker:text-gray-400 dark:prose-invert">
@@ -1389,17 +1628,34 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
                       )}
                     </div>
                     {!showTyping && exchange.response.citations.length > 0 && (
-                      <div className="mt-2 space-y-1">
-                        <p className="text-[11px] uppercase tracking-wide text-gray-400 dark:text-slate-500">Sources</p>
+                      <div className="mt-3 space-y-1.5">
+                        <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Sources Used:</p>
                         <div className="flex flex-wrap gap-2">
-                          {exchange.response.citations.map((citation) => (
-                            <span
-                              key={`${exchange.id}-${citation.origin}-${citation.origin_id}`}
-                              className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-200"
-                            >
-                              {citation.label}
-                            </span>
-                          ))}
+                          {exchange.response.citations.map((citation) => {
+                            const getResourceIcon = (resourceType?: string) => {
+                              switch (resourceType) {
+                                case 'paper':
+                                  return <FileText className="h-3.5 w-3.5 text-blue-500" />
+                                case 'reference':
+                                  return <BookOpen className="h-3.5 w-3.5 text-emerald-500" />
+                                case 'meeting':
+                                  return <Calendar className="h-3.5 w-3.5 text-purple-500" />
+                                default:
+                                  return <FileText className="h-3.5 w-3.5 text-slate-400" />
+                              }
+                            }
+                            return (
+                              <div
+                                key={`${exchange.id}-${citation.origin}-${citation.origin_id}`}
+                                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800"
+                              >
+                                {getResourceIcon(citation.resource_type ?? undefined)}
+                                <span className="font-medium text-slate-700 dark:text-slate-200">
+                                  {citation.label}
+                                </span>
+                              </div>
+                            )
+                          })}
                         </div>
                       </div>
                     )}
@@ -1410,15 +1666,26 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
                           {exchange.response.suggested_actions.map((action, idx) => {
                             const actionKey = `${exchange.id}:${idx}`
                             const applied = exchange.appliedActions.includes(actionKey)
+                            const isPending = createTaskMutation.isPending || paperActionMutation.isPending
+                            const getActionIcon = () => {
+                              if (applied) return <Check className="h-3 w-3" />
+                              switch (action.action_type) {
+                                case 'create_paper': return <FilePlus className="h-3 w-3" />
+                                case 'edit_paper': return <Pencil className="h-3 w-3" />
+                                case 'create_task': return <CheckSquare className="h-3 w-3" />
+                                default: return <Sparkles className="h-3 w-3" />
+                              }
+                            }
                             return (
                               <button
                                 key={actionKey}
                                 type="button"
                                 onClick={() => handleSuggestedAction(exchange, action, idx)}
-                                disabled={applied || createTaskMutation.isPending}
-                                className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium transition ${applied ? 'border-emerald-300 bg-emerald-50 text-emerald-600 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-200' : 'border-indigo-200 bg-white text-indigo-600 hover:bg-indigo-50 dark:border-indigo-400/40 dark:bg-slate-800/70 dark:text-indigo-200 dark:hover:bg-indigo-500/10'}`}
+                                disabled={applied || isPending}
+                                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition ${applied ? 'border-emerald-300 bg-emerald-50 text-emerald-600 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-200' : 'border-indigo-200 bg-white text-indigo-600 hover:bg-indigo-50 dark:border-indigo-400/40 dark:bg-slate-800/70 dark:text-indigo-200 dark:hover:bg-indigo-500/10'}`}
                               >
-                                {applied ? 'Completed' : action.summary}
+                                {getActionIcon()}
+                                {applied ? 'Applied' : action.summary}
                               </button>
                             )
                           })}
@@ -1481,6 +1748,10 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
           onCreateChannel={handleOpenCreateChannel}
           isCreating={createChannelMutation.isPending}
           onArchiveToggle={handleToggleArchive}
+          onOpenSettings={(channel) => {
+            setSettingsChannel(channel)
+            setIsChannelSettingsOpen(true)
+          }}
         />
 
         <div className="flex flex-1 min-h-0 min-w-0 flex-col rounded-2xl border border-gray-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900/40">
@@ -1497,14 +1768,16 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
               )}
             </div>
             <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-slate-400">
-              <button
-                type="button"
-                onClick={() => setOpenDialog('resources')}
-                className="inline-flex items-center gap-2 rounded-full border border-indigo-200 px-3 py-1.5 text-xs font-medium text-indigo-600 transition hover:bg-indigo-50 dark:border-indigo-400/40 dark:text-indigo-200 dark:hover:bg-indigo-500/10"
-                disabled={!activeChannel}
-              >
-                Channel resources
-              </button>
+              {/* Only show channel resources button when channel has specific scope (not project-wide) */}
+              {activeChannel?.scope && (
+                <button
+                  type="button"
+                  onClick={() => setOpenDialog('resources')}
+                  className="inline-flex items-center gap-2 rounded-full border border-indigo-200 px-3 py-1.5 text-xs font-medium text-indigo-600 transition hover:bg-indigo-50 dark:border-indigo-400/40 dark:text-indigo-200 dark:hover:bg-indigo-500/10"
+                >
+                  Channel resources
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setOpenDialog('tasks')}
@@ -1711,6 +1984,52 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
                 />
               </div>
 
+              <div>
+                <label className="text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-slate-300">
+                  AI Context Scope
+                </label>
+                <p className="mt-0.5 text-xs text-gray-500 dark:text-slate-400">
+                  Choose which resources the AI can access in this channel
+                </p>
+                <div className="mt-2 space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setNewChannelScope(null)}
+                    className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
+                      newChannelScope === null
+                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-500/20 dark:text-indigo-100'
+                        : 'border-gray-200 text-gray-600 hover:border-gray-300 dark:border-slate-600 dark:text-slate-300 dark:hover:border-slate-500'
+                    }`}
+                  >
+                    <span className="font-medium">Project-wide</span>
+                    <span className="ml-1 text-xs opacity-70">(all papers, references, transcripts)</span>
+                  </button>
+
+                  {newChannelScope !== null && (
+                    <div className="mt-3 max-h-64 overflow-y-auto rounded-lg border border-gray-200 dark:border-slate-700">
+                      <ResourceScopePicker
+                        scope={newChannelScope}
+                        papers={availablePapersQuery.data || []}
+                        references={availableReferencesQuery.data || []}
+                        meetings={availableMeetingsQuery.data || []}
+                        onToggle={(type, id) => toggleScopeResource(type, id, setNewChannelScope)}
+                        isLoading={availablePapersQuery.isLoading || availableReferencesQuery.isLoading || availableMeetingsQuery.isLoading}
+                      />
+                    </div>
+                  )}
+
+                  {newChannelScope === null && (
+                    <button
+                      type="button"
+                      onClick={() => setNewChannelScope({})}
+                      className="text-xs text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"
+                    >
+                      Or select specific resources...
+                    </button>
+                  )}
+                </div>
+              </div>
+
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
@@ -1735,7 +2054,592 @@ const [newChannelDescription, setNewChannelDescription] = useState('')
           </div>
         </div>
       )}
+
+      {isChannelSettingsOpen && settingsChannel && (
+        <ChannelSettingsModal
+          channel={settingsChannel}
+          onClose={() => {
+            setIsChannelSettingsOpen(false)
+            setSettingsChannel(null)
+          }}
+          onSave={(payload) => {
+            updateChannelMutation.mutate({
+              channelId: settingsChannel.id,
+              payload,
+            })
+          }}
+          isSaving={updateChannelMutation.isPending}
+          papers={availablePapersQuery.data || []}
+          references={availableReferencesQuery.data || []}
+          meetings={availableMeetingsQuery.data || []}
+          isLoadingResources={availablePapersQuery.isLoading || availableReferencesQuery.isLoading || availableMeetingsQuery.isLoading}
+        />
+      )}
+
+      {/* Paper Creation Dialog */}
+      {paperCreationDialog?.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 backdrop-blur-sm dark:bg-black/70">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl transition-colors dark:bg-slate-900/90">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Create New Paper</h3>
+              <button
+                type="button"
+                onClick={() => setPaperCreationDialog(null)}
+                className="rounded-full p-1 hover:bg-gray-100 dark:hover:bg-slate-800"
+              >
+                <X className="h-5 w-5 text-gray-500" />
+              </button>
+            </div>
+
+            <form onSubmit={handlePaperCreationSubmit} className="space-y-4">
+              {/* Title */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
+                  Paper Title <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={paperFormData.title}
+                  onChange={(e) => setPaperFormData((prev) => ({ ...prev, title: e.target.value }))}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
+                  placeholder="Enter paper title"
+                  required
+                />
+              </div>
+
+              {/* Paper Type & Authoring Mode */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Paper Type</label>
+                  <select
+                    value={paperFormData.paperType}
+                    onChange={(e) => setPaperFormData((prev) => ({ ...prev, paperType: e.target.value }))}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
+                  >
+                    <option value="research">Research Paper</option>
+                    <option value="review">Literature Review</option>
+                    <option value="case_study">Case Study</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Authoring Mode</label>
+                  <select
+                    value={paperFormData.authoringMode}
+                    onChange={(e) => setPaperFormData((prev) => ({ ...prev, authoringMode: e.target.value }))}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
+                  >
+                    <option value="latex">LaTeX</option>
+                    <option value="rich">Rich Text</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Abstract */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Abstract (optional)</label>
+                <textarea
+                  value={paperFormData.abstract}
+                  onChange={(e) => setPaperFormData((prev) => ({ ...prev, abstract: e.target.value }))}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
+                  rows={2}
+                  placeholder="Brief abstract or description"
+                />
+              </div>
+
+              {/* Keywords */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Keywords</label>
+                <div className="flex gap-2 mb-2">
+                  <input
+                    type="text"
+                    value={keywordInput}
+                    onChange={(e) => setKeywordInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        handleAddKeyword()
+                      }
+                    }}
+                    className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
+                    placeholder="Type keyword and press Enter"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddKeyword}
+                    className="rounded-lg border border-indigo-300 px-3 py-2 text-sm text-indigo-600 hover:bg-indigo-50 dark:border-indigo-500/40 dark:text-indigo-300 dark:hover:bg-indigo-500/10"
+                  >
+                    Add
+                  </button>
+                </div>
+                {paperFormData.keywords.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {paperFormData.keywords.map((keyword) => (
+                      <span
+                        key={keyword}
+                        className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-200"
+                      >
+                        {keyword}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveKeyword(keyword)}
+                          className="ml-0.5 hover:text-indigo-900 dark:hover:text-indigo-100"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Objectives */}
+              {projectObjectives.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
+                    Paper Objectives (select from project)
+                  </label>
+                  <div className="max-h-32 overflow-y-auto rounded-lg border border-gray-200 dark:border-slate-700">
+                    {projectObjectives.map((objective, idx) => {
+                      const isSelected = paperFormData.objectives.includes(objective)
+                      return (
+                        <label
+                          key={idx}
+                          className="flex cursor-pointer items-center gap-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-slate-800"
+                        >
+                          <div
+                            className={`flex h-4 w-4 items-center justify-center rounded border ${
+                              isSelected
+                                ? 'border-indigo-500 bg-indigo-500'
+                                : 'border-gray-300 dark:border-slate-600'
+                            }`}
+                          >
+                            {isSelected && <Check className="h-3 w-3 text-white" />}
+                          </div>
+                          <input
+                            type="checkbox"
+                            className="sr-only"
+                            checked={isSelected}
+                            onChange={() => handleToggleObjective(objective)}
+                          />
+                          <span className="text-sm text-gray-700 dark:text-slate-300">{objective}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                    Selected: {paperFormData.objectives.length} objective{paperFormData.objectives.length !== 1 ? 's' : ''}
+                  </p>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setPaperCreationDialog(null)}
+                  className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={paperActionMutation.isPending}
+                  className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:bg-indigo-300 dark:disabled:bg-indigo-500/40"
+                >
+                  {paperActionMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Create Paper
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
+  )
+}
+
+// Resource Scope Picker Component
+const ResourceScopePicker = ({
+  scope,
+  papers,
+  references,
+  meetings,
+  onToggle,
+  isLoading,
+}: {
+  scope: ChannelScopeConfig
+  papers: ResearchPaper[]
+  references: ProjectReferenceSuggestion[]
+  meetings: MeetingSummary[]
+  onToggle: (type: 'paper' | 'reference' | 'meeting', id: string) => void
+  isLoading: boolean
+}) => {
+  const [expandedSections, setExpandedSections] = useState<string[]>(['papers', 'references', 'meetings'])
+
+  const toggleSection = (section: string) => {
+    setExpandedSections((prev) =>
+      prev.includes(section) ? prev.filter((s) => s !== section) : [...prev, section]
+    )
+  }
+
+  const selectedPaperIds = new Set(scope.paper_ids || [])
+  const selectedReferenceIds = new Set(scope.reference_ids || [])
+  const selectedMeetingIds = new Set(scope.meeting_ids || [])
+
+  const totalSelected = selectedPaperIds.size + selectedReferenceIds.size + selectedMeetingIds.size
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center p-4">
+        <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+        <span className="ml-2 text-sm text-gray-500">Loading resources...</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="divide-y divide-gray-100 dark:divide-slate-700">
+      {totalSelected > 0 && (
+        <div className="bg-indigo-50 px-3 py-2 text-xs text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
+          {totalSelected} resource{totalSelected !== 1 ? 's' : ''} selected
+        </div>
+      )}
+
+      {/* Papers Section */}
+      {papers.length > 0 && (
+        <div>
+          <button
+            type="button"
+            onClick={() => toggleSection('papers')}
+            className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-slate-800"
+          >
+            <div className="flex items-center gap-2">
+              <FileText className="h-4 w-4 text-blue-500" />
+              <span className="text-sm font-medium text-gray-700 dark:text-slate-200">Papers</span>
+              {selectedPaperIds.size > 0 && (
+                <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-xs text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">
+                  {selectedPaperIds.size}
+                </span>
+              )}
+            </div>
+            <ChevronDown className={`h-4 w-4 text-gray-400 transition ${expandedSections.includes('papers') ? 'rotate-180' : ''}`} />
+          </button>
+          {expandedSections.includes('papers') && (
+            <div className="space-y-1 px-3 pb-2">
+              {papers.map((paper) => (
+                <label
+                  key={paper.id}
+                  className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-slate-800"
+                >
+                  <div className={`flex h-4 w-4 items-center justify-center rounded border ${
+                    selectedPaperIds.has(paper.id)
+                      ? 'border-indigo-500 bg-indigo-500'
+                      : 'border-gray-300 dark:border-slate-600'
+                  }`}>
+                    {selectedPaperIds.has(paper.id) && <Check className="h-3 w-3 text-white" />}
+                  </div>
+                  <input
+                    type="checkbox"
+                    className="sr-only"
+                    checked={selectedPaperIds.has(paper.id)}
+                    onChange={() => onToggle('paper', paper.id)}
+                  />
+                  <span className="text-sm text-gray-700 dark:text-slate-300 truncate">{paper.title || 'Untitled Paper'}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* References Section */}
+      {references.length > 0 && (
+        <div>
+          <button
+            type="button"
+            onClick={() => toggleSection('references')}
+            className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-slate-800"
+          >
+            <div className="flex items-center gap-2">
+              <BookOpen className="h-4 w-4 text-emerald-500" />
+              <span className="text-sm font-medium text-gray-700 dark:text-slate-200">References</span>
+              {selectedReferenceIds.size > 0 && (
+                <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-xs text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">
+                  {selectedReferenceIds.size}
+                </span>
+              )}
+            </div>
+            <ChevronDown className={`h-4 w-4 text-gray-400 transition ${expandedSections.includes('references') ? 'rotate-180' : ''}`} />
+          </button>
+          {expandedSections.includes('references') && (
+            <div className="space-y-1 px-3 pb-2">
+              {references.map((ref) => (
+                <label
+                  key={ref.reference_id}
+                  className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-slate-800"
+                >
+                  <div className={`flex h-4 w-4 items-center justify-center rounded border ${
+                    selectedReferenceIds.has(ref.reference_id)
+                      ? 'border-indigo-500 bg-indigo-500'
+                      : 'border-gray-300 dark:border-slate-600'
+                  }`}>
+                    {selectedReferenceIds.has(ref.reference_id) && <Check className="h-3 w-3 text-white" />}
+                  </div>
+                  <input
+                    type="checkbox"
+                    className="sr-only"
+                    checked={selectedReferenceIds.has(ref.reference_id)}
+                    onChange={() => onToggle('reference', ref.reference_id)}
+                  />
+                  <span className="text-sm text-gray-700 dark:text-slate-300 truncate">{ref.reference?.title || 'Untitled Reference'}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Meetings Section */}
+      {meetings.length > 0 && (
+        <div>
+          <button
+            type="button"
+            onClick={() => toggleSection('meetings')}
+            className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-slate-800"
+          >
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-purple-500" />
+              <span className="text-sm font-medium text-gray-700 dark:text-slate-200">Meetings</span>
+              {selectedMeetingIds.size > 0 && (
+                <span className="rounded-full bg-purple-100 px-1.5 py-0.5 text-xs text-purple-700 dark:bg-purple-500/20 dark:text-purple-300">
+                  {selectedMeetingIds.size}
+                </span>
+              )}
+            </div>
+            <ChevronDown className={`h-4 w-4 text-gray-400 transition ${expandedSections.includes('meetings') ? 'rotate-180' : ''}`} />
+          </button>
+          {expandedSections.includes('meetings') && (
+            <div className="space-y-1 px-3 pb-2">
+              {meetings.map((meeting) => (
+                <label
+                  key={meeting.id}
+                  className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-slate-800"
+                >
+                  <div className={`flex h-4 w-4 items-center justify-center rounded border ${
+                    selectedMeetingIds.has(meeting.id)
+                      ? 'border-indigo-500 bg-indigo-500'
+                      : 'border-gray-300 dark:border-slate-600'
+                  }`}>
+                    {selectedMeetingIds.has(meeting.id) && <Check className="h-3 w-3 text-white" />}
+                  </div>
+                  <input
+                    type="checkbox"
+                    className="sr-only"
+                    checked={selectedMeetingIds.has(meeting.id)}
+                    onChange={() => onToggle('meeting', meeting.id)}
+                  />
+                  <span className="text-sm text-gray-700 dark:text-slate-300 truncate">{meeting.summary || `Meeting ${meeting.id.slice(0, 8)}`}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {papers.length === 0 && references.length === 0 && meetings.length === 0 && (
+        <div className="px-3 py-4 text-center text-sm text-gray-500 dark:text-slate-400">
+          No resources available in this project yet.
+        </div>
+      )}
+    </div>
+  )
+}
+
+const ChannelSettingsModal = ({
+  channel,
+  onClose,
+  onSave,
+  isSaving,
+  papers,
+  references,
+  meetings,
+  isLoadingResources,
+}: {
+  channel: DiscussionChannelSummary
+  onClose: () => void
+  onSave: (payload: { name?: string; description?: string | null; scope?: ChannelScopeConfig | null }) => void
+  isSaving: boolean
+  papers: ResearchPaper[]
+  references: ProjectReferenceSuggestion[]
+  meetings: MeetingSummary[]
+  isLoadingResources: boolean
+}) => {
+  const [name, setName] = useState(channel.name)
+  const [description, setDescription] = useState(channel.description || '')
+  const [scope, setScope] = useState<ChannelScopeConfig | null>(channel.scope ?? null)
+
+  const toggleScopeResource = (type: 'paper' | 'reference' | 'meeting', id: string) => {
+    setScope((prev) => {
+      const keyMap = { paper: 'paper_ids', reference: 'reference_ids', meeting: 'meeting_ids' } as const
+      const key = keyMap[type]
+
+      if (prev === null) {
+        return { [key]: [id] } as ChannelScopeConfig
+      }
+
+      const currentIds = prev[key] || []
+      if (currentIds.includes(id)) {
+        const filtered = currentIds.filter((existingId) => existingId !== id)
+        const newScope = { ...prev, [key]: filtered.length > 0 ? filtered : null }
+        const hasAny = newScope.paper_ids?.length || newScope.reference_ids?.length || newScope.meeting_ids?.length
+        return hasAny ? newScope : null
+      }
+
+      return { ...prev, [key]: [...currentIds, id] }
+    })
+  }
+
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!name.trim()) {
+      alert('Channel name is required.')
+      return
+    }
+
+    const payload: { name?: string; description?: string | null; scope?: ChannelScopeConfig | null } = {}
+    if (name.trim() !== channel.name) {
+      payload.name = name.trim()
+    }
+    if (description.trim() !== (channel.description || '')) {
+      payload.description = description.trim() || null
+    }
+    const currentScope = channel.scope ?? null
+    const newScope = scope
+    if (JSON.stringify(currentScope) !== JSON.stringify(newScope)) {
+      // Send empty object {} for project-wide (backend will convert to null)
+      payload.scope = newScope === null ? { paper_ids: null, reference_ids: null, meeting_ids: null } : newScope
+    }
+
+    if (Object.keys(payload).length === 0) {
+      onClose()
+      return
+    }
+
+    onSave(payload)
+  }
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-gray-900/40 backdrop-blur-sm dark:bg-black/70">
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl transition-colors dark:bg-slate-900/90">
+        <h3 className="text-base font-semibold text-gray-900 dark:text-slate-100">Channel Settings</h3>
+        <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
+          Update channel configuration and AI scope
+        </p>
+        <form className="mt-4 space-y-4" onSubmit={handleSubmit}>
+          <div>
+            <label
+              htmlFor="settings-channel-name"
+              className="text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-slate-300"
+            >
+              Channel name
+            </label>
+            <input
+              id="settings-channel-name"
+              type="text"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
+              placeholder="e.g. Brainstorming"
+              maxLength={255}
+              required
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="settings-channel-description"
+              className="text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-slate-300"
+            >
+              Description <span className="text-gray-400 dark:text-slate-500">(optional)</span>
+            </label>
+            <textarea
+              id="settings-channel-description"
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
+              rows={3}
+              maxLength={2000}
+              placeholder="Describe the focus of this channel"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-slate-300">
+              AI Context Scope
+            </label>
+            <p className="mt-0.5 text-xs text-gray-500 dark:text-slate-400">
+              Choose which resources the AI can access in this channel
+            </p>
+            <div className="mt-2 space-y-2">
+              <button
+                type="button"
+                onClick={() => setScope(null)}
+                className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
+                  scope === null
+                    ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-500/20 dark:text-indigo-100'
+                    : 'border-gray-200 text-gray-600 hover:border-gray-300 dark:border-slate-600 dark:text-slate-300 dark:hover:border-slate-500'
+                }`}
+              >
+                <span className="font-medium">Project-wide</span>
+                <span className="ml-1 text-xs opacity-70">(all papers, references, transcripts)</span>
+              </button>
+
+              {scope !== null && (
+                <div className="mt-3 max-h-64 overflow-y-auto rounded-lg border border-gray-200 dark:border-slate-700">
+                  <ResourceScopePicker
+                    scope={scope}
+                    papers={papers}
+                    references={references}
+                    meetings={meetings}
+                    onToggle={toggleScopeResource}
+                    isLoading={isLoadingResources}
+                  />
+                </div>
+              )}
+
+              {scope === null && (
+                <button
+                  type="button"
+                  onClick={() => setScope({})}
+                  className="text-xs text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"
+                >
+                  Or select specific resources...
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+              disabled={isSaving}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300 dark:disabled:bg-indigo-500/40"
+            >
+              {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+              Save changes
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   )
 }
 
