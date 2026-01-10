@@ -3,12 +3,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Check,
   Clock,
-  FileDown,
   Filter,
   Lightbulb,
   Loader2,
   RotateCcw,
-  ShieldCheck,
   Sparkles,
   Trash2,
   X,
@@ -22,6 +20,7 @@ import {
   ProjectDiscoveryResultStatus,
 } from '../../types'
 import { useProjectContext } from './ProjectLayout'
+import { DiscoveryResultCard } from '../../components/discovery/DiscoveryResultCard'
 
 const AVAILABLE_SOURCES: Array<{ label: string; value: string }> = [
   { label: 'Semantic Scholar', value: 'semantic_scholar' },
@@ -114,34 +113,6 @@ const formatDateTime = (value?: string | null) => {
   return date.toLocaleString()
 }
 
-const statusBadge = (status: ProjectDiscoveryResultStatus) => {
-  switch (status) {
-    case 'pending':
-      return 'bg-amber-100 text-amber-800 border border-amber-200 dark:bg-amber-300/25 dark:text-amber-100 dark:border-amber-300/40'
-    case 'promoted':
-      return 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-200 dark:border-emerald-400/40'
-    case 'dismissed':
-      return 'bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-500/20 dark:text-rose-200 dark:border-rose-400/40'
-    default:
-      return 'bg-gray-100 text-gray-600 dark:bg-slate-700/60 dark:text-slate-300'
-  }
-}
-
-const statusLabel = (status: ProjectDiscoveryResultStatus | 'all') => {
-  switch (status) {
-    case 'pending':
-      return 'Pending'
-    case 'promoted':
-      return 'Promoted'
-    case 'dismissed':
-      return 'Dismissed'
-    case 'all':
-      return 'All'
-    default:
-      return status
-  }
-}
-
 const parseList = (value: string) =>
   value
     .split(',')
@@ -152,19 +123,6 @@ const ProjectDiscovery = () => {
   const { project, currentRole } = useProjectContext()
   const queryClient = useQueryClient()
   const isViewer = currentRole === 'viewer'
-
-  const renderScoreBadge = (score?: number | null) => {
-    if (score == null) return null
-    let cls = 'bg-gray-100 text-gray-700 dark:bg-slate-800/60 dark:text-slate-200'
-    if (score >= 0.7) cls = 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200'
-    else if (score >= 0.4) cls = 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-200'
-    else cls = 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-200'
-    return (
-      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${cls} whitespace-nowrap shrink-0`}>
-        Score {score.toFixed(2)}
-      </span>
-    )
-  }
 
   const projectIdea = useMemo(() => project?.idea?.trim() ?? '', [project])
   const projectKeywordPreset = useMemo(() => {
@@ -187,11 +145,27 @@ const ProjectDiscovery = () => {
   const [selectedResults, setSelectedResults] = useState<string[]>([])
   const [promotingIds, setPromotingIds] = useState<Set<string>>(new Set())
   const [dismissingIds, setDismissingIds] = useState<Set<string>>(new Set())
+  const [resultsLimit, setResultsLimit] = useState(20)
+  const [discoveryCooldown, setDiscoveryCooldown] = useState(0) // Seconds remaining
   const hasHydratedActiveForm = useRef(false)
   const activeFormDirtyRef = useRef(false)
 
+  // Cooldown timer effect
+  useEffect(() => {
+    if (discoveryCooldown <= 0) return
+    const timer = setInterval(() => {
+      setDiscoveryCooldown((prev) => Math.max(0, prev - 1))
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [discoveryCooldown])
+
   const updateManualForm = (updater: (prev: ManualFormState) => ManualFormState) => {
     setManualFormState((prev) => updater(prev))
+  }
+
+  const handleStatusFilterChange = (value: ProjectDiscoveryResultStatus | 'all') => {
+    setStatusFilter(value)
+    setResultsLimit(20) // Reset pagination when filter changes
   }
 
   const updateActiveForm = (updater: (prev: ActiveFormState) => ActiveFormState) => {
@@ -209,11 +183,11 @@ const ProjectDiscovery = () => {
   })
 
   const resultsQuery = useQuery({
-    queryKey: ['project', project.id, 'discoveryResults', statusFilter],
+    queryKey: ['project', project.id, 'discoveryResults', statusFilter, resultsLimit],
     queryFn: async () => {
       const response = await projectDiscoveryAPI.listResults(project.id, {
         status: statusFilter === 'all' ? undefined : statusFilter,
-        limit: 50,
+        limit: resultsLimit,
       })
       return response.data
     },
@@ -239,6 +213,8 @@ const ProjectDiscovery = () => {
   })
 
   const allResults = useMemo(() => resultsQuery.data?.results ?? [], [resultsQuery.data])
+  const totalResults = resultsQuery.data?.total ?? 0
+  const hasMoreResults = allResults.length < totalResults
 
   const manualResults = useMemo(
     () => allResults.filter((item) => item.run_type === 'manual'),
@@ -584,6 +560,7 @@ const ProjectDiscovery = () => {
     },
     onSuccess: (data) => {
       setManualErrorMessage(null)
+      setDiscoveryCooldown(30) // 30 second cooldown after discovery
       const resultsCreated = data?.results_created ?? 0
       if (resultsCreated === 0) {
         setManualStatusMessage('No new discovery results — everything in your project already matches this search.')
@@ -793,7 +770,7 @@ const ProjectDiscovery = () => {
           <button
             type="button"
             onClick={() => runDiscovery.mutate()}
-            disabled={runDiscovery.isPending}
+            disabled={runDiscovery.isPending || discoveryCooldown > 0}
             className="inline-flex items-center gap-2 rounded-full bg-green-700 px-4 py-2 font-medium text-white hover:bg-green-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {runDiscovery.isPending ? (
@@ -801,13 +778,39 @@ const ProjectDiscovery = () => {
             ) : (
               <Sparkles className="h-3.5 w-3.5" />
             )}
-            {runDiscovery.isPending ? 'Running...' : 'Run Discovery'}
+            {runDiscovery.isPending
+              ? 'Running...'
+              : discoveryCooldown > 0
+                ? `Wait ${discoveryCooldown}s`
+                : 'Run Discovery'}
           </button>
           <span className="inline-flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1.5 text-xs text-gray-600 dark:bg-slate-800/60 dark:text-slate-300">
             <Clock className="h-3.5 w-3.5" /> Last run {formatDateTime(lastRunAt)} • {pendingCount} pending
           </span>
         </div>
       </section>
+
+      {/* Progress indicator during discovery */}
+      {runDiscovery.isPending && (
+        <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-500/30 dark:bg-indigo-950/30">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/50">
+              <Loader2 className="h-5 w-5 animate-spin text-indigo-600 dark:text-indigo-300" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-indigo-900 dark:text-indigo-100">
+                Discovering papers...
+              </p>
+              <p className="text-xs text-indigo-700 dark:text-indigo-300">
+                Searching {manualFormState.sources.length} source{manualFormState.sources.length !== 1 ? 's' : ''} for relevant papers. This may take up to 30 seconds.
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-indigo-200 dark:bg-indigo-900/50">
+            <div className="h-full w-1/3 animate-pulse rounded-full bg-indigo-500 dark:bg-indigo-400" style={{ animation: 'progress 2s ease-in-out infinite' }} />
+          </div>
+        </div>
+      )}
 
       <section className="space-y-4 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900/50">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -823,7 +826,7 @@ const ProjectDiscovery = () => {
               <button
                 key={option.value}
                 type="button"
-                onClick={() => setStatusFilter(option.value)}
+                onClick={() => handleStatusFilterChange(option.value)}
                 className={`inline-flex items-center rounded-full px-3 py-1.5 ${
                   statusFilter === option.value
                     ? 'bg-indigo-600 text-white'
@@ -919,137 +922,37 @@ const ProjectDiscovery = () => {
                 </div>
               </div>
 
-              {manualResults.map((item: ProjectDiscoveryResultItem) => {
-                const isDeletable = item.status !== 'promoted'
-                const isSelected = selectedResults.includes(item.id)
-                const hasPdf = Boolean(item.has_pdf ?? item.pdf_url)
-                const isOpenAccess = Boolean(item.is_open_access)
-                const pdfUrl = item.pdf_url ?? undefined
+              {manualResults.map((item: ProjectDiscoveryResultItem) => (
+                <DiscoveryResultCard
+                  key={item.id}
+                  item={item}
+                  onPromote={(id) => promoteResult.mutate(id)}
+                  onDismiss={(id) => dismissResult.mutate(id)}
+                  isPromoting={promotingIds.has(item.id)}
+                  isDismissing={dismissingIds.has(item.id)}
+                  isDeleteMode={isDeleteMode}
+                  isSelected={selectedResults.includes(item.id)}
+                  onToggleSelect={toggleResultSelection}
+                />
+              ))}
 
-                return (
-                  <article
-                    key={item.id}
-                    className={`space-y-3 rounded-xl border px-4 py-4 text-sm text-gray-700 transition dark:text-slate-200 ${
-                      isDeleteMode && isSelected
-                        ? 'border-rose-300 bg-rose-50/40 dark:border-rose-400/50 dark:bg-rose-500/10'
-                        : 'border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-900/60'
-                    }`}
+              {hasMoreResults && (
+                <div className="flex justify-center pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setResultsLimit((prev) => prev + 20)}
+                    disabled={resultsQuery.isFetching}
+                    className="inline-flex items-center gap-2 rounded-full border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
                   >
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="space-y-1">
-                        <p className="text-base font-semibold text-gray-900 dark:text-slate-100">
-                          {item.title ?? 'Untitled result'}
-                        </p>
-                        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-slate-400">
-                          <span>{item.source}</span>
-                          {item.doi && <span className="truncate">DOI: {item.doi}</span>}
-                          {item.published_year && <span>{item.published_year}</span>}
-                          {hasPdf && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200">
-                              <FileDown className="h-3 w-3" /> PDF available
-                            </span>
-                          )}
-                          {isOpenAccess && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-1 text-sky-700 dark:bg-sky-500/20 dark:text-sky-200">
-                              <ShieldCheck className="h-3 w-3" /> Open access
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 self-start">
-                        {renderScoreBadge(item.relevance_score)}
-                        <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${statusBadge(item.status)}`}>
-                          {statusLabel(item.status)}
-                        </span>
-                        {isDeleteMode && isDeletable && (
-                          <label className="inline-flex items-center gap-2 text-xs text-gray-500 dark:text-slate-400">
-                            <input
-                              type="checkbox"
-                              className="h-4 w-4 rounded border-gray-300 text-rose-600 focus:ring-rose-500 dark:border-slate-600 dark:bg-slate-900/60"
-                              checked={isSelected}
-                              onChange={() => toggleResultSelection(item.id)}
-                            />
-                            Select
-                          </label>
-                        )}
-                      </div>
-                    </div>
-
-                    {item.summary && (
-                      <p className="text-xs text-gray-600 line-clamp-3 dark:text-slate-300">{item.summary}</p>
+                    {resultsQuery.isFetching ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RotateCcw className="h-4 w-4" />
                     )}
-
-                    <div className="flex flex-col gap-2 text-xs text-gray-500 dark:text-slate-400 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1 text-gray-600 dark:bg-slate-800/60 dark:text-slate-300">
-                          <Clock className="h-3 w-3" /> Discovered {formatDateTime(item.created_at)}
-                        </span>
-                        {pdfUrl && (
-                          <a
-                            href={pdfUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-200 dark:hover:bg-emerald-500/30"
-                          >
-                            <FileDown className="h-3 w-3" /> View PDF
-                          </a>
-                        )}
-                        {/* Open link removed to avoid duplication with View Source */}
-                        <a
-                          href={item.source_url || (item.doi ? `https://doi.org/${item.doi}` : '#')}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-1 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-500/20 dark:text-indigo-200 dark:hover:bg-indigo-500/30"
-                        >
-                          View Source
-                        </a>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {!isDeleteMode && item.status === 'pending' && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => promoteResult.mutate(item.id)}
-                              disabled={promotingIds.has(item.id) || dismissingIds.has(item.id)}
-                              className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-3 py-1.5 font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              {promotingIds.has(item.id) ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <Check className="h-3.5 w-3.5" />
-                              )}
-                              Add to project
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => dismissResult.mutate(item.id)}
-                              disabled={promotingIds.has(item.id) || dismissingIds.has(item.id)}
-                              className="inline-flex items-center gap-2 rounded-full border border-gray-200 px-3 py-1.5 font-medium text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
-                            >
-                              {dismissingIds.has(item.id) ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <X className="h-3.5 w-3.5" />
-                              )}
-                              Dismiss
-                            </button>
-                          </>
-                        )}
-                        {item.status !== 'pending' && item.promoted_at && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-emerald-700">
-                            <Check className="h-3 w-3" /> Promoted {formatDateTime(item.promoted_at)}
-                          </span>
-                        )}
-                        {item.status === 'dismissed' && item.dismissed_at && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-1 text-rose-700">
-                            <X className="h-3 w-3" /> Dismissed {formatDateTime(item.dismissed_at)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </article>
-                )
-              })}
+                    Load more ({totalResults - allResults.length} remaining)
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1262,7 +1165,7 @@ const ProjectDiscovery = () => {
                   <button
                     key={option.value}
                     type="button"
-                    onClick={() => setStatusFilter(option.value)}
+                    onClick={() => handleStatusFilterChange(option.value)}
                     className={`inline-flex items-center rounded-full px-3 py-1.5 ${
                       statusFilter === option.value
                         ? 'bg-indigo-600 text-white'
@@ -1328,122 +1231,34 @@ const ProjectDiscovery = () => {
 
             {!resultsQuery.isLoading && autoResults.length > 0 && (
               <div className="space-y-3">
-                {autoResults.map((item: ProjectDiscoveryResultItem) => {
-                  const hasPdf = Boolean(item.has_pdf ?? item.pdf_url)
-                  const isOpenAccess = Boolean(item.is_open_access)
-                  const pdfUrl = item.pdf_url ?? undefined
+                {autoResults.map((item: ProjectDiscoveryResultItem) => (
+                  <DiscoveryResultCard
+                    key={item.id}
+                    item={item}
+                    onPromote={(id) => promoteResult.mutate(id)}
+                    onDismiss={(id) => dismissResult.mutate(id)}
+                    isPromoting={promotingIds.has(item.id)}
+                    isDismissing={dismissingIds.has(item.id)}
+                  />
+                ))}
 
-                  return (
-                    <article
-                      key={item.id}
-                      className="space-y-3 rounded-xl border border-gray-200 px-4 py-4 text-sm text-gray-700 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200"
+                {hasMoreResults && (
+                  <div className="flex justify-center pt-4">
+                    <button
+                      type="button"
+                      onClick={() => setResultsLimit((prev) => prev + 20)}
+                      disabled={resultsQuery.isFetching}
+                      className="inline-flex items-center gap-2 rounded-full border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
                     >
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="space-y-1">
-                          <p className="text-base font-semibold text-gray-900 dark:text-slate-100">
-                            {item.title ?? 'Untitled result'}
-                          </p>
-                          <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-slate-400">
-                            <span>{item.source}</span>
-                            {item.doi && <span className="truncate">DOI: {item.doi}</span>}
-                            {item.published_year && <span>{item.published_year}</span>}
-                            {item.relevance_score != null && (
-                              <span>Score: {item.relevance_score.toFixed(2)}</span>
-                            )}
-                            {hasPdf && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200">
-                                <FileDown className="h-3 w-3" /> PDF available
-                              </span>
-                            )}
-                            {isOpenAccess && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-1 text-sky-700 dark:bg-sky-500/20 dark:text-sky-200">
-                                <ShieldCheck className="h-3 w-3" /> Open access
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 self-start">
-                          {renderScoreBadge(item.relevance_score)}
-                          <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${statusBadge(item.status)}`}>
-                            {statusLabel(item.status)}
-                          </span>
-                        </div>
-                      </div>
-
-                      {item.summary && (
-                        <p className="text-xs text-gray-600 line-clamp-3 dark:text-slate-300">{item.summary}</p>
+                      {resultsQuery.isFetching ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RotateCcw className="h-4 w-4" />
                       )}
-
-                      <div className="flex flex-col gap-2 text-xs text-gray-500 dark:text-slate-400 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1 text-gray-600 dark:bg-slate-800/60 dark:text-slate-300">
-                            <Clock className="h-3 w-3" /> Discovered {formatDateTime(item.created_at)}
-                          </span>
-                          {pdfUrl && (
-                            <a
-                              href={pdfUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-200 dark:hover:bg-emerald-500/30"
-                            >
-                              <FileDown className="h-3 w-3" /> View PDF
-                            </a>
-                          )}
-                          <a
-                            href={item.source_url || (item.doi ? `https://doi.org/${item.doi}` : '#')}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-1 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-500/20 dark:text-indigo-200 dark:hover:bg-indigo-500/30"
-                          >
-                            View Source
-                          </a>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {item.status === 'pending' && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => promoteResult.mutate(item.id)}
-                                disabled={promotingIds.has(item.id) || dismissingIds.has(item.id)}
-                                className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-3 py-1.5 font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-                              >
-                                {promotingIds.has(item.id) ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  <Check className="h-3.5 w-3.5" />
-                                )}
-                                Add to project
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => dismissResult.mutate(item.id)}
-                                disabled={promotingIds.has(item.id) || dismissingIds.has(item.id)}
-                                className="inline-flex items-center gap-2 rounded-full border border-gray-200 px-3 py-1.5 font-medium text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
-                              >
-                                {dismissingIds.has(item.id) ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  <X className="h-3.5 w-3.5" />
-                                )}
-                                Dismiss
-                              </button>
-                            </>
-                          )}
-                          {item.status !== 'pending' && item.promoted_at && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200">
-                              <Check className="h-3 w-3" /> Promoted {formatDateTime(item.promoted_at)}
-                            </span>
-                          )}
-                          {item.status === 'dismissed' && item.dismissed_at && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-1 text-rose-700 dark:bg-rose-500/20 dark:text-rose-200">
-                              <X className="h-3 w-3" /> Dismissed {formatDateTime(item.dismissed_at)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </article>
-                  )
-                })}
+                      Load more ({totalResults - allResults.length} remaining)
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
