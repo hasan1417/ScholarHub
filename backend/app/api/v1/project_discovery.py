@@ -164,6 +164,15 @@ class DiscoveryRunRequest(ProjectDiscoveryPreferencesUpdate):
     max_results: int | None = None
 
 
+class SourceStatsItem(BaseModel):
+    """Per-source statistics from a discovery run."""
+
+    source: str
+    count: int = 0
+    status: str = "pending"  # pending, success, timeout, error, rate_limited, cancelled
+    error: str | None = None
+
+
 class DiscoveryRunResponse(BaseModel):
     """Summary response describing a completed discovery run."""
 
@@ -173,6 +182,7 @@ class DiscoveryRunResponse(BaseModel):
     references_created: int
     project_suggestions_created: int
     last_run_at: datetime
+    source_stats: list[SourceStatsItem] | None = None
 
 
 class DiscoveryResultItem(BaseModel):
@@ -348,6 +358,20 @@ def run_project_discovery(
         last_run_dt = last_run or datetime.now(timezone.utc)
 
     run_id = result.run_id or manager.last_run_id
+
+    # Convert source stats to API format
+    source_stats_items = None
+    if result.source_stats:
+        source_stats_items = [
+            SourceStatsItem(
+                source=stat.source,
+                count=stat.count,
+                status=stat.status,
+                error=stat.error,
+            )
+            for stat in result.source_stats
+        ]
+
     return DiscoveryRunResponse(
         run_id=run_id,
         total_found=result.total_found,
@@ -355,6 +379,7 @@ def run_project_discovery(
         references_created=result.references_created,
         project_suggestions_created=result.project_suggestions_created,
         last_run_at=last_run_dt,
+        source_stats=source_stats_items,
     )
 
 
@@ -386,7 +411,10 @@ def list_discovery_results(  # pylint: disable=too-many-arguments,too-many-local
 
     rows = (
         base_query
-        .order_by(ProjectDiscoveryResultModel.created_at.desc())
+        .order_by(
+            ProjectDiscoveryResultModel.relevance_score.desc().nulls_last(),
+            ProjectDiscoveryResultModel.created_at.desc(),
+        )
         .offset(skip)
         .limit(limit)
         .all()
@@ -398,6 +426,31 @@ def list_discovery_results(  # pylint: disable=too-many-arguments,too-many-local
     ]
 
     return DiscoveryResultsResponse(total=total, results=items)
+
+
+@router.delete("/projects/{project_id}/discovery/results/clear")
+def clear_discovery_results(
+    project_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Clear all non-promoted discovery results for a project."""
+    _guard_feature()
+    _ensure_discovery_schema(db)
+    project = get_project_or_404(db, project_id)
+    ensure_project_member(db, project, current_user, roles=[ProjectRole.ADMIN, ProjectRole.EDITOR])
+
+    deleted_count = (
+        db.query(ProjectDiscoveryResultModel)
+        .filter(
+            ProjectDiscoveryResultModel.project_id == project_id,
+            ProjectDiscoveryResultModel.status != ProjectDiscoveryResultStatus.PROMOTED,
+        )
+        .delete(synchronize_session='fetch')
+    )
+    db.commit()
+
+    return {"deleted": deleted_count}
 
 
 @router.get(

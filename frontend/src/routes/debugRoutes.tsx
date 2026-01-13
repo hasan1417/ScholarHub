@@ -2,6 +2,7 @@ import { RouteObject } from 'react-router-dom'
 import PublisherProbe from '../pages/debug/PublisherProbe'
 import PDFResolverDebug from '../pages/debug/PDFResolverDebug'
 import AgentTestPage from '../pages/AgentTestPage'
+import DiscussionAITestPage from '../pages/DiscussionAITestPage'
 
 export const debugRoutes: RouteObject[] = [
   {
@@ -15,5 +16,9 @@ export const debugRoutes: RouteObject[] = [
   {
     path: 'agent-test',
     element: <AgentTestPage />,
+  },
+  {
+    path: 'discussion-ai-test',
+    element: <DiscussionAITestPage />,
   },
 ]

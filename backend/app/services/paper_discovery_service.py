@@ -31,9 +31,12 @@ logger = logging.getLogger(__name__)
 
 from app.services.paper_discovery.searchers import (
     ArxivSearcher,
+    CoreSearcher,
     CrossrefSearcher,
+    EuropePmcSearcher,
     OpenAlexSearcher,
     PubMedSearcher,
+    RateLimitError,
     ScienceDirectSearcher,
     SemanticScholarSearcher,
 )
@@ -48,6 +51,24 @@ from app.services.paper_discovery.rankers import (
     LexicalRanker,
     SimpleRanker,
 )
+
+from dataclasses import dataclass, field
+
+
+@dataclass
+class SourceStats:
+    """Per-source statistics from a discovery run."""
+    source: str
+    count: int = 0
+    status: str = "pending"  # pending, success, timeout, error
+    error: Optional[str] = None
+
+
+@dataclass
+class DiscoveryResult:
+    """Result of a discovery run including papers and per-source stats."""
+    papers: List[DiscoveredPaper] = field(default_factory=list)
+    source_stats: List[SourceStats] = field(default_factory=list)
 
 class SearchOrchestrator:
     """Orchestrates the paper discovery process"""
@@ -73,8 +94,8 @@ class SearchOrchestrator:
         sources: Optional[List[str]] = None,
         *,
         fast_mode: bool = False,
-    ) -> List[DiscoveredPaper]:
-        """Orchestrate paper discovery"""
+    ) -> DiscoveryResult:
+        """Orchestrate paper discovery and return results with per-source stats."""
 
         logger.info(f"SearchOrchestrator.discover_papers called with query='{query}', sources={sources}")
 
@@ -99,6 +120,8 @@ class SearchOrchestrator:
                 'crossref': 3,
                 'pubmed': 4,
                 'sciencedirect': 5,
+                'core': 6,
+                'europe_pmc': 7,
             }
             active_searchers = sorted(
                 active_searchers,
@@ -107,66 +130,80 @@ class SearchOrchestrator:
             if max_results <= 5 and len(active_searchers) > 3:
                 active_searchers = active_searchers[:3]
 
-        # Phase 1: Concurrent search
+        # Initialize per-source stats tracking
+        source_stats_map: Dict[str, SourceStats] = {
+            s.get_source_name(): SourceStats(source=s.get_source_name(), status="pending")
+            for s in active_searchers
+        }
+
+        # Phase 1: Concurrent search with stats tracking
         sem = asyncio.Semaphore(self.config.max_concurrent_searches)
 
-        async def limited_search(searcher: PaperSearcher):
+        async def limited_search(searcher: PaperSearcher) -> tuple[str, List[DiscoveredPaper], str, Optional[str]]:
+            """Returns (source_name, papers, status, error)"""
+            source_name = searcher.get_source_name()
             async with sem:
                 timeout = self.config.search_timeout
                 if fast_mode:
                     if max_results <= 5:
-                        timeout = min(timeout, 12.0)
+                        timeout = min(timeout, 25.0)
                     else:
-                        timeout = min(timeout, 18.0)
+                        timeout = min(timeout, 45.0)  # Increased for slower APIs like CORE
                 try:
-                    return await asyncio.wait_for(
+                    papers = await asyncio.wait_for(
                         searcher.search(query, max_results),
                         timeout=timeout
                     )
+                    return (source_name, papers, "success", None)
                 except asyncio.TimeoutError:
-                    logger.warning(f"{searcher.get_source_name()} timed out")
-                    return []
+                    logger.warning(f"{source_name} timed out")
+                    return (source_name, [], "timeout", "Request timed out")
+                except RateLimitError as e:
+                    logger.warning(f"{source_name} rate limited: {e}")
+                    return (source_name, [], "rate_limited", "API rate limited")
                 except Exception as e:  # pragma: no cover - network variability
-                    logger.error(f"{searcher.get_source_name()} failed: {e}")
-                    return []
+                    error_msg = str(e)[:100]
+                    logger.error(f"{source_name} failed: {e}")
+                    return (source_name, [], "error", error_msg)
 
         tasks = [asyncio.create_task(limited_search(s)) for s in active_searchers]
 
-        # Flatten and deduplicate progressively so we can early-exit in fast mode
+        # Flatten and deduplicate results as they arrive
         all_papers: List[DiscoveredPaper] = []
         seen_keys: Set[str] = set()
-        stop_threshold = max(max_results * 3, max_results + 2 if max_results < 5 else max_results)
 
         try:
             for fut in asyncio.as_completed(tasks):
                 try:
-                    result = await fut
+                    source_name, papers, status, error = await fut
+                    # Update source stats
+                    if source_name in source_stats_map:
+                        source_stats_map[source_name].count = len(papers)
+                        source_stats_map[source_name].status = status
+                        source_stats_map[source_name].error = error
                 except asyncio.CancelledError:
                     continue
                 except Exception as exc:  # pragma: no cover - defensive
                     logger.error("Discovery task failed: %s", exc)
-                    result = []
+                    papers = []
 
-                if isinstance(result, list):
-                    for paper in result:
+                if isinstance(papers, list):
+                    for paper in papers:
                         key = paper.get_unique_key()
                         if key not in seen_keys:
                             seen_keys.add(key)
                             all_papers.append(paper)
-                if fast_mode and len(all_papers) >= stop_threshold:
-                    for task in tasks:
-                        if not task.done():
-                            task.cancel()
-                    break
+                # Note: Early exit removed - all sources should complete or timeout
+                # This ensures users see results from all selected sources
         finally:
             await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         # Phase 2: Enrichment
         enrichment_tasks = [
             enricher.enrich(all_papers) for enricher in self.enrichers
         ]
         await asyncio.gather(*enrichment_tasks, return_exceptions=True)
-        
+
         # Phase 3: Ranking
         ranked_papers = await self.ranker.rank(
             all_papers,
@@ -174,8 +211,11 @@ class SearchOrchestrator:
             target_text=target_text,
             target_keywords=target_keywords
         )
-        
-        return ranked_papers[:max_results]
+
+        return DiscoveryResult(
+            papers=ranked_papers[:max_results],
+            source_stats=list(source_stats_map.values())
+        )
 
 
 # ============= Main Service Factory =============
@@ -218,6 +258,9 @@ class PaperDiscoveryServiceFactory:
         if config.sciencedirect_api_key is None and sciencedirect_api_key is not None:
             config.sciencedirect_api_key = sciencedirect_api_key
 
+        # Get CORE API key from environment
+        core_api_key = os.getenv("CORE_API_KEY")
+
         searchers = [
             ArxivSearcher(session, config),
             SemanticScholarSearcher(session, config, semantic_scholar_api_key),
@@ -225,6 +268,8 @@ class PaperDiscoveryServiceFactory:
             PubMedSearcher(session, config, email=resolved_ncbi_email),
             ScienceDirectSearcher(session, config, api_key=sciencedirect_api_key),
             OpenAlexSearcher(session, config),
+            CoreSearcher(session, config, api_key=core_api_key),
+            EuropePmcSearcher(session, config),
         ]
         
         # Purged advanced ranking flags: no-op
@@ -333,6 +378,9 @@ class PaperDiscoveryService:
         if self.config.sciencedirect_api_key is None and sciencedirect_api_key is not None:
             self.config.sciencedirect_api_key = sciencedirect_api_key
 
+        # Get CORE API key
+        core_api_key = os.getenv("CORE_API_KEY")
+
         # Orchestrator with default searchers/enrichers/ranker
         if orchestrator is None:
             searchers: List[PaperSearcher] = [
@@ -347,6 +395,8 @@ class PaperDiscoveryService:
                 PubMedSearcher(self.session, self.config, email=resolved_ncbi_email),
                 ScienceDirectSearcher(self.session, self.config, api_key=sciencedirect_api_key),
                 OpenAlexSearcher(self.session, self.config),
+                CoreSearcher(self.session, self.config, api_key=core_api_key),
+                EuropePmcSearcher(self.session, self.config),
             ]
 
             enrichers: List[PaperEnricher] = [
@@ -377,7 +427,7 @@ class PaperDiscoveryService:
         sources: Optional[List[str]] = None,
         debug: bool = False,
         fast_mode: bool = False,
-    ) -> List[DiscoveredPaper]:
+    ) -> DiscoveryResult:
         """Main discovery method with clean orchestration"""
 
         start_time = time.time()
@@ -396,17 +446,20 @@ class PaperDiscoveryService:
             # Use best enhanced query
             best_query = enhanced_queries[0] if enhanced_queries else query
             logger.info(f"Enhanced queries: {enhanced_queries}, using best: '{best_query}'")
-            
+
             # Run discovery
+            # Use research_topic as target_text for ranking if target_text not provided
+            effective_target_text = target_text or research_topic
             phase_start = time.time()
-            papers = await self.orchestrator.discover_papers(
+            result = await self.orchestrator.discover_papers(
                 best_query,
                 max_results,
-                target_text=target_text,
+                target_text=effective_target_text,
                 target_keywords=target_keywords,
                 sources=sources,
                 fast_mode=fast_mode,
             )
+            papers = result.papers
             await self._augment_pdf_links(papers, fast_mode=fast_mode)
             for paper in papers:
                 if getattr(paper, 'pdf_url', None):
@@ -414,24 +467,24 @@ class PaperDiscoveryService:
                 else:
                     paper.is_open_access = False
             timings['discovery'] = time.time() - phase_start
-            
+
             timings['total'] = time.time() - start_time
-            
+
             # Store metrics
             self._metrics = {
                 'timings': timings,
                 'papers_found': len(papers),
                 'timestamp': datetime.utcnow().isoformat()
             }
-            
+
             if debug:
                 logger.info(f"Discovery metrics: {self._metrics}")
-            
-            return papers
-            
+
+            return result
+
         except Exception as e:
             logger.error(f"Discovery failed: {e}")
-            return []
+            return DiscoveryResult(papers=[], source_stats=[])
     
     async def close(self):
         """Clean up resources"""

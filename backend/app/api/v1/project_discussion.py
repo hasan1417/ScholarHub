@@ -70,7 +70,9 @@ from app.schemas.project_discussion import (
 from app.core.config import settings
 from app.services.ai_service import AIService
 from app.services.discussion_ai import DiscussionAIService
-from app.services.discussion_ai.types import AssistantReply
+from app.services.discussion_ai.types import AssistantReply, SearchResultDigest
+from app.services.discussion_ai.skills import DiscussionOrchestrator
+from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
 from app.services.websocket_manager import connection_manager
 
 router = APIRouter()
@@ -78,6 +80,11 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 _discussion_ai_core = AIService()
+_skill_orchestrator = DiscussionOrchestrator(_discussion_ai_core)
+
+# Feature flags for Discussion AI
+USE_SKILL_BASED_SYSTEM = False  # Old skill-based system
+USE_TOOL_BASED_SYSTEM = True    # New tool-based AI (gpt-5.2)
 
 _slug_regex = re.compile(r"[^a-z0-9]+")
 
@@ -1114,11 +1121,17 @@ def invoke_discussion_assistant(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    print(f"\n{'#'*60}")
+    print(f"[ENDPOINT] invoke_discussion_assistant ENTERED")
+    print(f"[ENDPOINT] User: {current_user.email}")
+    print(f"[ENDPOINT] Question: {payload.question[:80] if payload.question else 'None'}")
+    print(f"[ENDPOINT] USE_TOOL_BASED_SYSTEM: {USE_TOOL_BASED_SYSTEM}")
+    print(f"{'#'*60}\n")
+
     project = get_project_or_404(db, project_id)
     ensure_project_member(db, project, current_user)
     channel = _get_channel_or_404(db, project, channel_id)
 
-    assistant = DiscussionAIService(db=db, ai_service=_discussion_ai_core)
     display_name = _display_name_for_user(current_user)
     author_info = {
         "id": str(current_user.id),
@@ -1128,7 +1141,249 @@ def invoke_discussion_assistant(
             "display": display_name,
         },
     }
-    logger.info(f"🔍 AI Assistant - User: {current_user.email}, first_name: '{current_user.first_name}', last_name: '{current_user.last_name}', display_name: '{display_name}', author_info: {author_info}")
+    logger.info(f"🔍 AI Assistant - User: {current_user.email}, display_name: '{display_name}'")
+
+    # Use tool-based orchestrator if enabled (new intelligent AI)
+    if USE_TOOL_BASED_SYSTEM:
+        # Convert search results to list of dicts
+        search_results_list = None
+        if payload.recent_search_results:
+            search_results_list = [
+                {
+                    "title": r.title,
+                    "authors": r.authors,
+                    "year": r.year,
+                    "source": r.source,
+                    "abstract": getattr(r, "abstract", None),
+                    "doi": getattr(r, "doi", None),
+                    "url": getattr(r, "url", None),
+                    "pdf_url": getattr(r, "pdf_url", None),
+                }
+                for r in payload.recent_search_results
+            ]
+
+        # Load previous conversation state from the most recent exchange
+        # This enables the state machine to track clarification history
+        previous_state_dict = None
+        last_exchange = (
+            db.query(ProjectDiscussionAssistantExchange)
+            .filter(
+                ProjectDiscussionAssistantExchange.project_id == project.id,
+                ProjectDiscussionAssistantExchange.channel_id == channel.id,
+            )
+            .order_by(ProjectDiscussionAssistantExchange.created_at.desc())
+            .first()
+        )
+        if last_exchange and last_exchange.conversation_state:
+            previous_state_dict = last_exchange.conversation_state
+            logger.info(
+                "Loaded previous state: clarification_asked=%s, phase=%s",
+                previous_state_dict.get("clarification_asked", False),
+                previous_state_dict.get("phase", "initial"),
+            )
+
+        # Create tool orchestrator with DB access
+        tool_orchestrator = ToolOrchestrator(_discussion_ai_core, db)
+
+        # Convert conversation history if provided
+        conversation_history = None
+        if payload.conversation_history:
+            conversation_history = [
+                {"role": h.role, "content": h.content}
+                for h in payload.conversation_history
+            ]
+            print(f"\n{'='*60}")
+            print(f"[DEBUG] CONVERSATION HISTORY RECEIVED: {len(conversation_history)} messages")
+            print(f"[DEBUG] Question: {payload.question[:80]}")
+            for i, h in enumerate(conversation_history[-5:]):  # Last 5 messages
+                preview = h["content"][:100].replace("\n", " ")
+                print(f"  [{i}] {h['role']}: {preview}...")
+            print(f"{'='*60}\n")
+        else:
+            print(f"\n[DEBUG] NO CONVERSATION HISTORY - Question: {payload.question[:80]}\n")
+
+        # Call the tool-based orchestrator with state tracking
+        result = tool_orchestrator.handle_message(
+            project,
+            channel,
+            payload.question,
+            recent_search_results=search_results_list,
+            previous_state_dict=previous_state_dict,
+            conversation_history=conversation_history,
+        )
+
+        # Convert orchestrator result to API response format
+        citations = [
+            DiscussionAssistantCitation(
+                origin=c.get("origin"),
+                origin_id=c.get("origin_id"),
+                label=c.get("label", ""),
+                resource_type=c.get("resource_type"),
+            )
+            for c in result.get("citations", [])
+        ]
+
+        suggested_actions = [
+            {
+                "action_type": a.get("type", a.get("action_type", "")),
+                "summary": a.get("summary", ""),
+                "payload": a.get("payload", {}),
+            }
+            for a in result.get("actions", [])
+        ]
+
+        # Include tools called in the response for debugging
+        tools_called = result.get("tools_called", [])
+        message = result.get("message", "")
+        if tools_called:
+            logger.info(f"Tools called: {tools_called}")
+
+        response_model = DiscussionAssistantResponse(
+            message=message,
+            citations=citations,
+            reasoning_used=result.get("reasoning_used", True),
+            model=result.get("model_used", "gpt-5.2"),
+            usage=None,
+            suggested_actions=suggested_actions,
+        )
+
+        # Extract conversation state for persistence
+        conversation_state = result.get("conversation_state", {})
+        logger.info(
+            "New conversation state: clarification_asked=%s, phase=%s",
+            conversation_state.get("clarification_asked", False),
+            conversation_state.get("phase", "initial"),
+        )
+
+        # Persist and broadcast
+        exchange_payload = {
+            "id": str(uuid4()),
+            "question": payload.question,
+            "response": response_model.model_dump(mode="json"),
+            "created_at": datetime.utcnow().isoformat() + "Z",
+            "author": author_info,
+        }
+        background_tasks.add_task(
+            _persist_assistant_exchange,
+            project.id,
+            channel.id,
+            current_user.id,
+            exchange_payload["id"],
+            payload.question,
+            exchange_payload["response"],
+            exchange_payload["created_at"],
+            conversation_state,  # Pass the new state to persist
+        )
+        background_tasks.add_task(
+            _broadcast_discussion_event,
+            project.id,
+            channel.id,
+            "assistant_reply",
+            {"exchange": exchange_payload},
+        )
+
+        return response_model
+
+    # Use skill-based orchestrator if enabled
+    if USE_SKILL_BASED_SYSTEM:
+        # Convert search results to list of dicts for orchestrator
+        search_results_list = None
+        if payload.recent_search_results:
+            search_results_list = [
+                {
+                    "title": r.title,
+                    "authors": r.authors,
+                    "year": r.year,
+                    "source": r.source,
+                    "abstract": getattr(r, "abstract", None),
+                    "doi": getattr(r, "doi", None),
+                    "url": getattr(r, "url", None),
+                    "pdf_url": getattr(r, "pdf_url", None),
+                }
+                for r in payload.recent_search_results
+            ]
+
+        # Call the skill-based orchestrator
+        result = _skill_orchestrator.handle_message(
+            project,
+            channel,
+            payload.question,
+            recent_search_results=search_results_list,
+            reasoning_mode=payload.reasoning or False,
+        )
+
+        # Convert orchestrator result to API response format
+        citations = [
+            DiscussionAssistantCitation(
+                origin=c.get("origin"),
+                origin_id=c.get("origin_id"),
+                label=c.get("label", ""),
+                resource_type=c.get("resource_type"),
+            )
+            for c in result.get("citations", [])
+        ]
+
+        suggested_actions = [
+            {
+                "action_type": a.get("type", a.get("action_type", "")),
+                "summary": a.get("summary", ""),
+                "payload": a.get("payload", {}),
+            }
+            for a in result.get("actions", [])
+        ]
+
+        response_model = DiscussionAssistantResponse(
+            message=result.get("message", ""),
+            citations=citations,
+            reasoning_used=result.get("reasoning_used", False),
+            model=result.get("model_used", "gpt-4o-mini"),
+            usage=None,
+            suggested_actions=suggested_actions,
+        )
+
+        # Persist and broadcast
+        exchange_payload = {
+            "id": str(uuid4()),
+            "question": payload.question,
+            "response": response_model.model_dump(mode="json"),
+            "created_at": datetime.utcnow().isoformat() + "Z",
+            "author": author_info,
+        }
+        background_tasks.add_task(
+            _persist_assistant_exchange,
+            project.id,
+            channel.id,
+            current_user.id,
+            exchange_payload["id"],
+            payload.question,
+            exchange_payload["response"],
+            exchange_payload["created_at"],
+        )
+        background_tasks.add_task(
+            _broadcast_discussion_event,
+            project.id,
+            channel.id,
+            "assistant_reply",
+            {"exchange": exchange_payload},
+        )
+
+        return response_model
+
+    # Fallback to old DiscussionAIService
+    assistant = DiscussionAIService(db=db, ai_service=_discussion_ai_core)
+
+    # Convert recent search results to context format
+    search_results_context = None
+    if payload.recent_search_results:
+        search_results_context = [
+            SearchResultDigest(
+                title=r.title,
+                authors=r.authors,
+                year=r.year,
+                source=r.source,
+            )
+            for r in payload.recent_search_results
+        ]
 
     if stream:
         def event_iterator():
@@ -1139,6 +1394,7 @@ def invoke_discussion_assistant(
                     payload.question,
                     reasoning=payload.reasoning,
                     scope=payload.scope,
+                    recent_search_results=search_results_context,
                 ):
                     if event.get("type") == "token":
                         yield "data: " + json.dumps({"type": "token", "content": event.get("content", "")}) + "\n\n"
@@ -1184,6 +1440,7 @@ def invoke_discussion_assistant(
         payload.question,
         reasoning=payload.reasoning,
         scope=payload.scope,
+        recent_search_results=search_results_context,
     )
 
     response_model = _build_assistant_response_model(reply)
@@ -1459,6 +1716,8 @@ def execute_paper_action(
         return _handle_create_paper(db, project, current_user, request.payload)
     elif request.action_type == "edit_paper":
         return _handle_edit_paper(db, project, current_user, request.payload)
+    elif request.action_type == "add_reference":
+        return _handle_add_reference(db, project, current_user, request.payload)
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1477,10 +1736,11 @@ def _handle_create_paper(
 
     title = str(payload.get("title", "Untitled Paper")).strip()
     paper_type = str(payload.get("paper_type", "research")).strip()
-    authoring_mode = str(payload.get("authoring_mode", "latex")).strip()
+    authoring_mode = str(payload.get("authoring_mode", "rich")).strip()  # Default to rich for AI content
     abstract = payload.get("abstract")
     objectives = payload.get("objectives", [])
     keywords = payload.get("keywords", [])
+    initial_content = payload.get("content")  # AI-generated content
 
     # Ensure objectives is a list
     if not isinstance(objectives, list):
@@ -1499,36 +1759,47 @@ def _handle_create_paper(
 
     # Validate authoring_mode
     if authoring_mode not in {"latex", "rich"}:
-        authoring_mode = "latex"
-
-    # Get template content
-    template = next(
-        (t for t in PAPER_TEMPLATES if t["id"] == paper_type),
-        PAPER_TEMPLATES[0] if PAPER_TEMPLATES else None
-    )
+        authoring_mode = "rich"
 
     content = None
     content_json: Dict[str, Any] = {}
 
-    if template:
+    # If AI provided initial content, use it directly
+    if initial_content:
         if authoring_mode == "latex":
             content_json = {
                 "authoring_mode": "latex",
-                "latex_source": template.get("latexTemplate", "")
+                "latex_source": initial_content
             }
         else:
-            content = template.get("richTemplate", "")
+            content = initial_content
             content_json = {"authoring_mode": "rich"}
     else:
-        # Fallback if no template found
-        if authoring_mode == "latex":
-            content_json = {
-                "authoring_mode": "latex",
-                "latex_source": "\\documentclass{article}\n\\begin{document}\n\n\\end{document}"
-            }
+        # Fall back to template
+        template = next(
+            (t for t in PAPER_TEMPLATES if t["id"] == paper_type),
+            PAPER_TEMPLATES[0] if PAPER_TEMPLATES else None
+        )
+
+        if template:
+            if authoring_mode == "latex":
+                content_json = {
+                    "authoring_mode": "latex",
+                    "latex_source": template.get("latexTemplate", "")
+                }
+            else:
+                content = template.get("richTemplate", "")
+                content_json = {"authoring_mode": "rich"}
         else:
-            content = "# " + title + "\n\n"
-            content_json = {"authoring_mode": "rich"}
+            # Fallback if no template found
+            if authoring_mode == "latex":
+                content_json = {
+                    "authoring_mode": "latex",
+                    "latex_source": "\\documentclass{article}\n\\begin{document}\n\n\\end{document}"
+                }
+            else:
+                content = "# " + title + "\n\n"
+                content_json = {"authoring_mode": "rich"}
 
     paper = ResearchPaper(
         title=title,
@@ -1646,6 +1917,222 @@ def _handle_edit_paper(
     )
 
 
+def _handle_add_reference(
+    db: Session,
+    project,
+    user: User,
+    payload: Dict[str, Any],
+) -> PaperActionResponse:
+    """Add a discovered paper as a project reference."""
+    title = payload.get("title")
+    authors = payload.get("authors", [])
+    year = payload.get("year")
+    doi = payload.get("doi")
+    url = payload.get("url")
+    abstract = payload.get("abstract")
+    source = payload.get("source")
+    pdf_url = payload.get("pdf_url")
+    is_open_access = payload.get("is_open_access", False)
+
+    if not title:
+        return PaperActionResponse(success=False, message="Title is required")
+
+    # Normalize authors to list (Reference model expects ARRAY)
+    authors_list = []
+    if isinstance(authors, list):
+        authors_list = [str(a) for a in authors if a]
+    elif isinstance(authors, str) and authors:
+        authors_list = [a.strip() for a in authors.split(",") if a.strip()]
+
+    # Check for existing reference by DOI for this user
+    existing_ref = None
+    if doi:
+        existing_ref = db.query(Reference).filter(
+            Reference.doi == doi,
+            Reference.owner_id == user.id
+        ).first()
+
+    if existing_ref:
+        ref = existing_ref
+        # Update pdf_url if not set and we have one now
+        if pdf_url and not ref.pdf_url:
+            ref.pdf_url = pdf_url
+            ref.is_open_access = is_open_access
+    else:
+        # Create new reference with owner_id (required field)
+        ref = Reference(
+            title=title,
+            authors=authors_list,
+            year=year,
+            doi=doi,
+            url=url,
+            abstract=abstract,
+            source=source or "discussion_ai",
+            owner_id=user.id,
+            pdf_url=pdf_url,
+            is_open_access=is_open_access
+        )
+        db.add(ref)
+        db.flush()
+
+    # Check if already linked to project
+    existing_link = db.query(ProjectReference).filter(
+        ProjectReference.project_id == project.id,
+        ProjectReference.reference_id == ref.id
+    ).first()
+
+    if existing_link:
+        return PaperActionResponse(
+            success=False,
+            message="Reference already exists in project"
+        )
+
+    # Link to project
+    from app.models.project_reference import ProjectReferenceStatus, ProjectReferenceOrigin
+    project_ref = ProjectReference(
+        project_id=project.id,
+        reference_id=ref.id,
+        status=ProjectReferenceStatus.APPROVED,
+        origin=ProjectReferenceOrigin.MANUAL_ADD
+    )
+    db.add(project_ref)
+    db.commit()
+
+    # Truncate title for message
+    short_title = title[:50] + "..." if len(title) > 50 else title
+    message = f"Added '{short_title}' to references"
+
+    # Trigger PDF ingestion if available (in background)
+    if pdf_url:
+        try:
+            from app.services.reference_ingestion_service import ingest_reference_pdf
+            # Refresh the reference to ensure it's attached to the session
+            ref = db.query(Reference).filter(Reference.id == ref.id).first()
+            if ref:
+                ingested = ingest_reference_pdf(db, ref, owner_id=str(user.id))
+                if ingested:
+                    message += " (PDF queued for processing)"
+                    logger.info("PDF ingestion triggered for reference %s", ref.id)
+        except Exception as e:
+            logger.warning("Failed to trigger PDF ingestion for reference %s: %s", ref.id, e)
+
+    logger.info(
+        "Reference added via discussion AI: ref_id=%s title=%s project_id=%s",
+        ref.id, title[:50], project.id
+    )
+
+    return PaperActionResponse(
+        success=True,
+        paper_id=str(ref.id),
+        message=message
+    )
+
+
+# ============================================================================
+# Search References Endpoint (for AI-assisted reference discovery)
+# ============================================================================
+
+class SearchReferencesRequest(BaseModel):
+    query: str
+    sources: Optional[List[str]] = None
+    max_results: int = 10
+    open_access_only: bool = False  # If true, only return papers with PDF available
+
+
+class DiscoveredPaperResponse(BaseModel):
+    id: str
+    title: str
+    authors: List[str]
+    year: Optional[int] = None
+    abstract: Optional[str] = None
+    doi: Optional[str] = None
+    url: Optional[str] = None
+    source: str
+    relevance_score: Optional[float] = None
+    pdf_url: Optional[str] = None
+    is_open_access: bool = False
+
+
+class SearchReferencesResponse(BaseModel):
+    papers: List[DiscoveredPaperResponse]
+    total_found: int
+    query: str
+
+
+@router.post("/projects/{project_id}/discussion/search-references")
+async def search_references(
+    project_id: UUID,
+    request: SearchReferencesRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> SearchReferencesResponse:
+    """Search for academic papers using the paper discovery service."""
+    project = get_project_or_404(db, project_id)
+    ensure_project_member(db, project, current_user)
+
+    from app.services.paper_discovery_service import PaperDiscoveryService
+
+    # Default sources for discussion AI search (fast, reliable sources)
+    sources = request.sources or ["arxiv", "semantic_scholar", "openalex", "crossref"]
+    max_results = min(request.max_results, 20)  # Cap at 20 results
+
+    # Create discovery service and search
+    discovery_service = PaperDiscoveryService()
+
+    try:
+        # Request more results if filtering for open access, to ensure we get enough
+        search_max = max_results * 3 if request.open_access_only else max_results
+
+        result = await discovery_service.discover_papers(
+            query=request.query,
+            max_results=search_max,
+            sources=sources,
+            fast_mode=True,  # Use fast mode for chat responsiveness
+        )
+
+        # Filter for open access if requested
+        source_papers = result.papers
+        if request.open_access_only:
+            source_papers = [p for p in source_papers if p.pdf_url or p.open_access_url]
+
+        # Convert to response format
+        papers = []
+        for idx, p in enumerate(source_papers[:max_results]):
+            # Create unique ID for frontend tracking using DOI or index
+            unique_key = p.get_unique_key() if hasattr(p, 'get_unique_key') else str(idx)
+            paper_id = f"{p.source}:{unique_key}"
+
+            # Parse authors
+            authors_list = []
+            if p.authors:
+                if isinstance(p.authors, list):
+                    authors_list = [str(a) for a in p.authors]
+                elif isinstance(p.authors, str):
+                    authors_list = [a.strip() for a in p.authors.split(",")]
+
+            papers.append(DiscoveredPaperResponse(
+                id=paper_id,
+                title=p.title,
+                authors=authors_list,
+                year=p.year,
+                abstract=p.abstract[:500] if p.abstract else None,
+                doi=p.doi,
+                url=p.url,
+                source=p.source,
+                relevance_score=p.relevance_score,
+                pdf_url=p.pdf_url or p.open_access_url,
+                is_open_access=p.is_open_access
+            ))
+
+        return SearchReferencesResponse(
+            papers=papers,
+            total_found=len(result.papers),
+            query=request.query
+        )
+    finally:
+        await discovery_service.close()
+
+
 def _discussion_session_id(project_id: UUID, channel_id: UUID) -> str:
     return f"discussion:{project_id}:{channel_id}"
 
@@ -1702,7 +2189,16 @@ def _persist_assistant_exchange(
     question: str,
     response_payload: Dict[str, Any],
     created_at_iso: Optional[str] = None,
+    conversation_state: Optional[Dict[str, Any]] = None,
 ):
+    """
+    Persist an assistant exchange to the database.
+
+    Args:
+        conversation_state: State machine state to persist for next turn.
+            This tracks whether clarification has been asked, enabling
+            the "one clarification max" rule.
+    """
     db = SessionLocal()
     try:
         try:
@@ -1725,6 +2221,8 @@ def _persist_assistant_exchange(
             exchange.project_id = project_id
             exchange.channel_id = channel_id
             exchange.author_id = author_id
+            if conversation_state is not None:
+                exchange.conversation_state = conversation_state
             if timestamp:
                 exchange.created_at = timestamp
         else:
@@ -1735,6 +2233,7 @@ def _persist_assistant_exchange(
                 author_id=author_id,
                 question=question,
                 response=response_payload,
+                conversation_state=conversation_state or {},
                 created_at=timestamp,
             )
             db.add(exchange)

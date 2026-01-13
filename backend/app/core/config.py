@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     # Model for Rich→LaTeX conversion (optional override)
     OPENAI_CONVERSION_MODEL: Optional[str] = None
-    OPENAI_PLANNER_MODEL: Optional[str] = "gpt-5"
+    OPENAI_PLANNER_MODEL: Optional[str] = "gpt-5.2"
     USE_OPENAI_TRANSCRIBE: bool = True
     OPENAI_TRANSCRIBE_MODEL: str = "gpt-4o-transcribe"
 

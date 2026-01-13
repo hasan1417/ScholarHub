@@ -493,6 +493,10 @@ export const projectDiscoveryAPI = {
     api.delete<ProjectDiscoveryClearResponse>(
       `/projects/${projectId}/discovery/results/dismissed`
     ),
+  clearResults: (projectId: string) =>
+    api.delete<{ deleted: number }>(
+      `/projects/${projectId}/discovery/results/clear`
+    ),
 }
 
 export const projectMeetingsAPI = {
@@ -699,6 +703,34 @@ export const projectDiscussionAPI = {
       `/projects/${projectId}/discussion/paper-action`,
       { action_type: actionType, payload }
     ),
+
+  searchReferences: (
+    projectId: string,
+    query: string,
+    options?: { sources?: string[]; maxResults?: number; openAccessOnly?: boolean }
+  ) =>
+    api.post<{
+      papers: Array<{
+        id: string
+        title: string
+        authors: string[]
+        year?: number
+        abstract?: string
+        doi?: string
+        url?: string
+        source: string
+        relevance_score?: number
+        pdf_url?: string
+        is_open_access?: boolean
+      }>
+      total_found: number
+      query: string
+    }>(`/projects/${projectId}/discussion/search-references`, {
+      query,
+      sources: options?.sources,
+      max_results: options?.maxResults ?? 10,
+      open_access_only: options?.openAccessOnly ?? false,
+    }),
 }
 
 // Research Papers API endpoints

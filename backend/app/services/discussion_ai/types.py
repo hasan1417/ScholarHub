@@ -80,6 +80,15 @@ class AssistantSuggestedAction:
 
 
 @dataclass(slots=True)
+class SearchResultDigest:
+    """A paper from recent search results."""
+    title: str
+    authors: Optional[str] = None
+    year: Optional[int] = None
+    source: Optional[str] = None
+
+
+@dataclass(slots=True)
 class ChannelContext:
     project_id: UUID
     project_title: str
@@ -93,6 +102,7 @@ class ChannelContext:
     project_objectives: Sequence[str] = field(default_factory=tuple)
     paper_objectives: Sequence[PaperObjectiveDigest] = field(default_factory=tuple)
     resource_scope: Sequence[ProjectDiscussionResourceType] = field(default_factory=tuple)
+    recent_search_results: Sequence[SearchResultDigest] = field(default_factory=tuple)
 
     @property
     def message_window(self) -> Sequence[MessageDigest]:

@@ -22,6 +22,11 @@ from app.services.paper_discovery.models import DiscoveredPaper, PaperSource
 logger = logging.getLogger(__name__)
 
 
+class RateLimitError(Exception):
+    """Raised when an API returns a rate limit response (429)."""
+    pass
+
+
 class SearcherBase(PaperSearcher):
     """Base class storing shared dependencies for searchers."""
 
@@ -146,14 +151,16 @@ class SemanticScholarSearcher(SearcherBase):
             async with self.session.get(url, params=params, headers=headers) as response:
                 if response.status == 429:
                     logger.warning("Semantic Scholar rate limited")
-                    return []
+                    raise RateLimitError("Semantic Scholar API rate limited")
                 elif response.status != 200:
                     logger.error(f"Semantic Scholar error: {response.status}")
                     return []
-                
+
                 data = await response.json()
                 return await self._parse_response(data)
 
+        except RateLimitError:
+            raise  # Re-raise rate limit errors to be handled by orchestrator
         except Exception as e:
             logger.error(f"Error searching Semantic Scholar: {e}")
             return []
@@ -163,8 +170,8 @@ class SemanticScholarSearcher(SearcherBase):
         papers: List[DiscoveredPaper] = []
         for item in data.get('data', []):
             authors = [
-                author['name'] 
-                for author in item.get('authors', []) 
+                author['name']
+                for author in item.get('authors', [])
                 if author.get('name')
             ]
 
@@ -172,22 +179,15 @@ class SemanticScholarSearcher(SearcherBase):
             doi = external_ids.get('DOI')
             arxiv_id = external_ids.get('ArXiv') or external_ids.get('ARXIV')
 
+            # Fast PDF extraction from metadata only (no HTTP requests)
             pdf_url = None
             oapdf = item.get('openAccessPdf') or {}
             if isinstance(oapdf, dict):
-                candidate = (oapdf.get('url') or '').strip()
-                if candidate:
-                    verified = await self._verify_pdf_candidate(candidate)
-                    if verified:
-                        pdf_url = verified
+                pdf_url = (oapdf.get('url') or '').strip() or None
 
+            # Try to derive arXiv PDF URL (no HTTP request)
             if not pdf_url:
-                derived = self._derive_arxiv_pdf(doi=doi, url=item.get('url'), arxiv_id=arxiv_id)
-                if derived:
-                    pdf_url = derived
-
-            if not pdf_url:
-                pdf_url = await self._find_pdf_via_semantic_page(item)
+                pdf_url = self._derive_arxiv_pdf(doi=doi, url=item.get('url'), arxiv_id=arxiv_id)
 
             papers.append(DiscoveredPaper(
                 title=item.get('title', ''),
@@ -436,6 +436,8 @@ class CrossrefSearcher(SearcherBase):
     async def _parse_response(self, data: Dict[str, Any]) -> List[DiscoveredPaper]:
         items = ((data or {}).get('message') or {}).get('items', [])
         papers: List[DiscoveredPaper] = []
+
+        # First pass: parse metadata without PDF lookup (fast)
         for it in items:
             try:
                 title_list = it.get('title') or []
@@ -460,9 +462,9 @@ class CrossrefSearcher(SearcherBase):
                 journal = journal_list[0] if journal_list else None
                 citations = it.get('is-referenced-by-count')
 
-                pdf_url = await self._locate_crossref_pdf(it)
+                # Quick PDF check from metadata only (no HTTP requests)
+                pdf_url = self._extract_pdf_from_metadata(it)
                 is_open_access = bool(pdf_url)
-                open_access_url = pdf_url if pdf_url else None
 
                 papers.append(DiscoveredPaper(
                     title=title,
@@ -475,13 +477,28 @@ class CrossrefSearcher(SearcherBase):
                     citations_count=citations if isinstance(citations, int) else None,
                     journal=journal,
                     is_open_access=is_open_access,
-                    open_access_url=open_access_url,
+                    open_access_url=pdf_url if pdf_url else None,
                     pdf_url=pdf_url,
                 ))
             except Exception:
                 logger.debug("Failed parsing Crossref item", exc_info=True)
                 continue
         return papers
+
+    def _extract_pdf_from_metadata(self, item: Dict[str, Any]) -> Optional[str]:
+        """Extract PDF URL from Crossref metadata without making HTTP requests."""
+        # Check link array for PDF content-type
+        for link_info in item.get('link') or []:
+            if not isinstance(link_info, dict):
+                continue
+            content_type = (link_info.get('content-type') or '').lower()
+            candidate = (link_info.get('URL') or '').strip()
+            if candidate and 'pdf' in content_type:
+                return candidate
+            # Also check if URL itself looks like a PDF
+            if candidate and candidate.lower().endswith('.pdf'):
+                return candidate
+        return None
 
     async def _extract_pdf_from_links(self, item: Dict[str, Any]) -> Optional[str]:
         for link_info in item.get('link') or []:
@@ -1116,6 +1133,220 @@ class OpenAlexSearcher(SearcherBase):
                     pdf_url=pdf_url,
                 ))
             except Exception:
+                continue
+
+        return papers
+
+
+class CoreSearcher(SearcherBase):
+    """CORE (core.ac.uk) paper searcher - 200M+ open access papers."""
+
+    def __init__(self, session: aiohttp.ClientSession, config: DiscoveryConfig, api_key: Optional[str] = None):
+        super().__init__(session, config)
+        self.api_key = api_key
+
+    def get_source_name(self) -> str:
+        return PaperSource.CORE.value
+
+    async def search(self, query: str, max_results: int) -> List[DiscoveredPaper]:
+        if not self.api_key:
+            logger.warning("CORE API key not configured, skipping CORE search")
+            return []
+
+        try:
+            headers = {
+                'Authorization': f'Bearer {self.api_key}',
+            }
+
+            # CORE API v3 search endpoint (trailing slash required to avoid redirect)
+            url = "https://api.core.ac.uk/v3/search/works/"
+            params = {
+                'q': query,
+                'limit': min(max_results, 100),  # CORE max is 100 per request
+            }
+
+            print(f"[CORE] Searching for '{query}' with limit {max_results}")
+            logger.info(f"CORE: Searching for '{query}' with limit {max_results}")
+            async with self.session.get(url, params=params, headers=headers, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=40)) as response:
+                logger.info(f"CORE: Response status {response.status}")
+                if response.status == 429:
+                    logger.warning("CORE API rate limited")
+                    raise RateLimitError("CORE API rate limited")
+                elif response.status == 401:
+                    logger.error("CORE API authentication failed - check API key")
+                    return []
+                elif response.status != 200:
+                    text = await response.text()
+                    logger.error(f"CORE API error: {response.status} - {text[:200]}")
+                    return []
+
+                data = await response.json()
+                logger.info(f"CORE: Got {len(data.get('results', []))} results")
+                return self._parse_response(data)
+
+        except RateLimitError:
+            raise
+        except Exception as e:
+            logger.error(f"Error searching CORE: {e}")
+            return []
+
+    def _parse_response(self, data: Dict[str, Any]) -> List[DiscoveredPaper]:
+        """Parse CORE API response."""
+        papers = []
+        results = data.get('results', [])
+
+        for item in results:
+            try:
+                title = (item.get('title') or '').strip()
+                if not title:
+                    continue
+
+                # Extract authors
+                authors = []
+                for author in item.get('authors', []):
+                    if isinstance(author, dict):
+                        name = author.get('name', '')
+                    else:
+                        name = str(author)
+                    if name:
+                        authors.append(name)
+
+                abstract = (item.get('abstract') or '').strip()
+                year = item.get('yearPublished')
+
+                # Get DOI
+                doi = item.get('doi')
+                if doi and doi.startswith('http'):
+                    # Extract DOI from URL
+                    doi = doi.replace('https://doi.org/', '').replace('http://doi.org/', '')
+
+                # Get URLs
+                url = item.get('downloadUrl') or item.get('sourceFulltextUrls', [None])[0] if item.get('sourceFulltextUrls') else None
+                if not url:
+                    url = f"https://core.ac.uk/works/{item.get('id')}" if item.get('id') else None
+
+                # PDF URL
+                pdf_url = item.get('downloadUrl')
+                if pdf_url and not pdf_url.lower().endswith('.pdf'):
+                    pdf_url = None
+
+                papers.append(DiscoveredPaper(
+                    title=title,
+                    authors=authors,
+                    abstract=abstract,
+                    year=year,
+                    doi=doi,
+                    url=url,
+                    source=self.get_source_name(),
+                    is_open_access=True,  # CORE focuses on open access
+                    pdf_url=pdf_url,
+                ))
+            except Exception as e:
+                logger.debug(f"Error parsing CORE result: {e}")
+                continue
+
+        return papers
+
+
+class EuropePmcSearcher(SearcherBase):
+    """Europe PMC paper searcher - biomedical and life sciences literature."""
+
+    def get_source_name(self) -> str:
+        return PaperSource.EUROPE_PMC.value
+
+    async def search(self, query: str, max_results: int) -> List[DiscoveredPaper]:
+        try:
+            # Europe PMC REST API
+            url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
+            params = {
+                'query': query,
+                'format': 'json',
+                'pageSize': min(max_results, 100),  # Max 100 per request
+                'resultType': 'core',  # Get full metadata
+            }
+
+            async with self.session.get(url, params=params) as response:
+                if response.status == 429:
+                    logger.warning("Europe PMC rate limited")
+                    raise RateLimitError("Europe PMC API rate limited")
+                elif response.status != 200:
+                    logger.error(f"Europe PMC API error: {response.status}")
+                    return []
+
+                data = await response.json()
+                return self._parse_response(data)
+
+        except RateLimitError:
+            raise
+        except Exception as e:
+            logger.error(f"Error searching Europe PMC: {e}")
+            return []
+
+    def _parse_response(self, data: Dict[str, Any]) -> List[DiscoveredPaper]:
+        """Parse Europe PMC API response."""
+        papers = []
+        result_list = data.get('resultList', {}).get('result', [])
+
+        for item in result_list:
+            try:
+                title = (item.get('title') or '').strip()
+                if not title:
+                    continue
+
+                # Extract authors
+                authors = []
+                author_string = item.get('authorString', '')
+                if author_string:
+                    # Split by comma or semicolon
+                    authors = [a.strip() for a in re.split(r'[,;]', author_string) if a.strip()]
+
+                abstract = (item.get('abstractText') or '').strip()
+
+                # Year from publication date
+                year = None
+                pub_year = item.get('pubYear')
+                if pub_year:
+                    try:
+                        year = int(pub_year)
+                    except (ValueError, TypeError):
+                        pass
+
+                doi = item.get('doi')
+                pmid = item.get('pmid')
+                pmcid = item.get('pmcid')
+
+                # Build URL - prefer DOI, then PMC, then PubMed
+                url = None
+                if doi:
+                    url = f"https://doi.org/{doi}"
+                elif pmcid:
+                    url = f"https://europepmc.org/article/PMC/{pmcid}"
+                elif pmid:
+                    url = f"https://europepmc.org/article/MED/{pmid}"
+
+                # Check for open access and PDF
+                is_open_access = item.get('isOpenAccess') == 'Y'
+                pdf_url = None
+                if pmcid:
+                    # PMC articles usually have PDF available
+                    pdf_url = f"https://europepmc.org/backend/ptpmcrender.fcgi?accid={pmcid}&blobtype=pdf"
+
+                journal = item.get('journalTitle')
+
+                papers.append(DiscoveredPaper(
+                    title=title,
+                    authors=authors,
+                    abstract=abstract,
+                    year=year,
+                    doi=doi,
+                    url=url,
+                    source=self.get_source_name(),
+                    journal=journal,
+                    is_open_access=is_open_access,
+                    pdf_url=pdf_url,
+                ))
+            except Exception as e:
+                logger.debug(f"Error parsing Europe PMC result: {e}")
                 continue
 
         return papers

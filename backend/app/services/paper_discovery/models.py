@@ -17,6 +17,8 @@ class PaperSource(Enum):
     PUBMED = "pubmed"
     OPENALEX = "openalex"
     SCIENCEDIRECT = "sciencedirect"
+    CORE = "core"
+    EUROPE_PMC = "europe_pmc"
 
 
 @dataclass

@@ -268,6 +268,7 @@ class ProjectDiscussionAssistantExchange(Base):
     author_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     question = Column(Text, nullable=False)
     response = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    conversation_state = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     project = relationship("Project")

@@ -229,10 +229,30 @@ class DiscussionAssistantSuggestedAction(BaseModel):
 ALLOWED_ASSISTANT_SCOPE = {"transcripts", "papers", "references"}
 
 
+class RecentSearchResultItem(BaseModel):
+    """A paper from recent search results for context."""
+    title: str
+    authors: Optional[str] = None
+    year: Optional[int] = None
+    source: Optional[str] = None
+    abstract: Optional[str] = None
+    doi: Optional[str] = None
+    url: Optional[str] = None
+    pdf_url: Optional[str] = None
+
+
+class ConversationHistoryItem(BaseModel):
+    """A message in the conversation history."""
+    role: str  # "user" or "assistant"
+    content: str
+
+
 class DiscussionAssistantRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=5000)
     reasoning: bool = False
     scope: Optional[List[str]] = None
+    recent_search_results: Optional[List[RecentSearchResultItem]] = None  # Papers from last search
+    conversation_history: Optional[List[ConversationHistoryItem]] = None  # Previous messages for context
 
     @field_validator("scope")
     @classmethod

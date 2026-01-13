@@ -23,6 +23,7 @@ from app.services.discussion_ai.types import (
     MessageDigest,
     PaperObjectiveDigest,
     ResourceDigest,
+    SearchResultDigest,
     TaskDigest,
 )
 
@@ -214,6 +215,7 @@ class ChannelContextAssembler:
         *,
         message_limit: Optional[int] = None,
         resource_scope: Optional[Sequence[ProjectDiscussionResourceType]] = None,
+        recent_search_results: Optional[Sequence[SearchResultDigest]] = None,
     ) -> ChannelContext:
         limit = message_limit or self.message_limit
         messages = self._load_messages(channel.id, limit)
@@ -259,6 +261,7 @@ class ChannelContextAssembler:
             project_objectives=project_objectives,
             paper_objectives=paper_objectives,
             resource_scope=scope_tuple,
+            recent_search_results=tuple(recent_search_results) if recent_search_results else tuple(),
         )
 
     def _load_messages(self, channel_id: UUID, limit: int) -> List[MessageDigest]:

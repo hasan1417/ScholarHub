@@ -1,15 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  AlertCircle,
   Check,
+  CheckCircle2,
   Clock,
   Filter,
   Lightbulb,
   Loader2,
+  MinusCircle,
+  RefreshCw,
   RotateCcw,
   Sparkles,
   Trash2,
   X,
+  XCircle,
 } from 'lucide-react'
 import { projectDiscoveryAPI, projectReferencesAPI } from '../../services/api'
 import { Navigate } from 'react-router-dom'
@@ -18,6 +23,7 @@ import {
   ProjectDiscoverySettingsPayload,
   ProjectDiscoveryResultItem,
   ProjectDiscoveryResultStatus,
+  SourceStatsItem,
 } from '../../types'
 import { useProjectContext } from './ProjectLayout'
 import { DiscoveryResultCard } from '../../components/discovery/DiscoveryResultCard'
@@ -29,6 +35,8 @@ const AVAILABLE_SOURCES: Array<{ label: string; value: string }> = [
   { label: 'OpenAlex', value: 'openalex' },
   { label: 'PubMed', value: 'pubmed' },
   { label: 'ScienceDirect', value: 'sciencedirect' },
+  { label: 'CORE', value: 'core' },
+  { label: 'Europe PMC', value: 'europe_pmc' },
 ]
 
 const DEFAULT_SOURCES = AVAILABLE_SOURCES.map((source) => source.value)
@@ -73,6 +81,11 @@ const sanitizeKeywords = (value: string) => {
   if (!trimmed) return ''
   if (trimmed.toLowerCase() === 'ai') return ''
   return trimmed
+}
+
+const getSourceLabel = (source: string): string => {
+  const match = AVAILABLE_SOURCES.find((s) => s.value === source)
+  return match?.label ?? source
 }
 
 type ManualFormState = {
@@ -147,6 +160,8 @@ const ProjectDiscovery = () => {
   const [dismissingIds, setDismissingIds] = useState<Set<string>>(new Set())
   const [resultsLimit, setResultsLimit] = useState(20)
   const [discoveryCooldown, setDiscoveryCooldown] = useState(0) // Seconds remaining
+  const [lastSourceStats, setLastSourceStats] = useState<SourceStatsItem[] | null>(null)
+  const [lastRunAtOverride, setLastRunAtOverride] = useState<string | null>(null)
   const hasHydratedActiveForm = useRef(false)
   const activeFormDirtyRef = useRef(false)
 
@@ -158,6 +173,21 @@ const ProjectDiscovery = () => {
     }, 1000)
     return () => clearInterval(timer)
   }, [discoveryCooldown])
+
+  // Clear non-promoted results on page load/refresh
+  useEffect(() => {
+    if (isViewer) return
+    const clearOnMount = async () => {
+      try {
+        await projectDiscoveryAPI.clearResults(project.id)
+        queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryResults'] })
+        queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingCount'] })
+      } catch {
+        // Silently ignore errors on clear
+      }
+    }
+    clearOnMount()
+  }, [project.id, isViewer, queryClient])
 
   const updateManualForm = (updater: (prev: ManualFormState) => ManualFormState) => {
     setManualFormState((prev) => updater(prev))
@@ -541,6 +571,7 @@ const ProjectDiscovery = () => {
     onMutate: () => {
       setManualStatusMessage(null)
       setManualErrorMessage(null)
+      setLastSourceStats(null)
     },
     mutationFn: async () => {
       const effectiveKeywords = sanitizeKeywords(projectKeywordPreset || '')
@@ -561,17 +592,58 @@ const ProjectDiscovery = () => {
     onSuccess: (data) => {
       setManualErrorMessage(null)
       setDiscoveryCooldown(30) // 30 second cooldown after discovery
+
+      // Update last run timestamp immediately from response
+      if (data?.last_run_at) {
+        setLastRunAtOverride(data.last_run_at)
+      }
+
+      // Capture source stats from response
+      if (data?.source_stats) {
+        setLastSourceStats(data.source_stats)
+      }
+
+      const totalFound = data?.total_found ?? 0
       const resultsCreated = data?.results_created ?? 0
-      if (resultsCreated === 0) {
-        setManualStatusMessage('No new discovery results — everything in your project already matches this search.')
+
+      // Build status message based on source stats
+      const sourceStats = data?.source_stats
+      const failedSources = sourceStats?.filter((s) => s.status === 'error' || s.status === 'timeout' || s.status === 'rate_limited') ?? []
+      const successfulSources = sourceStats?.filter((s) => s.status === 'success') ?? []
+
+      if (failedSources.length > 0 && successfulSources.length === 0) {
+        // All sources failed
+        const failedNames = failedSources.map((s) => getSourceLabel(s.source)).join(', ')
+        setManualStatusMessage(`All sources failed: ${failedNames}. Please try again.`)
+      } else if (failedSources.length > 0) {
+        // Some sources failed
+        const failedDetails = failedSources.map((s) => {
+          const label = getSourceLabel(s.source)
+          if (s.status === 'timeout') return `${label} (timed out)`
+          if (s.status === 'rate_limited') return `${label} (rate limited)`
+          return `${label} (${s.error || 'error'})`
+        }).join(', ')
+        if (totalFound === 0) {
+          setManualStatusMessage(`Some sources failed: ${failedDetails}. No results from remaining sources.`)
+        } else if (resultsCreated === 0) {
+          setManualStatusMessage(`Some sources failed: ${failedDetails}. All found results already match your project.`)
+        } else {
+          setManualStatusMessage(`Note: ${failedDetails}. Found ${resultsCreated} new result${resultsCreated === 1 ? '' : 's'} from other sources.`)
+        }
+      } else if (totalFound === 0) {
+        setManualStatusMessage('No results found from the selected sources. Try different keywords or sources.')
+      } else if (resultsCreated === 0) {
+        setManualStatusMessage('No new discovery results — everything found already matches your project references.')
       } else {
         setManualStatusMessage(null)
       }
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryResults'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingCount'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'referenceSuggestions'] })
+      queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoverySettings'] })
     },
     onError: (error: unknown) => {
+      setLastSourceStats(null)
       const axiosError = error as { response?: { status?: number; data?: { detail?: unknown } } }
       const message = extractErrorMessage(axiosError?.response?.data?.detail)
       setManualErrorMessage(message)
@@ -632,7 +704,7 @@ const ProjectDiscovery = () => {
 
   const fallbackPrefs = project.discovery_preferences
   const pendingCount = settingsQuery.data?.last_result_count ?? fallbackPrefs?.last_result_count ?? 0
-  const lastRunAt = settingsQuery.data?.last_run_at ?? fallbackPrefs?.last_run_at
+  const lastRunAt = lastRunAtOverride ?? settingsQuery.data?.last_run_at ?? fallbackPrefs?.last_run_at
 
   const toggleSourceValue = (current: string[], value: string) => {
     if (current.includes(value)) {
@@ -806,9 +878,159 @@ const ProjectDiscovery = () => {
               </p>
             </div>
           </div>
+          {/* Source list during search */}
+          <div className="mt-3 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+            {manualFormState.sources.map((source) => (
+              <div
+                key={source}
+                className="flex items-center gap-2 rounded-lg bg-white/60 px-2.5 py-1.5 text-xs dark:bg-slate-900/40"
+              >
+                <Loader2 className="h-3 w-3 animate-spin text-indigo-500 dark:text-indigo-400" />
+                <span className="text-indigo-700 dark:text-indigo-300">{getSourceLabel(source)}</span>
+              </div>
+            ))}
+          </div>
           <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-indigo-200 dark:bg-indigo-900/50">
             <div className="h-full w-1/3 animate-pulse rounded-full bg-indigo-500 dark:bg-indigo-400" style={{ animation: 'progress 2s ease-in-out infinite' }} />
           </div>
+        </div>
+      )}
+
+      {/* Source stats after discovery */}
+      {!runDiscovery.isPending && lastSourceStats && lastSourceStats.length > 0 && (
+        <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/50">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <h3 className="text-sm font-medium text-gray-700 dark:text-slate-200">
+              Search results by source
+            </h3>
+            <button
+              type="button"
+              onClick={() => setLastSourceStats(null)}
+              className="text-gray-400 hover:text-gray-600 dark:text-slate-500 dark:hover:text-slate-300"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {[...lastSourceStats]
+              .sort((a, b) => {
+                // Sort by: success with high count first, then success with low count, then failed/skipped at bottom
+                const aFailed = a.status === 'error' || a.status === 'timeout' || a.status === 'rate_limited' || a.status === 'cancelled'
+                const bFailed = b.status === 'error' || b.status === 'timeout' || b.status === 'rate_limited' || b.status === 'cancelled'
+                if (aFailed && !bFailed) return 1  // a goes to bottom
+                if (!aFailed && bFailed) return -1 // b goes to bottom
+                // Both same status category, sort by count descending
+                return b.count - a.count
+              })
+              .map((stat) => {
+              const isSuccess = stat.status === 'success'
+              const isTimeout = stat.status === 'timeout'
+              const isError = stat.status === 'error'
+              const isRateLimited = stat.status === 'rate_limited'
+              const isCancelled = stat.status === 'cancelled'
+              const isFailed = isTimeout || isError || isRateLimited
+
+              return (
+                <div
+                  key={stat.source}
+                  className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs ${
+                    isSuccess
+                      ? 'bg-emerald-50 dark:bg-emerald-900/20'
+                      : isRateLimited
+                        ? 'bg-amber-50 dark:bg-amber-900/20'
+                        : isFailed
+                          ? 'bg-rose-50 dark:bg-rose-900/20'
+                          : isCancelled
+                            ? 'bg-slate-50 dark:bg-slate-800/50'
+                            : 'bg-gray-50 dark:bg-slate-800/50'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    {isSuccess && <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0 text-emerald-600 dark:text-emerald-400" />}
+                    {isTimeout && <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 text-amber-600 dark:text-amber-400" />}
+                    {isRateLimited && <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 text-amber-600 dark:text-amber-400" />}
+                    {isError && <XCircle className="h-3.5 w-3.5 flex-shrink-0 text-rose-600 dark:text-rose-400" />}
+                    {isCancelled && <MinusCircle className="h-3.5 w-3.5 flex-shrink-0 text-slate-400 dark:text-slate-500" />}
+                    <span className={`truncate ${
+                      isSuccess
+                        ? 'text-emerald-700 dark:text-emerald-300'
+                        : isRateLimited
+                          ? 'text-amber-700 dark:text-amber-300'
+                          : isFailed
+                            ? 'text-rose-700 dark:text-rose-300'
+                            : isCancelled
+                              ? 'text-slate-500 dark:text-slate-400'
+                              : 'text-gray-600 dark:text-slate-400'
+                    }`}>
+                      {getSourceLabel(stat.source)}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {isSuccess && (
+                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-700 dark:bg-emerald-800/40 dark:text-emerald-300">
+                        {stat.count} found
+                      </span>
+                    )}
+                    {isTimeout && (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700 dark:bg-amber-800/40 dark:text-amber-300">
+                        Timeout
+                      </span>
+                    )}
+                    {isRateLimited && (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700 dark:bg-amber-800/40 dark:text-amber-300" title="API rate limit exceeded - try again later">
+                        Rate limited
+                      </span>
+                    )}
+                    {isError && (
+                      <span className="rounded-full bg-rose-100 px-2 py-0.5 text-rose-700 dark:bg-rose-800/40 dark:text-rose-300" title={stat.error || 'Error'}>
+                        Failed
+                      </span>
+                    )}
+                    {isCancelled && (
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600 dark:bg-slate-700/50 dark:text-slate-400" title="Search was skipped (enough results found from other sources)">
+                        Skipped
+                      </span>
+                    )}
+                    {isFailed && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // Retry with only this source
+                          updateManualForm((prev) => ({ ...prev, sources: [stat.source] }))
+                          setTimeout(() => runDiscovery.mutate(), 100)
+                        }}
+                        disabled={discoveryCooldown > 0}
+                        className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-gray-600 hover:bg-gray-100 disabled:opacity-50 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+                        title="Retry this source"
+                      >
+                        <RefreshCw className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          {/* Retry all failed sources button */}
+          {lastSourceStats.some((s) => s.status === 'error' || s.status === 'timeout' || s.status === 'rate_limited') && (
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  const failedSources = lastSourceStats
+                    .filter((s) => s.status === 'error' || s.status === 'timeout' || s.status === 'rate_limited')
+                    .map((s) => s.source)
+                  updateManualForm((prev) => ({ ...prev, sources: failedSources }))
+                  setTimeout(() => runDiscovery.mutate(), 100)
+                }}
+                disabled={discoveryCooldown > 0 || runDiscovery.isPending}
+                className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-400/40 dark:text-rose-300 dark:hover:bg-rose-500/10"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Retry failed sources
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -1277,7 +1499,10 @@ const ProjectDiscovery = () => {
       <div className="inline-flex items-center gap-2 rounded-2xl border border-gray-200 bg-white p-2 shadow-sm text-sm dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200">
         <button
           type="button"
-          onClick={() => setActiveTab('manual')}
+          onClick={() => {
+            setActiveTab('manual')
+            setLastSourceStats(null) // Clear source stats when switching tabs
+          }}
           className={`rounded-full px-4 py-2 font-medium transition-colors ${
             activeTab === 'manual' ? 'bg-indigo-600 text-white shadow' : 'text-gray-600 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-800'
           }`}
@@ -1286,7 +1511,10 @@ const ProjectDiscovery = () => {
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab('active')}
+          onClick={() => {
+            setActiveTab('active')
+            setLastSourceStats(null) // Clear source stats when switching tabs
+          }}
           className={`rounded-full px-4 py-2 font-medium transition-colors ${
             activeTab === 'active' ? 'bg-indigo-600 text-white shadow' : 'text-gray-600 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-800'
           }`}

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { MessageCircle, Loader2, AlertCircle, Plus, Sparkles, X, Bot, FileText, BookOpen, Calendar, Check, ChevronDown, FilePlus, Pencil, CheckSquare } from 'lucide-react'
+import { MessageCircle, Loader2, AlertCircle, Plus, Sparkles, X, Bot, FileText, BookOpen, Calendar, Check, ChevronDown, FilePlus, Pencil, CheckSquare, Search } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -30,6 +30,8 @@ import DiscussionThread from '../../components/discussion/DiscussionThread'
 import DiscussionChannelSidebar from '../../components/discussion/DiscussionChannelSidebar'
 import ChannelResourcePanel from '../../components/discussion/ChannelResourcePanel'
 import ChannelTaskDrawer from '../../components/discussion/ChannelTaskDrawer'
+import { ReferenceSearchResults } from '../../components/discussion/ReferenceSearchResults'
+import { DiscoveredPaper } from '../../components/discussion/DiscoveredPaperCard'
 
 type AssistantExchange = {
   id: string
@@ -41,6 +43,7 @@ type AssistantExchange = {
   status: 'pending' | 'streaming' | 'complete'
   displayMessage: string
   author?: { id?: string; name?: { display?: string; first?: string; last?: string } | string }
+  fromHistory?: boolean // true if loaded from history, false if created in current session
 }
 
 type ConversationItem =
@@ -149,6 +152,14 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     suggestedMode: string
     suggestedAbstract: string
     suggestedKeywords: string[]
+  } | null>(null)
+
+  // Reference search results state
+  const [referenceSearchResults, setReferenceSearchResults] = useState<{
+    exchangeId: string
+    papers: DiscoveredPaper[]
+    query: string
+    isSearching: boolean
   } | null>(null)
   const [paperFormData, setPaperFormData] = useState({
     title: '',
@@ -324,6 +335,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         status: 'complete',
         displayMessage: formatAssistantMessage(response.message, lookup),
         author: item.author ?? undefined,
+        fromHistory: true, // Loaded from server, don't auto-trigger actions
       }
     })
   }, [assistantHistoryQuery.data])
@@ -485,6 +497,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
            status: 'complete',
            displayMessage: formatted,
            author: exchange.author,
+           fromHistory: true, // From another user's session, don't auto-trigger
          }
          return [...prev, entry]
        })
@@ -703,6 +716,51 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     },
   })
 
+  // Search references mutation
+  const searchReferencesMutation = useMutation({
+    mutationFn: async (params: { query: string; exchangeId: string; openAccessOnly?: boolean; maxResults?: number }) => {
+      const response = await projectDiscussionAPI.searchReferences(
+        project.id,
+        params.query,
+        { maxResults: params.maxResults || 10, openAccessOnly: params.openAccessOnly }
+      )
+      return { ...response.data, exchangeId: params.exchangeId }
+    },
+    onMutate: (params) => {
+      // Set searching state - keep existing papers if same exchange (accumulate mode)
+      setReferenceSearchResults((prev) => ({
+        exchangeId: params.exchangeId,
+        papers: prev?.exchangeId === params.exchangeId ? prev.papers : [],
+        query: params.query,
+        isSearching: true,
+      }))
+    },
+    onSuccess: (data) => {
+      // ACCUMULATE papers instead of replacing - combine with existing results
+      setReferenceSearchResults((prev) => {
+        const existingPapers = prev?.exchangeId === data.exchangeId ? (prev.papers || []) : []
+        // Dedupe by title to avoid duplicates
+        const existingTitles = new Set(existingPapers.map((p: DiscoveredPaper) => p.title?.toLowerCase()))
+        const newPapers = (data.papers || []).filter((p: DiscoveredPaper) => !existingTitles.has(p.title?.toLowerCase()))
+        return {
+          exchangeId: data.exchangeId,
+          papers: [...existingPapers, ...newPapers],
+          query: data.query,
+          isSearching: false,
+        }
+      })
+    },
+    onError: (error, params) => {
+      console.error('Reference search failed:', error)
+      setReferenceSearchResults((prev) => ({
+        exchangeId: params.exchangeId,
+        papers: prev?.exchangeId === params.exchangeId ? (prev.papers || []) : [],
+        query: params.query,
+        isSearching: false,
+      }))
+    },
+  })
+
   // Parse project objectives from scope string
   const projectObjectives = useMemo(() => {
     if (!project.scope) return []
@@ -847,7 +905,14 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
   })
 
   const assistantMutation = useMutation({
-    mutationFn: async (variables: { id: string; question: string; reasoning: boolean; scope: string[] }) => {
+    mutationFn: async (variables: {
+      id: string
+      question: string
+      reasoning: boolean
+      scope: string[]
+      recentSearchResults?: Array<{ title: string; authors?: string; year?: number; source?: string }>
+      conversationHistory?: Array<{ role: string; content: string }>
+    }) => {
       if (!activeChannelId) throw new Error('Channel not selected')
 
       const url = buildApiUrl(
@@ -867,6 +932,8 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         question: variables.question,
         reasoning: variables.reasoning,
         scope: variables.scope,
+        recent_search_results: variables.recentSearchResults,
+        conversation_history: variables.conversationHistory,
       })
 
       const execute = async () =>
@@ -1042,6 +1109,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
             last: user?.last_name,
           },
         },
+        fromHistory: false, // Created in current session, can auto-trigger
       }
       setAssistantHistory((prev) => [...prev, placeholder])
       return { entryId }
@@ -1071,6 +1139,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                 last: user?.last_name,
               },
             },
+            fromHistory: false, // Created in current session, can auto-trigger
           },
         ]
       }
@@ -1137,7 +1206,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     },
   })
 
-  const markActionApplied = (exchangeId: string, actionKey: string) => {
+  const markActionApplied = useCallback((exchangeId: string, actionKey: string) => {
     setAssistantHistory((prev) =>
       prev.map((entry) =>
         entry.id === exchangeId
@@ -1145,7 +1214,38 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           : entry,
       ),
     )
-  }
+  }, [])
+
+  // Auto-trigger search_references actions when AI suggests them
+  // Only for exchanges created in the current session (not loaded from history)
+  useEffect(() => {
+    // Find exchanges with search_references actions that haven't been applied yet
+    for (const exchange of assistantHistory) {
+      // Skip exchanges loaded from history or other sessions
+      if (exchange.fromHistory) continue
+      if (exchange.status !== 'complete') continue
+      const actions = exchange.response?.suggested_actions || []
+      for (let idx = 0; idx < actions.length; idx++) {
+        const action = actions[idx]
+        if (action.action_type !== 'search_references') continue
+        const actionKey = `${exchange.id}:${idx}`
+        if (exchange.appliedActions.includes(actionKey)) continue
+        // Auto-trigger the search
+        const query = String(action.payload?.query || '').trim()
+        if (!query) continue
+        const openAccessOnly = Boolean(action.payload?.open_access_only)
+        const maxResults = Number(action.payload?.max_results) || 10
+        markActionApplied(exchange.id, actionKey)
+        searchReferencesMutation.mutate({
+          query,
+          exchangeId: exchange.id,
+          openAccessOnly,
+          maxResults,
+        })
+        return // Only trigger one at a time
+      }
+    }
+  }, [assistantHistory, markActionApplied, searchReferencesMutation])
 
   const handleSuggestedAction = (
     exchange: AssistantExchange,
@@ -1243,6 +1343,26 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           },
         }
       )
+      return
+    }
+
+    if (action.action_type === 'search_references') {
+      const query = String(action.payload?.query || '').trim()
+      if (!query) {
+        alert('The assistant suggestion is missing a search query.')
+        return
+      }
+      const openAccessOnly = Boolean(action.payload?.open_access_only)
+      const maxResults = Number(action.payload?.max_results) || 10
+      // Mark action as applied immediately (search is being triggered)
+      markActionApplied(exchange.id, actionKey)
+      // Trigger the search
+      searchReferencesMutation.mutate({
+        query,
+        exchangeId: exchange.id,
+        openAccessOnly,
+        maxResults,
+      })
       return
     }
 
@@ -1420,7 +1540,24 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         return
       }
       const entryId = createAssistantEntryId()
-      assistantMutation.mutate({ id: entryId, question, reasoning, scope: assistantScope })
+      // Pass recent search results for conversational context
+      const recentSearchResults = referenceSearchResults?.papers?.map((p) => ({
+        title: p.title,
+        authors: p.authors?.slice(0, 3).join(', '),
+        year: p.year,
+        source: p.source,
+      }))
+      // Build conversation history from previous exchanges
+      const conversationHistory: Array<{ role: string; content: string }> = []
+      for (const exchange of assistantHistory) {
+        if (exchange.question) {
+          conversationHistory.push({ role: 'user', content: exchange.question })
+        }
+        if (exchange.response?.message) {
+          conversationHistory.push({ role: 'assistant', content: exchange.response.message })
+        }
+      }
+      assistantMutation.mutate({ id: entryId, question, reasoning, scope: assistantScope, recentSearchResults, conversationHistory })
       return
     }
 
@@ -1666,13 +1803,14 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                           {exchange.response.suggested_actions.map((action, idx) => {
                             const actionKey = `${exchange.id}:${idx}`
                             const applied = exchange.appliedActions.includes(actionKey)
-                            const isPending = createTaskMutation.isPending || paperActionMutation.isPending
+                            const isPending = createTaskMutation.isPending || paperActionMutation.isPending || searchReferencesMutation.isPending
                             const getActionIcon = () => {
                               if (applied) return <Check className="h-3 w-3" />
                               switch (action.action_type) {
                                 case 'create_paper': return <FilePlus className="h-3 w-3" />
                                 case 'edit_paper': return <Pencil className="h-3 w-3" />
                                 case 'create_task': return <CheckSquare className="h-3 w-3" />
+                                case 'search_references': return <Search className="h-3 w-3" />
                                 default: return <Sparkles className="h-3 w-3" />
                               }
                             }
@@ -1691,6 +1829,16 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                           })}
                         </div>
                       </div>
+                    )}
+                    {/* Reference search results inline */}
+                    {referenceSearchResults?.exchangeId === exchange.id && (
+                      <ReferenceSearchResults
+                        papers={referenceSearchResults.papers}
+                        query={referenceSearchResults.query}
+                        projectId={project.id}
+                        isSearching={referenceSearchResults.isSearching}
+                        onClose={() => setReferenceSearchResults(null)}
+                      />
                     )}
                     {!showTyping && (
                       <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-gray-400 dark:text-slate-500">

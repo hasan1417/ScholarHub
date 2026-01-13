@@ -153,11 +153,23 @@ class SimpleRanker(PaperRanker):
 
 
 class GptRanker(PaperRanker):
-    """Rank papers using an OpenAI Chat model by scoring relevance 0..1."""
+    """Rank papers using an OpenAI Chat model by scoring relevance 0..1.
+
+    Enhanced to consider:
+    - Project context (query, scope, keywords)
+    - Paper metadata (title, abstract, year, citations)
+    - Recency and citation bonuses
+    """
 
     def __init__(self, config: DiscoveryConfig):
         self.config = config
-        self.model_name = os.getenv("OPENAI_RERANK_MODEL", "gpt-5")
+        # Use gpt-4o-mini by default - supports temperature and is cost-effective
+        self.model_name = os.getenv("OPENAI_RERANK_MODEL", "gpt-4o-mini")
+
+        # Scoring weights for post-processing bonuses
+        self.recency_weight = 0.05  # Max 5% bonus for recent papers
+        self.citation_weight = 0.05  # Max 5% bonus for highly cited papers
+        self.pdf_bonus = 0.02  # 2% bonus for PDF availability
 
     async def rank(
         self,
@@ -169,48 +181,81 @@ class GptRanker(PaperRanker):
     ) -> List[DiscoveredPaper]:
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
-            # Fallback to simple ranker if no key
+            logger.info("No OPENAI_API_KEY, falling back to SimpleRanker")
             return await SimpleRanker(self.config).rank(papers, query, target_text, target_keywords)
 
         try:
             # Prepare concise items for scoring
             items = []
             top_k = min(50, len(papers))
+            current_year = datetime.now().year
+
             for idx, p in enumerate(papers[:top_k]):
-                items.append({
+                item = {
                     "id": idx,
                     "title": (p.title or "")[:256],
-                    "abstract": (p.abstract or "")[:1024],
-                    "year": p.year or "",
-                    "source": p.source or "",
-                })
+                    "abstract": (p.abstract or "")[:800],
+                }
+                # Include year and citations if available (helps GPT assess quality)
+                if p.year:
+                    item["year"] = p.year
+                if p.citations_count and p.citations_count > 0:
+                    item["citations"] = p.citations_count
+                items.append(item)
 
             try:
                 from openai import OpenAI  # type: ignore
-            except Exception as exc:  # pragma: no cover
+            except Exception as exc:
                 logger.info("OpenAI SDK unavailable: %s", exc)
                 return await SimpleRanker(self.config).rank(papers, query, target_text, target_keywords)
 
             client = OpenAI(api_key=api_key)
+
+            # Build rich project context
+            project_context_parts = []
+            if query:
+                project_context_parts.append(f"Research Query: {query}")
+            if target_text:
+                project_context_parts.append(f"Project Scope: {target_text[:500]}")
+            if target_keywords:
+                project_context_parts.append(f"Keywords: {', '.join(target_keywords[:10])}")
+
+            project_context = "\n".join(project_context_parts) if project_context_parts else query
+
             system = (
-                "You are a helpful academic assistant. Given a query and a list of items, "
-                "return a JSON array. Each element must be {id: number, score: number in [0,1]} only."
+                "You are an expert academic research assistant. Your task is to score how relevant "
+                "each paper is to a research project.\n\n"
+                "Scoring criteria (0.0 to 1.0):\n"
+                "- 0.9-1.0: Directly addresses the research topic, highly relevant methodology or findings\n"
+                "- 0.7-0.8: Strongly related, covers key concepts or methods\n"
+                "- 0.5-0.6: Moderately relevant, useful background or related work\n"
+                "- 0.3-0.4: Tangentially related, might provide context\n"
+                "- 0.0-0.2: Not relevant to the research project\n\n"
+                "Consider: topic alignment, methodology relevance, and potential contribution to the research.\n"
+                "Return ONLY a JSON array. Each element: {\"id\": number, \"score\": number}. No other text."
             )
+
             user_payload = {
-                "query": target_text or query,
-                "items": items,
-                "instruction": "Return only JSON array of {id, score}. No extra text.",
+                "project": project_context,
+                "papers": items,
             }
-            resp = client.responses.create(
+
+            logger.info(f"GPT Ranker: scoring {len(items)} papers with {self.model_name}")
+
+            resp = client.chat.completions.create(
                 model=self.model_name,
-                input=[
+                messages=[
                     {"role": "system", "content": system},
-                    {"role": "user", "content": json.dumps(user_payload)},
+                    {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
                 ],
-                temperature=0.0,
-                max_output_tokens=400,
+                max_completion_tokens=2000,
             )
-            content = (resp.output_text or "[]").strip()
+            content = (resp.choices[0].message.content or "[]").strip()
+
+            # Handle potential markdown code blocks
+            if content.startswith("```"):
+                lines = content.split("\n")
+                content = "\n".join(lines[1:-1] if lines[-1] == "```" else lines[1:])
 
             # Parse JSON
             try:
@@ -219,20 +264,45 @@ class GptRanker(PaperRanker):
                     int(obj.get("id", -1)): float(obj.get("score", 0.0))
                     for obj in data if isinstance(obj, dict)
                 }
-            except Exception:
+                logger.debug(f"GPT Ranker: parsed {len(scores_map)} scores")
+            except Exception as parse_err:
+                logger.warning(f"Failed to parse GPT response: {parse_err}, content: {content[:200]}")
                 scores_map = {}
 
-            # Apply scores to the first top_k items; others keep 0
+            # Apply GPT scores + bonuses
             for idx, p in enumerate(papers):
-                s = scores_map.get(idx)
-                if s is None:
-                    # backfill with a tiny baseline to maintain ordering stability
-                    s = 0.0
-                p.relevance_score = max(0.0, min(1.0, float(s)))
+                base_score = scores_map.get(idx, 0.0)
 
-            return sorted(papers, key=lambda p: p.relevance_score, reverse=True)
-        except Exception as exc:  # pragma: no cover
-            logger.info("GPT ranking failed; falling back to simple: %s", exc)
+                # Apply bonuses for papers that were scored
+                if idx < top_k and base_score > 0:
+                    bonus = 0.0
+
+                    # Recency bonus: papers from last 3 years get up to 5% bonus
+                    if p.year and p.year >= current_year - 3:
+                        years_old = current_year - p.year
+                        recency_factor = 1 - (years_old / 3)  # 1.0 for current year, 0 for 3 years old
+                        bonus += self.recency_weight * recency_factor
+
+                    # Citation bonus: log-scaled, capped at 5%
+                    if p.citations_count and p.citations_count > 0:
+                        import math
+                        citation_factor = min(1.0, math.log10(1 + p.citations_count) / 3)  # ~1000 citations = max
+                        bonus += self.citation_weight * citation_factor
+
+                    # PDF availability bonus
+                    if p.pdf_url:
+                        bonus += self.pdf_bonus
+
+                    base_score = min(1.0, base_score + bonus)
+
+                p.relevance_score = max(0.0, min(1.0, float(base_score)))
+
+            ranked = sorted(papers, key=lambda p: p.relevance_score, reverse=True)
+            logger.info(f"GPT Ranker: ranked {len(papers)} papers, top score: {ranked[0].relevance_score if ranked else 0}")
+            return ranked
+
+        except Exception as exc:
+            logger.warning(f"GPT ranking failed, falling back to SimpleRanker: {exc}")
             return await SimpleRanker(self.config).rank(papers, query, target_text, target_keywords)
 
     

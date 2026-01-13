@@ -186,6 +186,7 @@ class AIService:
         model: Optional[str] = None,
         temperature: Optional[float] = None,
         max_output_tokens: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
         **extra_params: Any,
     ):
         """Create a response using the new OpenAI Responses API."""
@@ -202,6 +203,9 @@ class AIService:
             payload["temperature"] = temperature
         if max_output_tokens is not None:
             payload["max_output_tokens"] = max_output_tokens
+        # Add reasoning effort for gpt-5+ models
+        if reasoning_effort is not None and target_model.startswith("gpt-5"):
+            payload["reasoning"] = {"effort": reasoning_effort}
         payload.update({k: v for k, v in extra_params.items() if v is not None})
 
         return self.openai_client.responses.create(**payload)
@@ -213,6 +217,7 @@ class AIService:
         model: Optional[str] = None,
         temperature: Optional[float] = None,
         max_output_tokens: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
         **extra_params: Any,
     ):
         """Stream a response using the OpenAI Responses API."""
@@ -228,14 +233,21 @@ class AIService:
             payload["temperature"] = temperature
         if max_output_tokens is not None:
             payload["max_output_tokens"] = max_output_tokens
+        # Add reasoning effort for gpt-5+ models
+        if reasoning_effort is not None and target_model.startswith("gpt-5"):
+            payload["reasoning"] = {"effort": reasoning_effort}
         payload.update({k: v for k, v in extra_params.items() if v is not None})
 
         return self.openai_client.responses.stream(**payload)
 
     @staticmethod
     def _supports_sampling_params(model_name: str) -> bool:
-        """Some reasoning models disallow temperature/top_p tweaks."""
-        reasoning_prefixes = ("gpt-5", "gpt-5.", "gpt-4o", "o4", "o3")
+        """Some reasoning models disallow temperature/top_p tweaks.
+
+        Only gpt-5+ reasoning models don't support temperature.
+        gpt-4o and gpt-4o-mini are standard chat models that DO support temperature.
+        """
+        reasoning_prefixes = ("gpt-5", "gpt-6", "gpt-7")
         return not any(model_name.startswith(prefix) for prefix in reasoning_prefixes)
 
     @staticmethod
@@ -280,7 +292,8 @@ class AIService:
             "writing_model": self.writing_model,
             "available_providers": self.available_providers,
             "model_descriptions": {
-                "gpt-5": "Most capable GPT model with latest reasoning upgrades",
+                "gpt-5.2": "Latest GPT-5 model with advanced reasoning",
+                "gpt-5": "GPT-5 reasoning model",
                 "gpt-5-mini": "Faster GPT-5 variant suitable for interactive chats",
                 "gpt-4o-mini": "Fast GPT-4o variant ideal for streaming conversation",
                 "gpt-4o-mini": "Fastest & cheapest GPT-4o model, great for most tasks",

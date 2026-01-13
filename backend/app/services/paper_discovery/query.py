@@ -79,8 +79,10 @@ class QueryEnhancer:
             {"role": "user", "content": "\n".join(prompt_parts[1:])},
         ]
 
+        # Use gpt-4o-mini for query enhancement - fast and cost-effective
+        # Note: reasoning models (gpt-5, o3, o4) don't support temperature
         response = self.openai_client.responses.create(
-            model='gpt-5',
+            model='gpt-4o-mini',
             input=messages,
             temperature=0.2,
             max_output_tokens=256,

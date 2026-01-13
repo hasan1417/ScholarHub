@@ -150,6 +150,13 @@ export interface ProjectDiscoverySettingsPayload {
   relevance_threshold?: number | null
 }
 
+export interface SourceStatsItem {
+  source: string
+  count: number
+  status: 'pending' | 'success' | 'timeout' | 'error' | 'rate_limited' | 'cancelled'
+  error: string | null
+}
+
 export interface ProjectDiscoveryRunResponse {
   run_id: string
   total_found: number
@@ -157,6 +164,7 @@ export interface ProjectDiscoveryRunResponse {
   references_created: number
   project_suggestions_created: number
   last_run_at: string
+  source_stats: SourceStatsItem[] | null
 }
 
 export type ProjectDiscoveryResultStatus = 'pending' | 'promoted' | 'dismissed'
@@ -703,10 +711,19 @@ export interface DiscussionTaskUpdate {
   details?: Record<string, any>
 }
 
+export interface RecentSearchResultItem {
+  title: string
+  authors?: string
+  year?: number | null
+  source?: string
+  abstract?: string
+}
+
 export interface DiscussionAssistantRequest {
   question: string
   reasoning?: boolean
   scope?: Array<'transcripts' | 'papers' | 'references'>
+  recent_search_results?: RecentSearchResultItem[]
 }
 
 export type DiscussionAssistantOrigin = 'resource' | 'message'

@@ -9,6 +9,26 @@ from app.services.discussion_ai.types import ChannelContext, RetrievalSnippet
 
 _SYSTEM_PROMPT = dedent(
     """
+    ############################################################
+    # MANDATORY RULE - YOU MUST FOLLOW THIS BEFORE ANYTHING ELSE
+    ############################################################
+
+    When user asks to CREATE, WRITE, GENERATE, or MAKE any content:
+
+    1. DO NOT create the content yet
+    2. Ask 2-3 clarifying questions (ONLY ONE ROUND - do NOT ask more questions after user answers)
+    3. After user answers → immediately ask: "Create as paper or write in chat?"
+    4. If user says "paper" → include create_paper action
+    5. If user says "chat" → write the full content directly in your response
+
+    IMPORTANT:
+    - Only ONE round of questions. After user answers, go directly to "paper or chat?"
+    - Do NOT ask follow-up clarifying questions after user already answered
+    - When user says "above references" or "these papers", use the "Recently discovered papers" from the context
+    - Remember: the recently discovered papers ARE the references the user wants to use
+
+    ############################################################
+
     You are ScholarHub's project discussion assistant. Help researchers by answering
     questions using only the information provided. If the context does not contain
     enough details, ask the user to clarify or suggest linking additional resources.
@@ -18,6 +38,8 @@ _SYSTEM_PROMPT = dedent(
     - Just refer to resources by their title/name naturally (e.g., "Agentic AI in Enterprise (2025)")
     - The UI will automatically link citations - you don't need to include IDs
     - Keep responses concise and natural
+    - NEVER comment on system limits, constraints, or what you "can" or "cannot" do
+    - Just fulfill the user's request directly without meta-commentary
 
     CITATION RULES:
     - Only cite sources when you actually use specific information FROM that source
@@ -28,12 +50,9 @@ _SYSTEM_PROMPT = dedent(
 
     Never fabricate data. Do not invent URLs or external links.
 
-    IMPORTANT: When the user asks to create a paper, immediately provide the create_paper action.
-    Do NOT ask for confirmation or additional details unless truly necessary.
-
     SUGGESTED ACTIONS:
-    Only suggest actions when they are concrete and immediately actionable. After your answer,
-    add a JSON array wrapped between <actions> and </actions> tags.
+    After your response text, you MUST add a JSON array between <actions> and </actions> tags.
+    If you say "I'll create..." or "I'll search...", you MUST include the corresponding action.
 
     Supported action types:
 
@@ -44,15 +63,63 @@ _SYSTEM_PROMPT = dedent(
        - NOT vague organizational suggestions (e.g., "Organize by theme" is NOT a valid task)
        - Related to concrete work the user can do
 
-    2. **create_paper** - Create a new research paper
-       {"type": "create_paper", "summary": "Create [type] paper: [title]", "payload": {"title": "Paper Title", "paper_type": "research|review|case_study", "authoring_mode": "latex|rich", "abstract": "Brief abstract", "objectives": []}}
+    2. **create_paper** - Create a new research paper or literature review
+       {"type": "create_paper", "summary": "Create [type] paper: [title]", "payload": {"title": "Paper Title", "paper_type": "research|review|case_study", "authoring_mode": "rich", "abstract": "Brief abstract", "objectives": [], "content": "# Title\n\nFull paper content in markdown..."}}
+       - CRITICAL: NEVER include this action on first request
+       - ONLY use after: (1) you asked clarifying questions, (2) user answered, (3) user said "create as paper"
+       - For literature reviews, use paper_type: "review"
+       - Use authoring_mode: "rich" (markdown) unless user specifically requests LaTeX
+       - Include actual written content in the "content" field (markdown format)
 
     3. **edit_paper** - Suggest an edit to an existing paper
        {"type": "edit_paper", "summary": "Brief description", "payload": {"paper_id": "<uuid>", "original": "Exact text to find", "proposed": "Replacement text", "description": "Why this change"}}
 
+    4. **search_references** - Search for academic papers to add as project references
+       {"type": "search_references", "summary": "Search for N papers about topic", "payload": {"query": "topic", "max_results": <number>, "open_access_only": false}}
+       - Use when user asks to find/search/look for papers or references
+       - ALWAYS honor the user's requested count in max_results (supports 1-20)
+       - Set open_access_only: true when user wants PDFs or "free" papers
+
     Emit an empty array [] if no concrete action is appropriate. Most informational responses
     should NOT have suggested actions - only suggest actions when they add real value.
     Do not mention the tags in the natural language response.
+
+    EXAMPLE - Search for references:
+    User: "find 5 papers about vision transformers"
+    Response: "I'll search for 5 papers about vision transformers."
+    <actions>[{"type": "search_references", "summary": "Search for 5 papers about vision transformers", "payload": {"query": "vision transformers", "max_results": 5, "open_access_only": false}}]</actions>
+
+    EXAMPLE - Exactly 3 turns for content creation (NO MORE):
+
+    Turn 1 - User requests creation:
+    User: "Create a literature review using the above 5 references"
+    Response: "I'd be happy to help! A few questions:
+    1. What theme should tie these papers together?
+    2. How long - brief (2 pages) or comprehensive (5+ pages)?
+    3. Structure preference (thematic, chronological, methodological)?"
+    <actions>[]</actions>
+
+    Turn 2 - User answers → YOU MUST ASK "paper or chat?" (NO more clarifying questions!):
+    User: "methodology comparison, 2 pages, thematic"
+    Response: "Got it - 2-page thematic review comparing methodologies across the 5 papers. Create as paper or write in chat?"
+    <actions>[]</actions>
+
+    Turn 3a - User says "paper":
+    Response: "Creating the literature review now."
+    <actions>[{"type": "create_paper", ...}]</actions>
+
+    Turn 3b - User says "chat":
+    Response: "# Literature Review: Methodology Comparison
+
+    ## Introduction
+    This review examines methodology across five key papers...
+    [WRITE THE FULL 2-PAGE CONTENT HERE]"
+    <actions>[]</actions>
+
+    WRONG - Do NOT do this:
+    - Asking more clarifying questions after user already answered (Turn 2 must be "paper or chat?")
+    - Forgetting which references the user mentioned (use "Recently discovered papers" from context)
+    - Saying "which references?" when user said "above 5 references" (they mean the recently discovered ones)
     """
 ).strip()
 
@@ -73,37 +140,65 @@ class PromptComposer:
 
         resource_section = self._format_resources(context)
         snippet_section = self._format_snippets(snippets)
-        message_history = self._format_messages(context)
         objectives_section = self._format_project_objectives(context)
-        paper_section = self._format_paper_objectives(context)
         scope_section = self._format_scope(context)
-        paper_contents_section = self._format_paper_contents(context)
+        search_results_section = self._format_recent_search_results(context)
 
-        user_payload = dedent(
-            f"""
-            Project: {context.project_title}
-            Channel: {context.channel_name}
-            Channel summary: {context.summary or 'n/a'}
-            Context scope: {scope_section}
+        # Check if user is giving a short confirmation answer
+        q_lower = user_question.strip().lower()
+        is_chat_confirmation = q_lower in ("chat", "chat please", "in chat", "write in chat", "in the chat")
 
-            Project objectives:
-            {objectives_section}
+        # If user says "chat", add explicit instruction to write content
+        question_text = user_question.strip()
+        if is_chat_confirmation:
+            question_text = (
+                f"{user_question.strip()}\n\n"
+                "[SYSTEM: User confirmed 'chat'. You MUST now write the full content directly in your response. "
+                "Do NOT ask any more questions. Do NOT ask about other papers. "
+                "Write the literature review/content NOW using the recently discovered papers listed above.]"
+            )
 
-            Papers aligned to objectives:
-            {paper_section}
+        # Simplified context for short answers to avoid confusion
+        if is_chat_confirmation or len(user_question.split()) <= 5:
+            # Don't include paper contents for editing - it confuses the AI
+            user_payload = dedent(
+                f"""
+                Project: {context.project_title}
+                {search_results_section}
+                Question: {question_text}
+                """
+            ).strip()
+        else:
+            # Full context for complex questions
+            message_history = self._format_messages(context)
+            paper_section = self._format_paper_objectives(context)
+            paper_contents_section = self._format_paper_contents(context)
 
-            Paper contents for editing:
-            {paper_contents_section}
+            user_payload = dedent(
+                f"""
+                Project: {context.project_title}
+                Channel: {context.channel_name}
+                Channel summary: {context.summary or 'n/a'}
+                Context scope: {scope_section}
 
-            Recent discussion snippets:
-            {message_history}
+                Project objectives:
+                {objectives_section}
 
-            Retrieved knowledge snippets:
-            {snippet_section}
+                Papers aligned to objectives:
+                {paper_section}
 
-            Question: {user_question.strip()}
-            """
-        ).strip()
+                Paper contents for editing:
+                {paper_contents_section}
+
+                Recent discussion snippets:
+                {message_history}
+
+                Retrieved knowledge snippets:
+                {snippet_section}
+                {search_results_section}
+                Question: {question_text}
+                """
+            ).strip()
 
         return [
             {"role": "system", "content": self.system_prompt},
@@ -224,4 +319,18 @@ class PromptComposer:
 
         if not lines:
             return "  • none (no papers in project)"
+        return "\n".join(lines)
+
+    def _format_recent_search_results(self, context: ChannelContext) -> str:
+        """Format recent search results shown to user (for conversational context)."""
+        if not context.recent_search_results:
+            return ""
+
+        lines: List[str] = ["\nRecently discovered papers (shown above in UI):"]
+        for idx, paper in enumerate(context.recent_search_results, 1):
+            author_info = f" by {paper.authors}" if paper.authors else ""
+            year_info = f" ({paper.year})" if paper.year else ""
+            source_info = f" [{paper.source}]" if paper.source else ""
+            lines.append(f"  {idx}. {paper.title}{author_info}{year_info}{source_info}")
+
         return "\n".join(lines)

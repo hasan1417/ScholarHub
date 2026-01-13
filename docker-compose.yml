@@ -55,6 +55,8 @@ services:
   # Backend API
   backend:
     build: ./backend
+    # Enable hot-reload for development (auto-restart on code changes)
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/app"]
     ports:
       - "8000:8000"
     environment:
@@ -63,9 +65,11 @@ services:
       - REDIS_URL=redis://redis:6379
       - SECRET_KEY=${SECRET_KEY:-your-super-secret-key-change-this-in-production}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_CONVERSION_MODEL=${OPENAI_CONVERSION_MODEL:-gpt-5}
-      - OPENAI_RERANK_MODEL=${OPENAI_RERANK_MODEL:-gpt-5-mini}
+      - OPENAI_CONVERSION_MODEL=${OPENAI_CONVERSION_MODEL:-gpt-4o}
+      - OPENAI_RERANK_MODEL=${OPENAI_RERANK_MODEL:-gpt-4o-mini}
       - SCIENCEDIRECT_API_KEY=${SCIENCEDIRECT_API_KEY:-}
+      - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY:-}
+      - CORE_API_KEY=${CORE_API_KEY:-}
       - UNPAYWALL_EMAIL=${UNPAYWALL_EMAIL:-oa@scholarhub.dev}
       - NCBI_EMAIL=${NCBI_EMAIL:-}
       - ENABLE_UNIVERSITY_SSO_DETECTION=${ENABLE_UNIVERSITY_SSO_DETECTION:-true}
@@ -114,13 +118,16 @@ services:
         condition: service_healthy
     volumes:
       - ./uploads:/app/uploads
+      - ./backend/app:/app/app  # Mount app code for hot reload
     networks:
       - default
       - meet.jitsi
 
-  # Frontend (Local Development)
+  # Frontend (Local Development - Hot Reload)
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
     ports:
       - "3000:3000"
     env_file:

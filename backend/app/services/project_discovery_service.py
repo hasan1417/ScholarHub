@@ -28,7 +28,7 @@ from app.models import (
 )
 from app.schemas.project import ProjectDiscoveryPreferences, ProjectDiscoveryPreferencesUpdate
 from app.services.paper_discovery.models import PaperSource
-from app.services.paper_discovery_service import DiscoveredPaper, PaperDiscoveryService
+from app.services.paper_discovery_service import DiscoveredPaper, DiscoveryResult, PaperDiscoveryService, SourceStats
 
 logger = logging.getLogger(__name__)
 
@@ -65,12 +65,13 @@ class ProjectDiscoveryOutcome:
     results_created: int = 0
     references_created: int = 0
     project_suggestions_created: int = 0
+    source_stats: Optional[List[SourceStats]] = None
 
 
 class ProjectDiscoveryManager:
     """Discover related papers for a project and enqueue them as suggestions."""
 
-    DEFAULT_SOURCES = ['semantic_scholar', 'arxiv', 'crossref']
+    DEFAULT_SOURCES = ['semantic_scholar', 'arxiv', 'crossref', 'openalex', 'pubmed', 'sciencedirect', 'core', 'europe_pmc']
 
     def __init__(self, db: Session):
         self.db = db
@@ -85,7 +86,7 @@ class ProjectDiscoveryManager:
         max_results: int,
         *,
         fast_mode: bool = False,
-    ) -> List[DiscoveredPaper]:
+    ) -> DiscoveryResult:
         """Execute the async discovery search across upstream providers."""
         async with PaperDiscoveryService() as service:
             return await service.discover_papers(
@@ -165,6 +166,20 @@ class ProjectDiscoveryManager:
         self.db.flush()
         self._last_run_id = run.id
 
+        # For manual discovery, clear previous non-promoted results to start fresh
+        if run_type == ProjectDiscoveryRunType.MANUAL:
+            deleted_count = (
+                self.db.query(ProjectDiscoveryResultModel)
+                .filter(
+                    ProjectDiscoveryResultModel.project_id == project.id,
+                    ProjectDiscoveryResultModel.status != ProjectDiscoveryResultStatus.PROMOTED,
+                )
+                .delete(synchronize_session='fetch')
+            )
+            if deleted_count > 0:
+                logger.info(f"Cleared {deleted_count} previous discovery results for project {project.id}")
+            self.db.flush()
+
         outcome = ProjectDiscoveryOutcome(run_id=run.id)
         start_time = time.perf_counter()
 
@@ -184,9 +199,10 @@ class ProjectDiscoveryManager:
             service_fingerprints: Set[str] = set()
             novel_estimate = 0
             attempts = 0
+            last_source_stats: Optional[List[SourceStats]] = None
 
             while attempts < max_attempts and novel_estimate < max_results:
-                discovered_batch = self._run_async(
+                discovery_result: DiscoveryResult = self._run_async(
                     self._discover_async(
                         query=query,
                         sources=sources,
@@ -196,6 +212,9 @@ class ProjectDiscoveryManager:
                         fast_mode=fast_mode,
                     )
                 )
+
+                discovered_batch = discovery_result.papers
+                last_source_stats = discovery_result.source_stats
 
                 if not discovered_batch:
                     break
@@ -218,6 +237,9 @@ class ProjectDiscoveryManager:
                 if fetch_cap >= max_fetch_cap:
                     break
                 fetch_cap = min(fetch_cap + max(max_results, 5), max_fetch_cap)
+
+            # Store source stats in outcome
+            outcome.source_stats = last_source_stats
 
             # Respect max_results for newly suggested papers while retaining existing matches for status updates
             filtered_results: List[DiscoveredPaper] = []
