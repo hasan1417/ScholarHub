@@ -18,6 +18,7 @@ RUN apt-get update \
         postgresql-client \
         pandoc \
         libfontconfig1 \
+        ffmpeg \
     && arch="$(dpkg --print-architecture)" \
     && case "$arch" in \
         amd64) tectonic_arch="x86_64-unknown-linux-gnu" ;; \

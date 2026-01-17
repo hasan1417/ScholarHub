@@ -231,6 +231,7 @@ class DailyClient:
         user_name: Optional[str] = None,
         ttl_seconds: Optional[int] = None,
         is_owner: bool = True,
+        start_cloud_recording: bool = False,
     ) -> DailyMeetingToken:
         expires_at = None
         if ttl_seconds and ttl_seconds > 0:
@@ -245,6 +246,8 @@ class DailyClient:
             properties["user_name"] = user_name
         if expires_at is not None:
             properties["exp"] = int(expires_at.timestamp())
+        if start_cloud_recording:
+            properties["start_cloud_recording"] = True
 
         data = self._request("POST", "meeting-tokens", json={"properties": properties})
         token = data.get("token")

@@ -11,13 +11,39 @@ import {
   Link2,
   MoreHorizontal,
   Pencil,
+  Plus,
   Save,
   Share2,
   Shield,
   Trash2,
+  Unlink,
   Users,
   X,
 } from 'lucide-react'
+
+// Strip XML/HTML tags from text (e.g., <jats:p> from abstracts)
+const stripXmlTags = (text: string | null | undefined): string => {
+  if (!text) return ''
+  return text.replace(/<[^>]*>/g, '').trim()
+}
+
+// Generate consistent avatar color from string
+const getAvatarColor = (str: string): string => {
+  const colors = [
+    'bg-indigo-100 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300',
+    'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-300',
+    'bg-amber-100 text-amber-600 dark:bg-amber-500/20 dark:text-amber-300',
+    'bg-rose-100 text-rose-600 dark:bg-rose-500/20 dark:text-rose-300',
+    'bg-sky-100 text-sky-600 dark:bg-sky-500/20 dark:text-sky-300',
+    'bg-purple-100 text-purple-600 dark:bg-purple-500/20 dark:text-purple-300',
+    'bg-teal-100 text-teal-600 dark:bg-teal-500/20 dark:text-teal-300',
+  ]
+  let hash = 0
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash)
+  }
+  return colors[Math.abs(hash) % colors.length]
+}
 
 import {
   documentsAPI,
@@ -265,14 +291,15 @@ const PaperDetail: React.FC = () => {
   const getStatusClassName = (status: string) => {
     switch (status) {
       case 'completed':
-        return 'bg-green-100 text-green-800 dark:bg-emerald-500/20 dark:text-emerald-200'
+        return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200'
       case 'in_progress':
-        return 'bg-yellow-100 text-yellow-800 dark:bg-amber-300/20 dark:text-amber-200'
+        return 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-200'
       case 'published':
-        return 'bg-indigo-100 text-indigo-800 dark:bg-indigo-500/20 dark:text-indigo-200'
+        return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-200'
       case 'draft':
+        return 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-200'
       default:
-        return 'bg-gray-100 text-gray-800 dark:bg-slate-800/60 dark:text-slate-200'
+        return 'bg-gray-100 text-gray-700 dark:bg-slate-800/60 dark:text-slate-200'
     }
   }
 
@@ -512,9 +539,12 @@ const PaperDetail: React.FC = () => {
                         <Link2 className="w-3 h-3" /> DOI
                       </a>
                     ) : null}
-                    <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-gray-700 dark:bg-slate-800/60 dark:text-slate-200">
-                      Docs: {documents.length}
-                    </span>
+                    {documents.length > 0 && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-gray-700 dark:bg-slate-800/60 dark:text-slate-200">
+                        <FileText className="w-3 h-3" />
+                        {documents.length} {documents.length === 1 ? 'document' : 'documents'}
+                      </span>
+                    )}
                     <span className="inline-flex items-center gap-1 rounded-full bg-gray-50 px-2 py-0.5 text-gray-600 dark:bg-slate-800/60 dark:text-slate-300">
                       Created: {new Date(paper.created_at).toLocaleDateString()}
                     </span>
@@ -624,63 +654,85 @@ const PaperDetail: React.FC = () => {
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
           <div className="space-y-6 lg:col-span-2">
-            <section className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800/60">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Objectives</h2>
-                <span className="text-xs uppercase tracking-wide text-gray-400">Project sourced</span>
+            <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800/60">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Research Goals</h2>
+                {objectivesDisplay.length > 0 && (
+                  <span className="text-xs text-gray-400 dark:text-slate-500">From project</span>
+                )}
               </div>
               {objectivesDisplay.length > 0 ? (
-                <ul className="list-disc space-y-2 pl-5 text-sm text-gray-700 dark:text-slate-200">
+                <div className="flex flex-wrap gap-2">
                   {objectivesDisplay.map((objective) => (
-                    <li key={objective}>{objective}</li>
+                    <span
+                      key={objective}
+                      className="inline-flex items-center rounded-lg bg-indigo-50 px-3 py-1.5 text-sm font-medium text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-200"
+                    >
+                      {objective}
+                    </span>
                   ))}
-                </ul>
+                </div>
               ) : (
-                <p className="text-sm text-gray-500 dark:text-slate-400">
-                  No objectives linked to this paper. Objectives can be managed from the Project context page.
-                </p>
+                <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-center dark:border-slate-700 dark:bg-slate-800/40">
+                  <p className="text-sm text-gray-500 dark:text-slate-400">
+                    No goals linked to this paper yet.
+                  </p>
+                  <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">
+                    Goals can be set when creating a paper
+                  </p>
+                </div>
               )}
             </section>
-            <section className="flex flex-col rounded-lg border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800/60">
+            <section className="flex flex-col rounded-xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800/60">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900 dark:text-slate-100">
                     Attached references
-                    <span className="text-sm font-normal text-gray-500 dark:text-slate-400">({references.length})</span>
+                    {references.length > 0 && (
+                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-sm font-normal text-gray-600 dark:bg-slate-700 dark:text-slate-300">
+                        {references.length}
+                      </span>
+                    )}
                   </h2>
-                  <p className="text-sm text-gray-600 dark:text-slate-300">
-                    References stay aligned with the project library
+                  <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
+                    Citations from your project library
                   </p>
                 </div>
-                {canManageReferences ? (
+                {canManageReferences && (
                   <button
                     onClick={() => setShowAttachModal(true)}
-                    className="inline-flex items-center gap-2 rounded-md bg-indigo-600 px-3 py-2 text-sm text-white transition-colors hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+                    className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-600 transition-colors hover:bg-indigo-100 dark:border-indigo-400/40 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20"
                   >
+                    <Plus className="h-4 w-4" />
                     Manage
                   </button>
-                ) : null}
+                )}
               </div>
 
               {references.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-8 text-center text-sm text-gray-600 transition-colors dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-300">
-                  <p>
-                    No references attached yet. Pull approved references from the project library to cite them here.
+                <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-8 text-center transition-colors dark:border-slate-700 dark:bg-slate-800/40">
+                  <BookOpen className="mx-auto h-8 w-8 text-gray-300 dark:text-slate-600" />
+                  <p className="mt-2 text-sm text-gray-600 dark:text-slate-300">
+                    No references attached yet
+                  </p>
+                  <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">
+                    Add references from your project library to cite them in this paper
                   </p>
                 </div>
               ) : (
-                <div className="-mr-2 max-h-96 space-y-3 overflow-y-auto pr-2 custom-scrollbar">
+                <div className="-mr-2 max-h-[420px] space-y-3 overflow-y-auto pr-2 custom-scrollbar">
                   {references.map((ref) => (
                     <div
                       key={ref.paper_reference_id}
-                      className="rounded-lg border border-gray-200 bg-gradient-to-br from-white to-gray-50/50 p-4 shadow-sm transition-shadow hover:shadow-md dark:border-slate-700 dark:from-slate-900/35 dark:to-slate-900/20"
+                      className="group rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition hover:border-gray-300 dark:border-slate-700 dark:bg-slate-800/40 dark:hover:border-slate-600"
                     >
-                      <div className="flex flex-col gap-2.5 text-sm text-gray-700 dark:text-slate-200">
+                      <div className="flex flex-col gap-2.5 text-sm">
+                        {/* Title row */}
                         <div className="flex items-start justify-between gap-3">
-                          <p className="flex-1 leading-snug font-semibold text-gray-900 dark:text-slate-100" title={ref.title || undefined}>
+                          <h4 className="flex-1 font-semibold leading-snug text-gray-900 dark:text-slate-100">
                             {ref.title || 'Untitled reference'}
-                          </p>
-                          {canManageReferences && ref.project_reference_id ? (
+                          </h4>
+                          {canManageReferences && ref.project_reference_id && (
                             <button
                               onClick={async () => {
                                 if (!project?.id || !paperId || !ref.project_reference_id) return
@@ -696,62 +748,75 @@ const PaperDetail: React.FC = () => {
                                   alert('Unable to detach this reference right now.')
                                 }
                               }}
-                              className="flex-shrink-0 rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 dark:border-red-400/40 dark:text-red-200 dark:hover:bg-red-500/10"
-                              title="Detach reference"
+                              className="flex-shrink-0 rounded-lg border border-gray-200 p-1.5 text-gray-400 opacity-0 transition-all hover:border-gray-300 hover:bg-gray-50 hover:text-gray-600 group-hover:opacity-100 dark:border-slate-600 dark:text-slate-500 dark:hover:border-slate-500 dark:hover:bg-slate-700 dark:hover:text-slate-300"
+                              title="Remove from paper"
                             >
-                              Detach
+                              <Unlink className="h-3.5 w-3.5" />
                             </button>
-                          ) : null}
+                          )}
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600 dark:text-slate-300">
+                        {/* Authors, Year, Journal row */}
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-600 dark:text-slate-400">
                           {ref.authors?.length ? (
-                            <span className="font-medium">{ref.authors.slice(0, 3).join(', ')}{ref.authors.length > 3 ? ' et al.' : ''}</span>
+                            <span>{ref.authors.slice(0, 3).join(', ')}{ref.authors.length > 3 ? ' et al.' : ''}</span>
                           ) : null}
-                          {ref.year ? (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 font-medium text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-200">
+                          {ref.year && (
+                            <span className="rounded bg-gray-100 px-1.5 py-0.5 font-medium text-gray-700 dark:bg-slate-700 dark:text-slate-300">
                               {ref.year}
                             </span>
-                          ) : null}
-                          {ref.journal ? <span className="text-gray-500 dark:text-slate-400">• {ref.journal}</span> : null}
+                          )}
+                          {ref.journal && (
+                            <>
+                              <span className="text-gray-300 dark:text-slate-600">•</span>
+                              <span className="italic">{ref.journal}</span>
+                            </>
+                          )}
                         </div>
 
-                        {ref.abstract ? (
-                          <p className="text-xs leading-relaxed text-gray-600 dark:text-slate-300 line-clamp-2">{ref.abstract}</p>
-                        ) : null}
+                        {/* Abstract - with XML stripped */}
+                        {ref.abstract && (
+                          <p className="text-xs leading-relaxed text-gray-500 line-clamp-2 dark:text-slate-400">
+                            {stripXmlTags(ref.abstract)}
+                          </p>
+                        )}
 
-                        <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-1 text-xs dark:border-slate-700">
+                        {/* Footer: Links and date */}
+                        <div className="flex items-center justify-between gap-3 pt-2 text-xs">
                           <div className="flex items-center gap-3">
-                            {ref.doi ? (
+                            {ref.doi && (
                               <a
                                 href={`https://doi.org/${ref.doi}`}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:text-indigo-700 hover:underline dark:text-indigo-300 dark:hover:text-indigo-200"
+                                className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:underline dark:text-indigo-400"
                               >
-                                <Link2 className="w-3 h-3" />
+                                <Link2 className="h-3 w-3" />
                                 DOI
                               </a>
-                            ) : ref.url ? (
+                            )}
+                            {!ref.doi && ref.url && (
                               <a
                                 href={ref.url}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:text-indigo-700 hover:underline dark:text-indigo-300 dark:hover:text-indigo-200"
+                                className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:underline dark:text-indigo-400"
                               >
-                                <Link2 className="w-3 h-3" />
-                                Link
+                                <Link2 className="h-3 w-3" />
+                                Source
                               </a>
-                            ) : null}
-                            {ref.project_reference_status && ref.project_reference_status !== 'approved' ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-700 dark:bg-amber-300/20 dark:text-amber-200">
+                            )}
+                            {ref.project_reference_status && ref.project_reference_status !== 'approved' && (
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
                                 {ref.project_reference_status}
                               </span>
-                            ) : null}
+                            )}
                           </div>
-                          {ref.attached_at ? (
-                            <span className="text-gray-500 dark:text-slate-400">Added {new Date(ref.attached_at).toLocaleDateString()}</span>
-                          ) : null}
+                          {ref.attached_at && (
+                            <span className="text-gray-400 dark:text-slate-500">
+                              Added {new Date(ref.attached_at).toLocaleDateString()}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -762,20 +827,20 @@ const PaperDetail: React.FC = () => {
           </div>
 
           <div className="space-y-6">
-            <section className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-800 dark:bg-slate-800/60">
-              <div className="mb-3 flex items-center gap-2">
+            <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800/60">
+              <div className="mb-4 flex items-center gap-2">
                 <Users className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Team</h2>
               </div>
-              <p className="mb-4 text-sm text-gray-600 dark:text-slate-300">
-                Paper access follows the project roster.
+              <p className="mb-4 text-xs text-gray-500 dark:text-slate-400">
+                Access follows project roster
               </p>
               {sortedProjectMembers.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-500 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
                   No collaborators yet.
                 </div>
               ) : (
-                <ul className="space-y-3">
+                <ul className="space-y-2">
                   {sortedProjectMembers.map((member) => {
                     const effectiveRole = normalizeMemberRole(member.role)
                     const status = (member.status || 'accepted').toLowerCase()
@@ -786,38 +851,43 @@ const PaperDetail: React.FC = () => {
                       || [member.user?.first_name, member.user?.last_name].filter(Boolean).join(' ').trim()
                       || member.user?.email
                       || member.user_id
+                    const avatarInitial = (displayName || '?')[0].toUpperCase()
+                    const avatarColor = getAvatarColor(member.user_id || displayName)
 
                     return (
                       <li
                         key={member.id || member.user_id}
-                        className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm transition-colors dark:border-slate-600/80 dark:bg-slate-800 dark:shadow-slate-950/30 dark:shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                        className="flex items-center gap-3 rounded-xl border border-gray-100 bg-gray-50/50 px-3 py-2.5 transition-colors dark:border-slate-700 dark:bg-slate-800/40"
                       >
-                        <div className="flex items-start gap-3">
-                          <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 dark:bg-slate-700/60">
-                            {renderRoleIcon(effectiveRole)}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="flex items-center gap-2 truncate text-sm font-semibold text-gray-900 dark:text-slate-100">
-                              <span className="truncate">{displayName}</span>
-                              {member.user_id === currentUserId && (
-                                <span className="text-[10px] uppercase tracking-wide text-indigo-500 dark:text-indigo-300">You</span>
-                              )}
-                              {isOwner && <Crown className="h-3 w-3 text-yellow-500 dark:text-amber-300" aria-label="Project owner" />}
-                              {isPending && <Clock className="h-3 w-3 text-amber-500 dark:text-amber-300" aria-label="Invitation pending" />}
+                        <div className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-sm font-semibold ${avatarColor}`}>
+                          {avatarInitial}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="flex items-center gap-2 truncate text-sm font-medium text-gray-900 dark:text-slate-100">
+                            <span className="truncate">{displayName}</span>
+                            {member.user_id === currentUserId && (
+                              <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
+                                You
+                              </span>
+                            )}
+                            {isOwner && <Crown className="h-3.5 w-3.5 text-amber-500" aria-label="Project owner" />}
+                            {isPending && <Clock className="h-3.5 w-3.5 text-amber-500" aria-label="Invitation pending" />}
+                          </p>
+                          {member.user?.email && (
+                            <p className="truncate text-xs text-gray-500 dark:text-slate-400">{member.user.email}</p>
+                          )}
+                          {status !== 'accepted' && (
+                            <p
+                              className={`mt-0.5 text-xs ${
+                                isPending ? 'text-amber-600' : isDeclined ? 'text-red-500' : 'text-gray-500'
+                              }`}
+                            >
+                              {isPending ? 'Pending invite' : `Status: ${status}`}
                             </p>
-                            {member.user?.email && (
-                              <p className="truncate text-xs text-gray-500 dark:text-slate-400">{member.user.email}</p>
-                            )}
-                            {status !== 'accepted' && (
-                              <p
-                                className={`mt-1 text-xs ${
-                                  isPending ? 'text-amber-600' : isDeclined ? 'text-red-600' : 'text-gray-500'
-                                }`}
-                              >
-                                Status: {status}
-                              </p>
-                            )}
-                          </div>
+                          )}
+                        </div>
+                        <div className="flex-shrink-0">
+                          {renderRoleIcon(effectiveRole)}
                         </div>
                       </li>
                     )
@@ -826,21 +896,37 @@ const PaperDetail: React.FC = () => {
               )}
             </section>
 
-            <section className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-800 dark:bg-slate-800/60">
-              <h2 className="mb-3 text-lg font-semibold text-gray-900 dark:text-slate-100">Keywords</h2>
+            <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800/60">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Keywords</h2>
+                {!isEditing && keywordDisplay.length === 0 && canEditPaper && (
+                  <button
+                    onClick={() => setIsEditing(true)}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+                  >
+                    <Plus className="h-3 w-3" />
+                    Add
+                  </button>
+                )}
+              </div>
               {isEditing ? (
                 <input
                   value={keywordInputValue}
                   onChange={(e) => setEditForm((prev) => ({ ...prev, keywords: e.target.value }))}
-                  className="w-full rounded border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                   placeholder="e.g. generative AI, survey design"
                 />
               ) : keywordDisplay.length === 0 ? (
-                <p className="text-sm text-gray-600 dark:text-slate-300">No keywords yet.</p>
+                <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-center dark:border-slate-700 dark:bg-slate-800/40">
+                  <p className="text-sm text-gray-500 dark:text-slate-400">No keywords yet</p>
+                </div>
               ) : (
                 <div className="flex flex-wrap gap-2">
                   {keywordDisplay.map((keyword) => (
-                    <span key={keyword} className="rounded-full bg-indigo-50 px-3 py-1 text-xs text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-200">
+                    <span
+                      key={keyword}
+                      className="rounded-full bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-200"
+                    >
                       {keyword}
                     </span>
                   ))}

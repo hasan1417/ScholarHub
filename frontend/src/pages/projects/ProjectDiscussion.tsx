@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { MessageCircle, Loader2, AlertCircle, Plus, Sparkles, X, Bot, FileText, BookOpen, Calendar, Check, ChevronDown, ChevronRight, FilePlus, Pencil, CheckSquare, Search, Download, MoreHorizontal, FolderOpen, ListTodo, Puzzle } from 'lucide-react'
+import { MessageCircle, Loader2, AlertCircle, Plus, Sparkles, X, Bot, FileText, BookOpen, Calendar, Check, ChevronDown, ChevronRight, FilePlus, Pencil, CheckSquare, Search, Download, MoreHorizontal, FolderOpen, ListTodo, Puzzle, Hash } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -2331,6 +2331,9 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           <div className="flex items-center justify-between border-b border-gray-200 p-4 dark:border-slate-700">
             <div className="flex flex-col gap-1">
               <div className="flex items-center gap-2">
+                {activeChannel && (
+                  <Hash className="h-5 w-5 text-indigo-500 dark:text-indigo-400" />
+                )}
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
                   {activeChannel ? activeChannel.name : 'Project Discussion'}
                 </h2>

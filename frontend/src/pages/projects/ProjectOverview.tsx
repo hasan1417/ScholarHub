@@ -1,6 +1,6 @@
 import { ReactNode, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { AlertCircle, Bell, FilePenLine, FilePlus, Loader2, Settings, Video } from 'lucide-react'
+import { AlertCircle, Bell, FilePenLine, FilePlus, FolderPlus, Loader2, Settings, UserMinus, UserPlus, UserX, Video } from 'lucide-react'
 import ProjectTeamManager from '../../components/projects/ProjectTeamManager'
 import { useProjectContext } from './ProjectLayout'
 import { projectNotificationsAPI } from '../../services/api'
@@ -84,74 +84,57 @@ const ProjectOverview = () => {
     return `${mins}m ${secs.toString().padStart(2, '0')}s`
   }
 
+  // Simplified notification card - cleaner design
   const renderNotificationCard = ({
     key,
     icon,
     iconClassName,
     title,
     subtitle,
-    badges,
-    recordedAt,
-    recordedRelative,
-    meta,
-    content,
+    badge,
+    timestamp,
+    detail,
   }: {
     key: string
     icon: ReactNode
     iconClassName: string
     title: string
     subtitle?: string
-    badges?: Array<{ label: string; tone: 'default' | 'positive' | 'neutral' | 'warning' | 'danger' }>
-    recordedAt?: string
-    recordedRelative?: string
-    meta?: ReactNode
-    content?: ReactNode
+    badge?: { label: string; tone: 'positive' | 'neutral' | 'warning' | 'danger' }
+    timestamp?: string
+    detail?: string
   }) => {
-    const badgeToneClass = (tone: 'default' | 'positive' | 'neutral' | 'warning' | 'danger') => {
-      switch (tone) {
-        case 'positive':
-          return 'bg-emerald-100 dark:bg-emerald-400/10 text-emerald-700 dark:text-emerald-200'
-        case 'warning':
-          return 'bg-amber-100 dark:bg-amber-400/10 text-amber-700 dark:text-amber-200'
-        case 'danger':
-          return 'bg-rose-100 dark:bg-rose-400/10 text-rose-700 dark:text-rose-200'
-        case 'neutral':
-          return 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-200'
-        default:
-          return 'bg-indigo-100 dark:bg-indigo-400/10 text-indigo-600 dark:text-indigo-200'
-      }
+    const badgeToneClass = {
+      positive: 'bg-emerald-100 dark:bg-emerald-400/10 text-emerald-700 dark:text-emerald-300',
+      warning: 'bg-amber-100 dark:bg-amber-400/10 text-amber-700 dark:text-amber-300',
+      danger: 'bg-rose-100 dark:bg-rose-400/10 text-rose-700 dark:text-rose-300',
+      neutral: 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300',
     }
 
     return (
-      <li key={key} className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 shadow-sm min-h-[120px]">
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:gap-4">
-          <div className="flex items-center gap-3 md:w-56 md:flex-shrink-0">
-            <span className={`flex h-9 w-9 items-center justify-center rounded-full ${iconClassName}`}>
-              {icon}
-            </span>
-            <div className="space-y-0.5">
-              <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">{title}</p>
-              {subtitle && <p className="text-xs text-gray-500 dark:text-slate-300">{subtitle}</p>}
-            </div>
+      <li key={key} className="flex items-start gap-3 py-3 border-b border-gray-100 dark:border-slate-700/50 last:border-0">
+        <span className={`flex h-8 w-8 items-center justify-center rounded-full flex-shrink-0 ${iconClassName}`}>
+          {icon}
+        </span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-medium text-gray-900 dark:text-slate-100">{title}</p>
+            {badge && (
+              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${badgeToneClass[badge.tone]}`}>
+                {badge.label}
+              </span>
+            )}
           </div>
-          <div className="flex-1 space-y-2">
-            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
-              {recordedRelative && (
-                <span title={recordedAt}>{recordedRelative}</span>
-              )}
-              {badges?.map((badge) => (
-                <span
-                  key={badge.label}
-                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${badgeToneClass(badge.tone)}`}
-                >
-                  {badge.label}
-                </span>
-              ))}
-              {meta}
-            </div>
-            {content}
-          </div>
+          {subtitle && (
+            <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">{subtitle}</p>
+          )}
+          {detail && (
+            <p className="text-xs text-gray-600 dark:text-slate-300 mt-1 truncate">{detail}</p>
+          )}
         </div>
+        {timestamp && (
+          <span className="text-[11px] text-gray-400 dark:text-slate-500 flex-shrink-0">{timestamp}</span>
+        )}
       </li>
     )
   }
@@ -159,184 +142,188 @@ const ProjectOverview = () => {
   const renderNotification = (notification: ProjectNotification) => {
     const payload = (notification.payload ?? {}) as Record<string, unknown>
     const recordedAtIso = typeof payload.recorded_at === 'string' ? payload.recorded_at : notification.created_at
-    const recordedAtLabel = formatDateTime(recordedAtIso)
-    const recordedRelative = formatRelativeTime(recordedAtIso)
+    const timestamp = formatRelativeTime(recordedAtIso)
+    const actor = (payload.actor ?? {}) as Record<string, unknown>
+    const actorName = typeof actor.name === 'string' && actor.name.trim()
+      ? actor.name
+      : (typeof actor.email === 'string' ? actor.email : 'Team member')
 
+    // Sync session (calls)
     if (notification.type.startsWith('sync-session.')) {
-      const action = typeof payload.action === 'string' ? payload.action : notification.type.split('.').pop() ?? 'updated'
-      const actor = (payload.actor ?? {}) as Record<string, unknown>
-      const actorName = typeof actor.name === 'string' && actor.name.trim()
-        ? actor.name
-        : (typeof actor.email === 'string' ? actor.email : 'Team member')
-      const provider = typeof payload.provider === 'string' ? payload.provider : 'daily'
-      const status = typeof payload.status === 'string' ? payload.status : null
-      const startedAt = typeof payload.started_at === 'string' ? payload.started_at : null
-      const endedAt = typeof payload.ended_at === 'string' ? payload.ended_at : null
+      const action = notification.type.split('.').pop() ?? 'updated'
+      const status = typeof payload.status === 'string' ? payload.status : action
       const duration = formatDuration(typeof payload.duration_seconds === 'number' ? payload.duration_seconds : Number(payload.duration_seconds))
 
-      const statusKey = (typeof status === 'string' ? status : action).toLowerCase()
-      const badgeText = toSentence(statusKey)
+      const titleMap: Record<string, string> = {
+        started: 'Call started',
+        ended: 'Call ended',
+        cancelled: 'Call cancelled',
+      }
+      const badgeTone = status === 'cancelled' ? 'danger' : status === 'ended' ? 'neutral' : 'positive'
+
       return renderNotificationCard({
         key: notification.id,
         icon: <Video className="h-4 w-4" />,
-        iconClassName: 'bg-sky-100 text-sky-600',
-        title: `Call ${action}`,
-        subtitle: `${actorName} • ${provider}`,
-        badges: badgeText ? [{ label: badgeText, tone: statusKey === 'cancelled' ? 'danger' : statusKey === 'ended' ? 'neutral' : 'positive' }] : undefined,
-        recordedAt: recordedAtLabel,
-        recordedRelative,
-        meta: (
-          <div className="flex items-center gap-2 text-[11px] text-gray-400">
-            {startedAt && <span title={formatDateTime(startedAt)}>Started {formatRelativeTime(startedAt)}</span>}
-            {endedAt && <span title={formatDateTime(endedAt)}>Ended {formatRelativeTime(endedAt)}</span>}
-            {duration && <span className="text-gray-500">Duration {duration}</span>}
-          </div>
-        ),
-        content: (
-          <div className="rounded-lg border border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 p-2.5 text-sm text-gray-700 dark:text-slate-300">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">Session summary</p>
-            <p className="mt-1 text-xs text-gray-700 dark:text-slate-300">Status: {toSentence(status ?? action)}.</p>
-          </div>
-        ),
+        iconClassName: 'bg-sky-100 text-sky-600 dark:bg-sky-500/20 dark:text-sky-400',
+        title: titleMap[action] || `Call ${action}`,
+        subtitle: `${actorName}${duration ? ` · ${duration}` : ''}`,
+        badge: { label: toSentence(status), tone: badgeTone },
+        timestamp,
       })
     }
 
-    if (notification.type.startsWith('paper.')) {
-      const action = typeof payload.action === 'string' ? payload.action : notification.type.split('.').pop() ?? 'updated'
-      const actor = (payload.actor ?? {}) as Record<string, unknown>
-      const actorName = typeof actor.name === 'string' && actor.name.trim()
-        ? actor.name
-        : (typeof actor.email === 'string' ? actor.email : 'Contributor')
-      const title = typeof payload.paper_title === 'string' ? payload.paper_title : 'Untitled paper'
-      const updatedFields = Array.isArray(payload.updated_fields)
-        ? (payload.updated_fields as Array<unknown>).filter((item): item is string => typeof item === 'string')
-        : []
-
-      const isCreated = notification.type === 'paper.created'
-      const icon = isCreated ? <FilePlus className="h-4 w-4" /> : <FilePenLine className="h-4 w-4" />
-      const iconBg = isCreated ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
-
+    // Project created
+    if (notification.type === 'project.created') {
       return renderNotificationCard({
         key: notification.id,
-        icon,
-        iconClassName: iconBg,
-        title: `Paper ${action}`,
+        icon: <FolderPlus className="h-4 w-4" />,
+        iconClassName: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400',
+        title: 'Project created',
         subtitle: actorName,
-        badges: !isCreated && updatedFields.length > 0
-          ? [{ label: `Fields: ${updatedFields.join(', ')}`, tone: 'neutral' }]
-          : undefined,
-        recordedAt: recordedAtLabel,
-        recordedRelative,
-        content: (
-          <div className="rounded-lg border border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 p-2.5">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">Paper</p>
-            <p className="mt-1 text-xs text-gray-700 dark:text-slate-300">{title}</p>
-          </div>
-        ),
+        timestamp,
       })
     }
 
+    // Project updated
     if (notification.type === 'project.updated') {
-      const actor = (payload.actor ?? {}) as Record<string, unknown>
-      const actorName = typeof actor.name === 'string' && actor.name.trim()
-        ? actor.name
-        : (typeof actor.email === 'string' ? actor.email : 'Project owner')
       const updatedFields = Array.isArray(payload.updated_fields)
         ? (payload.updated_fields as Array<unknown>).filter((item): item is string => typeof item === 'string')
         : []
-      const projectTitle = typeof payload.project_title === 'string' && payload.project_title
-        ? payload.project_title
-        : project.title
-      const fieldLabelMap: Record<string, string> = {
-        idea: 'Description',
-        keywords: 'Keywords',
-        scope: 'Objectives',
-      }
-      const normalizedFieldLabels = updatedFields.map((field) => {
-        const normalized = field.toLowerCase()
-        if (fieldLabelMap[normalized]) return fieldLabelMap[normalized]
-        return toSentence(field.replace(/_/g, ' '))
-      })
+      const fieldLabelMap: Record<string, string> = { idea: 'Description', keywords: 'Keywords', scope: 'Objectives' }
+      const fieldLabels = updatedFields.map((f) => fieldLabelMap[f.toLowerCase()] || toSentence(f.replace(/_/g, ' ')))
 
       return renderNotificationCard({
         key: notification.id,
         icon: <Settings className="h-4 w-4" />,
-        iconClassName: 'bg-indigo-100 text-indigo-600',
+        iconClassName: 'bg-indigo-100 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400',
         title: 'Project updated',
         subtitle: actorName,
-        badges: normalizedFieldLabels.length > 0
-          ? [{ label: normalizedFieldLabels.join(', '), tone: 'neutral' }]
-          : undefined,
-        recordedAt: recordedAtLabel,
-        recordedRelative,
-        content: (
-          <div className="rounded-lg border border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 p-2.5 text-sm text-gray-700 dark:text-slate-300">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">Project</p>
-            <p className="mt-1 text-xs text-gray-700 dark:text-slate-300">{projectTitle}</p>
-          </div>
-        ),
+        detail: fieldLabels.length > 0 ? `Changed: ${fieldLabels.join(', ')}` : undefined,
+        timestamp,
       })
     }
 
-    if (notification.type.startsWith('project-reference.')) {
-      const actor = (payload.actor ?? {}) as Record<string, unknown>
-      const actorName = typeof actor.name === 'string' && actor.name.trim()
-        ? actor.name
-        : (typeof actor.email === 'string' ? actor.email : 'Team member')
-      const referenceTitle = typeof payload.reference_title === 'string' && payload.reference_title
-        ? payload.reference_title
-        : 'Untitled reference'
-      const paperTitle = typeof payload.paper_title === 'string' && payload.paper_title
-        ? payload.paper_title
-        : null
-      const confidence = typeof payload.confidence === 'number'
-        ? `${Math.round(payload.confidence * 100)}%`
-        : null
-      const source = typeof payload.source === 'string' ? payload.source : null
+    // Member events
+    if (notification.type.startsWith('member.')) {
       const action = notification.type.split('.').pop() ?? 'updated'
+      const invitedName = typeof payload.invited_user_name === 'string' ? payload.invited_user_name : null
+      const removedName = typeof payload.removed_user_name === 'string' ? payload.removed_user_name : null
+      const role = typeof payload.role === 'string' ? payload.role : null
 
-      const badges: Array<{ label: string; tone: 'default' | 'positive' | 'neutral' | 'warning' | 'danger' }> = []
-      if (confidence) {
-        badges.push({ label: `Confidence ${confidence}`, tone: 'positive' })
+      const config: Record<string, { icon: ReactNode; iconClass: string; title: string; subtitle: string }> = {
+        invited: {
+          icon: <UserPlus className="h-4 w-4" />,
+          iconClass: 'bg-blue-100 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400',
+          title: 'Member invited',
+          subtitle: `${actorName} invited ${invitedName || 'someone'}${role ? ` as ${role}` : ''}`,
+        },
+        joined: {
+          icon: <UserPlus className="h-4 w-4" />,
+          iconClass: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400',
+          title: 'Member joined',
+          subtitle: `${actorName} joined the project`,
+        },
+        declined: {
+          icon: <UserX className="h-4 w-4" />,
+          iconClass: 'bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-slate-400',
+          title: 'Invitation declined',
+          subtitle: `${actorName} declined the invitation`,
+        },
+        removed: {
+          icon: <UserMinus className="h-4 w-4" />,
+          iconClass: 'bg-rose-100 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400',
+          title: 'Member removed',
+          subtitle: `${actorName} removed ${removedName || 'a member'}`,
+        },
       }
-      if (source) {
-        badges.push({ label: toSentence(source.replace('-', ' ')), tone: 'neutral' })
+
+      const c = config[action] || { icon: <UserPlus className="h-4 w-4" />, iconClass: 'bg-gray-100 text-gray-500', title: `Member ${action}`, subtitle: actorName }
+
+      return renderNotificationCard({
+        key: notification.id,
+        icon: c.icon,
+        iconClassName: c.iconClass,
+        title: c.title,
+        subtitle: c.subtitle,
+        timestamp,
+      })
+    }
+
+    // Paper events
+    if (notification.type.startsWith('paper.')) {
+      const action = notification.type.split('.').pop() ?? 'updated'
+      const paperTitle = typeof payload.paper_title === 'string' ? payload.paper_title : null
+      const referenceTitle = typeof payload.reference_title === 'string' ? payload.reference_title : null
+
+      const config: Record<string, { icon: ReactNode; iconClass: string; title: string }> = {
+        created: {
+          icon: <FilePlus className="h-4 w-4" />,
+          iconClass: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400',
+          title: 'Paper created',
+        },
+        updated: {
+          icon: <FilePenLine className="h-4 w-4" />,
+          iconClass: 'bg-amber-100 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400',
+          title: 'Paper updated',
+        },
+        'reference-linked': {
+          icon: <FilePenLine className="h-4 w-4" />,
+          iconClass: 'bg-purple-100 text-purple-600 dark:bg-purple-500/20 dark:text-purple-400',
+          title: 'Reference added',
+        },
+        'reference-unlinked': {
+          icon: <FilePenLine className="h-4 w-4" />,
+          iconClass: 'bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-slate-400',
+          title: 'Reference removed',
+        },
       }
+
+      const c = config[action] || { icon: <FilePenLine className="h-4 w-4" />, iconClass: 'bg-gray-100 text-gray-500', title: `Paper ${action}` }
+
+      return renderNotificationCard({
+        key: notification.id,
+        icon: c.icon,
+        iconClassName: c.iconClass,
+        title: c.title,
+        subtitle: actorName,
+        detail: action.includes('reference') ? referenceTitle : paperTitle,
+        timestamp,
+      })
+    }
+
+    // Project reference events (discovery)
+    if (notification.type.startsWith('project-reference.')) {
+      const action = notification.type.split('.').pop() ?? 'updated'
+      const referenceTitle = typeof payload.reference_title === 'string' ? payload.reference_title : null
+
+      const config: Record<string, { title: string; badge?: { label: string; tone: 'positive' | 'neutral' | 'warning' | 'danger' } }> = {
+        suggested: { title: 'Reference suggested' },
+        approved: { title: 'Reference approved', badge: { label: 'Approved', tone: 'positive' } },
+        rejected: { title: 'Reference rejected', badge: { label: 'Rejected', tone: 'danger' } },
+      }
+
+      const c = config[action] || { title: `Reference ${action}` }
 
       return renderNotificationCard({
         key: notification.id,
         icon: <FilePenLine className="h-4 w-4" />,
-        iconClassName: 'bg-purple-100 text-purple-700',
-        title: `Related paper ${action}`,
+        iconClassName: 'bg-purple-100 text-purple-600 dark:bg-purple-500/20 dark:text-purple-400',
+        title: c.title,
         subtitle: actorName,
-        badges,
-        recordedAt: recordedAtLabel,
-        recordedRelative,
-        content: (
-          <div className="space-y-2">
-            <div className="rounded-lg border border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 p-2.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">Related paper</p>
-              <p className="mt-1 text-xs text-gray-700 dark:text-slate-300">{referenceTitle}</p>
-            </div>
-            {paperTitle && (
-              <div className="rounded-lg border border-indigo-100 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-400/10 p-2.5 text-sm text-indigo-700 dark:text-indigo-200">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-500 dark:text-indigo-300">Linked paper</p>
-                <p className="mt-1 text-xs">{paperTitle}</p>
-              </div>
-            )}
-          </div>
-        ),
+        badge: c.badge,
+        detail: referenceTitle,
+        timestamp,
       })
     }
 
+    // Fallback
     return renderNotificationCard({
       key: notification.id,
-      icon: <AlertCircle className="h-5 w-5" />,
-      iconClassName: 'bg-gray-100 text-gray-500',
-      title: notification.type,
-      subtitle: 'Activity details not yet captured',
-      recordedAt: recordedAtLabel,
-      recordedRelative,
+      icon: <AlertCircle className="h-4 w-4" />,
+      iconClassName: 'bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-slate-400',
+      title: notification.type.replace(/[.-]/g, ' '),
+      subtitle: actorName,
+      timestamp,
     })
   }
 
@@ -367,45 +354,66 @@ const ProjectOverview = () => {
       )
     }
 
-    const topNotifications = notifications.slice(0, 10)
+    const topNotifications = notifications.slice(0, 15)
     return (
-      <ol className="space-y-3">
+      <ul className="divide-y-0">
         {topNotifications.map((item) => renderNotification(item))}
-      </ol>
+      </ul>
     )
   }, [notifications, notificationsQuery.isError, notificationsQuery.isLoading])
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-6 lg:grid-cols-[2fr,1fr]">
+      <div className="grid gap-6 lg:grid-cols-[1.2fr,1fr]">
         <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800">
           <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">Project context</h2>
-          <dl className="mt-4 space-y-5 text-sm text-gray-600 dark:text-slate-300">
+          <div className="mt-5 space-y-5">
+            {/* Description */}
             <div>
-              <dt className="font-medium text-gray-700 dark:text-slate-200">Description</dt>
-              <dd className="mt-1 whitespace-pre-line">
-                {descriptionText ? (
-                  descriptionText
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">Description</h3>
+              <p className="mt-2 text-sm text-gray-700 dark:text-slate-300 whitespace-pre-line leading-relaxed">
+                {descriptionText || <span className="text-gray-400 dark:text-slate-500 italic">No description captured yet.</span>}
+              </p>
+            </div>
+
+            {/* Objectives */}
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">Objectives</h3>
+              <div className="mt-2">
+                {objectivesList.length > 0 ? (
+                  <ul className="space-y-2">
+                    {objectivesList.map((objective, index) => (
+                      <li key={`${objective}-${index}`} className="flex items-start gap-2.5">
+                        <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700 dark:bg-indigo-400/20 dark:text-indigo-300">
+                          {index + 1}
+                        </span>
+                        <span className="text-sm text-gray-700 dark:text-slate-300">{objective}</span>
+                      </li>
+                    ))}
+                  </ul>
                 ) : (
-                  <span className="text-gray-400 dark:text-slate-500">No description captured yet.</span>
+                  <p className="text-sm text-gray-400 dark:text-slate-500 italic">No objectives defined yet.</p>
                 )}
-              </dd>
+              </div>
             </div>
-            <div>
-              <dt className="font-medium text-gray-700 dark:text-slate-200">Objectives</dt>
-              <dd className="mt-2">
-                <ol className="list-decimal space-y-1 pl-5 text-sm text-gray-700 dark:text-slate-300">
-                  {objectivesList.length > 0 ? (
-                    objectivesList.map((objective, index) => (
-                      <li key={`${objective}-${index}`}>{objective}</li>
-                    ))
-                  ) : (
-                    <li className="text-gray-400 dark:text-slate-500">No objectives defined yet.</li>
-                  )}
-                </ol>
-              </dd>
-            </div>
-          </dl>
+
+            {/* Keywords */}
+            {project.keywords && project.keywords.length > 0 && (
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">Keywords</h3>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {project.keywords.map((keyword) => (
+                    <span
+                      key={keyword}
+                      className="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300"
+                    >
+                      {keyword}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </section>
         <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800">
           <ProjectTeamManager />

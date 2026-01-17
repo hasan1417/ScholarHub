@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import asyncio
 import hashlib
 import hmac
@@ -182,6 +182,7 @@ def _update_meeting_transcription(
     meeting_id: UUID,
     status_value: str,
     transcript: Optional[dict] = None,
+    summary: Optional[str] = None,
 ) -> None:
     with SessionLocal() as db:
         meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
@@ -190,8 +191,104 @@ def _update_meeting_transcription(
         meeting.status = status_value
         if transcript is not None:
             meeting.transcript = transcript
+        if summary is not None:
+            meeting.summary = summary
         meeting.updated_at = datetime.now(timezone.utc)
         db.commit()
+
+
+async def _generate_meeting_summary(transcript_text: str) -> Optional[str]:
+    """Generate a short descriptive title for the meeting from its transcript."""
+    if not transcript_text or len(transcript_text.strip()) < 10:
+        return None
+
+    api_key = settings.OPENAI_API_KEY
+    if not api_key:
+        return None
+
+    try:
+        client = OpenAI(api_key=api_key)
+        loop = asyncio.get_running_loop()
+
+        def _call_openai() -> str:
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You generate very short meeting titles (3-6 words max). "
+                            "Based on the transcript, create a concise title that captures "
+                            "the main topic. Examples: 'Project Timeline Discussion', "
+                            "'Bug Fix Planning', 'Weekly Sync', 'Feature Demo Review'. "
+                            "Return ONLY the title, no quotes or punctuation."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Generate a short title for this meeting:\n\n{transcript_text[:1500]}",
+                    },
+                ],
+                max_tokens=20,
+                temperature=0.3,
+            )
+            return response.choices[0].message.content.strip() if response.choices else None
+
+        summary = await loop.run_in_executor(None, _call_openai)
+        if summary:
+            # Clean up the summary - remove quotes if present
+            summary = summary.strip('"\'')
+            # Limit length
+            if len(summary) > 50:
+                summary = summary[:47] + "..."
+            logger.info("Generated meeting summary", extra={"summary": summary})
+        return summary
+
+    except Exception as exc:
+        logger.warning("Failed to generate meeting summary", extra={"error": str(exc)})
+        return None
+
+
+def _cleanup_stuck_transcriptions(max_age_minutes: int = 10) -> int:
+    """Mark transcriptions stuck for too long as failed.
+
+    This handles cases where:
+    - No recording was captured
+    - Transcription failed silently
+    - Backend restarted during transcription
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_age_minutes)
+    cleaned = 0
+
+    with SessionLocal() as db:
+        stuck_meetings = (
+            db.query(Meeting)
+            .filter(
+                Meeting.status == MeetingStatus.TRANSCRIBING.value,
+                Meeting.created_at < cutoff,
+            )
+            .all()
+        )
+
+        for meeting in stuck_meetings:
+            has_audio = bool(meeting.audio_url)
+            if has_audio:
+                # Had audio but transcription failed
+                meeting.status = MeetingStatus.FAILED.value
+                meeting.transcript = {"error": "Transcription timed out"}
+            else:
+                # No recording was captured
+                meeting.status = MeetingStatus.FAILED.value
+                meeting.transcript = {"error": "No recording was captured"}
+            meeting.updated_at = datetime.now(timezone.utc)
+            cleaned += 1
+
+        if cleaned > 0:
+            db.commit()
+            logger.info(f"Cleaned up {cleaned} stuck transcriptions")
+
+    return cleaned
+
 
 async def _transcribe_meeting_audio(meeting_id: UUID, audio_url: str, base_url: str) -> None:
     try:
@@ -212,11 +309,21 @@ async def _transcribe_meeting_audio(meeting_id: UUID, audio_url: str, base_url: 
 
     try:
         transcript_payload = await _run_transcription(audio_bytes, audio_url, base_url, content_type)
+        transcript_text = transcript_payload.get("text") if isinstance(transcript_payload, dict) else ""
         payload = {
-            "text": transcript_payload.get("text") if isinstance(transcript_payload, dict) else "",
+            "text": transcript_text,
             "metadata": transcript_payload,
         }
-        _update_meeting_transcription(meeting_id, MeetingStatus.COMPLETED.value, transcript=payload)
+
+        # Generate a summary title from the transcript
+        summary = await _generate_meeting_summary(transcript_text)
+
+        _update_meeting_transcription(
+            meeting_id,
+            MeetingStatus.COMPLETED.value,
+            transcript=payload,
+            summary=summary,
+        )
         await _delete_daily_recording_for_meeting(meeting_id)
     except Exception as exc:  # pragma: no cover - external service
         logger.exception("Transcription job failed", extra={"meeting_id": str(meeting_id)})
@@ -249,6 +356,64 @@ async def _run_transcription(
     raise RuntimeError("No transcription provider configured")
 
 
+def _convert_fmp4_to_mp3(audio_bytes: bytes) -> bytes:
+    """Convert fragmented MP4 (fMP4) to MP3 using ffmpeg.
+
+    Daily.co outputs fragmented MP4 files which OpenAI's transcription API
+    doesn't fully process. Converting to MP3 ensures the full audio is transcribed.
+    """
+    import subprocess
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as input_file:
+        input_file.write(audio_bytes)
+        input_path = input_file.name
+
+    output_path = input_path.replace('.mp4', '.mp3')
+
+    try:
+        result = subprocess.run(
+            [
+                'ffmpeg', '-y', '-i', input_path,
+                '-vn',  # No video
+                '-acodec', 'libmp3lame',
+                '-ar', '16000',  # 16kHz sample rate (good for speech)
+                '-ac', '1',  # Mono
+                '-b:a', '64k',  # 64kbps bitrate
+                output_path
+            ],
+            capture_output=True,
+            timeout=120,
+        )
+
+        if result.returncode != 0:
+            logger.warning(
+                "ffmpeg conversion failed, using original file",
+                extra={"stderr": result.stderr.decode()[:500] if result.stderr else ""},
+            )
+            return audio_bytes
+
+        with open(output_path, 'rb') as f:
+            return f.read()
+    except FileNotFoundError:
+        logger.warning("ffmpeg not found, using original file")
+        return audio_bytes
+    except subprocess.TimeoutExpired:
+        logger.warning("ffmpeg conversion timed out, using original file")
+        return audio_bytes
+    finally:
+        # Clean up temp files
+        import os
+        try:
+            os.unlink(input_path)
+        except OSError:
+            pass
+        try:
+            os.unlink(output_path)
+        except OSError:
+            pass
+
+
 async def _transcribe_with_openai(audio_bytes: bytes, filename: str) -> dict[str, Any]:
     api_key = settings.OPENAI_API_KEY
     if not api_key:
@@ -258,15 +423,44 @@ async def _transcribe_with_openai(audio_bytes: bytes, filename: str) -> dict[str
     loop = asyncio.get_running_loop()
 
     def _call_openai() -> dict[str, Any]:
-        buffer = io.BytesIO(audio_bytes)
-        buffer.name = filename or "call-audio.mp4"
-        response = client.audio.transcriptions.create(
-            model=settings.OPENAI_TRANSCRIBE_MODEL,
-            file=buffer,
-        )
+        # Convert fMP4 to MP3 if the file is an MP4 (Daily recordings are fMP4)
+        processed_bytes = audio_bytes
+        output_filename = filename or "call-audio.mp4"
+
+        if filename and filename.lower().endswith('.mp4'):
+            logger.info("Converting fMP4 to MP3 for transcription", extra={"filename": filename})
+            processed_bytes = _convert_fmp4_to_mp3(audio_bytes)
+            output_filename = filename.replace('.mp4', '.mp3').replace('.MP4', '.mp3')
+
+        buffer = io.BytesIO(processed_bytes)
+        buffer.name = output_filename
+
+        # Use diarization model for meetings to identify speakers
+        model = settings.OPENAI_TRANSCRIBE_MODEL
+        use_diarization = "diarize" in model.lower()
+
+        # Build API parameters
+        api_params: dict[str, Any] = {
+            "model": model,
+            "file": buffer,
+            "language": "en",  # Default to English for better accuracy
+        }
+
+        # Diarization models require chunking_strategy
+        if use_diarization:
+            api_params["chunking_strategy"] = "auto"
+
+        response = client.audio.transcriptions.create(**api_params)
         result = response.model_dump()
         result.setdefault("provider", "openai")
-        result.setdefault("text", getattr(response, "text", ""))
+        result.setdefault("model", model)
+
+        # Extract text - diarization model returns structured format with speaker labels
+        if hasattr(response, 'text'):
+            result.setdefault("text", response.text)
+        else:
+            result.setdefault("text", "")
+
         return result
 
     return await loop.run_in_executor(None, _call_openai)
@@ -804,6 +998,9 @@ def list_sync_sessions(
     _guard_feature()
     project = get_project_or_404(db, project_id)
     ensure_project_member(db, project, current_user)
+
+    # Clean up any stuck transcriptions (older than 10 minutes)
+    _cleanup_stuck_transcriptions(max_age_minutes=10)
 
     query = db.query(ProjectSyncSession).filter(ProjectSyncSession.project_id == project.id)
     if status_filter:

@@ -6,7 +6,7 @@ import SubTabs, { SubTab } from '../../components/navigation/SubTabs'
 
 const COLLABORATE_TABS: SubTab[] = [
   {
-    label: 'Chat',
+    label: 'Discussion',
     path: 'chat',
     icon: MessageCircle,
     tooltip: 'Team discussions with channels and threads',

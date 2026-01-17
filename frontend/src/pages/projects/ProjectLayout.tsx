@@ -322,25 +322,26 @@ const ProjectLayout = () => {
             )}
           </div>
         </div>
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-          <div className="max-w-2xl">
-            <h1 className="text-2xl font-semibold text-gray-900 dark:text-slate-100">{project.title}</h1>
-          </div>
-          <div className="flex flex-col items-start gap-3 text-sm text-gray-500 transition-colors dark:text-slate-300 lg:items-end">
-            <div className="flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-gray-500 dark:text-slate-400" />
-              <span>Updated {new Date(project.updated_at).toLocaleString()}</span>
+        <div className="space-y-4">
+          {/* Title */}
+          <h1 className="text-2xl font-semibold text-gray-900 dark:text-slate-100">{project.title}</h1>
+
+          {/* Metadata Row - compact inline display */}
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-gray-500 dark:text-slate-400">
+            <div className="flex items-center gap-1.5">
+              <Calendar className="h-3.5 w-3.5" />
+              <span>Updated {new Date(project.updated_at).toLocaleDateString()}</span>
             </div>
-            <div className="flex items-center gap-2">
-              <UsersIcon className="h-4 w-4 text-gray-500 dark:text-slate-400" />
+            <div className="flex items-center gap-1.5">
+              <UsersIcon className="h-3.5 w-3.5" />
               <span>{memberCount} member{memberCount === 1 ? '' : 's'}</span>
             </div>
             {project.keywords && project.keywords.length > 0 && (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex items-center gap-2">
                 {project.keywords.map((keyword) => (
                   <span
                     key={keyword}
-                    className="inline-flex rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 dark:bg-indigo-400/10 dark:text-indigo-200"
+                    className="inline-flex rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-400/10 dark:text-indigo-200"
                   >
                     {keyword}
                   </span>

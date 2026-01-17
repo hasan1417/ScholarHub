@@ -1,0 +1,343 @@
+{
+  "run_timestamp": "2026-01-17T15:53:12.304817",
+  "project_id": "0a9e580c-240c-4289-9ec5-8579b8164d37",
+  "total_tests": 16,
+  "passed": 10,
+  "failed": 0,
+  "skipped": 6,
+  "errors": 0,
+  "results": [
+    {
+      "event_type": "project.created",
+      "status": "skip",
+      "message": "Using existing project",
+      "notification_found": false,
+      "notification_id": null,
+      "payload_sample": null,
+      "timestamp": "2026-01-17T15:53:12.304763"
+    },
+    {
+      "event_type": "project.updated",
+      "status": "pass",
+      "message": "Event recorded successfully",
+      "notification_found": true,
+      "notification_id": "de5ac8f8-2a30-4884-a343-1c6ac1c587d6",
+      "payload_sample": {
+        "actor": {
+          "id": "85ba464b-e2e6-41d2-837d-859cdca20cab",
+          "name": "Hassan KFUPM",
+          "email": "g20240390@kfupm.edu.sa"
+        },
+        "action": "updated",
+        "project": {
+          "id": "0a9e580c-240c-4289-9ec5-8579b8164d37",
+          "title": "Updated Activity Test Project 97f105b4"
+        },
+        "category": "project",
+        "event_type": "project.updated",
+        "recorded_at": "2026-01-17T12:52:52.104275Z",
+        "project_title": "Updated Activity Test Project 97f105b4",
+        "updated_fields": [
+          "title"
+        ]
+      },
+      "timestamp": "2026-01-17T15:52:53.146529"
+    },
+    {
+      "event_type": "member.invited",
+      "status": "pass",
+      "message": "Event recorded - invited testuser1@example.com",
+      "notification_found": true,
+      "notification_id": "7bf2769a-69b1-415d-a93f-d5f1ad8de650",
+      "payload_sample": {
+        "role": "viewer",
+        "actor": {
+          "id": "85ba464b-e2e6-41d2-837d-859cdca20cab",
+          "name": "Hassan KFUPM",
+          "email": "g20240390@kfupm.edu.sa"
+        },
+        "action": "invited",
+        "project": {
+          "id": "0a9e580c-240c-4289-9ec5-8579b8164d37",
+          "title": "Updated Activity Test Project 97f105b4"
+        },
+        "category": "member",
+        "event_type": "member.invited",
+        "recorded_at": "2026-01-17T12:52:53.669001Z",
+        "invited_user_id": "a5d92a73-fe57-4a46-b584-e8e3d9377234",
+        "invited_user_name": "Test User1",
+        "invited_user_email": "testuser1@example.com"
+      },
+      "timestamp": "2026-01-17T15:52:55.056261"
+    },
+    {
+      "event_type": "member.joined",
+      "status": "skip",
+      "message": "Requires second user to accept invitation - manual test needed",
+      "notification_found": false,
+      "notification_id": null,
+      "payload_sample": null,
+      "timestamp": "2026-01-17T15:52:55.056287"
+    },
+    {
+      "event_type": "member.declined",
+      "status": "skip",
+      "message": "Requires second user to decline invitation - manual test needed",
+      "notification_found": false,
+      "notification_id": null,
+      "payload_sample": null,
+      "timestamp": "2026-01-17T15:52:55.056290"
+    },
+    {
+      "event_type": "member.removed",
+      "status": "pass",
+      "message": "Event recorded successfully",
+      "notification_found": true,
+      "notification_id": "7d306653-d042-4db8-b70d-e554f296cc8b",
+      "payload_sample": {
+        "actor": {
+          "id": "85ba464b-e2e6-41d2-837d-859cdca20cab",
+          "name": "Hassan KFUPM",
+          "email": "g20240390@kfupm.edu.sa"
+        },
+        "action": "removed",
+        "project": {
+          "id": "0a9e580c-240c-4289-9ec5-8579b8164d37",
+          "title": "Updated Activity Test Project 97f105b4"
+        },
+        "category": "member",
+        "event_type": "member.removed",
+        "recorded_at": "2026-01-17T12:52:55.569749Z",
+        "removed_user_id": "a5d92a73-fe57-4a46-b584-e8e3d9377234",
+        "removed_user_name": "Test User1",
+        "removed_user_email": "testuser1@example.com"
+      },
+      "timestamp": "2026-01-17T15:52:56.595975"
+    },
+    {
+      "event_type": "paper.created",
+      "status": "pass",
+      "message": "Event recorded successfully",
+      "notification_found": true,
+      "notification_id": "c088d2de-76e4-4ce1-8f3e-1bc879d37cbe",
+      "payload_sample": {
+        "actor": {
+          "id": "85ba464b-e2e6-41d2-837d-859cdca20cab",
+          "name": "Hassan KFUPM",
+          "email": "g20240390@kfupm.edu.sa"
+        },
+        "action": "created",
+        "project": {
+          "id": "0a9e580c-240c-4289-9ec5-8579b8164d37",
+          "title": "Updated Activity Test Project 97f105b4"
+        },
+        "category": "paper",
+        "paper_id": "84fbf36a-db65-4704-b668-b9fd9c97a3e3",
+        "event_type": "paper.created",
+        "paper_title": "Test Paper 8eb7e435",
+        "recorded_at": "2026-01-17T12:52:57.118078Z"
+      },
+      "timestamp": "2026-01-17T15:52:58.141284"
+    },
+    {
+      "event_type": "paper.updated",
+      "status": "pass",
+      "message": "Event recorded successfully",
+      "notification_found": true,
+      "notification_id": "4c1b3058-642e-4c9e-a9b9-2a78a14d807c",
+      "payload_sample": {
+        "actor": {
+          "id": "85ba464b-e2e6-41d2-837d-859cdca20cab",
+          "name": "Hassan KFUPM",
+          "email": "g20240390@kfupm.edu.sa"
+        },
+        "action": "updated",
+        "project": {
+          "id": "0a9e580c-240c-4289-9ec5-8579b8164d37",
+          "title": "Updated Activity Test Project 97f105b4"
+        },
+        "category": "paper",
+        "paper_id": "84fbf36a-db65-4704-b668-b9fd9c97a3e3",
+        "event_type": "paper.updated",
+        "paper_title": "Updated Test Paper 9a091214",
+        "recorded_at": "2026-01-17T12:52:58.662345Z",
+        "updated_fields": [
+          "title"
+        ]
+      },
+      "timestamp": "2026-01-17T15:52:59.693401"
+    },
+    {
+      "event_type": "paper.reference-linked",
+      "status": "pass",
+      "message": "Event recorded successfully",
+      "notification_found": true,
+      "notification_id": "10cd9b4b-f7fc-4fd2-b83e-e1fb1f75d7b2",
+      "payload_sample": {
+        "actor": {
+          "id": "85ba464b-e2e6-41d2-837d-859cdca20cab",
+          "name": "Hassan KFUPM",
+          "email": "g20240390@kfupm.edu.sa"
+        },
+        "action": "reference-linked",
+        "project": {
+          "id": "0a9e580c-240c-4289-9ec5-8579b8164d37",
+          "title": "Updated Activity Test Project 97f105b4"
+        },
+        "category": "paper",
+        "paper_id": "84fbf36a-db65-4704-b668-b9fd9c97a3e3",
+        "event_type": "paper.reference-linked",
+        "paper_title": "Updated Test Paper 9a091214",
+        "recorded_at": "2026-01-17T12:53:00.228021Z",
+        "reference_id": "013a5e32-06d9-4bd6-a80b-a80110f29757",
+        "reference_title": "Attention Is All You Need",
+        "project_reference_id": "b7e7c448-39a9-40cf-97b7-fffec15164f1"
+      },
+      "timestamp": "2026-01-17T15:53:01.257803"
+    },
+    {
+      "event_type": "paper.reference-unlinked",
+      "status": "pass",
+      "message": "Event recorded successfully",
+      "notification_found": true,
+      "notification_id": "5226d4c4-9d34-402e-928e-fdd5be61ab0e",
+      "payload_sample": {
+        "actor": {
+          "id": "85ba464b-e2e6-41d2-837d-859cdca20cab",
+          "name": "Hassan KFUPM",
+          "email": "g20240390@kfupm.edu.sa"
+        },
+        "action": "reference-unlinked",
+        "project": {
+          "id": "0a9e580c-240c-4289-9ec5-8579b8164d37",
+          "title": "Updated Activity Test Project 97f105b4"
+        },
+        "category": "paper",
+        "paper_id": "84fbf36a-db65-4704-b668-b9fd9c97a3e3",
+        "event_type": "paper.reference-unlinked",
+        "paper_title": "Updated Test Paper 9a091214",
+        "recorded_at": "2026-01-17T12:53:01.771231Z",
+        "reference_id": "013a5e32-06d9-4bd6-a80b-a80110f29757",
+        "reference_title": "Attention Is All You Need",
+        "project_reference_id": "b7e7c448-39a9-40cf-97b7-fffec15164f1"
+      },
+      "timestamp": "2026-01-17T15:53:02.801112"
+    },
+    {
+      "event_type": "project-reference.suggested",
+      "status": "skip",
+      "message": "Triggered by discovery service - requires paper search with discovery enabled",
+      "notification_found": false,
+      "notification_id": null,
+      "payload_sample": null,
+      "timestamp": "2026-01-17T15:53:02.801130"
+    },
+    {
+      "event_type": "project-reference.approved",
+      "status": "skip",
+      "message": "No pending references to approve",
+      "notification_found": false,
+      "notification_id": null,
+      "payload_sample": null,
+      "timestamp": "2026-01-17T15:53:02.806470"
+    },
+    {
+      "event_type": "project-reference.rejected",
+      "status": "skip",
+      "message": "No pending references to reject",
+      "notification_found": false,
+      "notification_id": null,
+      "payload_sample": null,
+      "timestamp": "2026-01-17T15:53:02.809997"
+    },
+    {
+      "event_type": "sync-session.started",
+      "status": "pass",
+      "message": "Event recorded successfully",
+      "notification_found": true,
+      "notification_id": "1148ce61-5dd2-4a35-9f63-1dd5124c0b79",
+      "payload_sample": {
+        "actor": {
+          "id": "85ba464b-e2e6-41d2-837d-859cdca20cab",
+          "name": "Hassan KFUPM",
+          "email": "g20240390@kfupm.edu.sa"
+        },
+        "action": "started",
+        "status": "live",
+        "project": {
+          "id": "0a9e580c-240c-4289-9ec5-8579b8164d37",
+          "title": "Updated Activity Test Project 97f105b4"
+        },
+        "category": "sync-session",
+        "ended_at": null,
+        "provider": "daily",
+        "event_type": "sync-session.started",
+        "session_id": "77a9aed3-5d36-48ac-a7e7-75d7061af85c",
+        "started_at": "2026-01-17T12:53:03.323042+00:00",
+        "recorded_at": "2026-01-17T12:53:04.955736Z",
+        "provider_room_id": "sync-0a9e58-77a9aed35d3648aca7e775d7061af85c"
+      },
+      "timestamp": "2026-01-17T15:53:05.987723"
+    },
+    {
+      "event_type": "sync-session.ended",
+      "status": "pass",
+      "message": "Event recorded successfully",
+      "notification_found": true,
+      "notification_id": "bd618bdb-7cc9-4e17-90e4-b1659d100b51",
+      "payload_sample": {
+        "actor": {
+          "id": "85ba464b-e2e6-41d2-837d-859cdca20cab",
+          "name": "Hassan KFUPM",
+          "email": "g20240390@kfupm.edu.sa"
+        },
+        "action": "ended",
+        "status": "ended",
+        "project": {
+          "id": "0a9e580c-240c-4289-9ec5-8579b8164d37",
+          "title": "Updated Activity Test Project 97f105b4"
+        },
+        "category": "sync-session",
+        "ended_at": "2026-01-17T12:53:06.498270+00:00",
+        "provider": "daily",
+        "event_type": "sync-session.ended",
+        "session_id": "77a9aed3-5d36-48ac-a7e7-75d7061af85c",
+        "started_at": "2026-01-17T12:53:03.323042+00:00",
+        "recorded_at": "2026-01-17T12:53:06.499329Z",
+        "duration_seconds": 3,
+        "provider_room_id": "sync-0a9e58-77a9aed35d3648aca7e775d7061af85c"
+      },
+      "timestamp": "2026-01-17T15:53:08.342854"
+    },
+    {
+      "event_type": "sync-session.cancelled",
+      "status": "pass",
+      "message": "Event recorded successfully",
+      "notification_found": true,
+      "notification_id": "61ea9523-3e67-46cf-9a74-0e1a08f81045",
+      "payload_sample": {
+        "actor": {
+          "id": "85ba464b-e2e6-41d2-837d-859cdca20cab",
+          "name": "Hassan KFUPM",
+          "email": "g20240390@kfupm.edu.sa"
+        },
+        "action": "cancelled",
+        "status": "cancelled",
+        "project": {
+          "id": "0a9e580c-240c-4289-9ec5-8579b8164d37",
+          "title": "Updated Activity Test Project 97f105b4"
+        },
+        "category": "sync-session",
+        "ended_at": "2026-01-17T12:53:10.496484+00:00",
+        "provider": "daily",
+        "event_type": "sync-session.cancelled",
+        "session_id": "eeb5e5e9-0c5f-4449-b707-259761ffcf2a",
+        "started_at": "2026-01-17T12:53:08.345593+00:00",
+        "recorded_at": "2026-01-17T12:53:10.496955Z",
+        "duration_seconds": 2,
+        "provider_room_id": "sync-0a9e58-eeb5e5e90c5f4449b707259761ffcf2a"
+      },
+      "timestamp": "2026-01-17T15:53:12.304746"
+    }
+  ]
+}

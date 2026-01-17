@@ -1,15 +1,30 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { LayoutGrid, List, RefreshCcw, Search, Clock } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import {
+  LayoutGrid,
+  List,
+  RefreshCcw,
+  Search,
+  Clock,
+  ArrowUpDown,
+  ChevronDown,
+  Pin,
+  Star,
+  Eye,
+  Sparkles,
+  FolderPlus,
+  FileText,
+  BookOpen,
+} from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { projectsAPI } from '../../services/api'
 import { useAuth } from '../../contexts/AuthContext'
 import { ProjectCreateInput, ProjectSummary } from '../../types'
 import ProjectFormModal from '../../components/projects/ProjectFormModal'
-// DISABLED FOR DEMO RECORDING
-// import { useOnboarding } from '../../contexts/OnboardingContext'
-// import WelcomeModal from '../../components/onboarding/WelcomeModal'
-// import FeatureTour, { TourStep } from '../../components/onboarding/FeatureTour'
+
+const PINNED_STORAGE_KEY = 'scholarhub_pinned_projects'
+const RECENT_STORAGE_KEY = 'scholarhub_recent_projects'
+const MAX_RECENT = 5
 
 const formatDate = (value: string) => {
   try {
@@ -23,70 +38,71 @@ const formatDate = (value: string) => {
   }
 }
 
+
+type FilterTab = 'all' | 'my' | 'shared'
+type SortOption = 'updated' | 'created' | 'title'
+
+interface RecentProject {
+  id: string
+  title: string
+  viewedAt: number
+}
+
 const ProjectsHome = () => {
   const [searchTerm, setSearchTerm] = useState('')
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
+  const [filterTab, setFilterTab] = useState<FilterTab>('all')
+  const [sortOption, setSortOption] = useState<SortOption>('updated')
+  const [showSortMenu, setShowSortMenu] = useState(false)
+  const [pinnedIds, setPinnedIds] = useState<string[]>([])
+  const [recentProjects, setRecentProjects] = useState<RecentProject[]>([])
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [creationError, setCreationError] = useState<string | null>(null)
   const [editingProject, setEditingProject] = useState<ProjectSummary | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
   const queryClient = useQueryClient()
   const { user } = useAuth()
-  // DISABLED FOR DEMO RECORDING
-  // const { state: onboardingState, markWelcomeSeen, startTour, nextTourStep, endTour, markFirstProjectCreated } = useOnboarding()
+  const navigate = useNavigate()
+  const userId = user?.id
 
-  // Show welcome modal for first-time users
-  // const [showWelcome, setShowWelcome] = useState(false)
+  // Load pinned and recent from localStorage
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(PINNED_STORAGE_KEY)
+      if (stored) setPinnedIds(JSON.parse(stored))
+    } catch {}
+    try {
+      const stored = localStorage.getItem(RECENT_STORAGE_KEY)
+      if (stored) setRecentProjects(JSON.parse(stored))
+    } catch {}
+  }, [])
 
-  // useEffect(() => {
-  //   // Show welcome modal if user hasn't seen it yet
-  //   if (!onboardingState.hasSeenWelcome) {
-  //     setShowWelcome(true)
-  //   }
-  // }, [onboardingState.hasSeenWelcome])
+  // Save pinned to localStorage
+  const savePinned = useCallback((ids: string[]) => {
+    setPinnedIds(ids)
+    localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify(ids))
+  }, [])
 
-  // Tour steps for ProjectsHome
-  // const tourSteps: TourStep[] = [
-  //   {
-  //     target: '[data-tour="create-project"]',
-  //     title: 'Create Your First Project',
-  //     content: 'Start by creating a project to organize your research. Projects help you collaborate with your team and keep everything in one place.',
-  //     placement: 'bottom',
-  //     action: {
-  //       label: 'Create a project',
-  //       onClick: () => {
-  //         setIsCreateOpen(true)
-  //         endTour()
-  //       }
-  //     }
-  //   },
-  //   {
-  //     target: '[data-tour="search"]',
-  //     title: 'Search Projects',
-  //     content: 'Quickly find projects by searching for keywords, titles, or topics.',
-  //     placement: 'bottom',
-  //   },
-  //   {
-  //     target: '[data-tour="view-mode"]',
-  //     title: 'Change View Mode',
-  //     content: 'Switch between grid and table views to see your projects in the layout that works best for you.',
-  //     placement: 'left',
-  //   },
-  // ]
+  // Toggle pin
+  const togglePin = useCallback((projectId: string) => {
+    setPinnedIds((prev) => {
+      const next = prev.includes(projectId)
+        ? prev.filter((id) => id !== projectId)
+        : [...prev, projectId]
+      localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify(next))
+      return next
+    })
+  }, [])
 
-  // const handleWelcomeClose = () => {
-  //   setShowWelcome(false)
-  //   markWelcomeSeen()
-  // }
-
-  // const handleWelcomeGetStarted = () => {
-  //   setShowWelcome(false)
-  //   markWelcomeSeen()
-  //   // Start the feature tour if no projects exist
-  //   if (projects.length === 0) {
-  //     startTour(0)
-  //   }
-  // }
+  // Add to recent
+  const addToRecent = useCallback((project: { id: string; title: string }) => {
+    setRecentProjects((prev) => {
+      const filtered = prev.filter((p) => p.id !== project.id)
+      const next = [{ id: project.id, title: project.title, viewedAt: Date.now() }, ...filtered].slice(0, MAX_RECENT)
+      localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(next))
+      return next
+    })
+  }, [])
 
   const {
     data,
@@ -111,10 +127,6 @@ const ProjectsHome = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] })
       setIsCreateOpen(false)
-      // Mark first project as created for onboarding - DISABLED FOR DEMO RECORDING
-      // if (!onboardingState.hasCreatedFirstProject) {
-      //   markFirstProjectCreated()
-      // }
     },
     onError: (error: unknown) => {
       const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -140,7 +152,6 @@ const ProjectsHome = () => {
   })
 
   const projects = data?.projects ?? []
-  const userId = user?.id
 
   const pendingInvitesQuery = useQuery({
     queryKey: ['project-invitations'],
@@ -177,33 +188,183 @@ const ProjectsHome = () => {
 
   const pendingInvites = pendingInvitesQuery.data ?? []
 
-  const filteredProjects: ProjectSummary[] = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase()
-    if (!term) return projects
+  // Filter, sort, and separate pinned
+  const { pinnedProjects, unpinnedProjects, filteredProjects } = useMemo(() => {
+    let filtered = projects
 
-    return projects.filter((project) => {
-      const keywords = Array.isArray(project.keywords) ? project.keywords : []
-      return (
-        project.title.toLowerCase().includes(term) ||
-        (project.idea?.toLowerCase().includes(term) ?? false) ||
-        keywords.some((kw) => kw.toLowerCase().includes(term))
-      )
+    // Filter by tab
+    if (filterTab === 'my') {
+      filtered = filtered.filter((p) => p.created_by === userId)
+    } else if (filterTab === 'shared') {
+      filtered = filtered.filter((p) => p.created_by !== userId)
+    }
+
+    // Filter by search
+    const term = searchTerm.trim().toLowerCase()
+    if (term) {
+      filtered = filtered.filter((project) => {
+        const keywords = Array.isArray(project.keywords) ? project.keywords : []
+        return (
+          project.title.toLowerCase().includes(term) ||
+          (project.idea?.toLowerCase().includes(term) ?? false) ||
+          keywords.some((kw) => kw.toLowerCase().includes(term))
+        )
+      })
+    }
+
+    // Sort
+    const sorted = [...filtered].sort((a, b) => {
+      switch (sortOption) {
+        case 'title':
+          return a.title.localeCompare(b.title)
+        case 'created':
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        case 'updated':
+        default:
+          return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+      }
     })
-  }, [projects, searchTerm])
+
+    // Separate pinned
+    const pinned = sorted.filter((p) => pinnedIds.includes(p.id))
+    const unpinned = sorted.filter((p) => !pinnedIds.includes(p.id))
+
+    return { pinnedProjects: pinned, unpinnedProjects: unpinned, filteredProjects: sorted }
+  }, [projects, filterTab, searchTerm, sortOption, pinnedIds, userId])
 
   const totalProjects = data?.total ?? 0
 
+  // Handle opening a project (adds to recent)
+  const handleOpenProject = (project: ProjectSummary) => {
+    addToRecent({ id: project.id, title: project.title })
+    navigate(`/projects/${project.id}`)
+  }
+
+  // Get recent projects that still exist
+  const validRecentProjects = useMemo(() => {
+    return recentProjects
+      .map((r) => {
+        const project = projects.find((p) => p.id === r.id)
+        return project ? { ...r, project } : null
+      })
+      .filter(Boolean) as Array<RecentProject & { project: ProjectSummary }>
+  }, [recentProjects, projects])
+
+  const sortLabels: Record<SortOption, string> = {
+    updated: 'Recently Updated',
+    created: 'Recently Created',
+    title: 'Alphabetical',
+  }
+
+  // Project card component - Option 5: Gradient Header
+  const ProjectCard = ({ project, isPinned }: { project: ProjectSummary; isPinned: boolean }) => {
+    const keywords = Array.isArray(project.keywords) ? project.keywords : []
+    const memberCount = project.members?.filter((m) => m.status === 'accepted').length ?? 0
+
+    return (
+      <article
+        className={`group relative flex h-full flex-col rounded-xl border bg-white overflow-hidden transition-all hover:shadow-md dark:bg-slate-800 ${
+          isPinned
+            ? 'border-amber-200 dark:border-amber-500/30'
+            : 'border-gray-200 dark:border-slate-700'
+        }`}
+      >
+        {/* Header Stripe */}
+        <div className={`h-1.5 ${isPinned ? 'bg-amber-500' : 'bg-indigo-500'}`}></div>
+
+        {/* Hover Quick Actions */}
+        <div className="absolute top-4 right-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              togglePin(project.id)
+            }}
+            className={`p-1.5 rounded-lg transition-colors ${
+              isPinned
+                ? 'bg-amber-100 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400'
+                : 'bg-white/90 dark:bg-slate-700/90 hover:bg-gray-100 dark:hover:bg-slate-600 text-gray-400 hover:text-amber-500 shadow-sm'
+            }`}
+            title={isPinned ? 'Unpin project' : 'Pin project'}
+          >
+            {isPinned ? <Star className="h-4 w-4 fill-current" /> : <Pin className="h-4 w-4" />}
+          </button>
+        </div>
+
+        <div className="p-5 flex flex-col flex-1">
+          {/* Title */}
+          <div className="flex items-start gap-2">
+            {isPinned && (
+              <Star className="h-4 w-4 text-amber-500 fill-amber-500 mt-0.5 flex-shrink-0" />
+            )}
+            <h3 className="text-base font-semibold text-gray-900 dark:text-white line-clamp-1 pr-6">
+              {project.title}
+            </h3>
+          </div>
+
+          {/* Description */}
+          {project.idea && (
+            <p className="mt-2 text-sm text-gray-500 dark:text-slate-400 line-clamp-2">
+              {project.idea}
+            </p>
+          )}
+
+          {/* Keywords */}
+          {keywords.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {keywords.slice(0, 3).map((kw) => (
+                <span
+                  key={kw}
+                  className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400"
+                >
+                  {kw}
+                </span>
+              ))}
+              {keywords.length > 3 && (
+                <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-500 dark:bg-slate-700 dark:text-slate-400">
+                  +{keywords.length - 3}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Spacer */}
+          <div className="flex-1 min-h-4" />
+
+          {/* Footer with stats */}
+          <div className="mt-4 flex items-center justify-between text-xs text-gray-400 dark:text-slate-500">
+            <div className="flex items-center gap-3">
+              <span>{project.paper_count ?? 0} papers</span>
+              <span>·</span>
+              <span>{project.reference_count ?? 0} refs</span>
+              <span>·</span>
+              <span>{memberCount} members</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleOpenProject(project)}
+              className="font-medium text-indigo-600 transition-colors hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+            >
+              Open →
+            </button>
+          </div>
+        </div>
+      </article>
+    )
+  }
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
+      {/* Header */}
       <header className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold text-gray-900">Projects</h1>
-            <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
+            <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Projects</h1>
+            <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300">
               {totalProjects} total
             </span>
           </div>
-          <p className="mt-1 text-sm text-gray-500">
+          <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
             Spin up new initiatives or jump back into active collaborations.
           </p>
         </div>
@@ -216,16 +377,16 @@ const ProjectsHome = () => {
               type="search"
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
-              className="h-10 w-full rounded-full border border-gray-200 bg-white pl-9 pr-4 text-sm text-gray-700 shadow-sm placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className="h-10 w-full rounded-full border border-gray-200 bg-white pl-9 pr-4 text-sm text-gray-700 shadow-sm placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white dark:placeholder:text-slate-400"
               placeholder="Search projects"
             />
           </div>
-          <div className="flex rounded-full border border-gray-200 bg-white p-1 shadow-sm" data-tour="view-mode">
+          <div className="flex rounded-full border border-gray-200 bg-white p-1 shadow-sm dark:border-slate-600 dark:bg-slate-700" data-tour="view-mode">
             <button
               type="button"
               onClick={() => setViewMode('grid')}
               className={`inline-flex h-9 w-9 items-center justify-center rounded-full ${
-                viewMode === 'grid' ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:bg-gray-100'
+                viewMode === 'grid' ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-600'
               }`}
               aria-label="Grid view"
             >
@@ -235,7 +396,7 @@ const ProjectsHome = () => {
               type="button"
               onClick={() => setViewMode('table')}
               className={`inline-flex h-9 w-9 items-center justify-center rounded-full ${
-                viewMode === 'table' ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:bg-gray-100'
+                viewMode === 'table' ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-600'
               }`}
               aria-label="Table view"
             >
@@ -253,84 +414,188 @@ const ProjectsHome = () => {
         </div>
       </header>
 
+      {/* Mobile Search */}
       <div className="sm:hidden">
         <div className="relative">
           <div className="pointer-events-none absolute inset-y-0 left-3 flex items-center">
-            <Search className="h-4 w-4 text-gray-400" />
-      </div>
-      <input
-        type="search"
-        value={searchTerm}
-        onChange={(event) => setSearchTerm(event.target.value)}
-        className="h-11 w-full rounded-full border border-gray-200 bg-white pl-9 pr-4 text-sm text-gray-700 shadow-sm placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-        placeholder="Search projects"
-      />
-    </div>
-  </div>
-
-  {pendingInvitesQuery.isLoading ? (
-    <div className="rounded-2xl border border-gray-200 bg-white p-6">
-      <h3 className="text-base font-semibold text-gray-900 mb-3">Pending invitations</h3>
-      <div className="text-sm text-gray-600">Loading…</div>
-    </div>
-  ) : pendingInvitesQuery.isError ? (
-    <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
-      <h3 className="text-base font-semibold">Pending invitations</h3>
-      <p className="mt-1">We couldn&apos;t load project invitations right now.</p>
-    </div>
-  ) : pendingInvites.length > 0 ? (
-    <section className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-base font-semibold text-gray-900">Pending invitations</h2>
-        <span className="text-xs font-medium text-gray-500">{pendingInvites.length} pending</span>
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {pendingInvites.map((invite) => (
-          <div
-            key={invite.member_id}
-            className="flex h-full flex-col justify-between rounded-xl border border-dashed border-amber-300 bg-amber-50 p-5 shadow-sm"
-          >
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-amber-700">
-                <Clock className="h-4 w-4" /> Pending invitation
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 truncate" title={invite.project_title}>
-                {invite.project_title}
-              </h3>
-              <p className="text-sm text-gray-600 capitalize">Role: {invite.role.toLowerCase()}</p>
-              {invite.invited_at && (
-                <p className="text-xs text-gray-500">Invited {new Date(invite.invited_at).toLocaleString()}</p>
-              )}
-              {invite.invited_by && (
-                <p className="text-xs text-gray-500">Invited by {invite.invited_by}</p>
-              )}
-            </div>
-            <div className="mt-4 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => acceptInvite.mutate({ projectId: invite.project_id, memberId: invite.member_id })}
-                disabled={acceptInvite.isPending || declineInvite.isPending}
-                className="inline-flex flex-1 items-center justify-center rounded-full bg-green-600 px-3 py-2 text-xs font-medium text-white shadow-sm hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Accept
-              </button>
-              <button
-                type="button"
-                onClick={() => declineInvite.mutate({ projectId: invite.project_id, memberId: invite.member_id })}
-                disabled={acceptInvite.isPending || declineInvite.isPending}
-                className="inline-flex flex-1 items-center justify-center rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Decline
-              </button>
-            </div>
+            <Search className="h-4 w-4 text-gray-400 dark:text-slate-500" />
           </div>
-        ))}
+          <input
+            type="search"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            className="h-11 w-full rounded-full border border-gray-200 bg-white pl-9 pr-4 text-sm text-gray-700 shadow-sm placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white dark:placeholder:text-slate-400"
+            placeholder="Search projects"
+          />
+        </div>
       </div>
-    </section>
-  ) : null}
 
-  {isError ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
+      {/* Filter & Sort Bar */}
+      <div className="flex flex-wrap items-center gap-3">
+        {/* Filter Tabs */}
+        <div className="flex rounded-lg border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700 p-1">
+          <button
+            type="button"
+            onClick={() => setFilterTab('all')}
+            className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+              filterTab === 'all'
+                ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300'
+                : 'text-gray-600 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white'
+            }`}
+          >
+            All Projects
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterTab('my')}
+            className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+              filterTab === 'my'
+                ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300'
+                : 'text-gray-600 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white'
+            }`}
+          >
+            My Projects
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterTab('shared')}
+            className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+              filterTab === 'shared'
+                ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300'
+                : 'text-gray-600 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white'
+            }`}
+          >
+            Shared with Me
+          </button>
+        </div>
+
+        <div className="flex-1" />
+
+        {/* Sort Dropdown */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setShowSortMenu(!showSortMenu)}
+            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-slate-200 bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-600 transition-colors"
+          >
+            <ArrowUpDown className="h-4 w-4" />
+            <span className="hidden sm:inline">{sortLabels[sortOption]}</span>
+            <ChevronDown className="h-4 w-4" />
+          </button>
+          {showSortMenu && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setShowSortMenu(false)} />
+              <div className="absolute right-0 mt-2 w-48 rounded-lg border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700 shadow-lg z-20">
+                {(Object.entries(sortLabels) as [SortOption, string][]).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => {
+                      setSortOption(key)
+                      setShowSortMenu(false)
+                    }}
+                    className={`w-full px-4 py-2 text-left text-sm transition-colors first:rounded-t-lg last:rounded-b-lg ${
+                      sortOption === key
+                        ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300'
+                        : 'text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-600'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Recently Viewed */}
+      {validRecentProjects.length > 0 && !isLoading && (
+        <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Eye className="h-4 w-4 text-gray-400" />
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Recently Viewed</h3>
+          </div>
+          <div className="flex gap-3 overflow-x-auto pb-1">
+            {validRecentProjects.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handleOpenProject(item.project)}
+                className="flex-shrink-0 rounded-lg border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/50 px-4 py-2.5 hover:border-indigo-300 dark:hover:border-indigo-500/50 hover:bg-white dark:hover:bg-slate-700 transition-colors text-left min-w-[180px] max-w-[220px]"
+              >
+                <div className="font-medium text-gray-900 dark:text-white text-sm truncate">{item.title}</div>
+                <div className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
+                  {new Date(item.viewedAt).toLocaleDateString()}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Pending Invitations */}
+      {pendingInvitesQuery.isLoading ? (
+        <div className="rounded-2xl border border-gray-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-800">
+          <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-3">Pending invitations</h3>
+          <div className="text-sm text-gray-600 dark:text-slate-400">Loading…</div>
+        </div>
+      ) : pendingInvitesQuery.isError ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-500/10 dark:text-red-300">
+          <h3 className="text-base font-semibold">Pending invitations</h3>
+          <p className="mt-1">We couldn&apos;t load project invitations right now.</p>
+        </div>
+      ) : pendingInvites.length > 0 ? (
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white">Pending invitations</h2>
+            <span className="text-xs font-medium text-gray-500 dark:text-slate-400">{pendingInvites.length} pending</span>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {pendingInvites.map((invite) => (
+              <div
+                key={invite.member_id}
+                className="flex h-full flex-col justify-between rounded-xl border border-dashed border-amber-300 bg-amber-50 p-5 shadow-sm dark:border-amber-500/50 dark:bg-amber-500/10"
+              >
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                    <Clock className="h-4 w-4" /> Pending invitation
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white truncate" title={invite.project_title}>
+                    {invite.project_title}
+                  </h3>
+                  <p className="text-sm text-gray-600 dark:text-slate-300 capitalize">Role: {invite.role.toLowerCase()}</p>
+                  {invite.invited_by && (
+                    <p className="text-xs text-gray-500 dark:text-slate-400">Invited by {invite.invited_by}</p>
+                  )}
+                </div>
+                <div className="mt-4 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => acceptInvite.mutate({ projectId: invite.project_id, memberId: invite.member_id })}
+                    disabled={acceptInvite.isPending || declineInvite.isPending}
+                    className="inline-flex flex-1 items-center justify-center rounded-full bg-green-600 px-3 py-2 text-xs font-medium text-white shadow-sm hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Accept
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => declineInvite.mutate({ projectId: invite.project_id, memberId: invite.member_id })}
+                    disabled={acceptInvite.isPending || declineInvite.isPending}
+                    className="inline-flex flex-1 items-center justify-center rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-800/50 dark:bg-red-500/10 dark:text-red-400"
+                  >
+                    Decline
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {/* Main Content */}
+      {isError ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-500/10 dark:text-red-300">
           <p className="font-medium">We couldn&apos;t load your projects.</p>
           <p className="mt-1">Try refreshing or check back in a moment.</p>
           <button
@@ -346,95 +611,122 @@ const ProjectsHome = () => {
           {Array.from({ length: 6 }).map((_, idx) => (
             <div
               key={idx}
-              className="h-40 animate-pulse rounded-xl border border-gray-200 bg-white"
+              className="h-48 animate-pulse rounded-2xl border border-gray-200 bg-gray-50 dark:border-slate-700 dark:bg-slate-800"
             />
           ))}
         </div>
       ) : filteredProjects.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-12 text-center">
-          <h3 className="text-lg font-semibold text-gray-900">No projects yet</h3>
-          <p className="mt-2 text-sm text-gray-500">
+        /* Enhanced Empty State */
+        <div className="rounded-2xl border-2 border-dashed border-gray-300 bg-white p-12 text-center dark:border-slate-600 dark:bg-slate-800">
+          <div className="mx-auto w-20 h-20 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 dark:from-indigo-500/20 dark:to-purple-500/20 flex items-center justify-center mb-6">
+            <Sparkles className="h-10 w-10 text-indigo-500" />
+          </div>
+          <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
+            {searchTerm || filterTab !== 'all' ? 'No projects found' : 'Start your research journey'}
+          </h3>
+          <p className="mt-3 text-gray-500 dark:text-slate-400 max-w-md mx-auto">
             {searchTerm
               ? 'Try a different search term or clear the filter to see all projects.'
-              : 'Create your first project to begin tracking research ideas, references, and papers.'}
+              : filterTab !== 'all'
+              ? `No projects in this category yet.`
+              : 'Create your first project to begin organizing papers, collaborating with your team, and tracking your research progress.'}
           </p>
-          <button
-            type="button"
-            onClick={() => setIsCreateOpen(true)}
-            className="mt-6 inline-flex items-center rounded-full bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700"
-          >
-            Create a project
-          </button>
+          <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsCreateOpen(true)}
+              className="inline-flex items-center gap-2 px-5 py-3 bg-indigo-600 text-white rounded-full font-medium hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/25"
+            >
+              <FolderPlus className="h-5 w-5" />
+              Create New Project
+            </button>
+          </div>
+          {!searchTerm && filterTab === 'all' && (
+            <div className="mt-10 pt-8 border-t border-gray-200 dark:border-slate-700">
+              <p className="text-xs text-gray-400 dark:text-slate-500 uppercase tracking-wide font-medium mb-4">What you can do with projects</p>
+              <div className="flex flex-wrap justify-center gap-6 text-sm text-gray-600 dark:text-slate-300">
+                <span className="flex items-center gap-1.5">
+                  <FileText className="h-4 w-4 text-indigo-500" /> Write papers
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <BookOpen className="h-4 w-4 text-indigo-500" /> Manage references
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <Sparkles className="h-4 w-4 text-indigo-500" /> AI assistance
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       ) : viewMode === 'grid' ? (
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {filteredProjects.map((project) => {
-          const membershipStatus = project.current_user_status?.toLowerCase()
-          const membershipRole = project.current_user_role?.toLowerCase()
-          const canEditProject =
-            project.created_by === userId ||
-            (membershipStatus === 'accepted' && membershipRole === 'admin')
-          return (
-            <article
-              key={project.id}
-              className="flex h-full flex-col justify-between rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:border-indigo-200 hover:shadow-md dark:border-slate-700 dark:bg-slate-800 dark:hover:border-indigo-400/60"
-            >
-              <div>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">{project.title}</h3>
-                  </div>
-                  <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600 dark:bg-slate-700 dark:text-slate-200">
-                    {project.status || 'Active'}
-                  </span>
-                </div>
+        <div className="space-y-6">
+          {/* Pinned Projects */}
+          {pinnedProjects.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-4">
+                <Star className="h-4 w-4 text-amber-500 fill-amber-500" />
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Pinned</h3>
+                <span className="text-xs text-gray-500 dark:text-slate-400">{pinnedProjects.length}</span>
               </div>
-              <div className="mt-6 flex items-center justify-between text-xs text-gray-500 dark:text-slate-300">
-                <span>Updated {formatDate(project.updated_at)}</span>
-                <div className="flex items-center gap-3">
-                  {canEditProject && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditError(null)
-                        setEditingProject(project)
-                      }}
-                      className="text-sm font-medium text-gray-500 transition-colors hover:text-indigo-600 dark:text-slate-300 dark:hover:text-indigo-300"
-                    >
-                      Edit
-                    </button>
-                  )}
-                  <Link
-                    to={`/projects/${project.id}`}
-                    className="text-sm font-medium text-indigo-600 transition-colors hover:text-indigo-700 dark:text-indigo-300 dark:hover:text-indigo-200"
-                  >
-                    Open project →
-                  </Link>
-                </div>
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {pinnedProjects.map((project) => (
+                  <ProjectCard key={project.id} project={project} isPinned={true} />
+                ))}
               </div>
-            </article>
-          )
-        })}
-      </div>
+            </div>
+          )}
+
+          {/* All/Unpinned Projects */}
+          {unpinnedProjects.length > 0 && (
+            <div>
+              {pinnedProjects.length > 0 && (
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">All Projects</h3>
+              )}
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {unpinnedProjects.map((project) => (
+                  <ProjectCard key={project.id} project={project} isPinned={false} />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
           <table className="min-w-full divide-y divide-gray-100 dark:divide-slate-700">
             <thead className="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:bg-slate-800/70 dark:text-slate-300">
               <tr>
+                <th className="px-6 py-3 w-8"></th>
                 <th className="px-6 py-3">Project</th>
-                <th className="px-6 py-3">Scope</th>
+                <th className="px-6 py-3">Status</th>
                 <th className="px-6 py-3">Updated</th>
                 <th className="px-6 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 text-sm text-gray-700 dark:divide-slate-700 dark:text-slate-200">
               {filteredProjects.map((project) => {
+                const isPinned = pinnedIds.includes(project.id)
                 return (
                   <tr key={project.id} className="hover:bg-gray-50 dark:hover:bg-slate-700/40">
                     <td className="px-6 py-4">
-                      <div className="font-medium text-gray-900 dark:text-slate-100">{project.title}</div>
+                      <button
+                        type="button"
+                        onClick={() => togglePin(project.id)}
+                        className={`transition-colors ${isPinned ? 'text-amber-500' : 'text-gray-300 hover:text-amber-500'}`}
+                      >
+                        <Star className={`h-4 w-4 ${isPinned ? 'fill-current' : ''}`} />
+                      </button>
                     </td>
-                    <td className="px-6 py-4 text-gray-500 dark:text-slate-300">{project.scope || '—'}</td>
+                    <td className="px-6 py-4">
+                      <div className="font-medium text-gray-900 dark:text-slate-100">{project.title}</div>
+                      {project.idea && (
+                        <div className="text-xs text-gray-500 dark:text-slate-400 truncate max-w-xs">{project.idea}</div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${getStatusColor(project.status)}`}>
+                        {project.status || 'Active'}
+                      </span>
+                    </td>
                     <td className="px-6 py-4 text-gray-500 dark:text-slate-300">{formatDate(project.updated_at)}</td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex justify-end gap-3">
@@ -444,16 +736,17 @@ const ProjectsHome = () => {
                             setEditError(null)
                             setEditingProject(project)
                           }}
-                          className="text-sm font-medium text-gray-500 hover:text-indigo-600"
+                          className="text-sm font-medium text-gray-500 hover:text-indigo-600 dark:text-slate-300 dark:hover:text-indigo-300"
                         >
                           Edit
                         </button>
-                        <Link
-                          to={`/projects/${project.id}`}
-                          className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
+                        <button
+                          type="button"
+                          onClick={() => handleOpenProject(project)}
+                          className="text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-300 dark:hover:text-indigo-200"
                         >
                           Open
-                        </Link>
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -500,32 +793,8 @@ const ProjectsHome = () => {
       />
 
       {isFetching && !isLoading && (
-        <p className="text-xs text-gray-400">Refreshing projects…</p>
+        <p className="text-xs text-gray-400 dark:text-slate-500">Refreshing projects…</p>
       )}
-
-      {/* Onboarding Components - DISABLED FOR DEMO RECORDING */}
-      {/*
-      <WelcomeModal
-        isOpen={showWelcome}
-        onClose={handleWelcomeClose}
-        onGetStarted={handleWelcomeGetStarted}
-      />
-
-      {onboardingState.currentTourStep !== null && (
-        <FeatureTour
-          steps={tourSteps}
-          currentStep={onboardingState.currentTourStep}
-          onNext={nextTourStep}
-          onPrevious={() => {
-            if (onboardingState.currentTourStep !== null && onboardingState.currentTourStep > 0) {
-              startTour(onboardingState.currentTourStep - 1)
-            }
-          }}
-          onSkip={endTour}
-          onComplete={endTour}
-        />
-      )}
-      */}
     </div>
   )
 }

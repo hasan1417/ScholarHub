@@ -3,13 +3,17 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertCircle,
   BookOpen,
+  Calendar,
+  CheckCircle2,
   ExternalLink,
   FileText,
   Loader2,
+  MoreVertical,
   Plus,
   ShieldCheck,
   Sparkles,
   Trash2,
+  Upload,
 } from 'lucide-react'
 import { useProjectContext } from './ProjectLayout'
 import { projectReferencesAPI, referencesAPI } from '../../services/api'
@@ -33,6 +37,7 @@ const ProjectReferences = () => {
   } | null>(null)
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
   const [deleteLoading, setDeleteLoading] = useState(false)
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const [toast, setToast] = useState<{
     message: string
     actionLabel?: string
@@ -353,21 +358,16 @@ const ProjectReferences = () => {
           <ul className="space-y-3">
             {references.map((item) => {
               const ref = item.reference
-              const analysisBadge = ref?.status
+              // Only show analysis badge for completed statuses, not pending
+              const analysisBadge = ref?.status && ref.status !== 'pending'
                 ? {
-                    tone: ref.status === 'analyzed' ? ('emerald' as const) : ref.status === 'ingested' ? ('amber' as const) : ('slate' as const),
-                    label:
-                      ref.status === 'pending'
-                        ? 'Analysis Pending PDF'
-                        : ref.status === 'ingested'
-                          ? 'Analysis: ingested'
-                          : `Analysis: ${ref.status.replace(/_/g, ' ')}`,
-                    icon:
-                      ref.status === 'analyzed' ? (
-                        <Sparkles className="h-3.5 w-3.5" />
-                      ) : (
-                        <FileText className="h-3.5 w-3.5" />
-                      ),
+                    tone: ref.status === 'analyzed' ? ('emerald' as const) : ('amber' as const),
+                    label: ref.status === 'analyzed' ? 'Analyzed' : 'Processing',
+                    icon: ref.status === 'analyzed' ? (
+                      <Sparkles className="h-3 w-3" />
+                    ) : (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ),
                   }
                 : null
 
@@ -387,135 +387,180 @@ const ProjectReferences = () => {
               return (
                 <li
                   key={item.id}
-                  className="rounded-xl border border-gray-200 bg-white p-5 text-sm text-gray-700 shadow-sm transition hover:border-indigo-200 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200"
+                  className="group rounded-xl border border-gray-200 bg-white p-5 text-sm text-gray-700 shadow-sm transition hover:border-indigo-200 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200"
                 >
-                  <div className="flex flex-col gap-4">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                      <div className="space-y-1 md:max-w-3xl">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-semibold text-gray-900 dark:text-slate-100">{ref?.title ?? 'Untitled reference'}</p>
-                          {ref?.year && (
-                            <Badge label={`Year ${ref.year}`} tone="slate" icon={<FileText className="h-3 w-3" />} />
-                          )}
-                          {ref?.source && (
-                            <Badge label={ref.source} tone="slate" icon={<BookOpen className="h-3 w-3" />} />
-                          )}
-                        </div>
-                        {ref?.authors && ref.authors.length > 0 && (
-                          <p className="text-xs text-gray-500 dark:text-slate-400">{ref.authors.join(', ')}</p>
-                        )}
-                        {ref?.journal && <p className="text-xs text-gray-500 dark:text-slate-400">{ref.journal}</p>}
-                      </div>
+                  <div className="flex flex-col gap-3">
+                    {/* Header row: Title + Actions */}
+                    <div className="flex items-start justify-between gap-4">
+                      <h3 className="font-semibold text-gray-900 leading-snug dark:text-slate-100">
+                        {ref?.title ?? 'Untitled reference'}
+                      </h3>
 
-                      <div className="mt-2 flex items-center gap-3 sm:gap-4 md:mt-0">
+                      {/* Actions - always visible on mobile, hover on desktop */}
+                      <div className="relative flex items-center gap-2 flex-shrink-0">
+                        {/* PDF Status/Upload Button */}
                         {showUploadButton ? (
                           <button
                             type="button"
-                            className="inline-flex h-9 items-center rounded-full bg-amber-500 px-3 text-xs font-semibold uppercase tracking-wide text-white transition hover:bg-amber-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 disabled:cursor-not-allowed disabled:bg-amber-300"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 transition hover:bg-amber-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-400/40 dark:bg-amber-500/20 dark:text-amber-200 dark:hover:bg-amber-500/30"
                             onClick={() => referenceId && handleUploadRequest(referenceId)}
                             disabled={!!uploadingId}
                           >
+                            {uploadingId === referenceId ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Upload className="h-3.5 w-3.5" />
+                            )}
                             {uploadingId === referenceId ? 'Uploading…' : 'Upload PDF'}
                           </button>
                         ) : (
-                          <span className="inline-flex h-9 items-center rounded-full bg-emerald-50 px-3 text-[11px] font-semibold uppercase tracking-wide text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-200">
+                          <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-200">
+                            <CheckCircle2 className="h-3.5 w-3.5" />
                             PDF on file
                           </span>
                         )}
+
+                        {/* Overflow Menu */}
                         {canManageReferences && (
-                          <button
-                            type="button"
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-rose-600 transition hover:bg-rose-50 hover:text-rose-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-rose-500 dark:text-rose-300 dark:hover:bg-rose-500/10"
-                            onClick={() => {
-                              setDeleteContext({
-                                projectReferenceId: item.id,
-                                referenceId: referenceId,
-                                title: ref?.title ?? 'Related paper',
-                              })
-                              setDeleteModalOpen(true)
-                            }}
-                            aria-label="Delete related paper"
-                            title="Delete"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
+                          <div className="relative">
+                            <button
+                              type="button"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-500 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                              onClick={() => setOpenMenuId(openMenuId === item.id ? null : item.id)}
+                              aria-label="More options"
+                            >
+                              <MoreVertical className="h-4 w-4" />
+                            </button>
+
+                            {openMenuId === item.id && (
+                              <>
+                                <div
+                                  className="fixed inset-0 z-10"
+                                  onClick={() => setOpenMenuId(null)}
+                                />
+                                <div className="absolute right-0 top-full z-20 mt-1 w-40 rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                                  <button
+                                    type="button"
+                                    className="flex w-full items-center gap-2 px-3 py-2 text-xs text-rose-600 transition hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-500/10"
+                                    onClick={() => {
+                                      setOpenMenuId(null)
+                                      setDeleteContext({
+                                        projectReferenceId: item.id,
+                                        referenceId: referenceId,
+                                        title: ref?.title ?? 'Related paper',
+                                      })
+                                      setDeleteModalOpen(true)
+                                    }}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                    Remove paper
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>
 
-                    {(summary || (item.papers && item.papers.length > 0)) && (
-                      <div className="space-y-2">
-                        {summary && (
-                          <p className="text-xs text-gray-600 line-clamp-3 whitespace-pre-line dark:text-slate-300">{summary}</p>
+                    {/* Metadata badges row */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      {ref?.year && (
+                        <Badge label={String(ref.year)} tone="slate" icon={<Calendar className="h-3 w-3" />} />
+                      )}
+                      {ref?.source && (
+                        <Badge label={ref.source} tone="slate" icon={<BookOpen className="h-3 w-3" />} />
+                      )}
+                      {ref?.is_open_access && (
+                        <Badge label="Open access" tone="sky" icon={<ShieldCheck className="h-3 w-3" />} />
+                      )}
+                    </div>
+
+                    {/* Authors and Journal */}
+                    {(ref?.authors?.length || ref?.journal) && (
+                      <div className="text-xs text-gray-500 dark:text-slate-400">
+                        {ref?.authors && ref.authors.length > 0 && (
+                          <p>{ref.authors.join(', ')}</p>
                         )}
-                        {item.papers && item.papers.length > 0 && (
-                          <p className="text-xs text-gray-500 dark:text-slate-400">
-                            Appears in:{' '}
-                            {item.papers.map((paper) => paper.title ?? 'Untitled paper').join(', ')}
-                          </p>
-                        )}
+                        {ref?.journal && <p className="italic">{ref.journal}</p>}
                       </div>
                     )}
 
-                    <div className="flex flex-wrap gap-2">
-                      {analysisBadge && (
+                    {/* Abstract - truncated */}
+                    {summary && (
+                      <p className="text-xs text-gray-600 leading-relaxed line-clamp-2 dark:text-slate-300">
+                        {summary}
+                      </p>
+                    )}
+
+                    {/* Appears in */}
+                    {item.papers && item.papers.length > 0 && (
+                      <p className="text-xs text-gray-500 dark:text-slate-400">
+                        <span className="font-medium">Appears in:</span>{' '}
+                        {item.papers.map((paper) => paper.title ?? 'Untitled paper').join(', ')}
+                      </p>
+                    )}
+
+                    {/* Status badges and links row */}
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-1 border-t border-gray-100 dark:border-slate-800">
+                      {/* Analysis status - only show if not pending (no PDF) */}
+                      {analysisBadge && ref?.status !== 'pending' && (
                         <Badge label={analysisBadge.label} tone={analysisBadge.tone} icon={analysisBadge.icon} />
-                      )}
-                      {ref?.is_open_access && (
-                        <Badge
-                          label="Open access"
-                          tone="sky"
-                          icon={<ShieldCheck className="h-3.5 w-3.5" />}
-                        />
                       )}
                       {confidencePercent !== null && (
                         <Badge
-                          label={`Confidence ${confidencePercent}%`}
+                          label={`${confidencePercent}% match`}
                           tone="purple"
-                          icon={<Sparkles className="h-3.5 w-3.5" />}
+                          icon={<Sparkles className="h-3 w-3" />}
                         />
                       )}
                       {showIngestButton && referenceId && (
                         <button
                           type="button"
-                          className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-200 dark:hover:bg-emerald-500/30"
+                          className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-200 dark:hover:bg-emerald-500/30"
                           disabled={!!reindexingId}
                           onClick={() => handleIngestExisting(referenceId)}
                         >
-                          <Sparkles className="h-3.5 w-3.5" />
-                          {reindexingId === referenceId ? 'Ingesting…' : 'Ingest existing PDF'}
+                          <Sparkles className="h-3 w-3" />
+                          {reindexingId === referenceId ? 'Analyzing…' : 'Analyze PDF'}
                         </button>
                       )}
-                    </div>
 
-                    <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs text-gray-500 dark:text-slate-400">
-                      {ref?.doi && (
-                        <a
-                          href={ref.doi.startsWith('http') ? ref.doi : `https://doi.org/${ref.doi}`}
-                          className="inline-flex items-center gap-1 hover:text-indigo-600 dark:hover:text-indigo-300"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <FileText className="h-3 w-3" />
-                          DOI
-                        </a>
+                      {/* Divider */}
+                      {(analysisBadge || confidencePercent !== null || showIngestButton) && (ref?.doi || ref?.url || decidedAt) && (
+                        <span className="text-gray-300 dark:text-slate-700">|</span>
                       )}
-                      {ref?.url && (
-                        <a
-                          href={ref.url}
-                          className="inline-flex items-center gap-1 hover:text-indigo-600 dark:hover:text-indigo-300"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <ExternalLink className="h-3 w-3" />
-                          Source link
-                        </a>
-                      )}
-                      {decidedAt && (
-                        <span className="inline-flex items-center gap-1">
-                          <FileText className="h-3 w-3" /> Decided {decidedAt}
-                        </span>
-                      )}
+
+                      {/* Links */}
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-slate-400">
+                        {ref?.doi && (
+                          <a
+                            href={ref.doi.startsWith('http') ? ref.doi : `https://doi.org/${ref.doi}`}
+                            className="inline-flex items-center gap-1 hover:text-indigo-600 dark:hover:text-indigo-300"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <FileText className="h-3 w-3" />
+                            DOI
+                          </a>
+                        )}
+                        {ref?.url && (
+                          <a
+                            href={ref.url}
+                            className="inline-flex items-center gap-1 hover:text-indigo-600 dark:hover:text-indigo-300"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                            Source
+                          </a>
+                        )}
+                        {decidedAt && (
+                          <span className="inline-flex items-center gap-1 text-gray-400 dark:text-slate-500">
+                            Added {decidedAt}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </li>

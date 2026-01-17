@@ -11,6 +11,16 @@ export interface User {
 }
 
 // Project types
+export interface ProjectMemberSummary {
+  id: string
+  user_id: string
+  role: string
+  status: string
+  first_name?: string | null
+  last_name?: string | null
+  email: string
+}
+
 export interface ProjectSummary {
   id: string
   title: string
@@ -22,9 +32,11 @@ export interface ProjectSummary {
   created_at: string
   updated_at: string
   discovery_preferences?: ProjectDiscoveryPreferences | null
-  members?: ProjectMember[]
+  members?: ProjectMemberSummary[] | null
   current_user_role?: string | null
   current_user_status?: string | null
+  paper_count?: number
+  reference_count?: number
 }
 
 export interface ProjectListResponse {

@@ -85,6 +85,20 @@ class ProjectDiscoveryPreferences(BaseModel):
         return value
 
 
+class ProjectMemberSummary(BaseModel):
+    """Lightweight member info for project list cards."""
+    id: UUID
+    user_id: UUID
+    role: ProjectRole
+    status: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: str
+
+    class Config:
+        from_attributes = True
+
+
 class ProjectSummary(ProjectBase):
     id: UUID
     created_by: UUID
@@ -93,6 +107,9 @@ class ProjectSummary(ProjectBase):
     discovery_preferences: Optional[ProjectDiscoveryPreferences] = None
     current_user_role: Optional[str] = None
     current_user_status: Optional[str] = None
+    members: Optional[List[ProjectMemberSummary]] = None
+    paper_count: int = 0
+    reference_count: int = 0
 
     class Config:
         from_attributes = True

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
-import { Calendar, Loader2, Mic, Sparkles, Video, X } from 'lucide-react'
+import { Loader2, Mic, Sparkles, Video, X, Clock, FileText } from 'lucide-react'
+import { format } from 'date-fns'
 import { useProjectContext } from './ProjectLayout'
 import { projectMeetingsAPI, API_ROOT } from '../../services/api'
 import {
@@ -16,10 +17,57 @@ type JoinCallArgs = {
   targetWindow?: Window | null
 }
 
-const formatDateTime = (value?: string | null) => {
+// Format date in a compact, friendly way
+const formatCompactDate = (value?: string | null) => {
   if (!value) return '—'
-  const date = new Date(value)
-  return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+  try {
+    const date = new Date(value)
+    const now = new Date()
+    const diffDays = Math.floor((now.getTime() - date.getTime()) / 86400000)
+
+    if (diffDays === 0) {
+      return `Today at ${format(date, 'h:mm a')}`
+    } else if (diffDays === 1) {
+      return `Yesterday at ${format(date, 'h:mm a')}`
+    } else if (diffDays < 7) {
+      return format(date, "EEEE 'at' h:mm a") // "Monday at 2:30 PM"
+    } else {
+      return format(date, "MMM d 'at' h:mm a") // "Jan 9 at 2:30 PM"
+    }
+  } catch {
+    return '—'
+  }
+}
+
+// Generate a friendly meeting title from date
+const generateMeetingTitle = (dateStr?: string | null) => {
+  if (!dateStr) return 'Meeting'
+  try {
+    const date = new Date(dateStr)
+    return `Meeting - ${format(date, 'MMM d, yyyy')}`
+  } catch {
+    return 'Meeting'
+  }
+}
+
+// Calculate duration between two dates
+const calculateDuration = (startStr?: string | null, endStr?: string | null) => {
+  if (!startStr || !endStr) return null
+  try {
+    const start = new Date(startStr)
+    const end = new Date(endStr)
+    const diffMs = end.getTime() - start.getTime()
+    const diffMins = Math.floor(diffMs / 60000)
+    const diffHours = Math.floor(diffMins / 60)
+    const remainingMins = diffMins % 60
+
+    if (diffHours > 0) {
+      return `${diffHours}h ${remainingMins}m`
+    }
+    return `${diffMins} min`
+  } catch {
+    return null
+  }
 }
 
 const statusLabel = (status: ProjectSyncSession['status']) => {
@@ -70,7 +118,6 @@ const ProjectSyncSpace = () => {
 
   const projectId = project?.id
   const [callToken, setCallToken] = useState<SyncSessionTokenResponse | null>(null)
-  const [expandedTranscriptSessionId, setExpandedTranscriptSessionId] = useState<string | null>(null)
   const [chatModalSession, setChatModalSession] = useState<ProjectSyncSession | null>(null)
 
   const extractTranscriptText = useCallback((value: unknown): string => {
@@ -298,14 +345,9 @@ const ProjectSyncSpace = () => {
     const isSelected = session.id === selectedSessionId
     const isLive = session.status === 'live'
     const callTokenForSession = callToken?.session_id === session.id ? callToken : null
-    const callUrl = isLive
-      ? callTokenForSession?.join_url
-          || (callTokenForSession?.room_url ? appendTokenToUrl(callTokenForSession.room_url, callTokenForSession.token) : null)
-      : null
     const callWindowUrl = callTokenForSession?.join_url
       || (callTokenForSession?.room_url ? appendTokenToUrl(callTokenForSession.room_url, callTokenForSession.token) : null)
 
-    const isTranscriptExpanded = expandedTranscriptSessionId === session.id
     const recordingUrl = recording?.audio_url || null
     const recordingHref = (() => {
       if (!recordingUrl) return null
@@ -324,144 +366,135 @@ const ProjectSyncSpace = () => {
       }
     })()
 
-    const transcriptDisplay = (() => {
-      if (!recording) {
-        return <span className="text-xs text-gray-500 dark:text-slate-400">Attach a recording to bind the transcript here.</span>
-      }
-
-      const status = recording.status
-      if (status === 'transcribing') {
-        return (
-          <span className="inline-flex items-center gap-1 text-xs text-indigo-600 dark:text-indigo-300">
-            <Loader2 className="h-3 w-3 animate-spin" /> Transcription in progress…
-          </span>
-        )
-      }
-      if (status === 'uploaded') {
-        return <span className="text-xs text-gray-500 dark:text-slate-400">Preparing transcription…</span>
-      }
-      if (status === 'failed') {
-        return <span className="text-xs text-rose-600 dark:text-rose-300">Transcription failed. Try attaching the recording again.</span>
-      }
-      if (recording.transcript) {
-        const transcriptText = extractTranscriptText(recording.transcript)
-        return (
-          <div className="flex flex-col gap-1">
-            {transcriptText && (
-              <button
-                type="button"
-                onClick={() =>
-                  setExpandedTranscriptSessionId(isTranscriptExpanded ? null : session.id)
-                }
-                className="self-start text-xs font-medium text-indigo-600 transition hover:text-indigo-500 dark:text-indigo-200 dark:hover:text-indigo-100"
-              >
-                {isTranscriptExpanded ? 'Hide transcript' : 'View transcript'}
-              </button>
-            )}
-            {isTranscriptExpanded && transcriptText && (
-              <div className="max-h-60 w-full overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200">
-                <pre className="whitespace-pre-wrap break-words">{transcriptText}</pre>
-              </div>
-            )}
-          </div>
-        )
-      }
-      return <span className="text-xs text-gray-500 dark:text-slate-400">Transcript not available yet.</span>
-    })()
+    const meetingTitle = recording?.summary || generateMeetingTitle(session.started_at || session.created_at)
+    const duration = calculateDuration(session.started_at || session.created_at, session.ended_at)
+    const startedAt = formatCompactDate(session.started_at || session.created_at)
+    const recordingStatus = recording?.status
+    const hasTranscript = recordingStatus === 'completed' && recording?.transcript
+    const isTranscribing = recordingStatus === 'transcribing' || recordingStatus === 'uploaded'
+    const transcriptionFailed = recordingStatus === 'failed'
 
     return (
       <div
         key={session.id}
         className={`rounded-2xl border p-5 shadow-sm transition-colors ${isSelected ? 'border-indigo-200 bg-indigo-50/60 dark:border-indigo-500/40 dark:bg-indigo-500/10' : 'border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-900/50'}`}
       >
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="space-y-1">
-            <div className={`${badgeStyles(session.status)} inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold capitalize leading-none`}>
-              {statusLabel(session.status)}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          {/* Left side: Meeting info */}
+          <div className="flex items-start gap-3">
+            {/* Icon */}
+            <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg ${
+              isLive
+                ? 'bg-emerald-100 dark:bg-emerald-500/20'
+                : 'bg-gray-100 dark:bg-slate-700'
+            }`}>
+              <Video className={`h-5 w-5 ${
+                isLive
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-gray-500 dark:text-slate-400'
+              }`} />
             </div>
-            <div className="text-xs text-gray-500 dark:text-slate-400">
-              Started {formatDateTime(session.started_at || session.created_at)}
+
+            {/* Info */}
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">
+                  {meetingTitle}
+                </h3>
+                <span className={`${badgeStyles(session.status)} inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide`}>
+                  {statusLabel(session.status)}
+                </span>
+              </div>
+
+              {/* Metadata row */}
+              <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-slate-400">
+                <span>{startedAt}</span>
+                {duration && (
+                  <span className="flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    {duration}
+                  </span>
+                )}
+                {isTranscribing && (
+                  <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Transcribing...
+                  </span>
+                )}
+                {hasTranscript && (
+                  <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                    <FileText className="h-3 w-3" />
+                    Transcript available
+                  </span>
+                )}
+                {transcriptionFailed && (
+                  <span className="flex items-center gap-1 text-gray-500 dark:text-gray-400">
+                    <FileText className="h-3 w-3" />
+                    No recording
+                  </span>
+                )}
+              </div>
             </div>
-            {session.ended_at && (
-              <div className="text-xs text-gray-500 dark:text-slate-400">Completed {formatDateTime(session.ended_at)}</div>
-            )}
           </div>
+
+          {/* Right side: Actions */}
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setSelectedSessionId(session.id)}
-              className="inline-flex items-center gap-2 rounded-full border border-indigo-200 px-3 py-1.5 text-xs font-medium text-indigo-600 transition hover:bg-indigo-50 dark:border-indigo-400/40 dark:text-indigo-200 dark:hover:bg-indigo-500/10"
-            >
-              View details
-            </button>
-            <button
-              type="button"
-              onClick={() => handleOpenChatWindow(session)}
-              className="inline-flex items-center gap-2 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
-            >
-              View transcript
-            </button>
-            {isLive && (
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedSessionId(session.id)
-                  if (callTokenForSession && callWindowUrl) {
-                    window.open(callWindowUrl, '_blank', 'noopener')
-                  } else {
-                    const popup = window.open('', '_blank')
-                    triggerJoinCall({ session, openWindow: true, targetWindow: popup ?? undefined })
-                  }
-                }}
-                disabled={
-                  isJoinCallPending && lastJoinCallVars?.session.id === session.id
-                }
-                className="inline-flex items-center gap-2 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
-              >
-                {(isJoinCallPending && lastJoinCallVars?.session.id === session.id)
-                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  : <Video className="h-3.5 w-3.5" />}
-                Open call window
-              </button>
-            )}
-            {isLive && (
-              <button
-                type="button"
-                onClick={() => endSession.mutate(session)}
-                disabled={endSession.isPending}
-                className="inline-flex items-center gap-2 rounded-full border border-indigo-200 px-3 py-1.5 text-xs font-medium text-indigo-600 transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-400/40 dark:text-indigo-200 dark:hover:bg-indigo-500/10"
-              >
-                {endSession.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Calendar className="h-3.5 w-3.5" />}
-                {endSession.isPending ? 'Ending…' : 'End session'}
-              </button>
+            {isLive ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedSessionId(session.id)
+                    if (callTokenForSession && callWindowUrl) {
+                      window.open(callWindowUrl, '_blank', 'noopener')
+                    } else {
+                      const popup = window.open('', '_blank')
+                      triggerJoinCall({ session, openWindow: true, targetWindow: popup ?? undefined })
+                    }
+                  }}
+                  disabled={isJoinCallPending && lastJoinCallVars?.session.id === session.id}
+                  className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {(isJoinCallPending && lastJoinCallVars?.session.id === session.id)
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <Video className="h-3.5 w-3.5" />}
+                  Join call
+                </button>
+                <button
+                  type="button"
+                  onClick={() => endSession.mutate(session)}
+                  disabled={endSession.isPending}
+                  className="inline-flex items-center gap-2 rounded-full border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-400/40 dark:text-red-300 dark:hover:bg-red-500/10"
+                >
+                  {endSession.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                  {endSession.isPending ? 'Ending…' : 'End call'}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleOpenChatWindow(session)}
+                  className="inline-flex items-center gap-2 rounded-full border border-indigo-200 px-3 py-1.5 text-xs font-medium text-indigo-600 transition hover:bg-indigo-50 dark:border-indigo-400/40 dark:text-indigo-200 dark:hover:bg-indigo-500/10"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  View details
+                </button>
+                {recordingHref && (
+                  <a
+                    href={recordingHref}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                  >
+                    <Mic className="h-3.5 w-3.5" />
+                    Recording
+                  </a>
+                )}
+              </>
             )}
           </div>
         </div>
-
-        <div className="mt-4 space-y-2 text-sm text-gray-600 dark:text-slate-300">
-          <div>Provider: {session.provider || '—'}</div>
-          <div>Room ID: {session.provider_room_id || '—'}</div>
-          {callUrl && (
-            <div className="break-all text-xs text-gray-500 dark:text-slate-400">Call URL: {callUrl}</div>
-          )}
-          <div className="flex items-center gap-2">
-            <span>Transcript:</span>
-            {transcriptDisplay}
-          </div>
-          {recordingHref && (
-            <div>
-              <a
-                href={recordingHref}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-2 rounded-full border border-indigo-200 px-3 py-1.5 text-xs font-medium text-indigo-600 transition hover:bg-indigo-50 dark:border-indigo-400/40 dark:text-indigo-200 dark:hover:bg-indigo-500/10"
-              >
-                <Mic className="h-3.5 w-3.5" /> Open call recording
-              </a>
-            </div>
-          )}
-        </div>
-
       </div>
     )
   }
@@ -474,8 +507,9 @@ const ProjectSyncSpace = () => {
 
     const recording = session.recording as MeetingSummary | undefined | null
     const transcriptText = recording ? extractTranscriptText(recording.transcript) : ''
-    const startedAtLabel = formatDateTime(session.started_at || session.created_at)
-    const endedAtLabel = session.ended_at ? formatDateTime(session.ended_at) : null
+    const meetingTitle = recording?.summary || generateMeetingTitle(session.started_at || session.created_at)
+    const startedAt = formatCompactDate(session.started_at || session.created_at)
+    const duration = calculateDuration(session.started_at || session.created_at, session.ended_at)
     const statusClass = badgeStyles(session.status)
     const recordingUrl = recording?.audio_url || null
     const recordingHref = (() => {
@@ -501,16 +535,49 @@ const ProjectSyncSpace = () => {
           aria-hidden="true"
         />
         <div className="relative flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl transition-colors dark:border-slate-700 dark:bg-slate-900/90">
+          {/* Header */}
           <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-6 py-5 dark:border-slate-700">
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">Session details</h2>
-                <span className={`${statusClass} inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold capitalize`}>
-                  {statusLabel(session.status)}
-                </span>
+            <div className="flex items-start gap-3">
+              <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg ${
+                session.status === 'live'
+                  ? 'bg-emerald-100 dark:bg-emerald-500/20'
+                  : 'bg-indigo-100 dark:bg-indigo-500/20'
+              }`}>
+                <Video className={`h-5 w-5 ${
+                  session.status === 'live'
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-indigo-600 dark:text-indigo-400'
+                }`} />
               </div>
-              <p className="text-xs text-gray-500 dark:text-slate-400">Started {startedAtLabel}</p>
-              {endedAtLabel && <p className="text-xs text-gray-500 dark:text-slate-400">Ended {endedAtLabel}</p>}
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">{meetingTitle}</h2>
+                  <span className={`${statusClass} inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide`}>
+                    {statusLabel(session.status)}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-slate-400">
+                  <span>{startedAt}</span>
+                  {duration && (
+                    <span className="flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      {duration}
+                    </span>
+                  )}
+                  {(recording?.status === 'transcribing' || recording?.status === 'uploaded') && (
+                    <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Transcribing...
+                    </span>
+                  )}
+                  {recording?.status === 'completed' && transcriptText && (
+                    <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                      <FileText className="h-3 w-3" />
+                      Transcript ready
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
             <button
               type="button"
@@ -523,46 +590,62 @@ const ProjectSyncSpace = () => {
           </div>
 
           <div className="flex-1 overflow-y-auto bg-gray-50 px-6 py-6 dark:bg-slate-900/40">
-            <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-5 transition-colors dark:border-slate-700 dark:bg-slate-900/70">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Call information</h3>
-              <dl className="grid grid-cols-1 gap-3 text-sm text-gray-600 dark:text-slate-300 sm:grid-cols-2">
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-gray-400 dark:text-slate-500">Provider</dt>
-                  <dd>{session.provider || '—'}</dd>
+            {/* Recording section - only show if available */}
+            {recordingHref && (
+              <section className="mb-4 flex items-center justify-between rounded-xl border border-gray-200 bg-white p-4 transition-colors dark:border-slate-700 dark:bg-slate-900/70">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-100 dark:bg-indigo-500/20">
+                    <Mic className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                  </div>
+                  <span className="text-sm font-medium text-gray-700 dark:text-slate-200">Audio recording available</span>
                 </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-gray-400 dark:text-slate-500">Room ID</dt>
-                  <dd>{session.provider_room_id || '—'}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-gray-400 dark:text-slate-500">Started by</dt>
-                  <dd>{session.started_by || '—'}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-gray-400 dark:text-slate-500">Recording status</dt>
-                  <dd>{recording?.status ?? '—'}</dd>
-                </div>
-              </dl>
-              {recordingHref && (
                 <a
                   href={recordingHref}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-2 self-start rounded-full border border-indigo-200 px-3 py-1.5 text-xs font-medium text-indigo-600 transition hover:bg-indigo-50 dark:border-indigo-400/40 dark:text-indigo-200 dark:hover:bg-indigo-500/10"
+                  className="inline-flex items-center gap-2 rounded-full bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-indigo-700"
                 >
-                  <Mic className="h-3.5 w-3.5" /> Open recording
+                  <Mic className="h-3.5 w-3.5" />
+                  Listen
                 </a>
-              )}
-            </section>
+              </section>
+            )}
 
-            <section className="mt-6 space-y-3 rounded-xl border border-gray-200 bg-white p-5 transition-colors dark:border-slate-700 dark:bg-slate-900/70">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Transcript</h3>
+            {/* Transcript section */}
+            <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-5 transition-colors dark:border-slate-700 dark:bg-slate-900/70">
+              <div className="flex items-center gap-2">
+                <FileText className="h-4 w-4 text-gray-500 dark:text-slate-400" />
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Transcript</h3>
+              </div>
               {transcriptText ? (
-                <div className="max-h-72 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-4 text-xs text-gray-700 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200">
-                  <pre className="whitespace-pre-wrap break-words">{transcriptText}</pre>
+                <div className="max-h-96 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm leading-relaxed text-gray-700 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200">
+                  <pre className="whitespace-pre-wrap break-words font-sans">{transcriptText}</pre>
                 </div>
               ) : (
-                <p className="text-xs text-gray-500 dark:text-slate-400">Transcript will appear here once the recording has been processed.</p>
+                <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-6 text-center dark:border-slate-700 dark:bg-slate-900/40">
+                  {recording?.status === 'transcribing' || recording?.status === 'uploaded' ? (
+                    <>
+                      <Loader2 className="mx-auto h-8 w-8 animate-spin text-amber-500 dark:text-amber-400" />
+                      <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">
+                        Transcription in progress...
+                      </p>
+                    </>
+                  ) : recording?.status === 'failed' ? (
+                    <>
+                      <FileText className="mx-auto h-8 w-8 text-gray-300 dark:text-slate-600" />
+                      <p className="mt-2 text-sm text-gray-500 dark:text-slate-400">
+                        No recording was captured for this meeting.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <FileText className="mx-auto h-8 w-8 text-gray-300 dark:text-slate-600" />
+                      <p className="mt-2 text-sm text-gray-500 dark:text-slate-400">
+                        Transcript will appear here once the recording has been processed.
+                      </p>
+                    </>
+                  )}
+                </div>
               )}
             </section>
           </div>

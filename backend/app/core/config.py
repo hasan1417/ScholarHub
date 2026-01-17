@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     OPENAI_CONVERSION_MODEL: Optional[str] = None
     OPENAI_PLANNER_MODEL: Optional[str] = "gpt-5.2"
     USE_OPENAI_TRANSCRIBE: bool = True
+    # gpt-4o-transcribe has best accuracy for speech recognition
     OPENAI_TRANSCRIBE_MODEL: str = "gpt-4o-transcribe"
 
     # Development
@@ -96,8 +97,8 @@ class Settings(BaseSettings):
     DAILY_WEBHOOK_SECRET: Optional[str] = None
     DAILY_WEBHOOK_URL: Optional[str] = None
     DAILY_ENABLE_RECORDING: Optional[str] = "cloud"
-    DAILY_START_CLOUD_RECORDING: bool = False
-    DAILY_RECORDING_AUDIO_ONLY: bool = False
+    DAILY_START_CLOUD_RECORDING: bool = True
+    DAILY_RECORDING_AUDIO_ONLY: bool = True
     DAILY_RAW_TRACKS_S3_BUCKET: Optional[str] = None
     DAILY_RAW_TRACKS_S3_REGION: Optional[str] = None
     DAILY_RAW_TRACKS_S3_ACCESS_KEY_ID: Optional[str] = None

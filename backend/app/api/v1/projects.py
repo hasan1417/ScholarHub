@@ -11,7 +11,7 @@ from datetime import datetime
 
 from app.api.deps import get_current_user
 from app.database import get_db
-from app.models import Project, ProjectMember, ProjectRole, User
+from app.models import Project, ProjectMember, ProjectRole, User, ResearchPaper, ProjectReference
 from app.services.activity_feed import record_project_activity, preview_text
 from app.schemas.project import (
     ProjectCreate,
@@ -19,6 +19,7 @@ from app.schemas.project import (
     ProjectList,
     ProjectMemberCreate,
     ProjectMemberResponse,
+    ProjectMemberSummary,
     ProjectMemberUpdate,
     ProjectSummary,
     ProjectUpdate,
@@ -103,9 +104,36 @@ def create_project(
         status="accepted",
     )
     db.add(membership)
+    db.flush()  # Flush so record_project_activity can find the member
+
+    # Record project creation activity
+    record_project_activity(
+        db=db,
+        project=project,
+        actor=current_user,
+        event_type="project.created",
+        payload={
+            "category": "project",
+            "action": "created",
+            "project_title": preview_text(project.title, 160) if project.title else None,
+        },
+    )
+
     db.commit()
     db.refresh(project)
-    return ProjectSummary.model_validate(project, from_attributes=True)
+    # Return without members - they're not needed for create response
+    return ProjectSummary(
+        id=project.id,
+        title=project.title,
+        idea=project.idea,
+        keywords=project.keywords,
+        scope=project.scope,
+        status=project.status,
+        created_by=project.created_by,
+        created_at=project.created_at,
+        updated_at=project.updated_at,
+        discovery_preferences=project.discovery_preferences,
+    )
 
 
 @router.get("/", response_model=ProjectList)
@@ -117,7 +145,7 @@ def list_projects(
 ):
     query = (
         db.query(Project)
-        .options(joinedload(Project.members))
+        .options(joinedload(Project.members).joinedload(ProjectMember.user))
         .outerjoin(ProjectMember, Project.id == ProjectMember.project_id)
         .filter(
             or_(
@@ -139,18 +167,50 @@ def list_projects(
     for project in projects:
         if project.created_by == current_user.id:
             role = ProjectRole.ADMIN.value
-            status = "accepted"
+            user_status = "accepted"
         else:
             membership = next(
                 (member for member in project.members if member.user_id == current_user.id),
                 None,
             )
             role = membership.role.value if membership else None
-            status = membership.status if membership else None
+            user_status = membership.status if membership else None
 
-        summary = ProjectSummary.model_validate(project, from_attributes=True)
-        summary.current_user_role = role
-        summary.current_user_status = status
+        # Build member summaries with user info
+        member_summaries = []
+        for member in project.members:
+            if member.user:
+                member_summaries.append(ProjectMemberSummary(
+                    id=member.id,
+                    user_id=member.user_id,
+                    role=member.role,
+                    status=member.status,
+                    first_name=member.user.first_name,
+                    last_name=member.user.last_name,
+                    email=member.user.email,
+                ))
+
+        # Count papers and references
+        paper_count = db.query(ResearchPaper).filter(ResearchPaper.project_id == project.id).count()
+        reference_count = db.query(ProjectReference).filter(ProjectReference.project_id == project.id).count()
+
+        summary = ProjectSummary(
+            id=project.id,
+            title=project.title,
+            idea=project.idea,
+            keywords=project.keywords,
+            scope=project.scope,
+            status=project.status,
+            created_by=project.created_by,
+            created_at=project.created_at,
+            updated_at=project.updated_at,
+            discovery_preferences=project.discovery_preferences,
+            current_user_role=role,
+            current_user_status=user_status,
+            members=member_summaries,
+            paper_count=paper_count,
+            reference_count=reference_count,
+        )
         summaries.append(summary)
 
     return ProjectList(projects=summaries, total=total, skip=skip, limit=limit)
@@ -204,7 +264,19 @@ def update_project(
 
     db.commit()
     db.refresh(project)
-    return ProjectSummary.model_validate(project, from_attributes=True)
+    # Return without members - they're not needed for update response
+    return ProjectSummary(
+        id=project.id,
+        title=project.title,
+        idea=project.idea,
+        keywords=project.keywords,
+        scope=project.scope,
+        status=project.status,
+        created_by=project.created_by,
+        created_at=project.created_at,
+        updated_at=project.updated_at,
+        discovery_preferences=project.discovery_preferences,
+    )
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -230,6 +302,9 @@ def add_project_member(
     project = _get_project(db, project_id)
     _ensure_project_manager(db, project, current_user)
 
+    # Get invited user info for activity recording
+    invited_user = db.query(User).filter(User.id == payload.user_id).first()
+
     membership = ProjectMember(
         project_id=project.id,
         user_id=payload.user_id,
@@ -238,6 +313,28 @@ def add_project_member(
         invited_by=current_user.id,
     )
     db.add(membership)
+
+    # Record member invited activity
+    invited_user_name = None
+    if invited_user:
+        parts = [p.strip() for p in [invited_user.first_name or "", invited_user.last_name or ""] if p]
+        invited_user_name = " ".join(parts) if parts else invited_user.email
+
+    record_project_activity(
+        db=db,
+        project=project,
+        actor=current_user,
+        event_type="member.invited",
+        payload={
+            "category": "member",
+            "action": "invited",
+            "invited_user_id": str(payload.user_id),
+            "invited_user_name": invited_user_name,
+            "invited_user_email": invited_user.email if invited_user else None,
+            "role": payload.role.value,
+        },
+    )
+
     try:
         db.commit()
     except IntegrityError as exc:
@@ -289,6 +386,28 @@ def remove_project_member(
     )
     if not membership:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
+
+    # Get removed user info for activity recording
+    removed_user = db.query(User).filter(User.id == membership.user_id).first()
+    removed_user_name = None
+    if removed_user:
+        parts = [p.strip() for p in [removed_user.first_name or "", removed_user.last_name or ""] if p]
+        removed_user_name = " ".join(parts) if parts else removed_user.email
+
+    # Record member removed activity
+    record_project_activity(
+        db=db,
+        project=project,
+        actor=current_user,
+        event_type="member.removed",
+        payload={
+            "category": "member",
+            "action": "removed",
+            "removed_user_id": str(membership.user_id),
+            "removed_user_name": removed_user_name,
+            "removed_user_email": removed_user.email if removed_user else None,
+        },
+    )
 
     db.delete(membership)
     db.commit()
@@ -351,8 +470,25 @@ def accept_project_invitation(
     if not membership:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found")
 
+    project = db.query(Project).filter(Project.id == project_id).first()
+
     membership.status = "accepted"
     membership.joined_at = datetime.utcnow()
+
+    # Record member joined activity
+    if project:
+        record_project_activity(
+            db=db,
+            project=project,
+            actor=current_user,
+            event_type="member.joined",
+            payload={
+                "category": "member",
+                "action": "joined",
+                "role": membership.role.value,
+            },
+        )
+
     db.commit()
     return {"message": "Invitation accepted"}
 
@@ -377,6 +513,22 @@ def decline_project_invitation(
     if not membership:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found")
 
+    project = db.query(Project).filter(Project.id == project_id).first()
+
     membership.status = "declined"
+
+    # Record member declined activity
+    if project:
+        record_project_activity(
+            db=db,
+            project=project,
+            actor=current_user,
+            event_type="member.declined",
+            payload={
+                "category": "member",
+                "action": "declined",
+            },
+        )
+
     db.commit()
     return {"message": "Invitation declined"}

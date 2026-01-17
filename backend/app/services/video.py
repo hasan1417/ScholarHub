@@ -307,6 +307,7 @@ class VideoService:
                 user_name=user_name or user_email,
                 ttl_seconds=ttl_seconds,
                 is_owner=True,
+                start_cloud_recording=settings.DAILY_START_CLOUD_RECORDING,
             )
             return meeting_token.token, meeting_token.expires_at
 
