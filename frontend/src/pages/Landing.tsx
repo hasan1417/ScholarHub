@@ -1,47 +1,99 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight, Search, MessageSquare, ClipboardCheck, CheckCircle2, Users, FileText } from 'lucide-react'
+import {
+  ArrowRight,
+  Search,
+  MessageSquare,
+  ClipboardCheck,
+  CheckCircle2,
+  Users,
+  FileText,
+  Sparkles,
+  Zap,
+  Shield,
+  BookOpen,
+  GitBranch,
+  Globe,
+} from 'lucide-react'
+import { Logo } from '../components/brand/Logo'
 
 const heroPromises = [
   {
     icon: CheckCircle2,
-    text: 'Live LaTeX and rich-text drafting with reviewer presence.',
+    text: 'Live LaTeX and rich-text drafting with real-time collaboration',
   },
   {
     icon: Users,
-    text: 'Roles, locks, and decision history keep ownership clear.',
+    text: 'Role-based access, section locks, and full revision history',
   },
   {
     icon: FileText,
-    text: 'Journal-ready exports delivered in minutes, not days.',
+    text: 'Journal-ready exports in minutes with AI-powered assistance',
   },
 ]
 
 const heroProofStats = [
   {
-    value: '18 labs',
-    label: 'shipping weekly updates',
+    value: '18+',
+    label: 'Research Labs',
+    sublabel: 'shipping weekly',
   },
   {
-    value: '43% fewer',
-    label: 'revision loops recorded',
+    value: '43%',
+    label: 'Fewer Revisions',
+    sublabel: 'on average',
   },
   {
-    value: '<2 minutes',
-    label: 'to export journal-ready LaTeX',
+    value: '<2min',
+    label: 'Export Time',
+    sublabel: 'journal-ready',
   },
 ]
 
 const heroTestimonial = {
   quote:
-    'ScholarHub let us keep timelines and reviewer decisions in one place—every submission closes with complete context.',
+    'ScholarHub transformed how our lab collaborates. Every submission now closes with complete context and zero lost decisions.',
   author: 'Dr. Laila Hassan',
   role: 'PI, Precision Therapeutics Lab',
+  avatar: null,
+}
+
+// Custom hook for intersection observer animations
+const useScrollAnimation = (threshold = 0.1) => {
+  const ref = useRef<HTMLDivElement>(null)
+  const [isVisible, setIsVisible] = useState(false)
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true)
+          observer.disconnect()
+        }
+      },
+      { threshold }
+    )
+
+    if (ref.current) {
+      observer.observe(ref.current)
+    }
+
+    return () => observer.disconnect()
+  }, [threshold])
+
+  return { ref, isVisible }
 }
 
 const Landing = () => {
   const [isVisible, setIsVisible] = useState(false)
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false)
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
+
+  // Scroll animation refs
+  const socialProof = useScrollAnimation(0.2)
+  const features = useScrollAnimation(0.1)
+  const howItWorks = useScrollAnimation(0.2)
+  const finalCta = useScrollAnimation(0.2)
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
@@ -53,12 +105,6 @@ const Landing = () => {
       const listener = (event: MediaQueryListEvent) => handleChange(event)
       query.addEventListener('change', listener)
       return () => query.removeEventListener('change', listener)
-    }
-
-    if (typeof query.addListener === 'function') {
-      const legacyListener = (event: MediaQueryListEvent) => handleChange(event)
-      query.addListener(legacyListener)
-      return () => query.removeListener(legacyListener)
     }
 
     return undefined
@@ -73,65 +119,234 @@ const Landing = () => {
     return () => window.cancelAnimationFrame(id)
   }, [prefersReducedMotion])
 
+  // Track mouse for parallax effect
+  useEffect(() => {
+    if (prefersReducedMotion) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      setMousePosition({
+        x: (e.clientX / window.innerWidth - 0.5) * 20,
+        y: (e.clientY / window.innerHeight - 0.5) * 20,
+      })
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    return () => window.removeEventListener('mousemove', handleMouseMove)
+  }, [prefersReducedMotion])
+
   const heroAnimationCls = useMemo(() => {
     if (prefersReducedMotion) return 'opacity-100 translate-y-0'
     return isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
   }, [isVisible, prefersReducedMotion])
 
-  const features = [
+  const featuresList = [
     {
       Icon: Search,
-      title: 'Library Discovery feed',
-      description: 'Surface new papers for your lab automatically, with inline citation snippets ready to attach to manuscripts.',
+      title: 'Smart Discovery Feed',
+      description: 'AI surfaces relevant papers for your research with citation snippets ready to attach.',
+      gradient: 'from-blue-500 to-cyan-500',
     },
     {
       Icon: MessageSquare,
-      title: 'Meeting workspace',
-      description: 'Run lab stand-ups, capture decisions, and assign follow-ups without leaving your manuscript workspace.',
+      title: 'Integrated Discussions',
+      description: 'Run lab meetings, capture decisions, and assign tasks without leaving your workspace.',
+      gradient: 'from-violet-500 to-purple-500',
     },
     {
       Icon: ClipboardCheck,
-      title: 'Paper status at a glance',
-      description: 'Track drafting milestones, reviewer ownership, and section locks so nothing stalls before submission.',
+      title: 'Paper Status Dashboard',
+      description: 'Track milestones, reviewer ownership, and section locks at a glance.',
+      gradient: 'from-amber-500 to-orange-500',
+    },
+    {
+      Icon: Sparkles,
+      title: 'AI Writing Assistant',
+      description: 'Get intelligent suggestions, extend paragraphs, and improve your academic writing.',
+      gradient: 'from-pink-500 to-rose-500',
+    },
+    {
+      Icon: GitBranch,
+      title: 'Version Control',
+      description: 'Full revision history with the ability to compare and restore previous versions.',
+      gradient: 'from-emerald-500 to-teal-500',
+    },
+    {
+      Icon: Globe,
+      title: 'Reference Management',
+      description: 'Import from any source, organize collections, and auto-format citations.',
+      gradient: 'from-indigo-500 to-blue-500',
     },
   ]
 
   const workflowSteps = [
     {
-      title: 'Create a shared paper space',
-      detail: 'Invite your lab in seconds—no juggling Git, shared drives, or stale drafts.',
+      icon: Zap,
+      title: 'Create your workspace',
+      detail: 'Set up a project in seconds. Invite collaborators with role-based permissions.',
     },
     {
-      title: 'Draft and review together',
-      detail: 'Write, comment, and resolve feedback directly in the LaTeX editor with instant PDF previews.',
+      icon: BookOpen,
+      title: 'Write together in real-time',
+      detail: 'Draft in LaTeX or rich-text with live collaboration, comments, and instant previews.',
     },
     {
+      icon: Shield,
       title: 'Submit with confidence',
-      detail: 'Track versions, lock critical sections, and export the final manuscript without surprises.',
+      detail: 'Lock sections, track all changes, and export publication-ready manuscripts.',
     },
   ]
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800">
+    <div className="min-h-screen bg-white dark:bg-slate-950 overflow-hidden">
+      {/* CSS Animations */}
+      <style>{`
+        @keyframes float {
+          0%, 100% { transform: translateY(0px) rotate(0deg); }
+          50% { transform: translateY(-20px) rotate(2deg); }
+        }
+        @keyframes float-slow {
+          0%, 100% { transform: translateY(0px); }
+          50% { transform: translateY(-30px); }
+        }
+        @keyframes float-reverse {
+          0%, 100% { transform: translateY(-20px) rotate(-2deg); }
+          50% { transform: translateY(0px) rotate(0deg); }
+        }
+        @keyframes pulse-glow {
+          0%, 100% { opacity: 0.2; transform: scale(1); }
+          50% { opacity: 0.4; transform: scale(1.05); }
+        }
+        @keyframes shimmer {
+          0% { background-position: -200% 0; }
+          100% { background-position: 200% 0; }
+        }
+        @keyframes gradient-x {
+          0%, 100% { background-position: 0% 50%; }
+          50% { background-position: 100% 50%; }
+        }
+        @keyframes bounce-subtle {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-5px); }
+        }
+        @keyframes spin-slow {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        @keyframes fade-in-up {
+          from { opacity: 0; transform: translateY(30px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes scale-in {
+          from { opacity: 0; transform: scale(0.9); }
+          to { opacity: 1; transform: scale(1); }
+        }
+        .animate-float { animation: float 6s ease-in-out infinite; }
+        .animate-float-slow { animation: float-slow 8s ease-in-out infinite; }
+        .animate-float-reverse { animation: float-reverse 7s ease-in-out infinite; }
+        .animate-pulse-glow { animation: pulse-glow 4s ease-in-out infinite; }
+        .animate-shimmer {
+          background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+          background-size: 200% 100%;
+          animation: shimmer 2s infinite;
+        }
+        .animate-gradient-x {
+          background-size: 200% 200%;
+          animation: gradient-x 3s ease infinite;
+        }
+        .animate-bounce-subtle { animation: bounce-subtle 2s ease-in-out infinite; }
+        .animate-spin-slow { animation: spin-slow 20s linear infinite; }
+        .stagger-1 { animation-delay: 0.1s; }
+        .stagger-2 { animation-delay: 0.2s; }
+        .stagger-3 { animation-delay: 0.3s; }
+        .stagger-4 { animation-delay: 0.4s; }
+        .stagger-5 { animation-delay: 0.5s; }
+        .stagger-6 { animation-delay: 0.6s; }
+      `}</style>
+
+      {/* Animated Background */}
+      <div className="fixed inset-0 -z-10">
+        {/* Light mode gradient with animated blobs */}
+        <div className="absolute inset-0 bg-gradient-to-br from-indigo-50 via-white to-purple-50 dark:opacity-0 transition-opacity duration-500" />
+        <div className="absolute inset-0 dark:opacity-0 transition-opacity duration-500 overflow-hidden">
+          <div
+            className="absolute -top-32 -left-32 w-[500px] h-[500px] bg-indigo-200/50 rounded-full blur-[100px] animate-pulse-glow"
+            style={{ transform: `translate(${mousePosition.x * 0.3}px, ${mousePosition.y * 0.3}px)` }}
+          />
+          <div
+            className="absolute -bottom-32 -right-32 w-[500px] h-[500px] bg-purple-200/50 rounded-full blur-[100px] animate-pulse-glow"
+            style={{ animationDelay: '2s', transform: `translate(${mousePosition.x * -0.2}px, ${mousePosition.y * -0.2}px)` }}
+          />
+          <div
+            className="absolute top-1/3 right-1/4 w-[400px] h-[400px] bg-pink-200/30 rounded-full blur-[80px] animate-pulse-glow"
+            style={{ animationDelay: '1s' }}
+          />
+          <div
+            className="absolute bottom-1/3 left-1/4 w-[350px] h-[350px] bg-cyan-200/30 rounded-full blur-[80px] animate-pulse-glow"
+            style={{ animationDelay: '3s' }}
+          />
+        </div>
+        {/* Dark mode gradient with animated blobs */}
+        <div className="absolute inset-0 opacity-0 dark:opacity-100 transition-opacity duration-500">
+          <div className="absolute inset-0 bg-slate-950" />
+          <div
+            className="absolute top-0 left-1/4 w-[600px] h-[600px] bg-indigo-500/20 rounded-full blur-[128px] animate-pulse-glow"
+            style={{ transform: `translate(${mousePosition.x * 0.5}px, ${mousePosition.y * 0.5}px)` }}
+          />
+          <div
+            className="absolute bottom-0 right-1/4 w-[600px] h-[600px] bg-purple-500/20 rounded-full blur-[128px] animate-pulse-glow"
+            style={{ animationDelay: '2s', transform: `translate(${mousePosition.x * -0.3}px, ${mousePosition.y * -0.3}px)` }}
+          />
+          <div
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-blue-500/10 rounded-full blur-[128px] animate-pulse-glow"
+            style={{ animationDelay: '1s' }}
+          />
+        </div>
+        {/* Grid pattern */}
+        <div
+          className="absolute inset-0 opacity-[0.03] dark:opacity-[0.05]"
+          style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%236366f1' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
+          }}
+        />
+        {/* Floating particles for light mode */}
+        <div className="absolute inset-0 dark:opacity-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-20 left-[10%] w-2 h-2 bg-indigo-400/40 rounded-full animate-float" />
+          <div className="absolute top-40 right-[15%] w-3 h-3 bg-purple-400/30 rounded-full animate-float-slow" />
+          <div className="absolute top-60 left-[30%] w-1.5 h-1.5 bg-pink-400/40 rounded-full animate-float-reverse" />
+          <div className="absolute bottom-40 right-[25%] w-2 h-2 bg-indigo-400/30 rounded-full animate-float" style={{ animationDelay: '1s' }} />
+          <div className="absolute bottom-60 left-[20%] w-2.5 h-2.5 bg-purple-400/35 rounded-full animate-float-slow" style={{ animationDelay: '2s' }} />
+          <div className="absolute top-1/3 right-[10%] w-2 h-2 bg-cyan-400/30 rounded-full animate-float-reverse" style={{ animationDelay: '0.5s' }} />
+        </div>
+        {/* Floating particles for dark mode */}
+        <div className="absolute inset-0 opacity-0 dark:opacity-100 overflow-hidden pointer-events-none">
+          <div className="absolute top-20 left-[10%] w-2 h-2 bg-indigo-400/30 rounded-full animate-float" />
+          <div className="absolute top-40 right-[15%] w-3 h-3 bg-purple-400/20 rounded-full animate-float-slow" />
+          <div className="absolute top-60 left-[30%] w-1.5 h-1.5 bg-blue-400/30 rounded-full animate-float-reverse" />
+          <div className="absolute bottom-40 right-[25%] w-2 h-2 bg-indigo-400/20 rounded-full animate-float" style={{ animationDelay: '1s' }} />
+          <div className="absolute bottom-60 left-[20%] w-2.5 h-2.5 bg-purple-400/25 rounded-full animate-float-slow" style={{ animationDelay: '2s' }} />
+        </div>
+      </div>
+
       {/* Navigation */}
-      <nav className="border-b border-gray-200 bg-white/80 backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/80">
+      <nav className="sticky top-0 z-50 border-b border-gray-200/50 bg-white/80 backdrop-blur-xl dark:border-slate-800/50 dark:bg-slate-950/80">
         <div className="max-w-6xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
-            <Link to="/" className="text-2xl font-bold text-gray-900 dark:text-slate-100">
-              ScholarHub
+            <Link to="/" className="group">
+              <Logo className="group-hover:scale-105 transition-all" />
             </Link>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
               <Link
                 to="/login"
-                className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors dark:text-slate-300 dark:hover:text-slate-100"
+                className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors dark:text-slate-400 dark:hover:text-white"
               >
                 Sign in
               </Link>
               <Link
                 to="/register"
-                className="px-5 py-2.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm dark:bg-indigo-500 dark:hover:bg-indigo-600"
+                className="group px-5 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-600 rounded-xl transition-all shadow-lg shadow-indigo-500/25 hover:shadow-xl hover:shadow-indigo-500/30 hover:-translate-y-0.5 overflow-hidden relative"
               >
-                Get started
+                <span className="relative z-10">Get started free</span>
+                <div className="absolute inset-0 animate-shimmer opacity-0 group-hover:opacity-100" />
               </Link>
             </div>
           </div>
@@ -139,98 +354,127 @@ const Landing = () => {
       </nav>
 
       {/* Hero Section */}
-      <section className="px-6 py-28">
-        <div className="max-w-4xl mx-auto">
-          <div
-            className={`text-center transition-all duration-700 ${heroAnimationCls}`}
-          >
-            <span className="inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.28em] text-indigo-600 dark:border-indigo-400/30 dark:bg-indigo-400/10 dark:text-indigo-300">
-              Research-ready by design
-            </span>
-            <h1 className="mt-6 text-5xl sm:text-6xl font-bold text-gray-900 leading-tight dark:text-slate-100">
-              Ship papers faster with one workspace for your lab
+      <section className="relative px-6 pt-20 pb-32">
+        {/* Decorative floating elements */}
+        <div className="absolute top-32 left-10 w-72 h-72 bg-gradient-to-br from-indigo-300/50 to-purple-300/50 dark:from-indigo-500/10 dark:to-purple-500/10 rounded-full blur-3xl animate-float-slow pointer-events-none" />
+        <div className="absolute bottom-20 right-10 w-96 h-96 bg-gradient-to-br from-purple-300/40 to-pink-300/40 dark:from-purple-500/10 dark:to-pink-500/10 rounded-full blur-3xl animate-float-reverse pointer-events-none" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-gradient-to-br from-cyan-200/20 to-indigo-200/20 dark:from-transparent dark:to-transparent rounded-full blur-3xl animate-pulse-glow pointer-events-none" />
+
+        <div className="max-w-5xl mx-auto">
+          <div className={`text-center transition-all duration-1000 ease-out ${heroAnimationCls}`}>
+            {/* Badge */}
+            <div
+              className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300 hover:scale-105 transition-transform cursor-default"
+              style={{ animationDelay: '0.2s' }}
+            >
+              <Sparkles className="h-4 w-4 animate-pulse" />
+              <span>AI-Powered Research Platform</span>
+            </div>
+
+            {/* Main headline with gradient animation */}
+            <h1 className="mt-8 text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight">
+              <span className="bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 dark:from-white dark:via-gray-100 dark:to-white bg-clip-text text-transparent inline-block transition-transform hover:scale-[1.02] duration-300 pb-1">
+                Ship papers faster
+              </span>
+              <br />
+              <span className="bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 bg-clip-text text-transparent animate-gradient-x inline-block pb-2">
+                with your team
+              </span>
             </h1>
 
-            <p className="mt-6 text-xl text-gray-600 max-w-2xl mx-auto dark:text-slate-300">
-              Keep your team aligned from first draft to submission. ScholarHub ties LaTeX, rich-text, comments, and exports into one cadence so every milestone stays visible.
+            {/* Subheadline */}
+            <p className="mt-8 text-xl text-gray-600 max-w-2xl mx-auto leading-relaxed dark:text-slate-400">
+              The all-in-one workspace for research teams. Write in LaTeX or rich-text,
+              collaborate in real-time, discover papers, and submit with confidence.
             </p>
 
-            <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
+            {/* CTA Button */}
+            <div className="mt-12">
               <Link
                 to="/register"
-                className="group inline-flex items-center gap-2 px-7 py-3.5 text-base font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-all shadow-lg hover:shadow-xl dark:bg-indigo-500 dark:hover:bg-indigo-600"
+                className="group relative inline-flex items-center gap-2 px-8 py-4 text-base font-semibold text-white bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl transition-all shadow-xl shadow-indigo-500/25 hover:shadow-2xl hover:shadow-indigo-500/40 hover:-translate-y-1 overflow-hidden"
               >
-                Get started free
-                <ArrowRight className="h-5 w-5 group-hover:translate-x-1 transition-transform" />
-              </Link>
-              <Link
-                to="/docs/overview"
-                className="inline-flex items-center gap-2 px-7 py-3.5 text-base font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors border border-indigo-100 dark:text-indigo-200 dark:bg-indigo-400/10 dark:hover:bg-indigo-400/20 dark:border-indigo-400/30"
-              >
-                Explore overview
-                <ArrowRight className="h-5 w-5" />
+                <span className="absolute inset-0 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 blur-xl opacity-50 group-hover:opacity-75 transition-opacity" />
+                <span className="relative flex items-center gap-2">
+                  Start for free
+                  <ArrowRight className="h-5 w-5 group-hover:translate-x-1 transition-transform" />
+                </span>
+                <div className="absolute inset-0 animate-shimmer opacity-0 group-hover:opacity-100" />
               </Link>
             </div>
 
-            <ul className="mt-10 grid gap-3 text-left sm:grid-cols-3">
-              {heroPromises.map(({ icon: Icon, text }) => (
-                <li
+            {/* Promise pills with staggered animation */}
+            <div className="mt-16 flex flex-wrap items-center justify-center gap-3">
+              {heroPromises.map(({ icon: Icon, text }, index) => (
+                <div
                   key={text}
-                  className="flex items-start gap-3 rounded-2xl border border-indigo-100 bg-white/80 px-4 py-4 shadow-sm shadow-indigo-100/60 dark:border-slate-700 dark:bg-slate-800/60"
+                  className={`inline-flex items-center gap-2 rounded-full bg-white/90 backdrop-blur-sm px-4 py-2 text-sm text-gray-700 shadow-md shadow-indigo-500/5 border border-gray-200/80 dark:bg-slate-800/50 dark:border-slate-700 dark:text-slate-300 dark:shadow-none hover:shadow-lg hover:shadow-indigo-500/10 hover:-translate-y-0.5 transition-all cursor-default opacity-0 ${isVisible ? 'animate-[fade-in-up_0.5s_ease-out_forwards]' : ''}`}
+                  style={{ animationDelay: `${0.5 + index * 0.15}s` }}
                 >
-                  <Icon className="mt-0.5 h-5 w-5 text-emerald-600 dark:text-emerald-400" aria-hidden />
-                  <span className="text-sm text-slate-700 leading-relaxed dark:text-slate-300">{text}</span>
-                </li>
+                  <Icon className="h-4 w-4 text-emerald-500" />
+                  <span>{text}</span>
+                </div>
               ))}
-            </ul>
-
-            <div className="mt-12 flex flex-col gap-6 rounded-[28px] border border-indigo-100 bg-white/90 px-6 py-8 shadow-lg shadow-indigo-100/60 lg:flex-row lg:items-center lg:justify-between dark:border-slate-700 dark:bg-slate-800/80">
-              <div className="grid flex-1 gap-4 sm:grid-cols-3">
-                {heroProofStats.map(stat => (
-                  <div
-                    key={stat.label}
-                    className="rounded-2xl border border-indigo-100 bg-indigo-50/60 px-4 py-4 text-left shadow-sm shadow-indigo-100/50 dark:border-indigo-400/30 dark:bg-indigo-400/10"
-                  >
-                    <p className="text-xl font-semibold text-slate-900 dark:text-slate-100">{stat.value}</p>
-                    <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-300">
-                      {stat.label}
-                    </p>
-                  </div>
-                ))}
-              </div>
-              <div className="flex-1 rounded-2xl border border-slate-200 bg-white px-6 py-5 text-left shadow-sm shadow-slate-100 lg:max-w-md dark:border-slate-700 dark:bg-slate-800">
-                <p className="text-sm text-slate-700 leading-relaxed dark:text-slate-300">"{heroTestimonial.quote}"</p>
-                <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-                  {heroTestimonial.author} · {heroTestimonial.role}
-                </p>
-              </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Trust Builder */}
-      <section className="px-6 pb-16">
-        <div className="max-w-5xl mx-auto rounded-2xl border border-indigo-100 bg-white shadow-sm px-8 py-10 dark:border-slate-700 dark:bg-slate-800">
-          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-8">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-300">Why lab leads stay with ScholarHub</p>
-              <h2 className="mt-3 text-2xl font-semibold text-gray-900 dark:text-slate-100">
-                Keep manuscript pipelines moving without chasing status updates across tools.
-              </h2>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 text-left w-full lg:w-auto">
-              <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/60">
-                <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">Every decision stays linked</p>
-                <p className="mt-1 text-sm text-gray-600 dark:text-slate-300">Live meeting notes and action lists stay beside the manuscript so no follow-up gets lost.</p>
+      {/* Social Proof Section */}
+      <section ref={socialProof.ref} className="relative px-6 py-20">
+        <div className={`max-w-5xl mx-auto transition-all duration-700 ${socialProof.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
+          <div className="relative rounded-[32px] bg-gradient-to-br from-slate-900 to-slate-800 dark:from-slate-800/50 dark:to-slate-900/50 p-1 overflow-hidden">
+            <div className="absolute inset-0 rounded-[32px] bg-gradient-to-br from-indigo-500 to-purple-500 opacity-0 dark:opacity-20 blur-xl animate-pulse-glow" />
+            <div className="relative rounded-[28px] bg-gradient-to-br from-slate-900 to-slate-800 dark:from-slate-800 dark:to-slate-900 p-8 lg:p-12 overflow-hidden">
+              {/* Animated background pattern */}
+              <div className="absolute inset-0 opacity-5">
+                <div className="absolute top-0 left-0 w-full h-full" style={{
+                  backgroundImage: 'radial-gradient(circle at 2px 2px, white 1px, transparent 0)',
+                  backgroundSize: '40px 40px'
+                }} />
               </div>
-              <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/60">
-                <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">No more progress ambiguity</p>
-                <p className="mt-1 text-sm text-gray-600 dark:text-slate-300">Paper status dashboards show drafting milestones, reviewer ownership, and locks in real time.</p>
-              </div>
-              <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/60">
-                <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">References arrive pre-contextualized</p>
-                <p className="mt-1 text-sm text-gray-600 dark:text-slate-300">Discovery feed delivers suggested papers with ready-to-cite snippets—no manual triage spreadsheets.</p>
+
+              <div className="relative grid lg:grid-cols-2 gap-10">
+                {/* Stats */}
+                <div className="grid grid-cols-3 gap-4">
+                  {heroProofStats.map((stat, index) => (
+                    <div
+                      key={stat.label}
+                      className={`relative group opacity-0 ${socialProof.isVisible ? 'animate-[scale-in_0.5s_ease-out_forwards]' : ''}`}
+                      style={{ animationDelay: `${0.2 + index * 0.15}s` }}
+                    >
+                      <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/20 to-purple-500/20 rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                      <div className="relative rounded-2xl bg-white/5 border border-white/10 p-6 text-center hover:bg-white/10 transition-all duration-300 hover:scale-105 hover:-translate-y-1">
+                        <p className="text-4xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
+                          {stat.value}
+                        </p>
+                        <p className="mt-2 text-sm font-semibold text-white">{stat.label}</p>
+                        <p className="text-xs text-slate-400">{stat.sublabel}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Testimonial */}
+                <div className={`flex flex-col justify-center opacity-0 ${socialProof.isVisible ? 'animate-[fade-in-up_0.6s_ease-out_0.4s_forwards]' : ''}`}>
+                  <div className="relative">
+                    <svg className="absolute -top-4 -left-2 h-8 w-8 text-indigo-500/30 animate-pulse" fill="currentColor" viewBox="0 0 32 32">
+                      <path d="M9.352 4C4.456 7.456 1 13.12 1 19.36c0 5.088 3.072 8.064 6.624 8.064 3.36 0 5.856-2.688 5.856-5.856 0-3.168-2.208-5.472-5.088-5.472-.576 0-1.344.096-1.536.192.48-3.264 3.552-7.104 6.624-9.024L9.352 4zm16.512 0c-4.8 3.456-8.256 9.12-8.256 15.36 0 5.088 3.072 8.064 6.624 8.064 3.264 0 5.856-2.688 5.856-5.856 0-3.168-2.304-5.472-5.184-5.472-.576 0-1.248.096-1.44.192.48-3.264 3.456-7.104 6.528-9.024L25.864 4z" />
+                    </svg>
+                    <p className="text-lg text-slate-300 leading-relaxed pl-6">
+                      {heroTestimonial.quote}
+                    </p>
+                    <div className="mt-6 flex items-center gap-4 pl-6">
+                      <div className="h-12 w-12 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-semibold shadow-lg shadow-indigo-500/30 hover:scale-110 transition-transform">
+                        {heroTestimonial.author.split(' ').map(n => n[0]).join('')}
+                      </div>
+                      <div>
+                        <p className="font-semibold text-white">{heroTestimonial.author}</p>
+                        <p className="text-sm text-slate-400">{heroTestimonial.role}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -238,20 +482,47 @@ const Landing = () => {
       </section>
 
       {/* Features Section */}
-      <section id="features" className="px-6 py-20">
-        <div className="max-w-5xl mx-auto">
-          <h2 className="text-center text-3xl font-bold text-gray-900 mb-4 dark:text-slate-100">Run your lab from a single command center</h2>
-          <p className="mx-auto mb-12 max-w-2xl text-center text-gray-600 dark:text-slate-300">
-            ScholarHub rolls discovery, meeting operations, and paper health into one dashboard so lab leads can steer writing efforts without hopping between tools.
-          </p>
-          <div className="grid md:grid-cols-3 gap-8">
-            {features.map(({ Icon, title, description }) => (
-              <div key={title} className="p-7 rounded-2xl bg-white shadow-sm border border-gray-100 hover:shadow-lg transition-shadow dark:bg-slate-800 dark:border-slate-700">
-                <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-indigo-600 mb-5 dark:bg-indigo-500">
-                  <Icon className="h-6 w-6 text-white" />
+      <section ref={features.ref} id="features" className="relative px-6 py-24">
+        <div className="max-w-6xl mx-auto">
+          {/* Section header */}
+          <div className={`text-center mb-16 transition-all duration-700 ${features.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
+            <div className="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-4 py-2 text-sm font-medium text-purple-700 dark:border-purple-500/30 dark:bg-purple-500/10 dark:text-purple-300 mb-6 hover:scale-105 transition-transform">
+              <Zap className="h-4 w-4 animate-pulse" />
+              <span>Powerful Features</span>
+            </div>
+            <h2 className="text-4xl sm:text-5xl font-bold text-gray-900 dark:text-white">
+              Everything you need to
+              <br />
+              <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent animate-gradient-x">
+                accelerate your research
+              </span>
+            </h2>
+            <p className="mt-6 text-xl text-gray-600 max-w-2xl mx-auto dark:text-slate-400">
+              One platform to write, collaborate, discover, and publish. No more juggling between tools.
+            </p>
+          </div>
+
+          {/* Feature grid with staggered animations */}
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {featuresList.map(({ Icon, title, description, gradient }, index) => (
+              <div
+                key={title}
+                className={`group relative rounded-3xl bg-white/80 backdrop-blur-sm p-8 shadow-lg shadow-indigo-500/5 border border-gray-200/80 hover:shadow-xl hover:shadow-indigo-500/10 hover:border-indigo-200/50 transition-all duration-500 hover:-translate-y-2 dark:bg-slate-800/50 dark:border-slate-700 dark:hover:bg-slate-800 dark:hover:border-slate-600 dark:shadow-none opacity-0 ${features.isVisible ? 'animate-[fade-in-up_0.5s_ease-out_forwards]' : ''}`}
+                style={{ animationDelay: `${0.1 + index * 0.1}s` }}
+              >
+                {/* Hover glow effect */}
+                <div className={`absolute inset-0 rounded-3xl bg-gradient-to-br ${gradient} opacity-0 group-hover:opacity-10 transition-opacity duration-500 blur-xl`} />
+
+                <div className={`relative inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br ${gradient} mb-6 shadow-lg group-hover:scale-110 group-hover:rotate-3 transition-all duration-300`}>
+                  <Icon className="h-7 w-7 text-white" />
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-2 dark:text-slate-100">{title}</h3>
-                <p className="text-gray-600 leading-relaxed dark:text-slate-300">{description}</p>
+                <h3 className="relative text-xl font-semibold text-gray-900 mb-3 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{title}</h3>
+                <p className="relative text-gray-600 leading-relaxed dark:text-slate-400">{description}</p>
+
+                {/* Arrow indicator on hover */}
+                <div className="absolute bottom-8 right-8 opacity-0 group-hover:opacity-100 transform translate-x-2 group-hover:translate-x-0 transition-all duration-300">
+                  <ArrowRight className="h-5 w-5 text-indigo-500" />
+                </div>
               </div>
             ))}
           </div>
@@ -259,81 +530,161 @@ const Landing = () => {
       </section>
 
       {/* How it Works */}
-      <section id="how-it-works" className="px-6 pb-20">
+      <section ref={howItWorks.ref} id="how-it-works" className="relative px-6 py-24">
         <div className="max-w-5xl mx-auto">
-          <div className="rounded-3xl bg-white shadow-sm border border-gray-100 p-10 dark:bg-slate-800 dark:border-slate-700">
-            <div className="flex flex-col lg:flex-row gap-10 items-start">
-              <div className="lg:w-1/3">
-                <p className="text-sm font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-300">How it works</p>
-                <h2 className="mt-3 text-3xl font-bold text-gray-900 dark:text-slate-100">From first draft to submission with less friction</h2>
-                <p className="mt-4 text-gray-600 dark:text-slate-300">
-                  ScholarHub replaces patchwork workflows with a single place to draft, discuss, and finalize manuscripts alongside your team.
-                </p>
+          <div className="grid lg:grid-cols-2 gap-16 items-center">
+            {/* Left side - Text */}
+            <div className={`transition-all duration-700 ${howItWorks.isVisible ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-10'}`}>
+              <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300 mb-6 hover:scale-105 transition-transform">
+                <CheckCircle2 className="h-4 w-4 animate-bounce-subtle" />
+                <span>Simple Workflow</span>
               </div>
-              <div className="lg:flex-1 space-y-6">
-                {workflowSteps.map((step, index) => (
-                  <div key={step.title} className="flex items-start gap-4">
-                    <div className="flex h-10 w-10 flex-none items-center justify-center rounded-full bg-indigo-50 text-indigo-600 font-semibold dark:bg-indigo-400/10 dark:text-indigo-300">
-                      {index + 1}
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">{step.title}</h3>
-                      <p className="mt-1 text-gray-600 leading-relaxed dark:text-slate-300">{step.detail}</p>
+              <h2 className="text-4xl sm:text-5xl font-bold text-gray-900 dark:text-white leading-tight">
+                From first draft to
+                <br />
+                <span className="bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent animate-gradient-x">
+                  publication
+                </span>
+              </h2>
+              <p className="mt-6 text-lg text-gray-600 dark:text-slate-400">
+                ScholarHub streamlines your entire research workflow. No more scattered files,
+                lost comments, or version confusion.
+              </p>
+            </div>
+
+            {/* Right side - Steps */}
+            <div className="space-y-6">
+              {workflowSteps.map((step, index) => (
+                <div
+                  key={step.title}
+                  className={`group relative flex gap-6 p-6 rounded-2xl bg-white/80 backdrop-blur-sm border border-gray-200/80 shadow-lg shadow-indigo-500/5 hover:shadow-xl hover:shadow-indigo-500/10 hover:border-indigo-200/50 transition-all duration-500 hover:-translate-y-1 dark:bg-slate-800/50 dark:border-slate-700 dark:hover:bg-slate-800 dark:shadow-none opacity-0 ${howItWorks.isVisible ? 'animate-[fade-in-up_0.5s_ease-out_forwards]' : ''}`}
+                  style={{ animationDelay: `${0.3 + index * 0.15}s` }}
+                >
+                  {/* Connecting line */}
+                  {index < workflowSteps.length - 1 && (
+                    <div className="absolute left-[43px] top-[80px] w-0.5 h-[calc(100%-40px)] bg-gradient-to-b from-indigo-500/50 to-purple-500/50 dark:from-indigo-500/30 dark:to-purple-500/30" />
+                  )}
+
+                  <div className="flex-shrink-0 relative z-10">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-500 shadow-lg shadow-indigo-500/25 group-hover:scale-110 group-hover:rotate-6 transition-all duration-300">
+                      <step.icon className="h-7 w-7 text-white" />
                     </div>
                   </div>
-                ))}
-              </div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-indigo-100 text-xs font-bold text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400 group-hover:scale-110 transition-transform">
+                        {index + 1}
+                      </span>
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{step.title}</h3>
+                    </div>
+                    <p className="text-gray-600 dark:text-slate-400">{step.detail}</p>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
       </section>
 
       {/* Final CTA Section */}
-      <section className="px-6 py-24">
-        <div className="max-w-3xl mx-auto text-center">
-          <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4 dark:text-slate-100">
-            Ready to start your next paper?
-          </h2>
-          <p className="text-lg text-gray-600 mb-8 dark:text-slate-300">
-            Join research teams who keep every collaborator aligned from outline to submission.
-          </p>
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link
-              to="/register"
-              className="group inline-flex items-center gap-2 px-7 py-3.5 text-base font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-all shadow-lg hover:shadow-xl dark:bg-indigo-500 dark:hover:bg-indigo-600"
-            >
-              Create your account
-              <ArrowRight className="h-5 w-5 group-hover:translate-x-1 transition-transform" />
-            </Link>
-            <Link
-              to="/login"
-              className="inline-flex items-center gap-2 px-7 py-3.5 text-base font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-all shadow-sm hover:shadow dark:text-indigo-200 dark:bg-indigo-400/10 dark:hover:bg-indigo-400/20"
-            >
-              Sign in to your workspace
-            </Link>
+      <section ref={finalCta.ref} className="relative px-6 py-32">
+        <div className={`max-w-4xl mx-auto transition-all duration-700 ${finalCta.isVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}>
+          <div className="relative rounded-[40px] bg-gradient-to-br from-indigo-600 to-purple-600 p-1 group">
+            <div className="absolute inset-0 rounded-[40px] bg-gradient-to-br from-indigo-600 to-purple-600 blur-2xl opacity-50 group-hover:opacity-75 transition-opacity duration-500 animate-pulse-glow" />
+            <div className="relative rounded-[36px] bg-gradient-to-br from-indigo-600 to-purple-600 px-8 py-16 sm:px-16 sm:py-20 text-center overflow-hidden">
+              {/* Animated decorative elements */}
+              <div className="absolute top-8 left-8 h-20 w-20 rounded-full bg-white/10 blur-2xl animate-float" />
+              <div className="absolute bottom-8 right-8 h-32 w-32 rounded-full bg-purple-400/20 blur-2xl animate-float-reverse" />
+              <div className="absolute top-1/2 left-1/4 h-16 w-16 rounded-full bg-indigo-400/20 blur-xl animate-float-slow" />
+
+              {/* Spinning gradient ring */}
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] opacity-20">
+                <div className="absolute inset-0 rounded-full border-2 border-white/20 animate-spin-slow" />
+                <div className="absolute inset-8 rounded-full border border-white/10 animate-spin-slow" style={{ animationDirection: 'reverse', animationDuration: '30s' }} />
+              </div>
+
+              <h2 className="relative text-4xl sm:text-5xl font-bold text-white mb-6">
+                Ready to transform your
+                <br />
+                research workflow?
+              </h2>
+              <p className="relative text-xl text-indigo-100 mb-10 max-w-2xl mx-auto">
+                Join thousands of researchers who ship papers faster with ScholarHub.
+                Start free, no credit card required.
+              </p>
+              <div className="relative flex flex-col sm:flex-row items-center justify-center gap-4">
+                <Link
+                  to="/register"
+                  className="group/btn inline-flex items-center gap-2 px-8 py-4 text-base font-semibold text-indigo-600 bg-white hover:bg-gray-50 rounded-2xl transition-all shadow-xl hover:shadow-2xl hover:-translate-y-1 hover:scale-105"
+                >
+                  Get started for free
+                  <ArrowRight className="h-5 w-5 group-hover/btn:translate-x-1 transition-transform" />
+                </Link>
+                <Link
+                  to="/login"
+                  className="inline-flex items-center gap-2 px-8 py-4 text-base font-semibold text-white border-2 border-white/30 hover:bg-white/10 hover:border-white/50 rounded-2xl transition-all hover:-translate-y-0.5"
+                >
+                  Sign in to workspace
+                </Link>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-gray-200 py-8 px-6 bg-white/50 dark:border-slate-700 dark:bg-slate-900/50">
-        <div className="max-w-6xl mx-auto">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
-            <div className="flex flex-col items-center sm:items-start gap-2">
-              <span className="text-lg font-bold text-gray-900 dark:text-slate-100">ScholarHub</span>
-              <p className="text-sm text-gray-500 text-center sm:text-left dark:text-slate-400">
-                Purpose-built for researchers who ship manuscripts together.
+      <footer className="relative border-t border-gray-200/80 dark:border-slate-800 bg-gradient-to-b from-gray-50 to-white dark:from-slate-900/50 dark:to-slate-950">
+        <div className="max-w-6xl mx-auto px-6 py-12">
+          <div className="flex flex-col lg:flex-row items-start justify-between gap-8">
+            {/* Brand */}
+            <div className="max-w-sm">
+              <Link to="/" className="group">
+                <Logo className="group-hover:scale-105 transition-transform" />
+              </Link>
+              <p className="mt-4 text-gray-600 dark:text-slate-400">
+                The modern workspace for research teams. Write, collaborate, and publish together.
               </p>
             </div>
-            <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-gray-500 dark:text-slate-400">
-              <Link to="/register" className="hover:text-gray-900 transition-colors dark:hover:text-slate-100">Create account</Link>
-              <Link to="/login" className="hover:text-gray-900 transition-colors dark:hover:text-slate-100">Sign in</Link>
-              <a href="#features" className="hover:text-gray-900 transition-colors dark:hover:text-slate-100">Product</a>
-              <a href="mailto:support@scholarhub.ai" className="hover:text-gray-900 transition-colors dark:hover:text-slate-100">Contact support</a>
+
+            {/* Links */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-8 text-sm">
+              <div>
+                <h4 className="font-semibold text-gray-900 dark:text-white mb-4">Product</h4>
+                <ul className="space-y-3">
+                  <li><a href="#features" className="text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors hover:translate-x-1 inline-block">Features</a></li>
+                  <li><a href="#how-it-works" className="text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors hover:translate-x-1 inline-block">How it works</a></li>
+                </ul>
+              </div>
+              <div>
+                <h4 className="font-semibold text-gray-900 dark:text-white mb-4">Company</h4>
+                <ul className="space-y-3">
+                  <li><a href="mailto:support@scholarhub.ai" className="text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors hover:translate-x-1 inline-block">Contact</a></li>
+                  <li><a href="#" className="text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors hover:translate-x-1 inline-block">Privacy</a></li>
+                  <li><a href="#" className="text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors hover:translate-x-1 inline-block">Terms</a></li>
+                </ul>
+              </div>
+              <div>
+                <h4 className="font-semibold text-gray-900 dark:text-white mb-4">Get Started</h4>
+                <ul className="space-y-3">
+                  <li><Link to="/register" className="text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors hover:translate-x-1 inline-block">Create account</Link></li>
+                  <li><Link to="/login" className="text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors hover:translate-x-1 inline-block">Sign in</Link></li>
+                </ul>
+              </div>
             </div>
-            <span className="text-sm text-gray-400 text-center sm:text-right dark:text-slate-500">
-              © 2025 ScholarHub. All rights reserved.
-            </span>
+          </div>
+
+          <div className="mt-12 pt-8 border-t border-gray-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <p className="text-sm text-gray-500 dark:text-slate-500">
+              © {new Date().getFullYear()} ScholarHub. All rights reserved.
+            </p>
+            <div className="flex items-center gap-6">
+              <a href="#" className="text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 transition-colors hover:scale-110">
+                <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" /></svg>
+              </a>
+              <a href="#" className="text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 transition-colors hover:scale-110">
+                <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" /></svg>
+              </a>
+            </div>
           </div>
         </div>
       </footer>

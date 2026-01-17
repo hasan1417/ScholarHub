@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import SettingsModal from '../settings/SettingsModal'
 import ModelSelectionModal from '../ai/ModelSelectionModal'
 import { useThemePreference } from '../../hooks/useThemePreference'
+import { Logo } from '../brand/Logo'
 
 const Layout = () => {
   const { user, logout } = useAuth()
@@ -95,11 +96,8 @@ const Layout = () => {
     <div className="min-h-screen transition-colors duration-200">
       <header className="border-b border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-800">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-          <Link
-            to="/projects"
-            className="text-lg font-semibold tracking-tight text-gray-900 transition-colors hover:text-gray-700 dark:text-slate-100 dark:hover:text-slate-300"
-          >
-            ScholarHub
+          <Link to="/projects" className="transition-opacity hover:opacity-80">
+            <Logo textClassName="text-lg font-semibold" />
           </Link>
           <div className="flex items-center space-x-2">
             {navItems.map(({ to, label, icon: Icon, isActive }) => (
