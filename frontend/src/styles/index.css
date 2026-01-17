@@ -48,7 +48,7 @@
   --latex-editor-gutter-bg: #f0f3fb;
   --latex-editor-gutter-fg: #7a8199;
   --latex-editor-gutter-border: #d7dbe8;
-  --latex-editor-active-line-bg: rgba(232, 241, 255, 0.65);
+  --latex-editor-active-line-bg: #e8f1ff;
   --latex-editor-active-line-gutter-bg: #e8f1ff;
   --latex-editor-active-line-fg: #1b2330;
   --latex-editor-selection-bg: #9fc2ff;
@@ -112,7 +112,7 @@ body.dark, [data-theme='dark'], :root.dark {
   --latex-editor-gutter-bg: #262a3d;
   --latex-editor-gutter-fg: #8b92b5;
   --latex-editor-gutter-border: #343850;
-  --latex-editor-active-line-bg: rgba(42, 49, 72, 0.55);
+  --latex-editor-active-line-bg: #2a3148;
   --latex-editor-active-line-gutter-bg: #2a3148;
   --latex-editor-active-line-fg: #f0f3ff;
   --latex-editor-selection-bg: #2d4f91;
@@ -143,7 +143,7 @@ body.dark, [data-theme='dark'], :root.dark {
   --latex-editor-gutter-bg: #f0f3fb;
   --latex-editor-gutter-fg: #7a8199;
   --latex-editor-gutter-border: #d7dbe8;
-  --latex-editor-active-line-bg: rgba(232, 241, 255, 0.65);
+  --latex-editor-active-line-bg: #e8f1ff;
   --latex-editor-active-line-gutter-bg: #e8f1ff;
   --latex-editor-active-line-fg: #1b2330;
   --latex-editor-selection-bg: #9fc2ff;

@@ -24,24 +24,29 @@ export const overleafLatexTheme: Extension = [
     '&': {
       backgroundColor: 'var(--latex-editor-bg)',
       color: 'var(--latex-editor-fg)',
+      height: '100%',
     },
     '.cm-editor': {
       fontSize: 'var(--latex-editor-font-size)',
+      height: '100%',
     },
     '.cm-scroller': {
       overflow: 'auto',
       fontFamily: 'var(--latex-editor-font-family)',
       lineHeight: '1.58',
-      backgroundColor: 'var(--latex-editor-bg)',
+      // Scroller background is gutter color - extends full height
+      backgroundColor: 'var(--latex-editor-gutter-bg)',
+      minHeight: '100%',
     },
     '.cm-content': {
       padding: '12px 16px',
       minHeight: '100%',
       maxHeight: 'none',
       fontFamily: 'var(--latex-editor-font-family)',
+      backgroundColor: 'var(--latex-editor-bg)',
     },
     '.cm-gutters': {
-      backgroundColor: 'var(--latex-editor-gutter-bg)',
+      backgroundColor: 'transparent',
       color: 'var(--latex-editor-gutter-fg)',
       borderRight: '1px solid var(--latex-editor-gutter-border)',
     },
@@ -49,12 +54,19 @@ export const overleafLatexTheme: Extension = [
       padding: '0 12px',
     },
     '.cm-activeLineGutter': {
-      backgroundColor: 'var(--latex-editor-active-line-gutter-bg)',
+      backgroundColor: 'var(--latex-editor-active-line-bg)',
       color: 'var(--latex-editor-active-line-fg)',
+      // Extend to cover the border gap
+      marginRight: '-1px',
+      paddingRight: '1px',
     },
     '.cm-activeLine': {
       backgroundColor: 'var(--latex-editor-active-line-bg)',
-      transition: 'background-color 120ms ease',
+      // Extend highlight to cover the gap created by content padding
+      marginLeft: '-16px',
+      paddingLeft: '16px',
+      marginRight: '-16px',
+      paddingRight: '16px',
     },
     '&.cm-has-selection .cm-activeLine': {
       backgroundColor: 'transparent',
