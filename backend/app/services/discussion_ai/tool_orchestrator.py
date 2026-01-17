@@ -3,24 +3,13 @@ Tool-Based Discussion AI Orchestrator
 
 Uses OpenAI function calling to let the AI decide what context it needs.
 Instead of hardcoding what data each skill uses, the AI calls tools on-demand.
-
-KEY ARCHITECTURE: Code-enforced state machine controls what the LLM can do.
-The LLM generates content within boundaries - it CANNOT override state rules.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
-from uuid import UUID
-
-from app.services.discussion_ai.state_machine import (
-    ConversationState,
-    ConversationStateMachine,
-    StateTransition,
-)
-from app.services.discussion_ai.intent_classifier import IntentClassifier
+from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -67,22 +56,23 @@ DISCUSSION_TOOLS = [
         "type": "function",
         "function": {
             "name": "search_papers",
-            "description": "Search for papers online. For multiple topics, call this multiple times with count=1 each (results accumulate). Example: 5 topics → call 5 times, each with a specific topic query and count=1, to get 5 relevant papers total.",
+            "description": "Search for academic papers online. Returns papers matching the query. Papers with PDF available are marked with 'OA' (Open Access) and can be ingested for AI analysis.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Search query. For recent papers, include year terms like '2023 2024' or 'recent'. For multiple topics, combine with OR."
+                        "description": "Search query (e.g., 'machine learning transformers'). For recent papers, add year terms like '2023 2024'."
                     },
                     "count": {
                         "type": "integer",
-                        "description": "Number of papers to find (use higher count for multiple topics)",
+                        "description": "Number of papers to find",
                         "default": 5
                     },
-                    "min_year": {
-                        "type": "integer",
-                        "description": "Minimum publication year filter. Use for 'recent papers' requests (e.g., 2022 for last ~2 years)."
+                    "open_access_only": {
+                        "type": "boolean",
+                        "description": "If true, only return papers with PDF available (Open Access). Use when user asks for 'only open access', 'only OA', 'papers with PDF', 'papers I can ingest', etc.",
+                        "default": False
                     }
                 },
                 "required": ["query"]
@@ -93,7 +83,7 @@ DISCUSSION_TOOLS = [
         "type": "function",
         "function": {
             "name": "get_project_papers",
-            "description": "Get the user's own draft papers/documents in this project. Use when user mentions 'my paper', 'my draft', 'the paper I'm writing'.",
+            "description": "Get the user's own draft papers/documents in this project. Use when user mentions 'my paper', 'my draft', 'the paper I'm writing'. When displaying content to user, output it directly as markdown (NOT in a code block) so it renders nicely.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -127,85 +117,272 @@ DISCUSSION_TOOLS = [
                 "properties": {}
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_paper",
+            "description": "Create a new paper/document in the project. Use when user asks to 'create a paper', 'write a literature review', 'start a new document'. The paper will be available in the LaTeX editor. IMPORTANT: Content MUST be in LaTeX format, NOT Markdown!",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Title of the paper. Use a proper academic title WITHOUT metadata like '(5 References)' or counts. Example: 'Federated Learning for Healthcare: A Literature Review'"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Content in LATEX FORMAT ONLY. Use \\section{}, \\subsection{}, \\textbf{}, \\textit{}, \\begin{itemize}, \\cite{}, etc. Do NOT use Markdown (#, ##, **bold**, *italic*). IMPORTANT: Do NOT add a References or Bibliography section - it is created AUTOMATICALLY from \\cite{} commands. Example: \\section{Introduction}\\nThis paper explores..."
+                    },
+                    "paper_type": {
+                        "type": "string",
+                        "description": "Type of paper: 'literature_review', 'research', 'summary', 'notes'",
+                        "default": "research"
+                    },
+                    "abstract": {
+                        "type": "string",
+                        "description": "Optional abstract/summary of the paper"
+                    }
+                },
+                "required": ["title", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_paper",
+            "description": "Update an existing paper's content. Content MUST be in LaTeX format! Use section_name to replace a SPECIFIC section (e.g., 'Conclusion'), or append=True to add NEW sections at the end.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "paper_id": {
+                        "type": "string",
+                        "description": "ID of the paper to update (get from get_project_papers)"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "New content in LATEX FORMAT. Use \\section{}, \\subsection{}, \\textbf{}, \\cite{}, etc. NOT Markdown. NEVER include \\end{document} or a References/Bibliography section - both are handled automatically."
+                    },
+                    "section_name": {
+                        "type": "string",
+                        "description": "Name of section to REPLACE (e.g., 'Conclusion', 'Introduction', 'Methods'). Content should be the section only (from \\section{Name} to the content, NOT including \\end{document} or bibliography). Use for 'extend/expand/rewrite section X' requests."
+                    },
+                    "append": {
+                        "type": "boolean",
+                        "description": "True = add content at end (for NEW sections). Ignored if section_name is provided.",
+                        "default": True
+                    }
+                },
+                "required": ["paper_id", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_artifact",
+            "description": "Create a downloadable artifact (document, summary, review) that doesn't get saved to the project. Use when user wants content they can download without cluttering their project papers. Good for literature reviews, summaries, exports.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Title/filename for the artifact"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Content of the artifact (markdown or LaTeX format)"
+                    },
+                    "format": {
+                        "type": "string",
+                        "description": "Format of the artifact: 'markdown', 'latex', 'text', or 'pdf'. Use 'pdf' when user asks for PDF.",
+                        "enum": ["markdown", "latex", "text", "pdf"],
+                        "default": "markdown"
+                    },
+                    "artifact_type": {
+                        "type": "string",
+                        "description": "Type of artifact: 'literature_review', 'summary', 'notes', 'export', 'report'",
+                        "default": "document"
+                    }
+                },
+                "required": ["title", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "discover_topics",
+            "description": "Search the web to discover what specific topics/algorithms/methods exist for a broad area. Use when user asks about 'recent X', 'latest trends', 'new algorithms in Y', or vague topics where you don't know what specific things to search for. Returns a list of specific topics you can then search papers for.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "area": {
+                        "type": "string",
+                        "description": "The broad area to discover topics in (e.g., 'AI algorithms 2025', 'computer vision advances 2025', 'NLP breakthroughs')"
+                    }
+                },
+                "required": ["area"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "batch_search_papers",
+            "description": "Search for papers on MULTIPLE specific topics at once. Use after discover_topics to search for papers on each discovered topic. Returns papers grouped by topic.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topics": {
+                        "type": "array",
+                        "description": "List of topics to search for",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "topic": {"type": "string", "description": "Display name for the topic"},
+                                "query": {"type": "string", "description": "Academic search query for this topic"},
+                                "max_results": {"type": "integer", "description": "Max papers per topic", "default": 5}
+                            },
+                            "required": ["topic", "query"]
+                        }
+                    }
+                },
+                "required": ["topics"]
+            }
+        }
     }
 ]
 
-# Base system prompt - constraints are added dynamically by the state machine
-BASE_SYSTEM_PROMPT = """You are an intelligent research assistant.
+# System prompt with adaptive workflow based on request clarity
+BASE_SYSTEM_PROMPT = """You are a research assistant helping with academic papers.
 
-CRITICAL RULE - CONVERSATION CONTEXT OVER PROJECT CONTEXT:
-- When user says "the above", "these topics", "related to this" → use the CONVERSATION history, NOT the project title
-- The conversation history contains what the user ACTUALLY discussed
-- The project title is just metadata - do NOT inject it into searches unless user explicitly asks about the project
-- If conversation discussed "swarm intelligence", search for "swarm intelligence" NOT the project title
+TOOLS:
+- discover_topics: Find what specific topics exist in a broad area (use for vague requests like "recent algorithms")
+- search_papers: Search for academic papers on a SPECIFIC topic
+- batch_search_papers: Search multiple specific topics at once (grouped results)
+- get_recent_search_results: Get papers from last search (for "these papers", "use them")
+- get_project_references: Get user's saved papers (for "my library")
+- get_project_papers: Get user's draft papers in this project
+- create_paper: Create a new paper IN THE PROJECT (LaTeX editor)
+- create_artifact: Create downloadable content (doesn't save to project)
+- update_paper: Add content to an existing paper
 
-SEARCH STRATEGY:
-- Match the user's requested count EXACTLY. If they ask for 5 references, return exactly 5.
-- For N references across M topics: do M searches with count=1 each (one paper per topic)
-- Results accumulate in the UI, so multiple searches are fine
-- Do NOT do extra searches beyond what was requested
-- Example: "5 topics and 5 references" → propose 5 topics, then 5 searches (count=1 each)
-- IMPORTANT: When search_papers returns status="success", the search IS working. Papers will appear in the UI.
-- NEVER apologize or say you "couldn't find papers" when searches are initiated - they WILL work.
+WORKFLOW - Choose based on request clarity:
 
-TOOL USAGE:
-- search_papers: For multiple topics, call multiple times with count=1 each. Results accumulate.
-- get_recent_search_results: For "these papers", "use them"
-- get_project_references: For "my library", "saved papers"
-- get_project_info: ONLY when user explicitly asks about "the project", "project goals"
+**CLEAR REQUEST** (user mentions specific topic):
+  Examples: "papers about BERT", "diffusion models 2025", "federated learning"
+  → Call search_papers directly with proper academic terms
+  → Show results → ask to create paper → create with found references
 
-NEVER HALLUCINATE REFERENCES:
-- Do NOT invent citations or paper titles from your training data
-- ALWAYS use the search_papers tool to find real papers
-- If user asks for references, call the tool FIRST before listing anything
+**DISCOVERY NEEDED** (user mentions broad/vague area):
+  Examples: "recent algorithms in 2025", "latest AI trends", "new methods in NLP"
+  → Call discover_topics to find specific topics
+  → Show discovered topics: "Found: [Topic1, Topic2, ...]. Search all or pick specific ones?"
+  → User confirms → call batch_search_papers for selected topics
+  → Show grouped results → create paper using those references
 
-Project (for reference only, do NOT inject into searches): {project_title}
-Channel: {channel_name}
-{context_summary}
+**AMBIGUOUS REQUEST** (missing key info):
+  Examples: "write a literature review", "find me some papers"
+  → Ask ONE brief question: "On what topic?" or "What area?"
+  → After user answers → proceed to CLEAR or DISCOVERY workflow
 
-{state_constraints}"""
+CRITICAL RULES:
+1. NEVER create a paper before finding references - search FIRST
+2. NEVER ask more than ONE clarifying question
+3. NEVER use user's literal words as search query - use proper academic terms
+4. NEVER list papers from your training data - you don't have access to real papers!
+5. Use discover_topics when you don't know what specific things to search for
+6. When displaying paper content in chat, output it as plain markdown (NOT in code blocks) so it renders naturally with proper headings, bold text, etc.
+7. NEVER add \\section*{{References}} or \\begin{{thebibliography}} - the References section is created AUTOMATICALLY from \\cite{{}} commands. Just use \\cite{{author2023keyword}} in your text.
+8. For LONG content (literature reviews, full papers, multi-section documents):
+   - Do NOT write the full content in chat - it's too slow
+   - Instead ASK: "Would you like me to create this as a paper in your project? That way you can edit it in the LaTeX editor."
+   - If user confirms, use create_paper tool with the content
+   - Only provide SHORT summaries (1-2 paragraphs) directly in chat
 
-# Constraint templates added by state machine
-CONSTRAINT_CLARIFICATION = """
-CURRENT MODE: CLARIFICATION
-- Ask ONE short question with 2-3 options max
-- Do NOT call any tools
-- Keep the question simple and direct
-- Example: "Do you want research papers or a list of subtopics?"
-"""
+**WHEN USER CONFIRMS TOPICS OR REQUESTS A SEARCH:**
+- You MUST call the search_papers or batch_search_papers tool!
+- Say "Searching for papers on [topics]..." and call the tool
+- The search results will appear automatically in the chat - you don't receive them directly
+- After calling the search tool, just confirm: "I've initiated the search. The papers will appear below."
 
-CONSTRAINT_EXECUTE = """
-CURRENT MODE: EXECUTE
-- Proceed with the task immediately
-- NO questions allowed - make reasonable choices if unsure
-- Use tools as needed to complete the request
-"""
+**AFTER showing topics + user confirms:**
+User: "all 6 please" or "search all" or "yes"
+→ Call batch_search_papers with the topics you listed
+→ Format your response like: "Searching for papers on Vision Transformers, RLHF, etc. The results will appear below."
+→ Construct the tool call with topics array like this:
+   batch_search_papers(topics=[
+     {{"topic": "Diffusion Models", "query": "diffusion models 2025"}},
+     {{"topic": "RLHF", "query": "reinforcement learning human feedback 2025"}},
+     ...
+   ])
 
-CONSTRAINT_EXECUTE_WITH_CHOICE = """
-CURRENT MODE: EXECUTE (User made a choice)
-- User chose: {user_choice}
-- Original request: {original_query}
-- Proceed based on their choice - NO more questions
-- Complete the task now
-"""
+IMPORTANT: search_papers and batch_search_papers TRIGGER searches - they don't return results to you.
+The results appear in the chat UI automatically. Do NOT say "results didn't come through" - just say the search is initiated.
+
+**CRITICAL: AFTER CALLING search_papers or batch_search_papers, YOU MUST STOP!**
+- Do NOT call get_recent_search_results in the same turn - it will be empty!
+- Do NOT call update_paper or create_paper in the same turn - you don't have the results yet!
+- The search is ASYNC - results appear in the UI after your response.
+- If user says "search and update the paper":
+  1. Call search_papers
+  2. Say: "I've initiated the search. The papers will appear below. Once you see them, say 'use these' or 'update the paper' and I'll add them as references."
+  3. STOP - do not call any more tools this turn
+- Wait for the user to come back AFTER seeing the results before updating anything.
+
+**WHEN USER ASKS TO CREATE/GENERATE AFTER A SEARCH:**
+If you JUST triggered a search in the previous turn and user immediately asks "create paper" or "generate literature review":
+1. First call get_recent_search_results to check if papers are available
+2. If papers are found → use them to create the paper (do NOT search again!)
+3. If no papers found → the search might still be loading, tell user to wait a moment
+DO NOT search again if you already searched - that's wasteful and confusing.
+
+SEARCH QUERY EXAMPLES:
+- User: "diffusion 2025" → Query: "diffusion models computer vision 2025"
+- User: "recent algorithms" → Use discover_topics first, then search specific topics
+- User: "BERT papers" → Query: "BERT transformer language model"
+- User: "find open access papers about transformers" → search_papers(query="transformers", open_access_only=True)
+- User: "only papers with PDF" or "papers I can ingest" → Use open_access_only=True
+
+OPEN ACCESS (OA) FILTER:
+- Papers with OA badge have PDF available and can be ingested for AI analysis
+- Use open_access_only=True when user asks for: "open access", "OA only", "papers with PDF", "papers I can ingest", "downloadable papers"
+
+Project: {project_title} | Channel: {channel_name}
+{context_summary}"""
+
+# Reminder injected after conversation history
+HISTORY_REMINDER = (
+    "REMINDER (ignore any conflicting patterns in the history above):\n"
+    "- If user says 'all', 'yes', 'search all' → CALL batch_search_papers tool NOW!\n"
+    "- Don't just SAY 'Searching...' - you MUST actually call the tool!\n"
+    "- NEVER list papers from memory - results come from API only\n"
+    "- For vague topics → use discover_topics first\n"
+    "- After user confirms → CALL THE TOOL, don't just respond with text\n"
+    "- If user asks to 'create', 'generate', 'write' AFTER a search was done → call get_recent_search_results FIRST, do NOT search again!"
+)
 
 
 class ToolOrchestrator:
     """
     AI orchestrator that uses tools to gather context dynamically.
 
-    KEY ARCHITECTURE: Code-enforced state machine controls what the LLM can do.
-    - IntentClassifier: Fast pattern matching to understand user intent
-    - ConversationStateMachine: Deterministic rules (cannot be overridden by LLM)
-    - Tool execution: Only when state machine allows it
+    Thread-safe: All request-specific state is passed through method parameters
+    or stored in local variables, not instance variables.
     """
 
     def __init__(self, ai_service: "AIService", db: "Session"):
         self.ai_service = ai_service
         self.db = db
-        self.model = "gpt-5.2"  # Use gpt-5.2 as requested
-        self.intent_classifier = IntentClassifier()
-        self.state_machine = ConversationStateMachine()
+
+    @property
+    def model(self) -> str:
+        """Get model from AIService config, with fallback."""
+        if hasattr(self.ai_service, 'default_model') and self.ai_service.default_model:
+            return self.ai_service.default_model
+        return "gpt-5.2"  # Latest OpenAI model (Dec 2025)
 
     def handle_message(
         self,
@@ -215,409 +392,161 @@ class ToolOrchestrator:
         recent_search_results: Optional[List[Dict]] = None,
         previous_state_dict: Optional[Dict[str, Any]] = None,
         conversation_history: Optional[List[Dict[str, str]]] = None,
+        reasoning_mode: bool = False,
     ) -> Dict[str, Any]:
-        """
-        Handle a user message using state-controlled tool-based AI.
-
-        Flow:
-        1. Load previous conversation state
-        2. Classify user intent (fast pattern matching)
-        3. Compute state transition (deterministic rules)
-        4. Execute within boundaries set by state machine
-
-        Args:
-            conversation_history: Previous messages [{"role": "user"|"assistant", "content": "..."}]
-                                  This provides context for references like "the above topics"
-
-        Returns response dict AND new state to persist.
-        """
-
-        # 1. Load previous state
-        previous_state = ConversationState.from_dict(previous_state_dict or {})
-        print(f"\n[STATE] Input: phase={previous_state.phase.value}, clarification_asked={previous_state.clarification_asked}")
-
-        # 1.5. SPECIAL CASE: User responding with a count after we asked
-        import re
-        if previous_state_dict and previous_state_dict.get("awaiting_count"):
-            # Extract number from user's response
-            count_match = re.search(r"(\d+)", message)
-            if count_match:
-                count = int(count_match.group(1))
-                original_query = previous_state_dict.get("original_query", message)
-                context_query = previous_state_dict.get("context_query")  # For context-based searches
-                print(f"[COUNT_RESPONSE] User provided count: {count} for query: {original_query}")
-
-                # If this was a context search, execute it directly
-                if context_query:
-                    print(f"[COUNT_RESPONSE] Context search with query: {context_query}")
-                    self._max_search_calls = count
-                    self._search_calls_made = 0
-                    return self._execute_context_search(
-                        project=project,
-                        query=context_query,
-                        count=count,
-                    )
-
-                # Now proceed with the original query + the specified count
-                # Re-classify with the original query but inject the count
-                from app.services.discussion_ai.state_machine import UserIntent, ClassifiedIntent
-
-                # Create a classified intent with the count
-                topic_match = re.search(r"(?:about|on|for|related\s+to)\s+(.+?)(?:\s*$|\s*\.|\s*\?)", original_query, re.IGNORECASE)
-                topic = topic_match.group(1).strip() if topic_match else None
-
-                classified_intent = ClassifiedIntent(
-                    intent=UserIntent.SEARCH_PAPERS,
-                    confidence=1.0,
-                    needs_project_context=False,
-                    needs_search_results=False,
-                    needs_library=False,
-                    extracted_topic=topic,
-                    extracted_count=count,
-                )
-
-                # Reset state
-                previous_state.clarification_asked = False
-                previous_state.clarification_answered = True
-
-                # Set the limit and proceed
-                self._max_search_calls = count
-                self._search_calls_made = 0
-                print(f"[LIMIT] Count from user response: {count}")
-
-                # Continue to execute with this classified intent
-                from app.services.discussion_ai.state_machine import StateTransition, ConversationPhase
-                transition = StateTransition(
-                    action="execute",
-                    new_state=ConversationState(
-                        phase=ConversationPhase.EXECUTING,
-                        clarification_asked=True,
-                        clarification_answered=True,
-                    ),
-                    prompt_constraints={
-                        "user_choice": str(count),
-                        "original_query": original_query,
-                    },
-                )
-
-                result = self._execute_with_constraints(
-                    project=project,
-                    channel=channel,
-                    message=original_query,  # Use original query
-                    recent_search_results=recent_search_results,
-                    transition=transition,
-                    classified_intent=classified_intent,
-                    conversation_history=conversation_history,
-                )
-                result["conversation_state"] = transition.new_state.to_dict()
-                return result
-
-        # 2. Classify intent (fast, before main LLM)
-        has_search_results = bool(recent_search_results)
-        print(f"[CLASSIFY] Message: {message[:80]}")
-        print(f"[CLASSIFY] Has search results: {has_search_results}")
-        print(f"[CLASSIFY] Conversation history: {len(conversation_history) if conversation_history else 0} messages")
-
-        classified_intent = self.intent_classifier.classify(
-            message=message,
-            previous_state=previous_state,
-            has_search_results=has_search_results,
-            conversation_history=conversation_history,  # For context-based search extraction
-        )
-        print(f"[INTENT] Result: intent={classified_intent.intent.value}, confidence={classified_intent.confidence:.2f}")
-        print(f"[INTENT] needs_project={classified_intent.needs_project_context}")
-        print(f"[INTENT] extracted_context_query={classified_intent.extracted_context_query}")
-
-        # 2.5. SPECIAL HANDLING: Search from context (deterministic, bypass LLM)
-        from app.services.discussion_ai.state_machine import UserIntent
-        if classified_intent.intent == UserIntent.SEARCH_FROM_CONTEXT and classified_intent.extracted_context_query:
-            # If no count specified, ask the user
-            if classified_intent.extracted_count is None:
-                print(f"[CONTEXT_SEARCH] No count specified - asking user")
-                return {
-                    "message": f"I found these topics from our conversation: **{classified_intent.extracted_context_query}**\n\nHow many papers would you like me to find for these topics?",
-                    "actions": [],
-                    "citations": [],
-                    "model_used": "deterministic",
-                    "reasoning_used": False,
-                    "tools_called": [],
-                    "conversation_state": {
-                        "phase": "clarification_pending",
-                        "clarification_asked": True,
-                        "awaiting_count": True,
-                        "original_query": message,
-                        "context_query": classified_intent.extracted_context_query,
-                    },
-                }
-
-            print(f"[CONTEXT_SEARCH] BYPASSING LLM - using extracted query: {classified_intent.extracted_context_query}")
-            return self._execute_context_search(
-                project=project,
-                query=classified_intent.extracted_context_query,
-                count=classified_intent.extracted_count,
+        """Handle a user message (non-streaming)."""
+        try:
+            # Build request context (thread-safe - local variable)
+            ctx = self._build_request_context(
+                project, channel, message, recent_search_results, reasoning_mode
             )
 
-        # 3. Compute state transition (CODE ENFORCED - LLM cannot override)
-        transition = self.state_machine.transition(
-            current_state=previous_state,
-            classified_intent=classified_intent,
-            message=message,
-        )
-        logger.info(
-            "State transition: action=%s, new_phase=%s",
-            transition.action,
-            transition.new_state.phase.value,
-        )
+            # Build messages for LLM
+            messages = self._build_messages(project, channel, message, recent_search_results, conversation_history)
 
-        # 4. Execute within boundaries
-        result = self._execute_with_constraints(
-            project=project,
-            channel=channel,
-            message=message,
-            recent_search_results=recent_search_results,
-            transition=transition,
-            classified_intent=classified_intent,
-            conversation_history=conversation_history,
-        )
+            # Execute with tools
+            return self._execute_with_tools(messages, ctx)
 
-        # Add new state to result for persistence
-        result["conversation_state"] = transition.new_state.to_dict()
+        except Exception as e:
+            logger.exception(f"Error in handle_message: {e}")
+            return self._error_response(str(e))
 
-        return result
+    def handle_message_streaming(
+        self,
+        project: "Project",
+        channel: "ProjectDiscussionChannel",
+        message: str,
+        recent_search_results: Optional[List[Dict]] = None,
+        previous_state_dict: Optional[Dict[str, Any]] = None,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        reasoning_mode: bool = False,
+    ) -> Generator[Dict[str, Any], None, None]:
+        """
+        Handle a user message with streaming response.
 
-    def _execute_with_constraints(
+        Yields:
+            dict: Either {"type": "token", "content": "..."} for content tokens,
+                  or {"type": "result", "data": {...}} at the end with full response.
+        """
+        try:
+            # Build request context (thread-safe - local variable)
+            ctx = self._build_request_context(
+                project, channel, message, recent_search_results, reasoning_mode
+            )
+
+            # Build messages for LLM
+            messages = self._build_messages(project, channel, message, recent_search_results, conversation_history)
+
+            # Execute with streaming
+            yield from self._execute_with_tools_streaming(messages, ctx)
+
+        except Exception as e:
+            logger.exception(f"Error in handle_message_streaming: {e}")
+            yield {"type": "result", "data": self._error_response(str(e))}
+
+    def _build_request_context(
         self,
         project: "Project",
         channel: "ProjectDiscussionChannel",
         message: str,
         recent_search_results: Optional[List[Dict]],
-        transition: StateTransition,
-        classified_intent: "ClassifiedIntent",
-        conversation_history: Optional[List[Dict[str, str]]] = None,
+        reasoning_mode: bool,
     ) -> Dict[str, Any]:
-        """Execute AI within the boundaries set by state machine."""
+        """Build thread-safe request context."""
+        import re
 
-        # CODE-ENFORCED LIMIT: Extract user's requested count for search calls
-        # This CANNOT be overridden by the LLM - it's enforced in _execute_tool_calls
-        # If user didn't specify a count, we need to ask (no default)
-        from app.services.discussion_ai.state_machine import UserIntent
-        needs_search = classified_intent.intent in (
-            UserIntent.SEARCH_PAPERS,
-            UserIntent.SEARCH_FROM_CONTEXT,
-            UserIntent.AMBIGUOUS_REQUEST,
-        )
+        # Extract count from message (e.g., "find 5 papers" → 5)
+        count_match = re.search(r"(\d+)\s*(?:papers?|references?|articles?)", message, re.IGNORECASE)
+        extracted_count = int(count_match.group(1)) if count_match else None
 
-        if needs_search and classified_intent.extracted_count is None:
-            # User wants to search but didn't specify how many - ask them
-            print(f"[LIMIT] No count specified for search - asking user")
-            return {
-                "message": "How many papers/references would you like me to find?",
-                "actions": [],
-                "citations": [],
-                "model_used": "deterministic",
-                "reasoning_used": False,
-                "tools_called": [],
-                "conversation_state": {
-                    "phase": "clarification_pending",
-                    "clarification_asked": True,
-                    "awaiting_count": True,
-                    "original_query": message,
-                },
-            }
+        return {
+            "project": project,
+            "channel": channel,
+            "recent_search_results": recent_search_results or [],
+            "reasoning_mode": reasoning_mode,
+            "max_papers": extracted_count if extracted_count else 999,
+            "papers_requested": 0,
+        }
 
-        self._max_search_calls = classified_intent.extracted_count or 999  # High default if somehow not set
-        self._search_calls_made = 0
-        print(f"[LIMIT] Max search calls allowed: {self._max_search_calls}")
-
-        # Build context summary
+    def _build_messages(
+        self,
+        project: "Project",
+        channel: "ProjectDiscussionChannel",
+        message: str,
+        recent_search_results: Optional[List[Dict]],
+        conversation_history: Optional[List[Dict[str, str]]],
+    ) -> List[Dict]:
+        """Build the messages array for the LLM."""
         context_summary = self._build_context_summary(project, channel, recent_search_results)
-
-        # Build state-specific constraints for prompt
-        state_constraints = self._build_state_constraints(transition)
-
-        # Build system prompt with constraints
         system_prompt = BASE_SYSTEM_PROMPT.format(
             project_title=project.title,
             channel_name=channel.name,
             context_summary=context_summary,
-            state_constraints=state_constraints,
         )
 
         messages = [{"role": "system", "content": system_prompt}]
 
-        # Add conversation history if provided (for context like "the above topics")
+        # Add conversation history
         if conversation_history:
-            # Limit to last 10 messages to avoid token explosion
-            recent_history = conversation_history[-10:]
-
-            # Build explicit summary of what was discussed (helps LLM understand context)
-            assistant_content = [
-                msg["content"] for msg in recent_history
-                if msg["role"] == "assistant" and len(msg["content"]) > 50
-            ]
-            if assistant_content:
-                # Add explicit context reminder
-                last_assistant = assistant_content[-1][:1500]  # Last substantial AI response
-                context_reminder = f"""
-CONVERSATION CONTEXT (what was discussed above):
----
-{last_assistant}
----
-When user refers to "above topics", "these subjects", etc., use the topics from this context.
-"""
-                messages.append({"role": "system", "content": context_reminder})
-
-            for msg in recent_history:
+            for msg in conversation_history[-10:]:  # Last 10 messages
                 messages.append({"role": msg["role"], "content": msg["content"]})
 
-        # Add current user message
+            # Add reminder after history to override old patterns
+            messages.append({"role": "system", "content": HISTORY_REMINDER})
+
         messages.append({"role": "user", "content": message})
+        return messages
 
-        # Store context for tool execution
-        self._current_context = {
-            "project": project,
-            "channel": channel,
-            "recent_search_results": recent_search_results,
-        }
-
-        # Determine if tools should be available based on action
-        use_tools = transition.action in ("execute", "respond")
-
-        if not use_tools:
-            # Clarification mode - no tools, just ask the question
-            return self._generate_clarification(messages, transition)
-
-        # Execute mode - run AI with tools
-        return self._execute_with_tools(messages, transition)
-
-    def _build_state_constraints(self, transition: StateTransition) -> str:
-        """Build constraint text based on state machine decision."""
-
-        constraints = transition.prompt_constraints
-
-        if transition.action == "ask_clarification":
-            return CONSTRAINT_CLARIFICATION
-
-        if transition.action == "execute":
-            if constraints.get("user_choice"):
-                return CONSTRAINT_EXECUTE_WITH_CHOICE.format(
-                    user_choice=constraints.get("user_choice", ""),
-                    original_query=constraints.get("original_query", ""),
-                )
-            return CONSTRAINT_EXECUTE
-
-        # Default
-        return CONSTRAINT_EXECUTE
-
-    def _execute_context_search(
-        self,
-        project: "Project",
-        query: str,
-        count: int = 5,
-    ) -> Dict[str, Any]:
-        """
-        Execute a search based on context extracted from conversation.
-
-        This is DETERMINISTIC - bypasses LLM decision-making entirely.
-        The query was extracted programmatically from conversation history.
-        """
-        logger.info(f"Context search: query='{query}', count={count}")
-
-        # Build a simple response confirming the search
-        message = f"Searching for {count} papers about: **{query}**\n\n(This query was extracted from our conversation about the topics discussed above.)"
-
+    def _error_response(self, error_msg: str = "") -> Dict[str, Any]:
+        """Build a standard error response."""
         return {
-            "message": message,
-            "actions": [
-                {
-                    "type": "search_references",
-                    "summary": f"Search for papers about: {query}",
-                    "payload": {
-                        "query": query,
-                        "max_results": count,
-                    }
-                }
-            ],
+            "message": "I'm sorry, I encountered an error while processing your request. Please try again.",
+            "actions": [],
             "citations": [],
-            "model_used": "deterministic",  # No LLM used
+            "model_used": self.model,
             "reasoning_used": False,
-            "tools_called": ["context_extraction"],
-            "conversation_state": {
-                "phase": "executing",
-                "clarification_asked": False,
-                "original_intent": "search_from_context",
-            },
+            "tools_called": [],
+            "conversation_state": {},
         }
 
-    def _generate_clarification(
+    def _execute_with_tools_streaming(
         self,
         messages: List[Dict],
-        transition: StateTransition,
-    ) -> Dict[str, Any]:
-        """Generate a clarification question (no tools)."""
-
-        try:
-            client = self.ai_service.openai_client
-            if not client:
-                return {
-                    "message": "AI service not configured.",
-                    "actions": [],
-                    "citations": [],
-                    "model_used": self.model,
-                    "reasoning_used": False,
-                    "tools_called": [],
-                }
-
-            response = client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                # NO tools - just generate clarification question
-            )
-
-            return {
-                "message": response.choices[0].message.content or "",
-                "actions": [],
-                "citations": [],
-                "model_used": self.model,
-                "reasoning_used": False,
-                "tools_called": [],
-            }
-
-        except Exception as e:
-            logger.exception("Error generating clarification")
-            return {
-                "message": f"Error: {str(e)}",
-                "actions": [],
-                "citations": [],
-                "model_used": self.model,
-                "reasoning_used": False,
-                "tools_called": [],
-            }
-
-    def _execute_with_tools(
-        self,
-        messages: List[Dict],
-        transition: StateTransition,
-    ) -> Dict[str, Any]:
-        """Execute with tool calling (state allows it)."""
-
+        ctx: Dict[str, Any],
+    ) -> Generator[Dict[str, Any], None, None]:
+        """Execute with tool calling and streaming."""
         max_iterations = 5
         iteration = 0
         all_tool_results = []
-        response = {"content": "", "tool_calls": []}
+        accumulated_content = []
+
+        print(f"\n[STREAMING] Starting tool execution with model: {self.model}\n")
 
         while iteration < max_iterations:
             iteration += 1
-            logger.info(f"Tool orchestrator iteration {iteration}")
+            print(f"\n[STREAMING] Tool orchestrator iteration {iteration}\n")
 
-            response = self._call_ai_with_tools(messages)
-            tool_calls = response.get("tool_calls", [])
+            # Stream the AI response
+            response_content = ""
+            tool_calls = []
+
+            for event in self._call_ai_with_tools_streaming(messages):
+                if event["type"] == "token":
+                    accumulated_content.append(event["content"])
+                    yield event  # Stream token to client
+                elif event["type"] == "result":
+                    response_content = event["content"]
+                    tool_calls = event.get("tool_calls", [])
+
+            print(f"\n[STREAMING] AI returned {len(tool_calls)} tool calls: {[tc.get('name') for tc in tool_calls]}\n")
 
             if not tool_calls:
+                # No more tool calls, we're done
+                print("\n[STREAMING] No tool calls, finishing\n")
                 break
 
-            # Execute tool calls
-            tool_results = self._execute_tool_calls(tool_calls)
+            # Execute tool calls (not streamed, but usually fast)
+            tool_results = self._execute_tool_calls(tool_calls, ctx)
             all_tool_results.extend(tool_results)
 
             # Add assistant message with tool calls
@@ -635,7 +564,7 @@ When user refers to "above topics", "these subjects", etc., use the topics from 
 
             messages.append({
                 "role": "assistant",
-                "content": response.get("content") or "",
+                "content": response_content or "",
                 "tool_calls": formatted_tool_calls,
             })
 
@@ -647,17 +576,94 @@ When user refers to "above topics", "these subjects", etc., use the topics from 
                     "content": json.dumps(result, default=str),
                 })
 
-        final_message = response.get("content", "")
+        # Build final result
+        final_message = "".join(accumulated_content)
+        print(f"\n[STREAMING] All tool results: {all_tool_results}\n")
         actions = self._extract_actions(final_message, all_tool_results)
+        print(f"\n[STREAMING] Extracted actions: {actions}\n")
 
-        return {
-            "message": final_message,
-            "actions": actions,
-            "citations": [],
-            "model_used": self.model,
-            "reasoning_used": True,
-            "tools_called": [t["name"] for t in all_tool_results] if all_tool_results else [],
+        yield {
+            "type": "result",
+            "data": {
+                "message": final_message,
+                "actions": actions,
+                "citations": [],
+                "model_used": self.model,
+                "reasoning_used": ctx.get("reasoning_mode", False),
+                "tools_called": [t["name"] for t in all_tool_results] if all_tool_results else [],
+                "conversation_state": {},
+            }
         }
+
+    def _execute_with_tools(
+        self,
+        messages: List[Dict],
+        ctx: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Execute with tool calling (non-streaming)."""
+        try:
+            max_iterations = 5
+            iteration = 0
+            all_tool_results = []
+            response = {"content": "", "tool_calls": []}
+
+            while iteration < max_iterations:
+                iteration += 1
+                logger.info(f"Tool orchestrator iteration {iteration}")
+
+                response = self._call_ai_with_tools(messages)
+                tool_calls = response.get("tool_calls", [])
+
+                if not tool_calls:
+                    break
+
+                # Execute tool calls
+                tool_results = self._execute_tool_calls(tool_calls, ctx)
+                all_tool_results.extend(tool_results)
+
+                # Add assistant message with tool calls
+                formatted_tool_calls = [
+                    {
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc["name"],
+                            "arguments": json.dumps(tc["arguments"]),
+                        }
+                    }
+                    for tc in tool_calls
+                ]
+
+                messages.append({
+                    "role": "assistant",
+                    "content": response.get("content") or "",
+                    "tool_calls": formatted_tool_calls,
+                })
+
+                # Add tool results
+                for tool_call, result in zip(tool_calls, tool_results):
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call["id"],
+                        "content": json.dumps(result, default=str),
+                    })
+
+            final_message = response.get("content", "")
+            actions = self._extract_actions(final_message, all_tool_results)
+
+            return {
+                "message": final_message,
+                "actions": actions,
+                "citations": [],
+                "model_used": self.model,
+                "reasoning_used": ctx.get("reasoning_mode", False),
+                "tools_called": [t["name"] for t in all_tool_results] if all_tool_results else [],
+                "conversation_state": {},
+            }
+
+        except Exception as e:
+            logger.exception(f"Error in _execute_with_tools: {e}")
+            return self._error_response(str(e))
 
     def _build_context_summary(
         self,
@@ -666,11 +672,11 @@ When user refers to "above topics", "these subjects", etc., use the topics from 
         recent_search_results: Optional[List[Dict]],
     ) -> str:
         """Build a lightweight summary of available context."""
+        from app.models import ProjectReference, ResearchPaper, ProjectDiscussionChannelResource
 
         lines = []
 
         # Count project references
-        from app.models import ProjectReference
         ref_count = self.db.query(ProjectReference).filter(
             ProjectReference.project_id == project.id
         ).count()
@@ -678,7 +684,6 @@ When user refers to "above topics", "these subjects", etc., use the topics from 
             lines.append(f"- Project library: {ref_count} saved references")
 
         # Count project papers
-        from app.models import ResearchPaper
         paper_count = self.db.query(ResearchPaper).filter(
             ResearchPaper.project_id == project.id
         ).count()
@@ -694,7 +699,6 @@ When user refers to "above topics", "these subjects", etc., use the topics from 
                 lines.append(f"    {i}. {title}{'...' if len(p.get('title', '')) > 60 else ''} ({year})")
 
         # Channel resources
-        from app.models import ProjectDiscussionChannelResource
         resource_count = self.db.query(ProjectDiscussionChannelResource).filter(
             ProjectDiscussionChannelResource.channel_id == channel.id
         ).count()
@@ -707,10 +711,8 @@ When user refers to "above topics", "these subjects", etc., use the topics from 
         return "\n".join(lines)
 
     def _call_ai_with_tools(self, messages: List[Dict]) -> Dict[str, Any]:
-        """Call OpenAI with tool definitions."""
-
+        """Call OpenAI with tool definitions (non-streaming)."""
         try:
-            # Use the AI service's OpenAI client for tool calling
             client = self.ai_service.openai_client
 
             if not client:
@@ -745,13 +747,77 @@ When user refers to "above topics", "these subjects", etc., use the topics from 
             logger.exception("Error calling AI with tools")
             return {"content": f"Error: {str(e)}", "tool_calls": []}
 
-    def _execute_tool_calls(self, tool_calls: List[Dict]) -> List[Dict]:
-        """Execute the tool calls and return results.
+    def _call_ai_with_tools_streaming(self, messages: List[Dict]) -> Generator[Dict[str, Any], None, None]:
+        """Call OpenAI with tool definitions (streaming)."""
+        try:
+            client = self.ai_service.openai_client
 
-        CODE-ENFORCED LIMIT: search_papers calls are limited to _max_search_calls.
-        This ensures the LLM cannot do more searches than the user requested.
-        """
+            if not client:
+                yield {"type": "result", "content": "AI service not configured.", "tool_calls": []}
+                return
 
+            stream = client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                tools=DISCUSSION_TOOLS,
+                tool_choice="auto",
+                stream=True,
+            )
+
+            content_chunks = []
+            tool_calls_data = {}  # {index: {"id": ..., "name": ..., "arguments": ...}}
+
+            for chunk in stream:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if not delta:
+                    continue
+
+                # Handle content tokens
+                if delta.content:
+                    content_chunks.append(delta.content)
+                    yield {"type": "token", "content": delta.content}
+
+                # Handle tool calls (accumulated across chunks)
+                if delta.tool_calls:
+                    for tc_chunk in delta.tool_calls:
+                        idx = tc_chunk.index
+                        if idx not in tool_calls_data:
+                            tool_calls_data[idx] = {"id": "", "name": "", "arguments": ""}
+
+                        if tc_chunk.id:
+                            tool_calls_data[idx]["id"] = tc_chunk.id
+                        if tc_chunk.function:
+                            if tc_chunk.function.name:
+                                tool_calls_data[idx]["name"] = tc_chunk.function.name
+                            if tc_chunk.function.arguments:
+                                tool_calls_data[idx]["arguments"] += tc_chunk.function.arguments
+
+            # Parse accumulated tool calls
+            tool_calls = []
+            for idx in sorted(tool_calls_data.keys()):
+                tc = tool_calls_data[idx]
+                try:
+                    args = json.loads(tc["arguments"]) if tc["arguments"] else {}
+                except json.JSONDecodeError:
+                    args = {}
+                tool_calls.append({
+                    "id": tc["id"],
+                    "name": tc["name"],
+                    "arguments": args,
+                })
+
+            yield {
+                "type": "result",
+                "content": "".join(content_chunks),
+                "tool_calls": tool_calls,
+            }
+
+        except Exception as e:
+            logger.exception("Error in streaming AI call with tools")
+            yield {"type": "result", "content": f"Error: {str(e)}", "tool_calls": []}
+
+    def _execute_tool_calls(self, tool_calls: List[Dict], ctx: Dict[str, Any]) -> List[Dict]:
+        """Execute the tool calls and return results."""
         results = []
 
         for tc in tool_calls:
@@ -761,37 +827,53 @@ When user refers to "above topics", "these subjects", etc., use the topics from 
             logger.info(f"Executing tool: {name} with args: {args}")
 
             try:
-                # CODE-ENFORCED LIMIT: Block excess search_papers calls
+                # Enforce paper limit for search_papers
                 if name == "search_papers":
-                    max_allowed = getattr(self, '_max_search_calls', 5)
-                    calls_made = getattr(self, '_search_calls_made', 0)
+                    max_papers = ctx.get("max_papers", 100)
+                    papers_so_far = ctx.get("papers_requested", 0)
+                    requested_count = args.get("count", 1)
 
-                    if calls_made >= max_allowed:
-                        print(f"[LIMIT] BLOCKED search_papers call #{calls_made + 1} (max: {max_allowed})")
+                    if papers_so_far >= max_papers:
+                        logger.debug(f"Paper limit reached: {papers_so_far}/{max_papers}")
                         result = {
                             "status": "blocked",
-                            "message": f"Search limit reached ({max_allowed} searches). No more searches will be executed.",
-                            "reason": "code_enforced_limit"
+                            "message": f"Paper limit reached ({max_papers}). No more searches.",
                         }
                         results.append({"name": name, "result": result})
                         continue
 
-                    # Increment counter BEFORE executing
-                    self._search_calls_made = calls_made + 1
-                    print(f"[LIMIT] Executing search_papers call #{self._search_calls_made} of {max_allowed}")
+                    # Reduce count if it would exceed limit
+                    remaining = max_papers - papers_so_far
+                    if requested_count > remaining:
+                        args["count"] = remaining
+                        logger.debug(f"Reduced search count from {requested_count} to {remaining}")
 
+                    # Track papers requested
+                    ctx["papers_requested"] = papers_so_far + args.get("count", 1)
+
+                # Route to appropriate tool handler
                 if name == "get_recent_search_results":
-                    result = self._tool_get_recent_search_results()
+                    result = self._tool_get_recent_search_results(ctx)
                 elif name == "get_project_references":
-                    result = self._tool_get_project_references(**args)
+                    result = self._tool_get_project_references(ctx, **args)
                 elif name == "search_papers":
                     result = self._tool_search_papers(**args)
                 elif name == "get_project_papers":
-                    result = self._tool_get_project_papers(**args)
+                    result = self._tool_get_project_papers(ctx, **args)
                 elif name == "get_project_info":
-                    result = self._tool_get_project_info()
+                    result = self._tool_get_project_info(ctx)
                 elif name == "get_channel_resources":
-                    result = self._tool_get_channel_resources()
+                    result = self._tool_get_channel_resources(ctx)
+                elif name == "create_paper":
+                    result = self._tool_create_paper(ctx, **args)
+                elif name == "update_paper":
+                    result = self._tool_update_paper(ctx, **args)
+                elif name == "create_artifact":
+                    result = self._tool_create_artifact(ctx, **args)
+                elif name == "discover_topics":
+                    result = self._tool_discover_topics(**args)
+                elif name == "batch_search_papers":
+                    result = self._tool_batch_search_papers(**args)
                 else:
                     result = {"error": f"Unknown tool: {name}"}
 
@@ -803,16 +885,19 @@ When user refers to "above topics", "these subjects", etc., use the topics from 
 
         return results
 
-    def _tool_get_recent_search_results(self) -> Dict:
-        """Get papers from the most recent search (passed from frontend)."""
+    # -------------------------------------------------------------------------
+    # Tool Implementations
+    # -------------------------------------------------------------------------
 
-        recent = self._current_context.get("recent_search_results", [])
+    def _tool_get_recent_search_results(self, ctx: Dict[str, Any]) -> Dict:
+        """Get papers from the most recent search."""
+        recent = ctx.get("recent_search_results", [])
 
         if not recent:
             return {
                 "count": 0,
                 "papers": [],
-                "message": "No recent search results available. The user may need to search for papers first, or the search results weren't passed to this conversation."
+                "message": "No recent search results available. The user may need to search for papers first."
             }
 
         return {
@@ -834,14 +919,14 @@ When user refers to "above topics", "these subjects", etc., use the topics from 
 
     def _tool_get_project_references(
         self,
+        ctx: Dict[str, Any],
         topic_filter: Optional[str] = None,
-        limit: int = 10,
+        limit: Optional[int] = None,
     ) -> Dict:
         """Get references from project library."""
-
         from app.models import ProjectReference, Reference
 
-        project = self._current_context["project"]
+        project = ctx["project"]
 
         query = self.db.query(Reference).join(
             ProjectReference,
@@ -850,18 +935,24 @@ When user refers to "above topics", "these subjects", etc., use the topics from 
             ProjectReference.project_id == project.id
         )
 
-        # Apply topic filter if provided
         if topic_filter:
+            from sqlalchemy import func, cast
+            from sqlalchemy.dialects.postgresql import ARRAY
+            # Search in title, abstract, and authors (authors is an array, so convert to string)
             query = query.filter(
                 Reference.title.ilike(f"%{topic_filter}%") |
-                Reference.abstract.ilike(f"%{topic_filter}%")
+                Reference.abstract.ilike(f"%{topic_filter}%") |
+                func.array_to_string(Reference.authors, ' ').ilike(f"%{topic_filter}%")
             )
 
-        references = query.limit(limit).all()
+        if limit:
+            references = query.limit(limit).all()
+        else:
+            references = query.all()
 
         return {
             "count": len(references),
-            "references": [
+            "papers": [  # Standardized key
                 {
                     "id": str(ref.id),
                     "title": ref.title,
@@ -874,63 +965,23 @@ When user refers to "above topics", "these subjects", etc., use the topics from 
             ]
         }
 
-    def _tool_search_papers(self, query: str, count: int = 5, min_year: int = None) -> Dict:
+    def _tool_search_papers(self, query: str, count: int = 5, open_access_only: bool = False) -> Dict:
         """Search for papers online - returns action for frontend to execute."""
-
-        # If min_year specified, append year terms to query for better results
-        search_query = query
-        if min_year:
-            search_query = f"{query} {min_year}-{2026}"  # Include year range in query
-
-        # Check if we have recent search results that match
-        recent = self._current_context.get("recent_search_results", [])
-
-        if recent:
-            # Check if recent results might be relevant
-            query_lower = query.lower()
-            relevant = [
-                r for r in recent
-                if query_lower in r.get("title", "").lower() or
-                   query_lower in r.get("abstract", "").lower()
-            ]
-
-            if relevant:
-                return {
-                    "status": "found_in_recent",
-                    "count": len(relevant),
-                    "papers": relevant[:count],
-                    "message": f"Found {len(relevant)} relevant papers from recent search"
-                }
-
-        # Return action to trigger search
-        # IMPORTANT: The response must clearly tell the AI that the search WILL succeed
-        # so it doesn't apologize or say it couldn't find papers
-        year_note = f" (from {min_year} onwards)" if min_year else ""
-        payload = {
-            "query": search_query,  # Use modified query with year if specified
-            "max_results": count,
-        }
-        if min_year:
-            payload["min_year"] = min_year
-
+        oa_note = " (Open Access only)" if open_access_only else ""
         return {
             "status": "success",
-            "query": search_query,
-            "count": count,
-            "message": f"Search initiated for '{query}'{year_note}. Papers will appear in the results panel.",
+            "message": f"Searching for papers: '{query}'{oa_note}",
             "action": {
                 "type": "search_references",
-                "payload": payload,
+                "payload": {"query": query, "max_results": count, "open_access_only": open_access_only},
             },
-            "note": "SEARCH IS SUCCESSFUL. Papers are being retrieved. Do NOT say you couldn't find papers or apologize. The search works."
         }
 
-    def _tool_get_project_papers(self, include_content: bool = False) -> Dict:
+    def _tool_get_project_papers(self, ctx: Dict[str, Any], include_content: bool = False) -> Dict:
         """Get user's draft papers in the project."""
-
         from app.models import ResearchPaper
 
-        project = self._current_context["project"]
+        project = ctx["project"]
 
         papers = self.db.query(ResearchPaper).filter(
             ResearchPaper.project_id == project.id
@@ -950,68 +1001,763 @@ When user refers to "above topics", "these subjects", etc., use the topics from 
                 "abstract": paper.abstract,
             }
 
-            if include_content and paper.content:
-                # Truncate content to avoid token explosion
-                paper_info["content"] = paper.content[:2000] + "..." if len(paper.content) > 2000 else paper.content
+            if include_content:
+                # Get content from either plain content or LaTeX mode
+                content = paper.content
+                if not content and paper.content_json:
+                    # LaTeX mode papers store content in content_json.latex_source
+                    content = paper.content_json.get("latex_source", "")
+
+                if content:
+                    # Convert LaTeX to readable markdown for chat display
+                    display_content = self._latex_to_markdown(content)
+                    paper_info["content"] = display_content  # No truncation - show full content
 
             result["papers"].append(paper_info)
 
         return result
 
-    def _tool_get_project_info(self) -> Dict:
-        """Get project information."""
+    def _latex_to_markdown(self, latex: str) -> str:
+        """Convert LaTeX content to readable markdown for chat display."""
+        import re
 
-        project = self._current_context["project"]
+        # Remove document class and preamble
+        content = re.sub(r'\\documentclass\{[^}]*\}', '', latex)
+        content = re.sub(r'\\usepackage(\[[^\]]*\])?\{[^}]*\}', '', content)
+        content = re.sub(r'\\title\{([^}]*)\}', r'# \1', content)
+        content = re.sub(r'\\date\{[^}]*\}', '', content)
+        content = re.sub(r'\\begin\{document\}', '', content)
+        content = re.sub(r'\\end\{document\}', '', content)
+        content = re.sub(r'\\maketitle', '', content)
+
+        # Convert sections to markdown headers
+        content = re.sub(r'\\section\{([^}]*)\}', r'\n## \1\n', content)
+        content = re.sub(r'\\subsection\{([^}]*)\}', r'\n### \1\n', content)
+        content = re.sub(r'\\subsubsection\{([^}]*)\}', r'\n#### \1\n', content)
+        content = re.sub(r'\\paragraph\{([^}]*)\}', r'\n**\1**\n', content)
+
+        # Convert abstract
+        content = re.sub(r'\\begin\{abstract\}(.*?)\\end\{abstract\}', r'\n**Abstract:** \1\n', content, flags=re.DOTALL)
+
+        # Convert text formatting
+        content = re.sub(r'\\textbf\{([^}]*)\}', r'**\1**', content)
+        content = re.sub(r'\\textit\{([^}]*)\}', r'*\1*', content)
+        content = re.sub(r'\\emph\{([^}]*)\}', r'*\1*', content)
+        content = re.sub(r'\\underline\{([^}]*)\}', r'__\1__', content)
+
+        # Convert lists
+        content = re.sub(r'\\begin\{itemize\}', '', content)
+        content = re.sub(r'\\end\{itemize\}', '', content)
+        content = re.sub(r'\\begin\{enumerate\}', '', content)
+        content = re.sub(r'\\end\{enumerate\}', '', content)
+        content = re.sub(r'\\item\s*', '\n- ', content)
+
+        # Convert citations and references
+        content = re.sub(r'\\cite\{([^}]*)\}', r'[\1]', content)
+        content = re.sub(r'\\ref\{([^}]*)\}', r'[\1]', content)
+        content = re.sub(r'\\label\{[^}]*\}', '', content)
+
+        # Clean up extra whitespace
+        content = re.sub(r'\n{3,}', '\n\n', content)
+        content = content.strip()
+
+        return content
+
+    def _tool_get_project_info(self, ctx: Dict[str, Any]) -> Dict:
+        """Get project information."""
+        project = ctx["project"]
 
         return {
             "id": str(project.id),
             "title": project.title,
-            "idea": project.idea or "",  # Project idea/description
-            "scope": project.scope or "",  # Project scope
+            "idea": project.idea or "",
+            "scope": project.scope or "",
             "keywords": project.keywords or [],
             "status": project.status or "active",
         }
 
-    def _tool_get_channel_resources(self) -> Dict:
+    def _tool_get_channel_resources(self, ctx: Dict[str, Any]) -> Dict:
         """Get resources attached to the current channel."""
+        from app.models import ProjectDiscussionChannelResource
 
-        from app.models import ProjectDiscussionChannelResource, Reference, ResearchPaper
-
-        channel = self._current_context["channel"]
+        channel = ctx["channel"]
 
         resources = self.db.query(ProjectDiscussionChannelResource).filter(
             ProjectDiscussionChannelResource.channel_id == channel.id
         ).all()
 
-        result = {
+        return {
             "count": len(resources),
-            "resources": []
+            "resources": [
+                {
+                    "id": str(res.id),
+                    "type": res.resource_type.value if hasattr(res.resource_type, 'value') else str(res.resource_type),
+                    "details": res.details or {},
+                }
+                for res in resources
+            ]
         }
 
-        for res in resources:
-            resource_info = {
-                "id": str(res.id),
-                "type": res.resource_type.value if hasattr(res.resource_type, 'value') else str(res.resource_type),
-                "details": res.details or {},
-            }
-            result["resources"].append(resource_info)
+    def _link_cited_references(
+        self,
+        ctx: Dict[str, Any],
+        paper_id: str,
+        latex_content: str,
+    ) -> Dict[str, Any]:
+        """
+        Parse citations from LaTeX content and link matching references to the paper.
 
-        return result
+        1. Extract \cite{} keys from content
+        2. Match keys to recent_search_results by author/year pattern
+        3. Create Reference entries (if not exist)
+        4. Add to project library (ProjectReference)
+        5. Link to paper (PaperReference)
+
+        Returns summary of linked references.
+        """
+        import re
+        from uuid import UUID
+        from app.models import Reference, ProjectReference, PaperReference, ProjectReferenceStatus, ProjectReferenceOrigin
+
+        project = ctx["project"]
+        recent_search_results = ctx.get("recent_search_results", [])
+
+        if not recent_search_results:
+            return {"linked": 0, "message": "No recent search results to match against"}
+
+        # Extract all citation keys from \cite{key1, key2} commands
+        cite_pattern = r'\\cite\{([^}]+)\}'
+        cite_matches = re.findall(cite_pattern, latex_content)
+
+        # Flatten and clean citation keys
+        citation_keys = set()
+        for match in cite_matches:
+            for key in match.split(','):
+                citation_keys.add(key.strip())
+
+        if not citation_keys:
+            return {"linked": 0, "message": "No citations found in content"}
+
+        # Build lookup from recent search results
+        # Try to match citation keys (e.g., "vaswani2017attention") to papers
+        def normalize_for_matching(text: str) -> str:
+            """Normalize text for fuzzy matching."""
+            return re.sub(r'[^a-z0-9]', '', text.lower())
+
+        def get_author_year_key(paper: Dict) -> str:
+            """Generate a citation-like key from paper info."""
+            authors = paper.get("authors", "")
+            if isinstance(authors, list):
+                first_author = authors[0] if authors else "unknown"
+            else:
+                first_author = authors.split(",")[0].strip() if authors else "unknown"
+
+            # Extract last name - handle both "LastName, Initial." and "First Last" formats
+            if "," in first_author:
+                # Format: "LastName, Initial." - take part before comma
+                last_name = first_author.split(",")[0].strip()
+            else:
+                # Format: "First Last" - take last word
+                last_name = first_author.split()[-1] if first_author else "unknown"
+            year = str(paper.get("year", ""))
+
+            # Get first significant word from title for disambiguation
+            title = paper.get("title", "")
+            title_words = [w for w in re.findall(r'[a-z]+', title.lower()) if len(w) > 3]
+            title_word = title_words[0] if title_words else ""
+
+            return normalize_for_matching(f"{last_name}{year}{title_word}")
+
+        # Create lookup mapping
+        paper_lookup = {}
+        for paper in recent_search_results:
+            key = get_author_year_key(paper)
+            paper_lookup[key] = paper
+            # Also add by normalized title for fallback matching
+            title_key = normalize_for_matching(paper.get("title", ""))
+            if title_key:
+                paper_lookup[title_key] = paper
+
+        # Match citation keys to papers
+        linked_count = 0
+        linked_refs = []
+
+        try:
+            paper_uuid = UUID(paper_id)
+        except ValueError:
+            return {"linked": 0, "message": "Invalid paper ID"}
+
+        for cite_key in citation_keys:
+            normalized_key = normalize_for_matching(cite_key)
+
+            # Try exact match first
+            matched_paper = paper_lookup.get(normalized_key)
+
+            # Try partial match if no exact match
+            if not matched_paper:
+                for lookup_key, paper in paper_lookup.items():
+                    if normalized_key in lookup_key or lookup_key in normalized_key:
+                        matched_paper = paper
+                        break
+
+            if not matched_paper:
+                continue
+
+            # Check if reference already exists by DOI or title
+            doi = matched_paper.get("doi")
+            title = matched_paper.get("title", "")
+
+            existing_ref = None
+            if doi:
+                existing_ref = self.db.query(Reference).filter(
+                    Reference.doi == doi,
+                    Reference.owner_id == project.created_by
+                ).first()
+
+            if not existing_ref and title:
+                existing_ref = self.db.query(Reference).filter(
+                    Reference.title == title,
+                    Reference.owner_id == project.created_by
+                ).first()
+
+            # Create Reference if not exists
+            if not existing_ref:
+                authors = matched_paper.get("authors", [])
+                if isinstance(authors, str):
+                    authors = [a.strip() for a in authors.split(",")]
+
+                existing_ref = Reference(
+                    owner_id=project.created_by,
+                    title=title,
+                    authors=authors,
+                    year=matched_paper.get("year"),
+                    doi=doi,
+                    url=matched_paper.get("url"),
+                    source=matched_paper.get("source", "ai_discovery"),
+                    journal=matched_paper.get("journal"),
+                    abstract=matched_paper.get("abstract"),
+                    is_open_access=matched_paper.get("is_open_access", False),
+                    pdf_url=matched_paper.get("pdf_url"),
+                    status="pending",
+                )
+                self.db.add(existing_ref)
+                self.db.flush()
+
+            # Add to project library if not already there
+            existing_project_ref = self.db.query(ProjectReference).filter(
+                ProjectReference.project_id == project.id,
+                ProjectReference.reference_id == existing_ref.id
+            ).first()
+
+            if not existing_project_ref:
+                project_ref = ProjectReference(
+                    project_id=project.id,
+                    reference_id=existing_ref.id,
+                    status=ProjectReferenceStatus.ACCEPTED,
+                    origin=ProjectReferenceOrigin.AI_SUGGESTED,
+                )
+                self.db.add(project_ref)
+
+            # Link to paper if not already linked
+            existing_paper_ref = self.db.query(PaperReference).filter(
+                PaperReference.paper_id == paper_uuid,
+                PaperReference.reference_id == existing_ref.id
+            ).first()
+
+            if not existing_paper_ref:
+                paper_ref = PaperReference(
+                    paper_id=paper_uuid,
+                    reference_id=existing_ref.id,
+                )
+                self.db.add(paper_ref)
+                linked_count += 1
+                linked_refs.append(title)
+
+        self.db.commit()
+
+        return {
+            "linked": linked_count,
+            "references": linked_refs[:5],  # Return first 5 for summary
+            "message": f"Linked {linked_count} references to paper and project library"
+        }
+
+    def _tool_create_paper(
+        self,
+        ctx: Dict[str, Any],
+        title: str,
+        content: str,
+        paper_type: str = "research",
+        abstract: str = None,
+    ) -> Dict:
+        """Create a new paper in the project (always in LaTeX mode)."""
+        from app.models import ResearchPaper
+
+        project = ctx["project"]
+        owner_id = project.created_by
+
+        latex_source = self._ensure_latex_document(content, title, abstract)
+
+        new_paper = ResearchPaper(
+            title=title,
+            content=None,
+            content_json={
+                "authoring_mode": "latex",
+                "latex_source": latex_source,
+            },
+            abstract=abstract,
+            paper_type=paper_type,
+            status="draft",
+            project_id=project.id,
+            owner_id=owner_id,
+        )
+
+        self.db.add(new_paper)
+        self.db.commit()
+        self.db.refresh(new_paper)
+
+        # Link cited references to paper and project library
+        ref_result = self._link_cited_references(ctx, str(new_paper.id), latex_source)
+        ref_message = f" {ref_result['message']}" if ref_result.get("linked", 0) > 0 else ""
+
+        return {
+            "status": "success",
+            "message": f"Created paper '{title}' in the project.{ref_message}",
+            "paper_id": str(new_paper.id),
+            "references_linked": ref_result.get("linked", 0),
+            "action": {
+                "type": "paper_created",
+                "payload": {
+                    "paper_id": str(new_paper.id),
+                    "title": title,
+                }
+            }
+        }
+
+    def _ensure_latex_document(self, content: str, title: str, abstract: str = None) -> str:
+        """Ensure content is wrapped in a proper LaTeX document structure."""
+        if '\\documentclass' in content:
+            return content
+
+        abstract_section = ""
+        if abstract:
+            abstract_section = f"""
+\\begin{{abstract}}
+{abstract}
+\\end{{abstract}}
+"""
+
+        latex_template = f"""\\documentclass{{article}}
+\\usepackage[utf8]{{inputenc}}
+\\usepackage{{amsmath}}
+\\usepackage{{graphicx}}
+\\usepackage{{hyperref}}
+
+\\title{{{title}}}
+\\date{{\\today}}
+
+\\begin{{document}}
+
+\\maketitle
+{abstract_section}
+{content}
+
+\\end{{document}}
+"""
+        return latex_template.strip()
+
+    def _tool_update_paper(
+        self,
+        ctx: Dict[str, Any],
+        paper_id: str,
+        content: str,
+        section_name: Optional[str] = None,
+        append: bool = True,
+    ) -> Dict:
+        """Update an existing paper's content."""
+        from app.models import ResearchPaper
+        from uuid import UUID
+        import re
+
+        try:
+            paper_uuid = UUID(paper_id)
+        except ValueError:
+            return {"status": "error", "message": "Invalid paper ID format"}
+
+        paper = self.db.query(ResearchPaper).filter(
+            ResearchPaper.id == paper_uuid
+        ).first()
+
+        if not paper:
+            return {"status": "error", "message": "Paper not found"}
+
+        # Check if paper is in LaTeX mode (content stored in content_json)
+        is_latex_mode = paper.content_json and paper.content_json.get("authoring_mode") == "latex"
+
+        if is_latex_mode:
+            current_latex = paper.content_json.get("latex_source", "")
+
+            # Safety: strip \end{document} from content if AI accidentally includes it
+            content = re.sub(r'\\end\{document\}.*$', '', content, flags=re.DOTALL).strip()
+
+            if section_name:
+                # Replace a specific section by name
+                # Pattern matches \section{Name} through to next \section{, bibliography, or \end{document}
+                # Must preserve bibliography sections that come after
+                escaped_name = re.escape(section_name)
+                pattern = rf"(\\section\{{{escaped_name}\}}.*?)(?=\\section\{{|\\begin\{{thebibliography\}}|\\printbibliography|\\bibliography\{{|\\end\{{document\}}|$)"
+
+                if re.search(pattern, current_latex, re.DOTALL | re.IGNORECASE):
+                    # Replace the section with new content (use lambda to avoid escape issues with \section)
+                    new_latex = re.sub(pattern, lambda m: content + "\n\n", current_latex, count=1, flags=re.DOTALL | re.IGNORECASE)
+                else:
+                    # Section not found, append instead
+                    if "\\end{document}" in current_latex:
+                        new_latex = current_latex.replace("\\end{document}", f"\n\n{content}\n\n\\end{{document}}")
+                    else:
+                        new_latex = current_latex + "\n\n" + content
+            elif append and current_latex:
+                # Insert before \end{document} if present
+                if "\\end{document}" in current_latex:
+                    new_latex = current_latex.replace("\\end{document}", f"\n\n{content}\n\n\\end{{document}}")
+                else:
+                    new_latex = current_latex + "\n\n" + content
+            else:
+                new_latex = content
+
+            # Update content_json (make a copy to trigger SQLAlchemy change detection)
+            updated_json = dict(paper.content_json)
+            updated_json["latex_source"] = new_latex
+            paper.content_json = updated_json
+        else:
+            # Plain content mode
+            if append and paper.content:
+                paper.content = paper.content + "\n\n" + content
+            else:
+                paper.content = content
+
+        self.db.commit()
+
+        # Link any new cited references to paper and project library
+        latex_to_check = new_latex if is_latex_mode else content
+        ref_result = self._link_cited_references(ctx, paper_id, latex_to_check)
+        ref_message = f" {ref_result['message']}" if ref_result.get("linked", 0) > 0 else ""
+
+        section_msg = f" (replaced section '{section_name}')" if section_name else ""
+        return {
+            "status": "success",
+            "message": f"Updated paper '{paper.title}'{section_msg}.{ref_message}",
+            "paper_id": paper_id,
+            "references_linked": ref_result.get("linked", 0),
+            "action": {
+                "type": "paper_updated",
+                "payload": {
+                    "paper_id": paper_id,
+                    "title": paper.title,
+                }
+            }
+        }
+
+    def _tool_create_artifact(
+        self,
+        ctx: Dict[str, Any],
+        title: str,
+        content: str,
+        format: str = "markdown",
+        artifact_type: str = "document",
+    ) -> Dict:
+        """Create a downloadable artifact and save to database."""
+        import base64
+        import subprocess
+        import tempfile
+        import os
+        from app.models import DiscussionArtifact
+
+        safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
+
+        # Handle PDF generation with proper cleanup
+        if format == "pdf":
+            md_path = None
+            pdf_path = None
+            try:
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as md_file:
+                    md_file.write(content)
+                    md_path = md_file.name
+
+                pdf_path = md_path.replace('.md', '.pdf')
+
+                result = subprocess.run(
+                    ['pandoc', md_path, '-o', pdf_path, '--pdf-engine=tectonic'],
+                    capture_output=True,
+                    text=True,
+                    timeout=60
+                )
+
+                if result.returncode != 0:
+                    logger.error(f"Pandoc error: {result.stderr}")
+                    # Fall back to markdown
+                    return self._tool_create_artifact(ctx, title, content, "markdown", artifact_type)
+
+                with open(pdf_path, 'rb') as pdf_file:
+                    pdf_bytes = pdf_file.read()
+                    content_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+                    file_size_bytes = len(pdf_bytes)
+
+                filename = f"{safe_title}.pdf"
+                mime_type = "application/pdf"
+
+            except Exception as e:
+                logger.error(f"PDF generation failed: {e}")
+                return self._tool_create_artifact(ctx, title, content, "markdown", artifact_type)
+            finally:
+                # Always clean up temp files
+                if md_path and os.path.exists(md_path):
+                    os.unlink(md_path)
+                if pdf_path and os.path.exists(pdf_path):
+                    os.unlink(pdf_path)
+        else:
+            # Text-based formats
+            extensions = {"markdown": ".md", "latex": ".tex", "text": ".txt"}
+            extension = extensions.get(format, ".txt")
+            filename = f"{safe_title}{extension}"
+
+            content_bytes = content.encode('utf-8')
+            content_base64 = base64.b64encode(content_bytes).decode('utf-8')
+            file_size_bytes = len(content_bytes)
+
+            mime_types = {"markdown": "text/markdown", "latex": "application/x-tex", "text": "text/plain"}
+            mime_type = mime_types.get(format, "text/plain")
+
+        # Calculate human-readable file size
+        if file_size_bytes < 1024:
+            file_size = f"{file_size_bytes} B"
+        elif file_size_bytes < 1024 * 1024:
+            file_size = f"{file_size_bytes / 1024:.1f} KB"
+        else:
+            file_size = f"{file_size_bytes / (1024 * 1024):.1f} MB"
+
+        # Save artifact to database
+        channel = ctx.get("channel")
+        project = ctx.get("project")
+
+        if not channel:
+            logger.warning("Cannot save artifact: channel not found in context")
+            return {
+                "status": "success",
+                "message": f"Created downloadable artifact: '{title}' (not persisted)",
+                "action": {
+                    "type": "artifact_created",
+                    "summary": f"Download: {title}",
+                    "payload": {
+                        "artifact_id": None,
+                        "title": title,
+                        "filename": filename,
+                        "content_base64": content_base64,
+                        "format": format,
+                        "artifact_type": artifact_type,
+                        "mime_type": mime_type,
+                        "file_size": file_size,
+                    }
+                }
+            }
+
+        artifact = DiscussionArtifact(
+            channel_id=channel.id,
+            title=title,
+            filename=filename,
+            format=format,
+            artifact_type=artifact_type,
+            content_base64=content_base64,
+            mime_type=mime_type,
+            file_size=file_size,
+            created_by=project.created_by if project else None,
+        )
+        self.db.add(artifact)
+        self.db.commit()
+        self.db.refresh(artifact)
+
+        return {
+            "status": "success",
+            "message": f"Created downloadable artifact: '{title}'",
+            "action": {
+                "type": "artifact_created",
+                "summary": f"Download: {title}",
+                "payload": {
+                    "artifact_id": str(artifact.id),
+                    "title": title,
+                    "filename": filename,
+                    "content_base64": content_base64,
+                    "format": format,
+                    "artifact_type": artifact_type,
+                    "mime_type": mime_type,
+                    "file_size": file_size,
+                }
+            }
+        }
+
+    def _tool_discover_topics(self, area: str) -> Dict:
+        """Use web search to discover specific topics in a broad area."""
+        client = self.ai_service.openai_client
+        if not client:
+            return {
+                "status": "error",
+                "message": "AI service not configured for topic discovery.",
+                "topics": [],
+            }
+
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a research assistant. Search the web and identify 4-6 specific, "
+                            "concrete topics/algorithms/methods in the given area. "
+                            "Return ONLY a JSON array of objects with 'topic' (short name) and "
+                            "'query' (academic search query). Example:\n"
+                            '[{"topic": "Mixture of Experts", "query": "mixture of experts transformers 2025"}, '
+                            '{"topic": "Mamba", "query": "mamba state space models 2025"}]'
+                        )
+                    },
+                    {
+                        "role": "user",
+                        "content": f"What are the most important specific topics/algorithms/methods in: {area}?"
+                    }
+                ],
+                temperature=0.3,
+            )
+
+            content = response.choices[0].message.content or "[]"
+
+            import re
+            json_match = re.search(r'\[.*\]', content, re.DOTALL)
+            if json_match:
+                topics = json.loads(json_match.group())
+            else:
+                topics = []
+
+            return {
+                "status": "success",
+                "message": f"Discovered {len(topics)} topics in '{area}'",
+                "area": area,
+                "topics": topics,
+            }
+
+        except Exception as e:
+            logger.exception(f"Error discovering topics for area '{area}'")
+            return {
+                "status": "error",
+                "message": f"Failed to discover topics: {str(e)}",
+                "topics": [],
+            }
+
+    def _tool_batch_search_papers(self, topics: List) -> Dict:
+        """Search for papers on multiple topics at once."""
+        logger.info(f"batch_search_papers called with topics: {topics}")
+
+        if not topics:
+            return {
+                "status": "error",
+                "message": "No topics provided for batch search.",
+            }
+
+        # Handle case where topics might be a JSON string
+        if isinstance(topics, str):
+            try:
+                topics = json.loads(topics)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse topics as JSON: {e}")
+                return {
+                    "status": "error",
+                    "message": "Invalid topics format - expected list of topic objects.",
+                }
+
+        if not isinstance(topics, list):
+            return {
+                "status": "error",
+                "message": "Invalid topics format - expected list of topic objects.",
+            }
+
+        # Format topics for the batch search API
+        formatted_topics = []
+        for idx, t in enumerate(topics[:5]):  # Limit to 5 topics
+            try:
+                if isinstance(t, str):
+                    try:
+                        t = json.loads(t)
+                    except json.JSONDecodeError:
+                        continue
+
+                if not isinstance(t, dict):
+                    continue
+
+                # Get values with flexible key matching
+                topic_name = t.get("topic") or t.get('"topic"') or "Unknown"
+                query = t.get("query") or t.get('"query"') or str(topic_name)
+                max_results = t.get("max_results", 5)
+
+                # Clean up values
+                topic_name = str(topic_name).strip('"').strip("'")
+                query = str(query).strip('"').strip("'")
+
+                if isinstance(max_results, str):
+                    max_results = int(max_results) if max_results.isdigit() else 5
+                elif not isinstance(max_results, int):
+                    max_results = 5
+
+                formatted_topics.append({
+                    "topic": topic_name,
+                    "query": query,
+                    "max_results": max_results,
+                })
+
+            except Exception as e:
+                logger.exception(f"Error processing topic {idx}: {e}")
+                continue
+
+        if not formatted_topics:
+            return {
+                "status": "error",
+                "message": "Could not parse any valid topics from the request.",
+            }
+
+        return {
+            "status": "success",
+            "message": f"Searching for papers on {len(formatted_topics)} topics",
+            "action": {
+                "type": "batch_search_references",
+                "payload": {
+                    "queries": formatted_topics,
+                },
+            },
+        }
 
     def _extract_actions(
         self,
         message: str,
         tool_results: List[Dict],
     ) -> List[Dict]:
-        """Extract any actions that should be sent to the frontend."""
+        """Extract actions that should be sent to the frontend."""
+        # Action types that are notifications (already executed), not suggestions
+        COMPLETED_ACTION_TYPES = {
+            "paper_created",
+            "paper_updated",
+            "artifact_created",
+        }
 
         actions = []
 
-        # Check if any tool returned a search action
         for tr in tool_results:
             result = tr.get("result", {})
             if isinstance(result, dict) and result.get("action"):
-                actions.append(result["action"])
+                action = result["action"]
+                action_type = action.get("type", "")
+
+                # Skip completed/notification actions
+                if action_type in COMPLETED_ACTION_TYPES:
+                    logger.debug(f"Skipping completed action: {action_type}")
+                    continue
+
+                actions.append(action)
 
         return actions
-

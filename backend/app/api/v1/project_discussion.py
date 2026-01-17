@@ -43,6 +43,7 @@ from app.models import (
     ProjectRole,
     ResearchPaper,
     User,
+    DiscussionArtifact,
 )
 from pydantic import BaseModel
 from app.schemas.project_discussion import (
@@ -926,6 +927,35 @@ def update_discussion_channel(
     return _serialize_channel(channel)
 
 
+@router.delete("/projects/{project_id}/discussion/channels/{channel_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_discussion_channel(
+    project_id: UUID,
+    channel_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete a discussion channel and all its contents (messages, tasks, artifacts, etc.)."""
+    project = get_project_or_404(db, project_id)
+    ensure_project_member(db, project, current_user, roles=[ProjectRole.ADMIN, ProjectRole.EDITOR])
+    channel = _get_channel_or_404(db, project, channel_id)
+
+    if channel.is_default:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete the default channel"
+        )
+
+    logger.info(
+        "Deleting channel: channel_id=%s channel_name=%s project_id=%s by user_id=%s",
+        channel.id, channel.name, project.id, current_user.id
+    )
+
+    db.delete(channel)
+    db.commit()
+
+    return None
+
+
 @router.get("/projects/{project_id}/discussion/channels/{channel_id}/resources")
 def list_channel_resources(
     project_id: UUID,
@@ -1158,6 +1188,8 @@ def invoke_discussion_assistant(
                     "doi": getattr(r, "doi", None),
                     "url": getattr(r, "url", None),
                     "pdf_url": getattr(r, "pdf_url", None),
+                    "is_open_access": getattr(r, "is_open_access", None),
+                    "journal": getattr(r, "journal", None),
                 }
                 for r in payload.recent_search_results
             ]
@@ -1202,7 +1234,93 @@ def invoke_discussion_assistant(
         else:
             print(f"\n[DEBUG] NO CONVERSATION HISTORY - Question: {payload.question[:80]}\n")
 
-        # Call the tool-based orchestrator with state tracking
+        # Use streaming if requested
+        if stream:
+            print(f"\n[DEBUG] STREAMING PATH ENTERED\n")
+            def tool_event_iterator():
+                try:
+                    print(f"\n[DEBUG] tool_event_iterator() STARTED\n")
+                    final_result = None
+                    for event in tool_orchestrator.handle_message_streaming(
+                        project,
+                        channel,
+                        payload.question,
+                        recent_search_results=search_results_list,
+                        previous_state_dict=previous_state_dict,
+                        conversation_history=conversation_history,
+                        reasoning_mode=payload.reasoning or False,
+                    ):
+                        if event.get("type") == "token":
+                            yield "data: " + json.dumps({"type": "token", "content": event.get("content", "")}) + "\n\n"
+                        elif event.get("type") == "result":
+                            final_result = event.get("data", {})
+
+                    # Build final response from result
+                    if final_result:
+                        citations = [
+                            DiscussionAssistantCitation(
+                                origin=c.get("origin"),
+                                origin_id=c.get("origin_id"),
+                                label=c.get("label", ""),
+                                resource_type=c.get("resource_type"),
+                            )
+                            for c in final_result.get("citations", [])
+                        ]
+                        suggested_actions = [
+                            {
+                                "action_type": a.get("type", a.get("action_type", "")),
+                                "summary": a.get("summary", ""),
+                                "payload": a.get("payload", {}),
+                            }
+                            for a in final_result.get("actions", [])
+                        ]
+                        response_model = DiscussionAssistantResponse(
+                            message=final_result.get("message", ""),
+                            citations=citations,
+                            reasoning_used=final_result.get("reasoning_used", False),
+                            model=final_result.get("model_used", "gpt-5.2"),
+                            usage=None,
+                            suggested_actions=suggested_actions,
+                        )
+                        payload_dict = response_model.model_dump(mode="json")
+
+                        # Persist exchange
+                        exchange_payload = {
+                            "id": str(uuid4()),
+                            "question": payload.question,
+                            "response": payload_dict,
+                            "created_at": datetime.utcnow().isoformat() + "Z",
+                            "author": author_info,
+                        }
+                        conversation_state = final_result.get("conversation_state", {})
+                        background_tasks.add_task(
+                            _persist_assistant_exchange,
+                            project.id,
+                            channel.id,
+                            current_user.id,
+                            exchange_payload["id"],
+                            payload.question,
+                            payload_dict,
+                            exchange_payload["created_at"],
+                            conversation_state,
+                        )
+                        background_tasks.add_task(
+                            _broadcast_discussion_event,
+                            project.id,
+                            channel.id,
+                            "assistant_reply",
+                            {"exchange": exchange_payload},
+                        )
+
+                        yield "data: " + json.dumps({"type": "result", "payload": payload_dict}) + "\n\n"
+
+                except Exception as exc:
+                    logger.exception("Tool-based assistant stream failed", exc_info=exc)
+                    yield "data: " + json.dumps({"type": "error", "message": "Assistant stream failed"}) + "\n\n"
+
+            return StreamingResponse(tool_event_iterator(), media_type="text/event-stream")
+
+        # Non-streaming: Call the tool-based orchestrator with state tracking
         result = tool_orchestrator.handle_message(
             project,
             channel,
@@ -1210,6 +1328,7 @@ def invoke_discussion_assistant(
             recent_search_results=search_results_list,
             previous_state_dict=previous_state_dict,
             conversation_history=conversation_history,
+            reasoning_mode=payload.reasoning or False,
         )
 
         # Convert orchestrator result to API response format
@@ -1299,6 +1418,8 @@ def invoke_discussion_assistant(
                     "doi": getattr(r, "doi", None),
                     "url": getattr(r, "url", None),
                     "pdf_url": getattr(r, "pdf_url", None),
+                    "is_open_access": getattr(r, "is_open_access", None),
+                    "journal": getattr(r, "journal", None),
                 }
                 for r in payload.recent_search_results
             ]
@@ -1698,6 +1819,7 @@ class PaperActionRequest(BaseModel):
 class PaperActionResponse(BaseModel):
     success: bool
     paper_id: Optional[str] = None
+    reference_id: Optional[str] = None
     message: str
 
 
@@ -1983,7 +2105,8 @@ def _handle_add_reference(
 
     if existing_link:
         return PaperActionResponse(
-            success=False,
+            success=True,  # Still success - reference exists
+            reference_id=str(ref.id),
             message="Reference already exists in project"
         )
 
@@ -2024,6 +2147,7 @@ def _handle_add_reference(
     return PaperActionResponse(
         success=True,
         paper_id=str(ref.id),
+        reference_id=str(ref.id),
         message=message
     )
 
@@ -2128,6 +2252,132 @@ async def search_references(
             papers=papers,
             total_found=len(result.papers),
             query=request.query
+        )
+    finally:
+        await discovery_service.close()
+
+
+# ============================================================================
+# Batch Search References Endpoint (for multi-topic search)
+# ============================================================================
+
+class TopicQuery(BaseModel):
+    """A single topic query for batch search."""
+    topic: str  # Display name for grouping (e.g., "Mixture of Experts")
+    query: str  # Actual search query (e.g., "mixture of experts 2025")
+    max_results: int = 5
+
+
+class BatchSearchRequest(BaseModel):
+    """Request for batch search across multiple topics."""
+    queries: List[TopicQuery]
+    open_access_only: bool = False
+
+
+class TopicResult(BaseModel):
+    """Results for a single topic in batch search."""
+    topic: str
+    query: str
+    papers: List[DiscoveredPaperResponse]
+    count: int
+
+
+class BatchSearchResponse(BaseModel):
+    """Response for batch search across multiple topics."""
+    results: List[TopicResult]
+    total_found: int
+
+
+@router.post("/projects/{project_id}/discussion/batch-search-references")
+async def batch_search_references(
+    project_id: UUID,
+    request: BatchSearchRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BatchSearchResponse:
+    """
+    Search for academic papers across multiple topics in one call.
+    Returns results grouped by topic for easy consumption.
+    """
+    project = get_project_or_404(db, project_id)
+    ensure_project_member(db, project, current_user)
+
+    from app.services.paper_discovery_service import PaperDiscoveryService
+
+    # Limit to 5 topics max per request
+    queries = request.queries[:5]
+    sources = ["arxiv", "semantic_scholar", "openalex", "crossref"]
+
+    results: List[TopicResult] = []
+    total_found = 0
+
+    # Track seen papers across topics for deduplication
+    seen_keys: set = set()
+
+    discovery_service = PaperDiscoveryService()
+
+    try:
+        for topic_query in queries:
+            max_results = min(topic_query.max_results, 10)  # Cap per topic
+            search_max = max_results * 2 if request.open_access_only else max_results
+
+            result = await discovery_service.discover_papers(
+                query=topic_query.query,
+                max_results=search_max,
+                sources=sources,
+                fast_mode=True,
+            )
+
+            # Filter for open access if requested
+            source_papers = result.papers
+            if request.open_access_only:
+                source_papers = [p for p in source_papers if p.pdf_url or p.open_access_url]
+
+            # Convert to response format with cross-topic deduplication
+            papers = []
+            for idx, p in enumerate(source_papers[:max_results]):
+                unique_key = p.get_unique_key() if hasattr(p, 'get_unique_key') else f"{topic_query.topic}:{idx}"
+
+                # Skip if already seen in another topic
+                if unique_key in seen_keys:
+                    continue
+                seen_keys.add(unique_key)
+
+                paper_id = f"{p.source}:{unique_key}"
+
+                # Parse authors
+                authors_list = []
+                if p.authors:
+                    if isinstance(p.authors, list):
+                        authors_list = [str(a) for a in p.authors]
+                    elif isinstance(p.authors, str):
+                        authors_list = [a.strip() for a in p.authors.split(",")]
+
+                papers.append(DiscoveredPaperResponse(
+                    id=paper_id,
+                    title=p.title,
+                    authors=authors_list,
+                    year=p.year,
+                    abstract=p.abstract[:500] if p.abstract else None,
+                    doi=p.doi,
+                    url=p.url,
+                    source=p.source,
+                    relevance_score=p.relevance_score,
+                    pdf_url=p.pdf_url or p.open_access_url,
+                    is_open_access=p.is_open_access
+                ))
+
+            results.append(TopicResult(
+                topic=topic_query.topic,
+                query=topic_query.query,
+                papers=papers,
+                count=len(papers)
+            ))
+            total_found += len(papers)
+
+        return BatchSearchResponse(
+            results=results,
+            total_found=total_found
         )
     finally:
         await discovery_service.close()
@@ -2251,3 +2501,131 @@ def _persist_assistant_exchange(
         )
     finally:
         db.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Channel Artifacts
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class DiscussionArtifactResponse(BaseModel):
+    id: str
+    title: str
+    filename: str
+    format: str
+    artifact_type: str
+    mime_type: str
+    file_size: Optional[str] = None
+    created_at: datetime
+    created_by: Optional[str] = None
+
+
+class DiscussionArtifactDownloadResponse(BaseModel):
+    id: str
+    title: str
+    filename: str
+    content_base64: str
+    mime_type: str
+
+
+@router.get(
+    "/projects/{project_id}/discussion/channels/{channel_id}/artifacts",
+    response_model=List[DiscussionArtifactResponse],
+)
+async def list_channel_artifacts(
+    project_id: UUID,
+    channel_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List all artifacts for a channel."""
+    project = get_project_or_404(db, project_id)
+    ensure_project_member(db, project, current_user)
+
+    # Verify channel belongs to project
+    channel = db.query(ProjectDiscussionChannel).filter(
+        ProjectDiscussionChannel.id == channel_id,
+        ProjectDiscussionChannel.project_id == project_id,
+    ).first()
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    artifacts = db.query(DiscussionArtifact).filter(
+        DiscussionArtifact.channel_id == channel_id
+    ).order_by(DiscussionArtifact.created_at.desc()).all()
+
+    return [
+        DiscussionArtifactResponse(
+            id=str(a.id),
+            title=a.title,
+            filename=a.filename,
+            format=a.format.value if hasattr(a.format, 'value') else str(a.format),
+            artifact_type=a.artifact_type,
+            mime_type=a.mime_type,
+            file_size=a.file_size,
+            created_at=a.created_at,
+            created_by=str(a.created_by) if a.created_by else None,
+        )
+        for a in artifacts
+    ]
+
+
+@router.get(
+    "/projects/{project_id}/discussion/channels/{channel_id}/artifacts/{artifact_id}",
+    response_model=DiscussionArtifactDownloadResponse,
+)
+async def get_artifact(
+    project_id: UUID,
+    channel_id: UUID,
+    artifact_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get artifact content for download."""
+    project = get_project_or_404(db, project_id)
+    ensure_project_member(db, project, current_user)
+
+    artifact = db.query(DiscussionArtifact).filter(
+        DiscussionArtifact.id == artifact_id,
+        DiscussionArtifact.channel_id == channel_id,
+    ).first()
+
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+    return DiscussionArtifactDownloadResponse(
+        id=str(artifact.id),
+        title=artifact.title,
+        filename=artifact.filename,
+        content_base64=artifact.content_base64,
+        mime_type=artifact.mime_type,
+    )
+
+
+@router.delete(
+    "/projects/{project_id}/discussion/channels/{channel_id}/artifacts/{artifact_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_artifact(
+    project_id: UUID,
+    channel_id: UUID,
+    artifact_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete an artifact."""
+    project = get_project_or_404(db, project_id)
+    ensure_project_member(db, project, current_user)
+
+    artifact = db.query(DiscussionArtifact).filter(
+        DiscussionArtifact.id == artifact_id,
+        DiscussionArtifact.channel_id == channel_id,
+    ).first()
+
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+    db.delete(artifact)
+    db.commit()
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

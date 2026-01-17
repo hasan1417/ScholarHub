@@ -87,7 +87,7 @@ export const buildAuthHeaders = () => {
 // Create axios instance with base configuration
 const api = axios.create({
   baseURL: API_BASE_URL || '/api/v1',
-  timeout: 60000,
+  timeout: 180000, // 3 minutes for AI operations
   headers: {
     'Content-Type': 'application/json',
   },
@@ -632,6 +632,9 @@ export const projectDiscussionAPI = {
   updateChannel: (projectId: string, channelId: string, payload: DiscussionChannelUpdate) =>
     api.put<DiscussionChannelSummary>(`/projects/${projectId}/discussion/channels/${channelId}`, payload),
 
+  deleteChannel: (projectId: string, channelId: string) =>
+    api.delete<void>(`/projects/${projectId}/discussion/channels/${channelId}`),
+
   listAssistantHistory: (projectId: string, channelId: string) =>
     api.get<DiscussionAssistantHistoryItem[]>(
       `/projects/${projectId}/discussion/channels/${channelId}/assistant-history`
@@ -699,7 +702,7 @@ export const projectDiscussionAPI = {
     actionType: string,
     payload: Record<string, unknown>
   ) =>
-    api.post<{ success: boolean; paper_id?: string; message: string }>(
+    api.post<{ success: boolean; paper_id?: string; reference_id?: string; message: string }>(
       `/projects/${projectId}/discussion/paper-action`,
       { action_type: actionType, payload }
     ),
@@ -731,6 +734,67 @@ export const projectDiscussionAPI = {
       max_results: options?.maxResults ?? 10,
       open_access_only: options?.openAccessOnly ?? false,
     }),
+
+  // Batch search across multiple topics
+  batchSearchReferences: (
+    projectId: string,
+    queries: Array<{ topic: string; query: string; max_results?: number }>,
+    options?: { openAccessOnly?: boolean }
+  ) =>
+    api.post<{
+      results: Array<{
+        topic: string
+        query: string
+        papers: Array<{
+          id: string
+          title: string
+          authors: string[]
+          year?: number
+          abstract?: string
+          doi?: string
+          url?: string
+          source: string
+          relevance_score?: number
+          pdf_url?: string
+          is_open_access?: boolean
+        }>
+        count: number
+      }>
+      total_found: number
+    }>(`/projects/${projectId}/discussion/batch-search-references`, {
+      queries: queries.map(q => ({
+        topic: q.topic,
+        query: q.query,
+        max_results: q.max_results ?? 5,
+      })),
+      open_access_only: options?.openAccessOnly ?? false,
+    }),
+
+  // Channel Artifacts
+  listArtifacts: (projectId: string, channelId: string) =>
+    api.get<Array<{
+      id: string
+      title: string
+      filename: string
+      format: string
+      artifact_type: string
+      mime_type: string
+      file_size?: string
+      created_at: string
+      created_by?: string
+    }>>(`/projects/${projectId}/discussion/channels/${channelId}/artifacts`),
+
+  getArtifact: (projectId: string, channelId: string, artifactId: string) =>
+    api.get<{
+      id: string
+      title: string
+      filename: string
+      content_base64: string
+      mime_type: string
+    }>(`/projects/${projectId}/discussion/channels/${channelId}/artifacts/${artifactId}`),
+
+  deleteArtifact: (projectId: string, channelId: string, artifactId: string) =>
+    api.delete(`/projects/${projectId}/discussion/channels/${channelId}/artifacts/${artifactId}`),
 }
 
 // Research Papers API endpoints

@@ -717,6 +717,11 @@ export interface RecentSearchResultItem {
   year?: number | null
   source?: string
   abstract?: string
+  doi?: string
+  url?: string
+  pdf_url?: string
+  is_open_access?: boolean
+  journal?: string
 }
 
 export interface DiscussionAssistantRequest {

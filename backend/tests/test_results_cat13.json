@@ -1,0 +1,96 @@
+{
+  "run_timestamp": "2026-01-16T10:49:00.593013",
+  "project_id": "0a9e580c-240c-4289-9ec5-8579b8164d37",
+  "channel_id": "6e2a2aa5-4e0e-4ffb-ae45-45e1b50a52f3",
+  "total_tests": 4,
+  "passed": 4,
+  "failed": 0,
+  "errors": 0,
+  "results": [
+    {
+      "test_id": "13.1",
+      "test_name": "Search After Search",
+      "prompt": "Actually, search for diffusion models instead",
+      "status": "pass",
+      "response_message": "Searching for papers on diffusion models... The results will appear below. Once you see them, tell me \u201cuse these\u201d and I\u2019ll turn them into a short literature review (or add them as references to an existing draft).",
+      "suggested_actions": [
+        {
+          "action_type": "search_references",
+          "summary": "",
+          "payload": {
+            "query": "diffusion models deep learning generative modeling",
+            "max_results": 5
+          }
+        }
+      ],
+      "tools_called": [
+        "search_papers"
+      ],
+      "expected_behavior": "AI initiates new search for diffusion models. Replaces previous search context.",
+      "notes": "OK",
+      "duration_ms": 3284,
+      "timestamp": "2026-01-16T10:48:46.657570"
+    },
+    {
+      "test_id": "13.2",
+      "test_name": "Cancel/Nevermind",
+      "prompt": "Nevermind, forget about that",
+      "status": "pass",
+      "response_message": "Okay\u2014resetting. Tell me what you\u2019d like to work on next (topic + what you need: paper search, literature review, outline, or editing an existing draft).",
+      "suggested_actions": [],
+      "tools_called": [],
+      "expected_behavior": "AI acknowledges and asks what user wants to do instead. Does NOT execute any action.",
+      "notes": "OK",
+      "duration_ms": 1472,
+      "timestamp": "2026-01-16T10:48:49.131949"
+    },
+    {
+      "test_id": "13.3",
+      "test_name": "Multiple Instructions at Once",
+      "prompt": "Search for papers about GPT-4 and also show me our current papers",
+      "status": "pass",
+      "response_message": "Searching for papers on **GPT-4 (large language model technical report, evaluations, capabilities)**. The results will appear below.\n\nYour current project papers (2 drafts):\n1. **Literature Review: Advances in Transformer Architectures** (draft) \u2014 *A survey of transformer architecture advances from 2024-2025*  \n   Paper ID: `8c663c38-0a9f-44dc-8b2c-abd13b8d422f`\n\n2. **Transformers: From Self-Attention to Efficient Scaling** (draft) \u2014 *Reviews Transformers, BERT-style pretraining, and FlashAttent",
+      "suggested_actions": [
+        {
+          "action_type": "search_references",
+          "summary": "",
+          "payload": {
+            "query": "GPT-4 large language model technical report evaluation capabilities",
+            "max_results": 5
+          }
+        }
+      ],
+      "tools_called": [
+        "search_papers"
+      ],
+      "expected_behavior": "AI either handles both (search + list papers) or asks which to do first. Should not ignore either request.",
+      "notes": "OK",
+      "duration_ms": 4888,
+      "timestamp": "2026-01-16T10:48:55.025735"
+    },
+    {
+      "test_id": "13.4",
+      "test_name": "Typo in Request",
+      "prompt": "serch for paeprs about transformrs",
+      "status": "pass",
+      "response_message": "Searching for papers on Transformer architectures in deep learning (including attention mechanisms and large language models). I\u2019ve initiated the search\u2014the papers will appear below. Once you see them, say \u201cuse these\u201d and tell me whether you want a literature review, annotated bibliography, or a summary, and I\u2019ll create it in your project.",
+      "suggested_actions": [
+        {
+          "action_type": "search_references",
+          "summary": "",
+          "payload": {
+            "query": "transformer architecture attention mechanism deep learning language model",
+            "max_results": 5
+          }
+        }
+      ],
+      "tools_called": [
+        "search_papers"
+      ],
+      "expected_behavior": "AI understands intent despite typos. Searches for transformer papers.",
+      "notes": "OK",
+      "duration_ms": 3558,
+      "timestamp": "2026-01-16T10:48:59.588991"
+    }
+  ]
+}

@@ -75,19 +75,29 @@ _SYSTEM_PROMPT = dedent(
        {"type": "edit_paper", "summary": "Brief description", "payload": {"paper_id": "<uuid>", "original": "Exact text to find", "proposed": "Replacement text", "description": "Why this change"}}
 
     4. **search_references** - Search for academic papers to add as project references
-       {"type": "search_references", "summary": "Search for N papers about topic", "payload": {"query": "topic", "max_results": <number>, "open_access_only": false}}
-       - Use when user asks to find/search/look for papers or references
+       {"type": "search_references", "summary": "Search for N papers about topic", "payload": {"query": "<user's exact words>", "max_results": <number>, "open_access_only": false}}
        - ALWAYS honor the user's requested count in max_results (supports 1-20)
        - Set open_access_only: true when user wants PDFs or "free" papers
+
+       *** CRITICAL QUERY RULE ***
+       Copy the user's EXACT topic into the query field. Do NOT "help" by adding terms.
+
+       User says: "search for papers about metaheuristics"
+       CORRECT query: "metaheuristics"
+       WRONG query: "metaheuristics survey 2023 2024" ← causes IRRELEVANT results!
+
+       The search API handles relevance ranking. Your expanded terms HURT results.
 
     Emit an empty array [] if no concrete action is appropriate. Most informational responses
     should NOT have suggested actions - only suggest actions when they add real value.
     Do not mention the tags in the natural language response.
 
-    EXAMPLE - Search for references:
-    User: "find 5 papers about vision transformers"
-    Response: "I'll search for 5 papers about vision transformers."
-    <actions>[{"type": "search_references", "summary": "Search for 5 papers about vision transformers", "payload": {"query": "vision transformers", "max_results": 5, "open_access_only": false}}]</actions>
+    EXAMPLE - Search for references (note: query is ONLY the topic, nothing else):
+    User: "find 5 papers about metaheuristics"
+    Response: "I'll search for 5 papers about metaheuristics."
+    <actions>[{"type": "search_references", "summary": "Search for 5 papers about metaheuristics", "payload": {"query": "metaheuristics", "max_results": 5, "open_access_only": false}}]</actions>
+    WRONG query: "metaheuristics survey 2023 2024 optimization" (too many terms!)
+    CORRECT query: "metaheuristics" (just the topic)
 
     EXAMPLE - Exactly 3 turns for content creation (NO MORE):
 

@@ -1,4 +1,4 @@
-import { Check, Loader2, Plus, ExternalLink, FileText } from 'lucide-react'
+import { Check, Loader2, Plus, ExternalLink, Unlock } from 'lucide-react'
 
 export interface DiscoveredPaper {
   id: string
@@ -68,15 +68,13 @@ export function DiscoveredPaperCard({
             >
               {paper.source.replace('_', ' ')}
             </span>
-            {paper.pdf_url && (
-              <span className="inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[10px] font-medium bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">
-                <FileText className="h-2.5 w-2.5" />
-                PDF
-              </span>
-            )}
-            {paper.is_open_access && !paper.pdf_url && (
-              <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
-                Open Access
+            {(paper.pdf_url || paper.is_open_access) && (
+              <span
+                className="inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[10px] font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+                title={paper.pdf_url ? "PDF available - can be ingested for AI analysis" : "Open Access paper"}
+              >
+                <Unlock className="h-2.5 w-2.5" />
+                OA
               </span>
             )}
             {paper.doi && (

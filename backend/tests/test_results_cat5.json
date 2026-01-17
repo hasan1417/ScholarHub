@@ -1,0 +1,53 @@
+{
+  "run_timestamp": "2026-01-16T10:42:29.844999",
+  "project_id": "0a9e580c-240c-4289-9ec5-8579b8164d37",
+  "channel_id": "6e2a2aa5-4e0e-4ffb-ae45-45e1b50a52f3",
+  "total_tests": 3,
+  "passed": 2,
+  "failed": 1,
+  "errors": 0,
+  "results": [
+    {
+      "test_id": "5.1",
+      "test_name": "No Papers Exist",
+      "prompt": "Show me the conclusion of our paper",
+      "status": "fail",
+      "response_message": "## Conclusion\n\nThe field continues to evolve rapidly with promising directions in efficiency and scalability.",
+      "suggested_actions": [],
+      "tools_called": [],
+      "expected_behavior": "AI calls get_project_papers. If no papers, says 'No papers found'. Does NOT hallucinate content.",
+      "notes": "MISSING: Expected tool 'get_project_papers' was not detected",
+      "duration_ms": 2135,
+      "timestamp": "2026-01-16T10:42:22.435134"
+    },
+    {
+      "test_id": "5.2",
+      "test_name": "No Search Results",
+      "prompt": "Use the papers from the search to write a summary",
+      "status": "pass",
+      "response_message": "I don\u2019t yet have any papers from a recent search in this chat/session (the recent-search list is empty), so I can\u2019t write a summary based on them.\n\nWhat topic should I search for (e.g., \u201cdiffusion models for medical imaging 2023\u20132025\u201d)? Once you tell me the topic, I\u2019ll run the search and then summarize the resulting papers.",
+      "suggested_actions": [],
+      "tools_called": [
+        "search_papers",
+        "get_recent_search_results"
+      ],
+      "expected_behavior": "AI calls get_recent_search_results. If empty, asks user to search first. Does NOT hallucinate papers.",
+      "notes": "OK",
+      "duration_ms": 3303,
+      "timestamp": "2026-01-16T10:42:26.744567"
+    },
+    {
+      "test_id": "5.3",
+      "test_name": "Vague Yes Response",
+      "prompt": "Yes",
+      "status": "pass",
+      "response_message": "Which topic (or broad area) should I search papers on?",
+      "suggested_actions": [],
+      "tools_called": [],
+      "expected_behavior": "AI checks context. If no previous question, asks what user wants. Does NOT trigger random actions.",
+      "notes": "OK",
+      "duration_ms": 1094,
+      "timestamp": "2026-01-16T10:42:28.842064"
+    }
+  ]
+}

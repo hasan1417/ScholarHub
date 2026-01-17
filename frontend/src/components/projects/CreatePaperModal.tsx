@@ -145,14 +145,14 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
 
   return (
     <>
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="px-6 py-4 border-b border-gray-200">
+    <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50">
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl dark:shadow-slate-900/50 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-slate-700">
           <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold text-gray-900">Create New Research Paper</h2>
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-slate-100">Create New Research Paper</h2>
             <button
               onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
+              className="text-gray-400 hover:text-gray-600 dark:text-slate-400 dark:hover:text-slate-200 transition-colors"
               disabled={isLoading}
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -165,7 +165,7 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
         <form onSubmit={handleSubmit} className="px-6 py-4 space-y-6">
           {/* Paper Title */}
           <div>
-            <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="title" className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
               Paper Title *
             </label>
             <input
@@ -173,28 +173,28 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
               id="title"
               value={formData.title}
               onChange={(e) => handleInputChange('title', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                errors.title || duplicateTitle ? 'border-red-500' : 'border-gray-300'
+              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-slate-700 dark:text-slate-100 ${
+                errors.title || duplicateTitle ? 'border-red-500' : 'border-gray-300 dark:border-slate-600'
               }`}
               placeholder="Enter paper title"
               maxLength={255}
             />
             {errors.title && (
-              <p className="text-red-500 text-sm mt-1">{errors.title}</p>
+              <p className="text-red-500 dark:text-red-400 text-sm mt-1">{errors.title}</p>
             )}
             {!errors.title && duplicateTitle && (
-              <p className="text-red-500 text-sm mt-1">
+              <p className="text-red-500 dark:text-red-400 text-sm mt-1">
                 A paper with this title already exists in this workspace.
               </p>
             )}
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
               {formData.title.length}/255 characters
             </p>
           </div>
 
           {/* Paper Type */}
           <div>
-            <p className="block text-sm font-medium text-gray-700 mb-2">Paper Type & Template *</p>
+            <p className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Paper Type & Template *</p>
             <div className="grid gap-3 md:grid-cols-3">
               {PAPER_TEMPLATES.map((template) => {
                 const isSelected = template.id === selectedTemplateDefinition.id
@@ -204,18 +204,20 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
                     key={template.id}
                     onClick={() => handleInputChange('paper_type', template.id)}
                     className={`rounded-xl border px-4 py-3 text-left transition ${
-                      isSelected ? 'border-indigo-500 bg-indigo-50 text-indigo-900' : 'border-gray-200 hover:border-indigo-200'
+                      isSelected
+                        ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-900 dark:text-indigo-100'
+                        : 'border-gray-200 dark:border-slate-600 hover:border-indigo-200 dark:hover:border-indigo-500 dark:text-slate-200'
                     }`}
                   >
                     <p className="text-sm font-semibold">{template.label}</p>
-                    <p className="mt-1 text-xs text-gray-600">{template.description}</p>
+                    <p className="mt-1 text-xs text-gray-600 dark:text-slate-400">{template.description}</p>
                   </button>
                 )
               })}
             </div>
-            <div className="mt-3 rounded-lg border border-dashed border-gray-200 bg-gray-50 p-3">
-              <p className="text-xs font-semibold uppercase text-gray-500">Template sections</p>
-              <ul className="mt-1 list-disc pl-5 text-xs text-gray-700">
+            <div className="mt-3 rounded-lg border border-dashed border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/50 p-3">
+              <p className="text-xs font-semibold uppercase text-gray-500 dark:text-slate-400">Template sections</p>
+              <ul className="mt-1 list-disc pl-5 text-xs text-gray-700 dark:text-slate-300">
                 {selectedTemplateDefinition.sections.map((section) => (
                   <li key={section}>{section}</li>
                 ))}
@@ -225,7 +227,7 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
 
           {/* Abstract */}
           <div>
-            <label htmlFor="abstract" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="abstract" className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
               Abstract
             </label>
             <textarea
@@ -233,63 +235,63 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
               value={formData.abstract}
               onChange={(e) => handleInputChange('abstract', e.target.value)}
               rows={4}
-              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                errors.abstract ? 'border-red-500' : 'border-gray-300'
+              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-slate-700 dark:text-slate-100 ${
+                errors.abstract ? 'border-red-500' : 'border-gray-300 dark:border-slate-600'
               }`}
               placeholder="Enter paper abstract (optional)"
               maxLength={2000}
             />
             {errors.abstract && (
-              <p className="text-red-500 text-sm mt-1">{errors.abstract}</p>
+              <p className="text-red-500 dark:text-red-400 text-sm mt-1">{errors.abstract}</p>
             )}
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
               {formData.abstract?.length || 0}/2000 characters
             </p>
           </div>
 
           {/* Authoring Mode */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
               Authoring Mode (required)
             </label>
             <div className="flex items-center gap-4">
-              <label className="inline-flex items-center gap-2 text-sm">
-                <input type="radio" name="authoring_mode" checked={authoringMode==='rich'} onChange={() => setAuthoringMode('rich')} />
+              <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-slate-300">
+                <input type="radio" name="authoring_mode" checked={authoringMode==='rich'} onChange={() => setAuthoringMode('rich')} className="text-blue-600" />
                 Rich Text
               </label>
-              <label className="inline-flex items-center gap-2 text-sm">
-                <input type="radio" name="authoring_mode" checked={authoringMode==='latex'} onChange={() => setAuthoringMode('latex')} />
+              <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-slate-300">
+                <input type="radio" name="authoring_mode" checked={authoringMode==='latex'} onChange={() => setAuthoringMode('latex')} className="text-blue-600" />
                 LaTeX
               </label>
             </div>
-            <p className="text-xs text-gray-500 mt-1">Papers are locked to one mode. No auto‑conversion between modes.</p>
+            <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">Papers are locked to one mode. No auto‑conversion between modes.</p>
           </div>
 
           {/* References selection via picker */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Reference</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Reference</label>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => setShowRefPicker(true)}
-                className="px-3 py-2 text-sm rounded-md border border-gray-300 hover:bg-gray-50 dark:border-slate-600 dark:hover:bg-slate-700"
+                className="px-3 py-2 text-sm rounded-md border border-gray-300 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-700 dark:text-slate-200"
               >
                 Choose from My References
               </button>
-              <span className="text-xs text-gray-500">Selected: {selectedRefIds.size}</span>
+              <span className="text-xs text-gray-500 dark:text-slate-400">Selected: {selectedRefIds.size}</span>
             </div>
             {selectedRefIds.size > 0 && (
               <div className="mt-2 flex flex-wrap gap-2">
                 {Array.from(selectedRefIds).slice(0, 6).map(id => {
                   const r = myRefs.find(m => m.id === id)
                   return (
-                    <span key={id} className="px-2 py-1 text-xs bg-gray-100 rounded">
+                    <span key={id} className="px-2 py-1 text-xs bg-gray-100 dark:bg-slate-600 dark:text-slate-200 rounded">
                       {r?.title || id}
                     </span>
                   )
                 })}
                 {selectedRefIds.size > 6 && (
-                  <span className="text-xs text-gray-500">+{selectedRefIds.size - 6} more</span>
+                  <span className="text-xs text-gray-500 dark:text-slate-400">+{selectedRefIds.size - 6} more</span>
                 )}
               </div>
             )}
@@ -297,7 +299,7 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
 
           {/* Keywords */}
           <div>
-            <label htmlFor="keywords" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="keywords" className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
               Keywords
             </label>
             <input
@@ -305,10 +307,10 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
               id="keywords"
               value={formData.keywords}
               onChange={(e) => handleInputChange('keywords', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-slate-700 dark:text-slate-100"
               placeholder="Enter keywords separated by commas"
             />
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
               Separate multiple keywords with commas
             </p>
           </div>
@@ -322,19 +324,19 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
               id="is_public"
               checked={formData.is_public}
               onChange={(e) => handleInputChange('is_public', e.target.checked)}
-              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-slate-600 rounded"
             />
-            <label htmlFor="is_public" className="ml-2 block text-sm text-gray-700">
+            <label htmlFor="is_public" className="ml-2 block text-sm text-gray-700 dark:text-slate-300">
               Make this paper public (visible to other users)
             </label>
           </div>
 
           {/* Action Buttons */}
-          <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+          <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 dark:border-slate-700">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-slate-200 bg-white dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded-md hover:bg-gray-50 dark:hover:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
               disabled={isLoading}
             >
               Cancel

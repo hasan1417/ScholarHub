@@ -93,7 +93,7 @@ const TabDropdown: React.FC<TabDropdownProps> = ({ label, icon: Icon, items, pro
         className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 transition-colors ${
           hasActiveChild || isOpen
             ? 'bg-indigo-600 text-white'
-            : 'text-gray-500 hover:bg-gray-100'
+            : 'text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-700'
         }`}
       >
         {Icon && <Icon className="h-4 w-4" />}
@@ -103,12 +103,12 @@ const TabDropdown: React.FC<TabDropdownProps> = ({ label, icon: Icon, items, pro
         />
       </button>
       {hasNotifications && (
-        <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-red-500 shadow-sm ring-2 ring-white pointer-events-none" />
+        <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-red-500 shadow-sm ring-2 ring-white dark:ring-slate-800 pointer-events-none" />
       )}
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div className="absolute left-0 top-full mt-1 min-w-[200px] rounded-lg border border-gray-200 bg-white py-1 shadow-lg z-50">
+        <div className="absolute left-0 top-full mt-1 min-w-[200px] rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 py-1 shadow-lg dark:shadow-slate-900/50 z-50">
           {items.map((item) => {
             const ItemIcon = item.icon
             const isActive = location.pathname.includes(item.path)
@@ -121,8 +121,8 @@ const TabDropdown: React.FC<TabDropdownProps> = ({ label, icon: Icon, items, pro
                 onClick={() => setIsOpen(false)}
                 className={`flex items-center gap-2 px-4 py-2 text-sm transition-colors ${
                   isActive
-                    ? 'bg-indigo-50 text-indigo-700 font-medium'
-                    : 'text-gray-700 hover:bg-gray-50'
+                    ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-medium'
+                    : 'text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700'
                 }`}
               >
                 <div className="relative inline-flex items-center gap-2">

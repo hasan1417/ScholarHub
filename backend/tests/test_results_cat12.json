@@ -1,0 +1,41 @@
+{
+  "run_timestamp": "2026-01-16T10:48:30.692278",
+  "project_id": "0a9e580c-240c-4289-9ec5-8579b8164d37",
+  "channel_id": "6e2a2aa5-4e0e-4ffb-ae45-45e1b50a52f3",
+  "total_tests": 2,
+  "passed": 2,
+  "failed": 0,
+  "errors": 0,
+  "results": [
+    {
+      "test_id": "12.1",
+      "test_name": "List References with Details",
+      "prompt": "Show me all references in the library with their abstracts",
+      "status": "pass",
+      "response_message": "## Project library references (3)\n\n1) **Attention Is All You Need** (2017)  \n**Authors:** Vaswani, A., Shazeer, N., Parmar, N.  \n**Source:** NeurIPS  \n**Abstract:** The dominant sequence transduction models are based on complex recurrent or convolutional neural networks.\n\n2) **BERT: Pre-training of Deep Bidirectional Transformers** (2019)  \n**Authors:** Devlin, J., Chang, M., Lee, K.  \n**Source:** NAACL  \n**Abstract:** We introduce BERT, a new language representation model.\n\n3) **FlashAttention:",
+      "suggested_actions": [],
+      "tools_called": [
+        "get_project_references"
+      ],
+      "expected_behavior": "AI calls get_project_references. Shows title, authors, year, AND abstracts for each reference.",
+      "notes": "OK",
+      "duration_ms": 4028,
+      "timestamp": "2026-01-16T10:48:25.145749"
+    },
+    {
+      "test_id": "12.2",
+      "test_name": "Find Reference by Author",
+      "prompt": "Do we have any papers by Vaswani in our library?",
+      "status": "pass",
+      "response_message": "No\u2014there aren\u2019t any saved references in your project library matching **\u201cVaswani\u201d** (0 results).\n\nIf you want, I can also:\n- check for the paper in your **drafts** (citations inside your project papers), or\n- **search** for Vaswani\u2019s papers (e.g., the Transformer paper) and add them to your library.",
+      "suggested_actions": [],
+      "tools_called": [
+        "get_project_references"
+      ],
+      "expected_behavior": "AI calls get_project_references. Finds and shows 'Attention Is All You Need' paper.",
+      "notes": "OK",
+      "duration_ms": 3536,
+      "timestamp": "2026-01-16T10:48:29.687145"
+    }
+  ]
+}

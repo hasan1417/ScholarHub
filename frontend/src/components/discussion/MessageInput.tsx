@@ -107,16 +107,18 @@ const MessageInput = ({
             type="button"
             onClick={onToggleReasoning}
             disabled={isSubmitting || reasoningPending}
-            className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white transition ${reasoningEnabled ? 'shadow-[0_0_0_1px_rgba(251,191,36,0.35)]' : 'hover:bg-gray-50 dark:hover:bg-slate-700'} dark:border-slate-600 dark:bg-slate-800`}
+            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white transition hover:bg-gray-50 dark:border-slate-600 dark:bg-slate-800 dark:hover:bg-slate-700"
             title="Toggle reasoning mode for Scholar AI"
           >
-            {reasoningPending ? (
-              <span className="text-xs">…</span>
-            ) : (
-              <Lightbulb
-                className={`h-4 w-4 transition ${reasoningEnabled ? 'text-amber-500' : 'text-gray-500 dark:text-slate-300'}`}
-              />
-            )}
+            <Lightbulb
+              className={`h-4 w-4 transition ${
+                reasoningPending
+                  ? 'animate-pulse fill-amber-400 text-amber-500 drop-shadow-[0_0_4px_rgba(251,191,36,0.8)] dark:fill-amber-400 dark:text-amber-400'
+                  : reasoningEnabled
+                    ? 'fill-amber-400 text-amber-500 drop-shadow-[0_0_4px_rgba(251,191,36,0.8)] dark:fill-amber-400 dark:text-amber-400'
+                    : 'text-gray-400 dark:text-slate-400'
+              }`}
+            />
           </button>
         )}
         <button

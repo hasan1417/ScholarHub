@@ -239,6 +239,8 @@ class RecentSearchResultItem(BaseModel):
     doi: Optional[str] = None
     url: Optional[str] = None
     pdf_url: Optional[str] = None
+    is_open_access: Optional[bool] = None
+    journal: Optional[str] = None
 
 
 class ConversationHistoryItem(BaseModel):

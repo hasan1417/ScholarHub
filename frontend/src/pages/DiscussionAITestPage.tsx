@@ -13,10 +13,13 @@ import {
   ChevronDown,
   Brain,
   FileText,
+  Download,
+  File,
+  FileCode,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
-import api from '../services/api'
+import api, { projectDiscussionAPI } from '../services/api'
 
 interface SearchResult {
   id: string
@@ -52,6 +55,155 @@ interface Channel {
   slug: string
 }
 
+interface Artifact {
+  id: string
+  title: string
+  filename: string
+  format: string
+  artifact_type: string
+  mime_type: string
+  file_size?: string
+  created_at: string
+}
+
+// Artifacts Panel Component
+function ArtifactsPanel({ projectId, channelId, refreshKey }: { projectId: string; channelId: string; refreshKey?: number }) {
+  const [artifacts, setArtifacts] = useState<Artifact[]>([])
+  const [loading, setLoading] = useState(false)
+  const [expanded, setExpanded] = useState(true)
+
+  const fetchArtifacts = useCallback(async () => {
+    if (!projectId || !channelId) return
+    setLoading(true)
+    try {
+      const response = await projectDiscussionAPI.listArtifacts(projectId, channelId)
+      setArtifacts(response.data)
+    } catch (err) {
+      console.error('Failed to fetch artifacts:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [projectId, channelId])
+
+  // Refetch when refreshKey changes (triggered after artifact creation)
+  useEffect(() => {
+    fetchArtifacts()
+  }, [fetchArtifacts, refreshKey])
+
+  const handleDownload = async (artifact: Artifact) => {
+    try {
+      const response = await projectDiscussionAPI.getArtifact(projectId, channelId, artifact.id)
+      const { content_base64, filename, mime_type } = response.data
+
+      const binaryString = atob(content_base64)
+      const bytes = new Uint8Array(binaryString.length)
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i)
+      }
+      const blob = new Blob([bytes], { type: mime_type })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Failed to download:', err)
+    }
+  }
+
+  const handleDelete = async (artifactId: string) => {
+    if (!confirm('Delete this artifact?')) return
+    try {
+      await projectDiscussionAPI.deleteArtifact(projectId, channelId, artifactId)
+      setArtifacts((prev) => prev.filter((a) => a.id !== artifactId))
+    } catch (err) {
+      console.error('Failed to delete:', err)
+    }
+  }
+
+  const formatIcon = (format: string) => {
+    switch (format) {
+      case 'pdf': return <FileText className="h-4 w-4 text-red-400" />
+      case 'latex': return <FileCode className="h-4 w-4 text-green-400" />
+      case 'markdown': return <FileText className="h-4 w-4 text-blue-400" />
+      default: return <File className="h-4 w-4 text-slate-400" />
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-slate-700 bg-slate-800/50 p-4">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center justify-between w-full text-left"
+      >
+        <h2 className="text-sm font-medium text-white flex items-center gap-2">
+          <Download className="h-4 w-4 text-emerald-400" />
+          Artifacts ({artifacts.length})
+        </h2>
+        <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+      </button>
+
+      {expanded && (
+        <div className="mt-3">
+          {loading ? (
+            <div className="flex justify-center py-4">
+              <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+            </div>
+          ) : artifacts.length === 0 ? (
+            <p className="text-xs text-slate-500 text-center py-4">
+              No artifacts yet. Ask AI to generate downloadable content.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {artifacts.map((artifact) => (
+                <div
+                  key={artifact.id}
+                  className="flex items-center justify-between rounded-lg bg-slate-700/50 p-2"
+                >
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    {formatIcon(artifact.format)}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs text-white truncate">{artifact.title}</p>
+                      <p className="text-[10px] text-slate-400">
+                        {artifact.format.toUpperCase()} {artifact.file_size && `• ${artifact.file_size}`}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleDownload(artifact)}
+                      className="p-1 rounded text-slate-400 hover:text-emerald-400 hover:bg-slate-600"
+                      title="Download"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(artifact.id)}
+                      className="p-1 rounded text-slate-400 hover:text-red-400 hover:bg-slate-600"
+                      title="Delete"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <button
+            onClick={fetchArtifacts}
+            className="mt-2 w-full text-xs text-slate-400 hover:text-white py-1"
+          >
+            Refresh
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function DiscussionAITestPage() {
   // Project/Channel selection
   const [projects, setProjects] = useState<Project[]>([])
@@ -70,6 +222,9 @@ export default function DiscussionAITestPage() {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [reasoningMode, setReasoningMode] = useState(false)
+
+  // Artifact refresh trigger
+  const [artifactRefreshKey, setArtifactRefreshKey] = useState(0)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -244,6 +399,8 @@ export default function DiscussionAITestPage() {
             year: r.year,
             source: r.source,
             abstract: r.abstract,
+            doi: r.doi,
+            url: r.url,
           })),
           conversation_history: conversationHistory,
         }
@@ -278,6 +435,14 @@ export default function DiscussionAITestPage() {
 
       // Handle actions if any - auto-execute searches (batch them together)
       if (data.suggested_actions && data.suggested_actions.length > 0) {
+        // Check if an artifact was created - refresh the artifacts panel
+        const hasArtifactCreated = data.suggested_actions.some(
+          (a) => a.action_type === 'artifact_created'
+        )
+        if (hasArtifactCreated) {
+          setArtifactRefreshKey((prev) => prev + 1)
+        }
+
         const searchActions = data.suggested_actions.filter(
           (a) => a.action_type === 'search_references' && a.payload?.query
         )
@@ -574,6 +739,11 @@ export default function DiscussionAITestPage() {
                 </div>
               )}
             </div>
+
+            {/* Artifacts Panel */}
+            {selectedProjectId && selectedChannelId && (
+              <ArtifactsPanel projectId={selectedProjectId} channelId={selectedChannelId} refreshKey={artifactRefreshKey} />
+            )}
           </div>
 
           {/* Chat Panel */}
@@ -671,9 +841,49 @@ export default function DiscussionAITestPage() {
                                     key={actionIdx}
                                     className="flex items-center gap-2 text-xs text-slate-400 bg-slate-800 rounded px-2 py-1 mb-1"
                                   >
-                                    <Sparkles className="h-3 w-3 text-yellow-400" />
-                                    <span>Action: {action.type}</span>
-                                    {action.summary && <span className="text-slate-500">- {action.summary}</span>}
+                                    {action.type === 'artifact_created' ? (
+                                      <>
+                                        <Download className="h-3 w-3 text-emerald-400" />
+                                        <span>Artifact: {String(action.payload?.title || 'Download')}</span>
+                                        <button
+                                          onClick={() => {
+                                            const contentBase64 = action.payload?.content_base64 as string | undefined
+                                            const filename = String(action.payload?.filename || 'download.md')
+                                            const mimeType = String(action.payload?.mime_type || 'text/plain')
+                                            if (contentBase64) {
+                                              try {
+                                                // Properly decode base64 to binary
+                                                const binaryString = atob(contentBase64)
+                                                const bytes = new Uint8Array(binaryString.length)
+                                                for (let i = 0; i < binaryString.length; i++) {
+                                                  bytes[i] = binaryString.charCodeAt(i)
+                                                }
+                                                const blob = new Blob([bytes], { type: mimeType })
+                                                const url = URL.createObjectURL(blob)
+                                                const a = document.createElement('a')
+                                                a.href = url
+                                                a.download = filename
+                                                document.body.appendChild(a)
+                                                a.click()
+                                                document.body.removeChild(a)
+                                                URL.revokeObjectURL(url)
+                                              } catch (e) {
+                                                console.error('Failed to download artifact:', e)
+                                              }
+                                            }
+                                          }}
+                                          className="ml-2 px-2 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs"
+                                        >
+                                          Download
+                                        </button>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Sparkles className="h-3 w-3 text-yellow-400" />
+                                        <span>Action: {action.type}</span>
+                                        {action.summary && <span className="text-slate-500">- {action.summary}</span>}
+                                      </>
+                                    )}
                                   </div>
                                 ))}
                               </>

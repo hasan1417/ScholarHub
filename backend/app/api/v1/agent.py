@@ -13,11 +13,17 @@ from app.database import get_db
 from app.api.deps import get_current_user
 from app.models.user import User
 from app.services.smart_agent_service import SmartAgentService
+from app.services.smart_agent_service_v2 import SmartAgentServiceV2
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Toggle between old keyword-based and new tool-based service
+USE_TOOL_BASED_AGENT = True  # Set to True to use tool-based orchestration
+
 agent_service = SmartAgentService()
+agent_service_v2 = SmartAgentServiceV2()
 
 
 class AgentChatRequest(BaseModel):
@@ -84,21 +90,34 @@ async def agent_chat_stream(
 ):
     """
     Streaming version of smart agent chat.
-    First yields route info, then streams response.
+    Uses tool-based orchestration (V2) when enabled.
     """
     try:
         def generate():
-            for chunk in agent_service.stream_query(
-                db=db,
-                user_id=str(current_user.id),
-                query=request.query,
-                paper_id=request.paper_id,
-                project_id=request.project_id,
-                document_excerpt=request.document_excerpt,
-                reasoning_mode=request.reasoning_mode,
-                edit_mode=request.edit_mode
-            ):
-                yield chunk
+            if USE_TOOL_BASED_AGENT:
+                # V2: Tool-based orchestration - AI decides what action to take
+                for chunk in agent_service_v2.stream_query(
+                    db=db,
+                    user_id=str(current_user.id),
+                    query=request.query,
+                    paper_id=request.paper_id,
+                    document_excerpt=request.document_excerpt,
+                    reasoning_mode=request.reasoning_mode,
+                ):
+                    yield chunk
+            else:
+                # V1: Keyword-based routing
+                for chunk in agent_service.stream_query(
+                    db=db,
+                    user_id=str(current_user.id),
+                    query=request.query,
+                    paper_id=request.paper_id,
+                    project_id=request.project_id,
+                    document_excerpt=request.document_excerpt,
+                    reasoning_mode=request.reasoning_mode,
+                    edit_mode=request.edit_mode
+                ):
+                    yield chunk
 
         return StreamingResponse(
             generate(),
@@ -116,35 +135,43 @@ async def agent_chat_stream(
 
 @router.get("/routes")
 async def get_available_routes():
-    """Get info about available agent routes for debugging."""
+    """Get info about available agent architecture."""
     return {
-        "routes": [
+        "architecture": "tool-based" if USE_TOOL_BASED_AGENT else "keyword-based",
+        "model": "gpt-5.2",
+        "tools": [
             {
-                "name": "simple",
-                "description": "Greetings, help, simple questions",
-                "model": "gpt-4o-mini",
-                "context": "none",
-                "expected_latency": "~300ms"
+                "name": "answer_question",
+                "description": "Answer questions about the paper, content, or structure",
+                "when": "General questions that don't require editing"
             },
             {
-                "name": "paper",
-                "description": "Questions about user's draft/paper",
-                "model": "gpt-4o-mini",
-                "context": "document_excerpt",
-                "expected_latency": "~800ms"
+                "name": "propose_edit",
+                "description": "Propose edits to the document",
+                "when": "User asks to change, modify, extend, shorten, rewrite, fix, improve, add, remove anything"
             },
             {
-                "name": "research",
-                "description": "Reference questions, literature queries",
-                "model": "gpt-4o",
-                "context": "RAG + references",
-                "expected_latency": "~2-3s"
+                "name": "review_document",
+                "description": "Review and provide feedback",
+                "when": "User asks for review, feedback, evaluation, or suggestions"
+            },
+            {
+                "name": "explain_references",
+                "description": "Discuss attached references",
+                "when": "User asks about citations or wants to find papers"
             }
         ],
-        "tools": [
-            "search_references",
-            "get_reference_summary",
-            "expand_text",
-            "rephrase_text"
+        "capabilities": [
+            "AI decides which action to take (no keyword matching)",
+            "Answer questions about current paper",
+            "Use attached references for context",
+            "Propose edits with <<<EDIT>>> format",
+            "Review and provide structured feedback",
+            "Reasoning mode for complex analysis"
+        ],
+        "limitations": [
+            "Cannot search for new papers online",
+            "Cannot access project library (only paper-attached refs)",
+            "For paper discovery, use Discussion AI or Discovery page in project"
         ]
     }

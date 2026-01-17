@@ -1,0 +1,35 @@
+{
+  "run_timestamp": "2026-01-16T10:42:57.409271",
+  "project_id": "0a9e580c-240c-4289-9ec5-8579b8164d37",
+  "channel_id": "6e2a2aa5-4e0e-4ffb-ae45-45e1b50a52f3",
+  "total_tests": 1,
+  "passed": 1,
+  "failed": 0,
+  "errors": 0,
+  "results": [
+    {
+      "test_id": "8.1",
+      "test_name": "Stop After Search",
+      "prompt": "Search for papers about BERT and then create a summary",
+      "status": "pass",
+      "response_message": "I\u2019ve initiated the search for papers on BERT and related transformer-based language models. The papers will appear below.\n\nOnce you see the results, tell me **\u201cuse these papers\u201d** and I\u2019ll create a concise summary based on them.",
+      "suggested_actions": [
+        {
+          "action_type": "search_references",
+          "summary": "",
+          "payload": {
+            "query": "BERT bidirectional encoder representations from transformers transformer language model",
+            "max_results": 5
+          }
+        }
+      ],
+      "tools_called": [
+        "search_papers"
+      ],
+      "expected_behavior": "AI calls search_papers and STOPS. Does NOT immediately create paper. Says to wait for results.",
+      "notes": "OK",
+      "duration_ms": 4021,
+      "timestamp": "2026-01-16T10:42:56.408726"
+    }
+  ]
+}

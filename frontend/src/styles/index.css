@@ -171,86 +171,86 @@ body.dark, [data-theme='dark'], :root.dark {
 /* Academic Editor Custom Styles using Tailwind */
 @layer components {
   .academic-editor {
-    @apply font-serif text-gray-800 leading-relaxed;
+    @apply font-serif text-gray-800 dark:text-slate-200 leading-relaxed;
   }
-  
+
   .academic-editor h1 {
-    @apply text-4xl font-bold text-gray-900 mb-8 mt-0 pb-2 border-b-2 border-gray-200;
+    @apply text-4xl font-bold text-gray-900 dark:text-slate-100 mb-8 mt-0 pb-2 border-b-2 border-gray-200 dark:border-slate-700;
   }
-  
+
   .academic-editor h2 {
-    @apply text-3xl font-bold text-gray-800 mb-6 mt-8 pb-1 border-b border-gray-200;
+    @apply text-3xl font-bold text-gray-800 dark:text-slate-100 mb-6 mt-8 pb-1 border-b border-gray-200 dark:border-slate-700;
   }
-  
+
   .academic-editor h3 {
-    @apply text-2xl font-bold text-gray-700 mb-4 mt-6;
+    @apply text-2xl font-bold text-gray-700 dark:text-slate-200 mb-4 mt-6;
   }
-  
+
   .academic-editor p {
     @apply mb-4 text-justify;
   }
-  
+
   /* Modern academic style: no indentation, use spacing instead */
   /* This follows APA, MLA, and most modern academic standards */
   .academic-editor p {
     @apply indent-0;
   }
-  
+
   /* Add extra spacing between paragraphs for better readability */
   .academic-editor p + p {
     @apply mt-2;
   }
-  
+
   .academic-editor ul,
   .academic-editor ol {
     @apply mb-4 pl-8;
   }
-  
+
   .academic-editor li {
     @apply mb-2 leading-7;
   }
-  
+
   .academic-editor blockquote {
-    @apply my-6 py-4 px-6 border-l-4 border-blue-500 bg-gray-50 italic text-gray-700;
+    @apply my-6 py-4 px-6 border-l-4 border-blue-500 dark:border-blue-400 bg-gray-50 dark:bg-slate-800 italic text-gray-700 dark:text-slate-300;
   }
-  
+
   .academic-editor blockquote p {
     @apply mb-0 indent-0;
   }
-  
+
   .academic-editor pre {
-    @apply bg-gray-50 border border-gray-200 rounded-md p-4 my-4 overflow-x-auto font-mono text-sm;
+    @apply bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-md p-4 my-4 overflow-x-auto font-mono text-sm;
   }
-  
+
   .academic-editor code {
-    @apply bg-gray-50 border border-gray-200 rounded px-1 py-0.5 font-mono text-sm;
+    @apply bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded px-1 py-0.5 font-mono text-sm;
   }
-  
+
   .academic-editor table {
     @apply w-full border-collapse my-6 text-sm;
   }
-  
+
   .academic-editor th,
   .academic-editor td {
-    @apply border border-gray-200 p-3 text-left;
+    @apply border border-gray-200 dark:border-slate-700 p-3 text-left;
   }
-  
+
   .academic-editor th {
-    @apply bg-gray-50 font-bold text-gray-800;
+    @apply bg-gray-50 dark:bg-slate-800 font-bold text-gray-800 dark:text-slate-200;
   }
-  
+
   .academic-editor hr {
-    @apply border-none border-t-2 border-gray-200 my-8;
+    @apply border-none border-t-2 border-gray-200 dark:border-slate-700 my-8;
   }
-  
+
   .academic-editor a {
-    @apply text-blue-600 underline;
+    @apply text-blue-600 dark:text-blue-400 underline;
   }
-  
+
   .academic-editor a:hover {
-    @apply text-blue-800;
+    @apply text-blue-800 dark:text-blue-300;
   }
-  
+
   /* Page break line (screen only; print handled below) */
   .page-break {
     height: 0;
@@ -259,12 +259,16 @@ body.dark, [data-theme='dark'], :root.dark {
     margin: 12px 0;
   }
 
-  
+  .dark .page-break {
+    border-top-color: #475569; /* slate-600 */
+  }
+
+
   /* Enhanced editor styling */
   .academic-editor.ProseMirror {
     @apply min-h-full;
   }
-  
+
   /* Ensure content respects page boundaries */
   .academic-editor p:last-child {
     @apply mb-0;

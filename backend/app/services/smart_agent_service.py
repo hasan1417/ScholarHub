@@ -14,15 +14,22 @@ logger = logging.getLogger(__name__)
 class SmartAgentService:
     """
     Smart agent that routes queries to appropriate model/context combinations:
-    - SIMPLE: Greetings, help → gpt-4o-mini, no context
-    - PAPER: Draft questions → gpt-4o-mini, doc excerpt only
-    - RESEARCH: Reference/literature → gpt-4o, full RAG
+    - SIMPLE: Greetings, help → gpt-5-mini, no context
+    - PAPER: Draft questions → gpt-5-mini, doc excerpt only
+    - RESEARCH: Reference queries → gpt-5.2 (low reasoning), attached refs
+    - REVIEW: Feedback requests → gpt-5.2 (low reasoning)
+    - EDIT: Document modifications → gpt-5.2 (low reasoning)
+    - REASONING: Complex analysis → gpt-5.2 (high reasoning)
     """
 
     # Models for different tiers
-    FAST_MODEL = "gpt-4o-mini"  # Fast, cheap, good for simple tasks
-    QUALITY_MODEL = "gpt-4o"    # Balanced speed/quality for research
-    REASONING_MODEL = "gpt-5.2"  # Advanced reasoning model
+    FAST_MODEL = "gpt-5-mini"   # Fast, cheap, good for simple tasks
+    QUALITY_MODEL = "gpt-5.2"   # Quality model with controlled reasoning
+    REASONING_MODEL = "gpt-5.2"  # Same model, higher reasoning effort
+
+    # Reasoning effort levels for gpt-5.2 (minimal, low, medium, high)
+    QUALITY_REASONING_EFFORT = "low"      # For quality route - fast but smart
+    FULL_REASONING_EFFORT = "high"        # For reasoning mode - full power
 
     # Route patterns
     SIMPLE_PATTERNS = {
@@ -50,12 +57,15 @@ class SmartAgentService:
     EDIT_KEYWORDS = {
         "change", "modify", "update", "fix", "rewrite", "improve", "edit",
         "add", "remove", "delete", "replace", "insert", "make it", "rephrase",
-        "shorten", "expand", "correct", "revise", "adjust", "refine",
+        "shorten", "expand", "extend", "lengthen", "correct", "revise", "adjust", "refine",
+        "elaborate", "enhance", "strengthen", "clarify", "simplify", "condense",
         "can you change", "can you fix", "can you improve", "can you rewrite",
+        "can you extend", "can you expand", "can you add", "can you remove",
         "please change", "please fix", "please improve", "please rewrite",
-        "could you change", "could you fix", "could you improve",
+        "could you change", "could you fix", "could you improve", "could you extend",
         "make this", "write me", "write a", "add a", "add section",
-        "add paragraph", "remove this", "delete this"
+        "add paragraph", "remove this", "delete this", "extend the", "expand the",
+        "make the", "rewrite the", "improve the", "fix the", "shorten the"
     }
 
     # Keywords that indicate user wants feedback/review (offer edits after)
@@ -334,8 +344,7 @@ class SmartAgentService:
         response = self.client.chat.completions.create(
             model=self.FAST_MODEL,
             messages=messages,
-            max_tokens=300,
-            temperature=0.7
+            max_completion_tokens=300,
         )
 
         return {
@@ -351,8 +360,14 @@ class SmartAgentService:
             {
                 "role": "system",
                 "content": (
-                    "You are a helpful research assistant for ScholarHub. "
-                    "Be concise and friendly."
+                    "You are a helpful writing assistant for the LaTeX editor in ScholarHub. "
+                    "You help users with their current paper/document. Be concise and friendly.\n\n"
+                    "IMPORTANT SCOPE LIMITATION: You can ONLY help with:\n"
+                    "- The current paper/document the user is editing\n"
+                    "- References already attached to this paper\n\n"
+                    "You CANNOT search for new papers or references. If the user asks to find/search for papers, "
+                    "tell them: 'To discover new papers, you can either use the **Discussion AI** in your project sidebar, "
+                    "or visit the **Discovery page** in your project to search and add references.'"
                 )
             },
             {"role": "user", "content": query}
@@ -361,8 +376,7 @@ class SmartAgentService:
         stream = self.client.chat.completions.create(
             model=self.FAST_MODEL,
             messages=messages,
-            max_tokens=300,
-            temperature=0.7,
+            max_completion_tokens=300,
             stream=True
         )
 
@@ -374,7 +388,7 @@ class SmartAgentService:
 
     def _handle_paper(self, query: str, document_excerpt: Optional[str]) -> Dict[str, Any]:
         """Handle paper-specific queries with doc context."""
-        doc_context = (document_excerpt or "")[:4000]  # Limit context size
+        doc_context = document_excerpt or ""  # Send full document - models have large context
 
         messages = [
             {
@@ -393,8 +407,7 @@ class SmartAgentService:
         response = self.client.chat.completions.create(
             model=self.FAST_MODEL,
             messages=messages,
-            max_tokens=1000,
-            temperature=0.7
+            max_completion_tokens=1000,
         )
 
         return {
@@ -406,14 +419,18 @@ class SmartAgentService:
 
     def _stream_paper(self, query: str, document_excerpt: Optional[str]) -> Generator[str, None, None]:
         """Stream paper query response."""
-        doc_context = (document_excerpt or "")[:4000]
+        doc_context = document_excerpt or ""  # Send full document
 
         messages = [
             {
                 "role": "system",
                 "content": (
-                    "You are a research writing assistant. Help with academic paper writing. "
-                    "Be concise and actionable."
+                    "You are an academic writing assistant helping with the user's LaTeX paper. "
+                    "You can see their FULL document content. Be concise and actionable.\n\n"
+                    "SCOPE: You can ONLY help with this specific paper and its attached references. "
+                    "You CANNOT search for new papers online. If asked to find papers, tell them: "
+                    "'To discover new papers, use the **Discussion AI** in your project sidebar or "
+                    "the **Discovery page** in your project.'"
                 )
             },
             {
@@ -425,8 +442,7 @@ class SmartAgentService:
         stream = self.client.chat.completions.create(
             model=self.FAST_MODEL,
             messages=messages,
-            max_tokens=1000,
-            temperature=0.7,
+            max_completion_tokens=1000,
             stream=True
         )
 
@@ -444,39 +460,43 @@ class SmartAgentService:
         paper_id: Optional[str],
         document_excerpt: Optional[str]
     ) -> Dict[str, Any]:
-        """Handle research queries with full RAG."""
-        # Get reference context
+        """Handle queries with attached references only (no external search)."""
+        # Get reference context - only attached to this paper
         ref_context = self._get_reference_context(db, user_id, paper_id, query)
-        doc_context = (document_excerpt or "")[:2000] if document_excerpt else ""
+        doc_context = document_excerpt or ""  # Send full document
 
         context_parts = []
         if ref_context:
             context_parts.append(
-                "=== REFERENCE LIBRARY ===\n"
-                "(These are academic papers/sources the user has saved for citation)\n\n"
+                "=== ATTACHED REFERENCES ===\n"
+                "(Papers/sources attached to THIS paper for citation)\n\n"
                 f"{ref_context}"
             )
         if doc_context:
             context_parts.append(
                 "=== USER'S PAPER DRAFT ===\n"
-                "(This is the paper the user is currently writing)\n\n"
+                "(The paper the user is currently writing)\n\n"
                 f"{doc_context}"
             )
 
-        full_context = "\n\n".join(context_parts) if context_parts else "No context available."
+        full_context = "\n\n".join(context_parts) if context_parts else "No references attached to this paper."
 
         messages = [
             {
                 "role": "system",
                 "content": (
-                    "You are an expert research assistant helping a user write an academic paper. "
-                    "You have access to two types of context:\n"
-                    "1. REFERENCE LIBRARY: Academic papers/sources the user has saved - use these to cite and support arguments\n"
-                    "2. USER'S PAPER DRAFT: The paper the user is currently writing - this is THEIR work in progress\n\n"
-                    "IMPORTANT: Do NOT confuse these. References are external sources to cite. "
-                    "The draft is the user's own writing. When asked about 'my references', refer to the Reference Library. "
-                    "When asked about 'my paper' or 'my draft', refer to the User's Paper Draft.\n"
-                    "Cite sources by title/author when using reference information. Be thorough but concise."
+                    "You are an expert writing assistant helping with an academic paper in the LaTeX editor.\n\n"
+                    "YOUR SCOPE IS LIMITED TO:\n"
+                    "1. ATTACHED REFERENCES: Only papers/sources already attached to THIS paper\n"
+                    "2. USER'S PAPER DRAFT: The current paper being edited\n\n"
+                    "IMPORTANT LIMITATIONS:\n"
+                    "- You CANNOT search for new papers or references online\n"
+                    "- You can ONLY use references already attached to this paper\n"
+                    "- If user asks to 'find papers', 'search for references', or 'look up literature', "
+                    "tell them: 'I can only work with references already attached to this paper. "
+                    "To discover new papers, use the **Discussion AI** in your project sidebar or "
+                    "the **Discovery page** in your project.'\n\n"
+                    "When referencing attached sources, cite by title/author. Be thorough but concise."
                 )
             },
             {
@@ -488,14 +508,14 @@ class SmartAgentService:
         response = self.client.chat.completions.create(
             model=self.QUALITY_MODEL,
             messages=messages,
-            max_tokens=2000,
-            temperature=0.7
+            max_completion_tokens=2000,
+            reasoning_effort=self.QUALITY_REASONING_EFFORT
         )
 
         return {
             "response": response.choices[0].message.content,
             "route": "research",
-            "model": self.QUALITY_MODEL,
+            "model": f"{self.QUALITY_MODEL} (effort: {self.QUALITY_REASONING_EFFORT})",
             "tools_called": ["get_references"] if ref_context else []
         }
 
@@ -507,38 +527,42 @@ class SmartAgentService:
         paper_id: Optional[str],
         document_excerpt: Optional[str]
     ) -> Generator[str, None, None]:
-        """Stream research query response with RAG."""
+        """Stream research query response with attached references only."""
         ref_context = self._get_reference_context(db, user_id, paper_id, query)
-        doc_context = (document_excerpt or "")[:2000] if document_excerpt else ""
+        doc_context = document_excerpt or ""  # Send full document
 
         context_parts = []
         if ref_context:
             context_parts.append(
-                "=== REFERENCE LIBRARY ===\n"
-                "(These are academic papers/sources the user has saved for citation)\n\n"
+                "=== ATTACHED REFERENCES ===\n"
+                "(Papers/sources attached to THIS paper for citation)\n\n"
                 f"{ref_context}"
             )
         if doc_context:
             context_parts.append(
                 "=== USER'S PAPER DRAFT ===\n"
-                "(This is the paper the user is currently writing)\n\n"
+                "(The paper the user is currently writing)\n\n"
                 f"{doc_context}"
             )
 
-        full_context = "\n\n".join(context_parts) if context_parts else "No context available."
+        full_context = "\n\n".join(context_parts) if context_parts else "No references attached to this paper."
 
         messages = [
             {
                 "role": "system",
                 "content": (
-                    "You are an expert research assistant helping a user write an academic paper. "
-                    "You have access to two types of context:\n"
-                    "1. REFERENCE LIBRARY: Academic papers/sources the user has saved - use these to cite and support arguments\n"
-                    "2. USER'S PAPER DRAFT: The paper the user is currently writing - this is THEIR work in progress\n\n"
-                    "IMPORTANT: Do NOT confuse these. References are external sources to cite. "
-                    "The draft is the user's own writing. When asked about 'my references', refer to the Reference Library. "
-                    "When asked about 'my paper' or 'my draft', refer to the User's Paper Draft.\n"
-                    "Cite sources by title/author when using reference information. Be thorough but concise."
+                    "You are an expert writing assistant helping with an academic paper in the LaTeX editor.\n\n"
+                    "YOUR SCOPE IS LIMITED TO:\n"
+                    "1. ATTACHED REFERENCES: Only papers/sources already attached to THIS paper\n"
+                    "2. USER'S PAPER DRAFT: The current paper being edited\n\n"
+                    "IMPORTANT LIMITATIONS:\n"
+                    "- You CANNOT search for new papers or references online\n"
+                    "- You can ONLY use references already attached to this paper\n"
+                    "- If user asks to 'find papers', 'search for references', or 'look up literature', "
+                    "tell them: 'I can only work with references already attached to this paper. "
+                    "To discover new papers, use the **Discussion AI** in your project sidebar or "
+                    "the **Discovery page** in your project.'\n\n"
+                    "When referencing attached sources, cite by title/author. Be thorough but concise."
                 )
             },
             {
@@ -550,8 +574,8 @@ class SmartAgentService:
         stream = self.client.chat.completions.create(
             model=self.QUALITY_MODEL,
             messages=messages,
-            max_tokens=2000,
-            temperature=0.7,
+            max_completion_tokens=2000,
+            reasoning_effort=self.QUALITY_REASONING_EFFORT,
             stream=True
         )
 
@@ -612,13 +636,13 @@ class SmartAgentService:
     ) -> Dict[str, Any]:
         """Handle queries with chain-of-thought reasoning using o3-mini."""
         ref_context = self._get_reference_context(db, user_id, paper_id, query)
-        doc_context = (document_excerpt or "")[:3000] if document_excerpt else ""
+        doc_context = document_excerpt or ""  # Send full document
 
         context_parts = []
         if ref_context:
             context_parts.append(
-                "=== REFERENCE LIBRARY ===\n"
-                "(Academic papers/sources for citation)\n\n"
+                "=== ATTACHED REFERENCES ===\n"
+                "(Papers/sources attached to THIS paper)\n\n"
                 f"{ref_context}"
             )
         if doc_context:
@@ -630,10 +654,17 @@ class SmartAgentService:
 
         full_context = "\n\n".join(context_parts) if context_parts else ""
 
-        # Build the user message with context
+        # Build the user message with context and scope reminder
+        scope_note = (
+            "IMPORTANT: You can ONLY use the attached references shown above. "
+            "You CANNOT search for new papers. If asked to find papers, tell them: "
+            "'To discover new papers, use the Discussion AI in your project sidebar or the Discovery page.'\n\n"
+        )
         user_content = query
         if full_context:
-            user_content = f"{full_context}\n\n---\n\nQuestion: {query}"
+            user_content = f"{full_context}\n\n---\n\n{scope_note}Question: {query}"
+        else:
+            user_content = f"{scope_note}Question: {query}"
 
         messages = [
             {
@@ -645,13 +676,14 @@ class SmartAgentService:
         response = self.client.chat.completions.create(
             model=self.REASONING_MODEL,
             messages=messages,
-            max_completion_tokens=4000
+            max_completion_tokens=4000,
+            reasoning_effort=self.FULL_REASONING_EFFORT
         )
 
         return {
             "response": response.choices[0].message.content,
             "route": "reasoning",
-            "model": self.REASONING_MODEL,
+            "model": f"{self.REASONING_MODEL} (effort: {self.FULL_REASONING_EFFORT})",
             "tools_called": ["chain_of_thought"]
         }
 
@@ -663,15 +695,15 @@ class SmartAgentService:
         paper_id: Optional[str],
         document_excerpt: Optional[str]
     ) -> Generator[str, None, None]:
-        """Stream reasoning query response with o3-mini."""
+        """Stream reasoning query response with gpt-5.2."""
         ref_context = self._get_reference_context(db, user_id, paper_id, query)
-        doc_context = (document_excerpt or "")[:3000] if document_excerpt else ""
+        doc_context = document_excerpt or ""  # Send full document
 
         context_parts = []
         if ref_context:
             context_parts.append(
-                "=== REFERENCE LIBRARY ===\n"
-                "(Academic papers/sources for citation)\n\n"
+                "=== ATTACHED REFERENCES ===\n"
+                "(Papers/sources attached to THIS paper)\n\n"
                 f"{ref_context}"
             )
         if doc_context:
@@ -683,10 +715,17 @@ class SmartAgentService:
 
         full_context = "\n\n".join(context_parts) if context_parts else ""
 
-        # Build the user message with context
+        # Build the user message with context and scope reminder
+        scope_note = (
+            "IMPORTANT: You can ONLY use the attached references shown above. "
+            "You CANNOT search for new papers. If asked to find papers, tell them: "
+            "'To discover new papers, use the Discussion AI in your project sidebar or the Discovery page.'\n\n"
+        )
         user_content = query
         if full_context:
-            user_content = f"{full_context}\n\n---\n\nQuestion: {query}"
+            user_content = f"{full_context}\n\n---\n\n{scope_note}Question: {query}"
+        else:
+            user_content = f"{scope_note}Question: {query}"
 
         messages = [
             {
@@ -699,6 +738,7 @@ class SmartAgentService:
             model=self.REASONING_MODEL,
             messages=messages,
             max_completion_tokens=4000,
+            reasoning_effort=self.FULL_REASONING_EFFORT,
             stream=True
         )
 
@@ -725,14 +765,17 @@ class SmartAgentService:
         context_parts = []
         if ref_context:
             context_parts.append(
-                "=== REFERENCE LIBRARY ===\n"
-                "(Academic papers/sources for citation)\n\n"
+                "=== ATTACHED REFERENCES ===\n"
+                "(Papers/sources attached to THIS paper)\n\n"
                 f"{ref_context}"
             )
 
         ref_section = "\n\n".join(context_parts) if context_parts else ""
 
-        system_prompt = """You are an expert academic writing reviewer and editor. The user wants feedback on their document.
+        system_prompt = """You are an expert academic writing reviewer and editor in the LaTeX editor. The user wants feedback on their document.
+
+SCOPE LIMITATION: You can ONLY reference papers already attached to this document (shown in ATTACHED REFERENCES).
+You CANNOT search for new papers. If you think the paper needs more references, tell the user: "To discover and add more papers, use the **Discussion AI** in your project sidebar or the **Discovery page** in your project."
 
 IMPORTANT: Your response should:
 1. Provide specific, actionable feedback on the content
@@ -762,8 +805,8 @@ Keep your feedback focused and concise. Use bullet points for specific suggestio
         stream = self.client.chat.completions.create(
             model=self.QUALITY_MODEL,
             messages=messages,
-            max_tokens=2000,
-            temperature=0.7,
+            max_completion_tokens=2000,
+            reasoning_effort=self.QUALITY_REASONING_EFFORT,
             stream=True
         )
 
@@ -790,14 +833,18 @@ Keep your feedback focused and concise. Use bullet points for specific suggestio
         context_parts = []
         if ref_context:
             context_parts.append(
-                "=== REFERENCE LIBRARY ===\n"
-                "(Academic papers/sources for citation)\n\n"
+                "=== ATTACHED REFERENCES ===\n"
+                "(Papers/sources attached to THIS paper)\n\n"
                 f"{ref_context}"
             )
 
         ref_section = "\n\n".join(context_parts) if context_parts else ""
 
-        system_prompt = """You are an expert academic writing editor. The user is asking you to modify their document.
+        system_prompt = """You are an expert academic writing editor in the LaTeX editor. The user is asking you to modify their document.
+
+SCOPE LIMITATION: You can ONLY use references already attached to this document (shown in ATTACHED REFERENCES).
+You CANNOT search for new papers. If you need to add citations, only cite papers from the ATTACHED REFERENCES.
+If the user asks to add references you don't have, tell them: "I can only cite references already attached to this paper. To discover and add more papers, use the **Discussion AI** in your project sidebar or the **Discovery page** in your project."
 
 IMPORTANT: You MUST format any suggested changes using this EXACT structure:
 
@@ -851,8 +898,8 @@ This research demonstrates the critical importance of X in understanding Y, with
         stream = self.client.chat.completions.create(
             model=self.QUALITY_MODEL,
             messages=messages,
-            max_tokens=3000,
-            temperature=0.7,
+            max_completion_tokens=3000,
+            reasoning_effort=self.QUALITY_REASONING_EFFORT,
             stream=True
         )
 

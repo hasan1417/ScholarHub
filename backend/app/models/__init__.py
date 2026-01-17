@@ -51,6 +51,8 @@ from .project_discussion import (
     ProjectDiscussionTaskStatus,
     AIArtifactChannelLink,
     ProjectDiscussionAssistantExchange,
+    DiscussionArtifact,
+    DiscussionArtifactFormat,
 )
 from .project_discussion_embedding import (
     ProjectDiscussionEmbedding,
@@ -111,6 +113,8 @@ __all__ = [
     "ProjectDiscussionTaskStatus",
     "AIArtifactChannelLink",
     "ProjectDiscussionAssistantExchange",
+    "DiscussionArtifact",
+    "DiscussionArtifactFormat",
     "ProjectDiscussionEmbedding",
     "DiscussionEmbeddingOrigin",
 ]

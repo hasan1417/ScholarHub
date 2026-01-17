@@ -96,22 +96,22 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
-        <div className="px-6 py-4 border-b border-gray-200">
+    <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50">
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl dark:shadow-slate-900/50 max-w-md w-full mx-4">
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-slate-700">
           <div className="flex items-center space-x-3">
             {getIcon()}
-            <h2 className="text-xl font-semibold text-gray-900">{title}</h2>
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-slate-100">{title}</h2>
           </div>
         </div>
 
         <div className="px-6 py-4">
-          <p className="text-gray-600 mb-6">{bodyCopy}</p>
-          
+          <p className="text-gray-600 dark:text-slate-300 mb-6">{bodyCopy}</p>
+
           <div className="flex justify-end space-x-3">
             <button
               onClick={onClose}
-              className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500"
+              className="px-4 py-2 bg-gray-200 dark:bg-slate-600 text-gray-700 dark:text-slate-200 rounded-md hover:bg-gray-300 dark:hover:bg-slate-500 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-400 dark:focus:ring-slate-500"
             >
               {resolvedCancelText}
             </button>
