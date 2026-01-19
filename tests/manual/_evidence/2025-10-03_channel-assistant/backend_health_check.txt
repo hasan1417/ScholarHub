@@ -1,4 +1,0 @@
-Command: curl -s -o /tmp/backend_health.txt -w "%{http_code}" http://localhost:8000/health
-HTTP Status: 200
-Response: {"status":"healthy","service":"ScholarHub Backend"}
-Timestamp: 2025-10-03T12:49:30Z
