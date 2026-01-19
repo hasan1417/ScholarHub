@@ -6,8 +6,6 @@ import Landing from '../pages/Landing'
 import { authRoutes } from './authRoutes'
 import { referenceRoutes } from './referenceRoutes'
 import { discoveryRoutes } from './discoveryRoutes'
-import { debugRoutes } from './debugRoutes'
-import { prototypeRoutes } from './prototypeRoutes'
 import { profileRoutes } from './profileRoutes'
 import { projectRoutes } from './projectRoutes'
 import PaperRedirect from '../pages/projects/PaperRedirect'
@@ -45,8 +43,6 @@ export const appRouteConfig: RouteObject[] = [
       },
       ...referenceRoutes,
       ...discoveryRoutes,
-      ...debugRoutes,
-      ...prototypeRoutes,
       ...profileRoutes,
       {
         path: '*',
