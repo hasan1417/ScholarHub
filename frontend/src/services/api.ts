@@ -319,8 +319,22 @@ export const authAPI = {
 
   getCurrentUser: () => api.get<User>('/me'),
 
+  // Email verification
+  verifyEmail: (token: string) =>
+    api.post<{ message: string }>('/verify-email', { token }),
+
+  resendVerification: (email: string) =>
+    api.post<{ message: string }>('/resend-verification', { email }),
+
+  // Password reset
   requestPasswordReset: (email: string) =>
-    api.post('/forgot-password', { email }),
+    api.post<{ message: string }>('/forgot-password', { email }),
+
+  resetPassword: (token: string, newPassword: string) =>
+    api.post<{ message: string }>('/reset-password', { token, new_password: newPassword }),
+
+  // Google OAuth - returns the URL to redirect to
+  getGoogleAuthUrl: () => `${API_BASE_URL}/google`,
 }
 
 // Users API endpoints
@@ -332,6 +346,14 @@ export const usersAPI = {
     api.post('/change-password', passwordData),
   lookupByEmail: (email: string) =>
     api.get<{ id?: string; user_id?: string; userId?: string }>(`/users/lookup-by-email`, { params: { email } }),
+  uploadAvatar: (file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post<User>('/me/avatar', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
+  deleteAvatar: () => api.delete<User>('/me/avatar'),
 }
 
 // Projects API endpoints

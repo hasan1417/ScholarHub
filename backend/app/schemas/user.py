@@ -7,6 +7,7 @@ class UserBase(BaseModel):
     email: EmailStr
     first_name: Optional[str] = None
     last_name: Optional[str] = None
+    avatar_url: Optional[str] = None
 
 class UserCreate(UserBase):
     password: str = Field(..., min_length=8, description="Password must be at least 8 characters")
@@ -14,15 +15,17 @@ class UserCreate(UserBase):
 class UserUpdate(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
+    avatar_url: Optional[str] = None
     is_active: Optional[bool] = None
 
 class UserInDB(UserBase):
     id: UUID
     is_active: bool
     is_verified: bool
+    auth_provider: str = "local"
     created_at: datetime
     updated_at: datetime
-    
+
     class Config:
         from_attributes = True
 

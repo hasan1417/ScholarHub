@@ -1,5 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Body, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Query, UploadFile, File
 import uuid
+import os
+import aiofiles
 from pydantic import EmailStr
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -9,6 +11,10 @@ from app.schemas.user import UserUpdate, UserResponse
 from app.core.security import get_password_hash, verify_password
 from typing import List
 from pydantic import BaseModel
+
+# Avatar upload directory
+AVATAR_UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "uploads", "avatars")
+os.makedirs(AVATAR_UPLOAD_DIR, exist_ok=True)
 
 router = APIRouter()
 
@@ -65,6 +71,70 @@ async def change_password(
     db.commit()
 
     return {"message": "Password changed successfully"}
+
+@router.post("/me/avatar", response_model=UserResponse)
+async def upload_avatar(
+    file: UploadFile = File(...),
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Upload user avatar image"""
+    # Validate file type
+    allowed_types = ["image/jpeg", "image/png", "image/gif", "image/webp"]
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file type. Allowed: JPEG, PNG, GIF, WebP"
+        )
+
+    # Validate file size (max 5MB)
+    contents = await file.read()
+    if len(contents) > 5 * 1024 * 1024:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File too large. Maximum size is 5MB"
+        )
+
+    # Generate unique filename
+    file_ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
+    filename = f"{current_user.id}_{uuid.uuid4().hex[:8]}.{file_ext}"
+    file_path = os.path.join(AVATAR_UPLOAD_DIR, filename)
+
+    # Delete old avatar if exists
+    if current_user.avatar_url:
+        old_filename = current_user.avatar_url.split("/")[-1]
+        old_path = os.path.join(AVATAR_UPLOAD_DIR, old_filename)
+        if os.path.exists(old_path):
+            os.remove(old_path)
+
+    # Save new avatar
+    async with aiofiles.open(file_path, "wb") as f:
+        await f.write(contents)
+
+    # Update user avatar URL
+    current_user.avatar_url = f"/uploads/avatars/{filename}"
+    db.commit()
+    db.refresh(current_user)
+
+    return current_user
+
+@router.delete("/me/avatar", response_model=UserResponse)
+async def delete_avatar(
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete user avatar"""
+    if current_user.avatar_url:
+        filename = current_user.avatar_url.split("/")[-1]
+        file_path = os.path.join(AVATAR_UPLOAD_DIR, filename)
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+        current_user.avatar_url = None
+        db.commit()
+        db.refresh(current_user)
+
+    return current_user
 
 @router.get("/users/lookup-by-email")
 async def lookup_user(

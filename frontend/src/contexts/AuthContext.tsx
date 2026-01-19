@@ -6,10 +6,19 @@ interface User {
   email: string
   first_name?: string
   last_name?: string
+  avatar_url?: string
   is_active: boolean
   is_verified: boolean
+  auth_provider?: string  // "local" or "google"
   created_at: string
   updated_at: string
+}
+
+interface RegisterResponse {
+  id: string
+  email: string
+  message: string
+  dev_verification_url?: string
 }
 
 interface AuthContextType {
@@ -22,7 +31,7 @@ interface AuthContextType {
     password: string
     first_name?: string
     last_name?: string
-  }) => Promise<void>
+  }) => Promise<RegisterResponse>
   logout: () => void
   refreshUser: () => Promise<void>
   updateUser: (userData: Partial<User>) => void
@@ -72,11 +81,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     password: string
     first_name?: string
     last_name?: string
-  }) => {
+  }): Promise<RegisterResponse> => {
     try {
-      await authAPI.register(userData)
-      // After successful registration, log the user in
-      await login(userData.email, userData.password)
+      const response = await authAPI.register(userData)
+      // Return the response data so the Register page can show verification info
+      return response.data as RegisterResponse
     } catch (error) {
       console.error('Registration failed:', error)
       throw error

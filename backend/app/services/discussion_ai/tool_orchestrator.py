@@ -35,7 +35,7 @@ DISCUSSION_TOOLS = [
         "type": "function",
         "function": {
             "name": "get_project_references",
-            "description": "Get papers/references from the user's project library (permanently saved papers). Use when user mentions 'my library', 'saved papers', 'my collection'. NOT for recently searched papers.",
+            "description": "Get papers/references from the user's project library (permanently saved papers). Use when user mentions 'my library', 'saved papers', 'my collection'. Returns count, ingested_pdf_count, has_pdf_available_count, and paper details. For ingested PDFs, includes summary, key_findings, methodology, limitations. For detailed info about a single paper, use get_reference_details instead.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -49,6 +49,40 @@ DISCUSSION_TOOLS = [
                         "default": 10
                     }
                 }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_reference_details",
+            "description": "Get detailed information about a specific reference from the library by ID. Use when user asks about a specific paper's content, what it's about, key findings, methodology, or wants a summary. Returns full analysis data if PDF was ingested (summary, key_findings, methodology, limitations, page_count).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reference_id": {
+                        "type": "string",
+                        "description": "The ID of the reference to get details for"
+                    }
+                },
+                "required": ["reference_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_reference",
+            "description": "Re-analyze a reference to generate/update its summary, key_findings, methodology, and limitations. Use when get_reference_details returns empty analysis fields (null summary/key_findings) for an ingested PDF, or when user asks to 'analyze', 're-analyze', or 'summarize' a specific reference. Requires the reference to have an ingested PDF.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reference_id": {
+                        "type": "string",
+                        "description": "The ID of the reference to analyze"
+                    }
+                },
+                "required": ["reference_id"]
             }
         }
     },
@@ -301,6 +335,7 @@ CRITICAL RULES:
    - Instead ASK: "Would you like me to create this as a paper in your project? That way you can edit it in the LaTeX editor."
    - If user confirms, use create_paper tool with the content
    - Only provide SHORT summaries (1-2 paragraphs) directly in chat
+9. NEVER show IDs (UUIDs, paper_id, artifact_id, etc.) to users - they are meaningless to humans. Just show titles and relevant info.
 
 **WHEN USER CONFIRMS TOPICS OR REQUESTS A SEARCH:**
 - You MUST call the search_papers or batch_search_papers tool!
@@ -509,6 +544,25 @@ class ToolOrchestrator:
             "conversation_state": {},
         }
 
+    def _get_tool_status_message(self, tool_name: str) -> str:
+        """Return a human-readable status message for a tool being called."""
+        tool_messages = {
+            "get_recent_search_results": "Reviewing search results",
+            "get_project_references": "Checking your library",
+            "get_reference_details": "Reading paper details",
+            "analyze_reference": "Analyzing paper content",
+            "search_papers": "Searching for papers",
+            "get_project_papers": "Loading your drafts",
+            "get_project_info": "Getting project info",
+            "get_channel_resources": "Checking channel resources",
+            "create_paper": "Creating paper",
+            "update_paper": "Updating paper",
+            "create_artifact": "Generating document",
+            "discover_topics": "Discovering topics",
+            "batch_search_papers": "Searching multiple topics",
+        }
+        return tool_messages.get(tool_name, "Processing")
+
     def _execute_with_tools_streaming(
         self,
         messages: List[Dict],
@@ -544,6 +598,12 @@ class ToolOrchestrator:
                 # No more tool calls, we're done
                 print("\n[STREAMING] No tool calls, finishing\n")
                 break
+
+            # Send status event for each tool call so frontend can show dynamic loading
+            for tc in tool_calls:
+                tool_name = tc.get("name", "")
+                status_message = self._get_tool_status_message(tool_name)
+                yield {"type": "status", "tool": tool_name, "message": status_message}
 
             # Execute tool calls (not streamed, but usually fast)
             tool_results = self._execute_tool_calls(tool_calls, ctx)
@@ -856,6 +916,10 @@ class ToolOrchestrator:
                     result = self._tool_get_recent_search_results(ctx)
                 elif name == "get_project_references":
                     result = self._tool_get_project_references(ctx, **args)
+                elif name == "get_reference_details":
+                    result = self._tool_get_reference_details(ctx, **args)
+                elif name == "analyze_reference":
+                    result = self._tool_analyze_reference(ctx, **args)
                 elif name == "search_papers":
                     result = self._tool_search_papers(**args)
                 elif name == "get_project_papers":
@@ -950,20 +1014,195 @@ class ToolOrchestrator:
         else:
             references = query.all()
 
+        # Count references with ingested PDFs
+        ingested_count = sum(1 for ref in references if ref.status in ("ingested", "analyzed"))
+        has_pdf_count = sum(1 for ref in references if ref.pdf_url or ref.is_open_access)
+
+        papers_list = []
+        for ref in references:
+            paper_info = {
+                "id": str(ref.id),
+                "title": ref.title,
+                "authors": ref.authors if isinstance(ref.authors, str) else ", ".join(ref.authors or []),
+                "year": ref.year,
+                "abstract": (ref.abstract or "")[:300],
+                "source": ref.source,
+                "has_pdf": bool(ref.pdf_url),
+                "is_open_access": bool(ref.is_open_access),
+                "pdf_ingested": ref.status in ("ingested", "analyzed"),
+            }
+
+            # Include analysis fields if the PDF was ingested
+            if ref.status in ("ingested", "analyzed"):
+                if ref.summary:
+                    paper_info["summary"] = ref.summary
+                if ref.key_findings:
+                    paper_info["key_findings"] = ref.key_findings
+                if ref.methodology:
+                    paper_info["methodology"] = ref.methodology[:500] if ref.methodology else None
+                if ref.limitations:
+                    paper_info["limitations"] = ref.limitations
+
+            papers_list.append(paper_info)
+
         return {
             "count": len(references),
-            "papers": [  # Standardized key
-                {
-                    "id": str(ref.id),
-                    "title": ref.title,
-                    "authors": ref.authors if isinstance(ref.authors, str) else ", ".join(ref.authors or []),
-                    "year": ref.year,
-                    "abstract": (ref.abstract or "")[:300],
-                    "source": ref.source,
-                }
-                for ref in references
-            ]
+            "ingested_pdf_count": ingested_count,
+            "has_pdf_available_count": has_pdf_count,
+            "papers": papers_list,
         }
+
+    def _tool_get_reference_details(self, ctx: Dict[str, Any], reference_id: str) -> Dict:
+        """Get detailed information about a specific reference by ID."""
+        from app.models import ProjectReference, Reference, Document
+
+        project = ctx["project"]
+
+        # Find the reference in the project library
+        ref = self.db.query(Reference).join(
+            ProjectReference,
+            ProjectReference.reference_id == Reference.id
+        ).filter(
+            ProjectReference.project_id == project.id,
+            Reference.id == reference_id
+        ).first()
+
+        if not ref:
+            return {"error": f"Reference not found in project library (ID: {reference_id})"}
+
+        # Build detailed response
+        result = {
+            "id": str(ref.id),
+            "title": ref.title,
+            "authors": ref.authors if isinstance(ref.authors, str) else ", ".join(ref.authors or []),
+            "year": ref.year,
+            "doi": ref.doi,
+            "url": ref.url,
+            "source": ref.source,
+            "journal": ref.journal,
+            "abstract": ref.abstract,
+            "has_pdf": bool(ref.pdf_url),
+            "is_open_access": bool(ref.is_open_access),
+            "pdf_url": ref.pdf_url,
+            "status": ref.status,
+            "pdf_ingested": ref.status in ("ingested", "analyzed"),
+        }
+
+        # Include analysis fields if the PDF was ingested
+        if ref.status in ("ingested", "analyzed"):
+            result["analysis"] = {
+                "summary": ref.summary,
+                "key_findings": ref.key_findings,
+                "methodology": ref.methodology,
+                "limitations": ref.limitations,
+                "relevance_score": ref.relevance_score,
+            }
+
+            # Try to get page count from the linked document
+            if ref.document_id:
+                doc = self.db.query(Document).filter(Document.id == ref.document_id).first()
+                if doc:
+                    result["page_count"] = doc.page_count if hasattr(doc, 'page_count') else None
+                    # Could also include word count or other metadata if available
+
+        return result
+
+    def _tool_analyze_reference(self, ctx: Dict[str, Any], reference_id: str) -> Dict:
+        """Re-analyze a reference to generate summary, key_findings, methodology, limitations."""
+        from app.models import ProjectReference, Reference
+        from app.models.document_chunk import DocumentChunk
+
+        project = ctx["project"]
+
+        # Find the reference in the project library
+        ref = self.db.query(Reference).join(
+            ProjectReference,
+            ProjectReference.reference_id == Reference.id
+        ).filter(
+            ProjectReference.project_id == project.id,
+            Reference.id == reference_id
+        ).first()
+
+        if not ref:
+            return {"error": f"Reference not found in project library (ID: {reference_id})"}
+
+        if not ref.document_id:
+            return {"error": "This reference doesn't have an ingested PDF. Cannot analyze without PDF content."}
+
+        # Build profile text from chunks
+        chunks = self.db.query(DocumentChunk).filter(
+            DocumentChunk.document_id == ref.document_id
+        ).order_by(DocumentChunk.chunk_index).limit(8).all()
+
+        if not chunks:
+            return {"error": "No text content found for this reference's PDF."}
+
+        profile_text = '\n'.join([c.chunk_text for c in chunks if c.chunk_text])
+
+        if not profile_text:
+            return {"error": "Extracted text is empty for this reference."}
+
+        # Run AI analysis
+        import os
+        from openai import OpenAI
+
+        api_key = os.getenv('OPENAI_API_KEY')
+        if not api_key:
+            return {"error": "OpenAI API key not configured."}
+
+        client = OpenAI(api_key=api_key)
+        prompt = f"""Analyze this academic paper and provide a JSON response with the following fields:
+- summary: A 2-3 sentence summary of the paper
+- key_findings: An array of 3-5 key findings
+- methodology: A 1-2 sentence description of the methodology
+- limitations: An array of 2-3 limitations
+
+Title: {ref.title or ''}
+
+Text:
+{profile_text[:6000]}
+
+Respond ONLY with valid JSON, no markdown or explanation."""
+
+        try:
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1000,
+                temperature=0.3
+            )
+            content = resp.choices[0].message.content or ''
+
+            # Strip markdown code blocks if present
+            import json
+            import re
+            json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', content)
+            if json_match:
+                content = json_match.group(1)
+
+            data = json.loads(content)
+            ref.summary = data.get('summary')
+            ref.key_findings = data.get('key_findings')
+            ref.methodology = data.get('methodology')
+            ref.limitations = data.get('limitations')
+            ref.status = 'analyzed'
+            self.db.commit()
+
+            return {
+                "status": "success",
+                "message": f"Successfully analyzed '{ref.title}'",
+                "analysis": {
+                    "summary": ref.summary,
+                    "key_findings": ref.key_findings,
+                    "methodology": ref.methodology,
+                    "limitations": ref.limitations,
+                }
+            }
+        except json.JSONDecodeError as e:
+            return {"error": f"Failed to parse AI response: {e}"}
+        except Exception as e:
+            logger.exception(f"Error analyzing reference {reference_id}")
+            return {"error": f"Analysis failed: {str(e)}"}
 
     def _tool_search_papers(self, query: str, count: int = 5, open_access_only: bool = False) -> Dict:
         """Search for papers online - returns action for frontend to execute."""
@@ -1221,7 +1460,9 @@ class ToolOrchestrator:
                 ).first()
 
             # Create Reference if not exists
+            is_new_ref = False
             if not existing_ref:
+                is_new_ref = True
                 authors = matched_paper.get("authors", [])
                 if isinstance(authors, str):
                     authors = [a.strip() for a in authors.split(",")]
@@ -1242,6 +1483,15 @@ class ToolOrchestrator:
                 )
                 self.db.add(existing_ref)
                 self.db.flush()
+
+            # Trigger PDF ingestion for new references with pdf_url
+            if is_new_ref and existing_ref.pdf_url:
+                try:
+                    from app.services.reference_ingestion_service import ingest_reference_pdf
+                    ingest_reference_pdf(self.db, existing_ref, owner_id=str(project.created_by))
+                    logger.info("PDF ingestion triggered for reference %s", existing_ref.id)
+                except Exception as e:
+                    logger.warning("Failed to trigger PDF ingestion for reference %s: %s", existing_ref.id, e)
 
             # Add to project library if not already there
             existing_project_ref = self.db.query(ProjectReference).filter(

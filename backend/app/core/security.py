@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, Tuple
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from app.core.config import settings
 import secrets
 import hashlib
@@ -64,3 +65,47 @@ def verify_token(token: str) -> Optional[str]:
         return email
     except JWTError:
         return None
+
+
+# Email verification and password reset token functions
+_email_serializer = URLSafeTimedSerializer(settings.SECRET_KEY, salt="email-verification")
+_password_reset_serializer = URLSafeTimedSerializer(settings.SECRET_KEY, salt="password-reset")
+
+
+def create_email_verification_token(email: str) -> str:
+    """Create a URL-safe token for email verification."""
+    return _email_serializer.dumps(email)
+
+
+def verify_email_verification_token(token: str, max_age_hours: int = None) -> Optional[str]:
+    """Verify email verification token and return the email if valid."""
+    if max_age_hours is None:
+        max_age_hours = settings.EMAIL_VERIFICATION_EXPIRE_HOURS
+    max_age_seconds = max_age_hours * 3600
+    try:
+        email = _email_serializer.loads(token, max_age=max_age_seconds)
+        return email
+    except (BadSignature, SignatureExpired):
+        return None
+
+
+def create_password_reset_token(email: str) -> str:
+    """Create a URL-safe token for password reset."""
+    return _password_reset_serializer.dumps(email)
+
+
+def verify_password_reset_token(token: str, max_age_hours: int = None) -> Optional[str]:
+    """Verify password reset token and return the email if valid."""
+    if max_age_hours is None:
+        max_age_hours = settings.PASSWORD_RESET_EXPIRE_HOURS
+    max_age_seconds = max_age_hours * 3600
+    try:
+        email = _password_reset_serializer.loads(token, max_age=max_age_seconds)
+        return email
+    except (BadSignature, SignatureExpired):
+        return None
+
+
+def generate_oauth_state() -> str:
+    """Generate a secure random state for OAuth CSRF protection."""
+    return secrets.token_urlsafe(32)

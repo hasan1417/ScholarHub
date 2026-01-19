@@ -4,8 +4,10 @@ export interface User {
   email: string
   first_name?: string
   last_name?: string
+  avatar_url?: string
   is_active: boolean
   is_verified: boolean
+  auth_provider?: string  // "local" or "google"
   created_at: string
   updated_at: string
 }

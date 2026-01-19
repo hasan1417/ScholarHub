@@ -1,9 +1,8 @@
 import { Outlet, useNavigate, Link, useLocation } from 'react-router-dom'
 import { useMemo, useState } from 'react'
-import { FolderKanban, UserCircle, Settings as SettingsIcon, Sun, Moon, Sparkles } from 'lucide-react'
+import { FolderKanban, UserCircle, Settings as SettingsIcon, Sun, Moon, ChevronRight, Palette } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import SettingsModal from '../settings/SettingsModal'
-import ModelSelectionModal from '../ai/ModelSelectionModal'
 import { useThemePreference } from '../../hooks/useThemePreference'
 import { Logo } from '../brand/Logo'
 
@@ -12,7 +11,6 @@ const Layout = () => {
   const navigate = useNavigate()
   const location = useLocation()
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
-  const [isModelModalOpen, setIsModelModalOpen] = useState(false)
 
   const { theme, setTheme } = useThemePreference()
 
@@ -37,60 +35,67 @@ const Layout = () => {
     },
   ]
 
+  const getInitials = () => {
+    const first = user?.first_name?.charAt(0) || user?.email?.charAt(0) || '?'
+    const last = user?.last_name?.charAt(0) || ''
+    return (first + last).toUpperCase()
+  }
+
   const settingsContent = useMemo(() => (
-    <div className="space-y-6">
-      <section>
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Appearance</h3>
-        <p className="mt-1 text-xs text-gray-500 dark:text-slate-300">Switch between light and dark modes for the UI shell.</p>
-        <div className="mt-4 flex gap-3">
+    <div className="space-y-5">
+      {/* User Profile Card */}
+      <Link
+        to="/profile"
+        onClick={() => setIsSettingsOpen(false)}
+        className="flex items-center gap-4 rounded-xl border border-gray-100 bg-gradient-to-r from-gray-50 to-white p-4 transition-all hover:border-gray-200 hover:shadow-sm dark:border-slate-700 dark:from-slate-800 dark:to-slate-800/50 dark:hover:border-slate-600"
+      >
+        <div className="h-12 w-12 flex-shrink-0 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-semibold shadow-md">
+          {getInitials()}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="font-medium text-gray-900 dark:text-slate-100 truncate">
+            {user?.first_name ? `${user.first_name} ${user.last_name ?? ''}`.trim() : 'User'}
+          </div>
+          <div className="text-sm text-gray-500 dark:text-slate-400 truncate">{user?.email}</div>
+        </div>
+        <ChevronRight className="h-5 w-5 text-gray-400 dark:text-slate-500" />
+      </Link>
+
+      {/* Appearance Section */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-slate-300">
+          <Palette className="h-4 w-4" />
+          <span>Appearance</span>
+        </div>
+        <div className="flex rounded-lg bg-gray-100 p-1 dark:bg-slate-700/50">
           <button
             type="button"
             onClick={() => setTheme('light')}
-            className={`flex flex-1 items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${
+            className={`flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-all ${
               theme === 'light'
-                ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-400/10 dark:text-indigo-200'
-                : 'border-gray-200 text-gray-600 hover:border-gray-300 dark:border-slate-700 dark:text-slate-200 dark:hover:border-slate-500'
+                ? 'bg-white text-gray-900 shadow-sm dark:bg-slate-600 dark:text-white'
+                : 'text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-slate-200'
             }`}
           >
-            <Sun className="h-4 w-4" /> Light
+            <Sun className="h-4 w-4" />
+            <span>Light</span>
           </button>
           <button
             type="button"
             onClick={() => setTheme('dark')}
-            className={`flex flex-1 items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${
+            className={`flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-all ${
               theme === 'dark'
-                ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-400/10 dark:text-indigo-200'
-                : 'border-gray-200 text-gray-600 hover:border-gray-300 dark:border-slate-700 dark:text-slate-200 dark:hover:border-slate-500'
+                ? 'bg-white text-gray-900 shadow-sm dark:bg-slate-600 dark:text-white'
+                : 'text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-slate-200'
             }`}
           >
-            <Moon className="h-4 w-4" /> Dark
+            <Moon className="h-4 w-4" />
+            <span>Dark</span>
           </button>
         </div>
-      </section>
-
-      <section>
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">AI configuration</h3>
-        <p className="mt-1 text-xs text-gray-500 dark:text-slate-300">
-          Update the provider, model, and embeddings used across assistants and writing tools.
-        </p>
-        <button
-          type="button"
-          onClick={() => setIsModelModalOpen(true)}
-          className="mt-4 inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-100 dark:border-indigo-400/40 dark:bg-indigo-400/10 dark:text-indigo-200 dark:hover:border-indigo-300/50 dark:hover:bg-indigo-400/20"
-        >
-          <Sparkles className="h-4 w-4" /> Configure AI models
-        </button>
-      </section>
-
-      <section>
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Profile</h3>
-        <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600 transition-colors dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200">
-          <div className="font-medium text-gray-900 dark:text-slate-100">{user?.first_name ? `${user.first_name} ${user.last_name ?? ''}`.trim() : user?.email}</div>
-          <div className="text-xs text-gray-500 dark:text-slate-300">{user?.email}</div>
-        </div>
-      </section>
+      </div>
     </div>
-  ), [theme, user])
+  ), [theme, user, setIsSettingsOpen])
 
   return (
     <div className="min-h-screen transition-colors duration-200">
@@ -137,7 +142,6 @@ const Layout = () => {
       >
         {settingsContent}
       </SettingsModal>
-      <ModelSelectionModal isOpen={isModelModalOpen} onClose={() => setIsModelModalOpen(false)} />
     </div>
   )
 }

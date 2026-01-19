@@ -1,7 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
+from fastapi.responses import RedirectResponse
 from typing import Optional
+from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
+from authlib.integrations.starlette_client import OAuth
 from app.database import get_db
 from app.models.user import User
 from app.schemas.user import (
@@ -19,12 +22,52 @@ from app.core.security import (
     create_access_token,
     create_refresh_token,
     hash_refresh_token,
+    create_email_verification_token,
+    verify_email_verification_token,
+    create_password_reset_token,
+    verify_password_reset_token,
+    generate_oauth_state,
+)
+from app.services.email_service import (
+    send_verification_email,
+    send_password_reset_email,
+    send_welcome_email,
 )
 from app.api.deps import get_current_active_user
 from app.core.config import settings
 from datetime import timedelta, datetime, timezone
+import logging
 
 from app.core.rate_limiter import limiter
+
+logger = logging.getLogger(__name__)
+
+# OAuth configuration
+oauth = OAuth()
+if settings.GOOGLE_CLIENT_ID and settings.GOOGLE_CLIENT_SECRET:
+    oauth.register(
+        name='google',
+        client_id=settings.GOOGLE_CLIENT_ID,
+        client_secret=settings.GOOGLE_CLIENT_SECRET,
+        server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+        client_kwargs={
+            'scope': 'openid email profile'
+        }
+    )
+
+
+# Request/Response schemas for new endpoints
+class EmailVerificationRequest(BaseModel):
+    token: str
+
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
 
 
 ACCESS_COOKIE_NAME = settings.ACCESS_TOKEN_COOKIE_NAME
@@ -57,9 +100,20 @@ def clear_refresh_cookie(response: Response) -> None:
 
 router = APIRouter()
 
-@router.post("/register", response_model=UserInDB, status_code=status.HTTP_201_CREATED)
+class RegisterResponse(BaseModel):
+    """Registration response with optional dev verification URL."""
+    id: str
+    email: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    is_verified: bool = False
+    message: str = "Please check your email to verify your account"
+    dev_verification_url: Optional[str] = None  # Only in development
+
+
+@router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
 async def register(request: Request, user_data: UserCreate, db: Session = Depends(get_db)):
-    """Register a new user."""
+    """Register a new user and send verification email."""
     # Check if user already exists
     try:
         existing_user = db.query(User).filter(User.email == user_data.email).first()
@@ -70,16 +124,23 @@ async def register(request: Request, user_data: UserCreate, db: Session = Depend
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
         )
-    
+
     # Create new user
     hashed_password = get_password_hash(user_data.password)
+
+    # Generate email verification token
+    verification_token = create_email_verification_token(user_data.email)
+
     db_user = User(
         email=user_data.email,
         password_hash=hashed_password,
         first_name=user_data.first_name,
-        last_name=user_data.last_name
+        last_name=user_data.last_name,
+        auth_provider="local",
+        email_verification_token=verification_token,
+        email_verification_sent_at=datetime.now(timezone.utc),
     )
-    
+
     try:
         db.add(db_user)
         db.commit()
@@ -87,8 +148,26 @@ async def register(request: Request, user_data: UserCreate, db: Session = Depend
     except SQLAlchemyError:
         db.rollback()
         raise HTTPException(status_code=503, detail="Database unavailable")
-    
-    return db_user
+
+    # Send verification email (non-blocking - don't fail registration if email fails)
+    try:
+        send_verification_email(
+            to=db_user.email,
+            token=verification_token,
+            name=db_user.first_name
+        )
+    except Exception as e:
+        logger.error(f"Failed to send verification email: {e}")
+
+    # Build response
+    return {
+        "id": str(db_user.id),
+        "email": db_user.email,
+        "first_name": db_user.first_name,
+        "last_name": db_user.last_name,
+        "is_verified": db_user.is_verified,
+        "message": "Please check your email to verify your account",
+    }
 
 @router.post("/login", response_model=Token)
 async def login(request: Request, login_data: UserLogin, response: Response, db: Session = Depends(get_db)):
@@ -272,12 +351,304 @@ async def logout(response: Response, current_user: User = Depends(get_current_ac
 @router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED)
 async def request_password_reset(payload: PasswordResetRequest, db: Session = Depends(get_db)):
     """
-    Accept a password reset request.
-    This placeholder implementation always returns success to avoid leaking which emails exist.
+    Request a password reset email.
+    Always returns success to avoid leaking which emails exist.
     """
     try:
-        _ = db.query(User).filter(User.email == payload.email).first()
+        user = db.query(User).filter(User.email == payload.email).first()
     except SQLAlchemyError:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
+    if user and user.auth_provider == "local":
+        # Generate password reset token
+        reset_token = create_password_reset_token(user.email)
+
+        # Store token in database
+        try:
+            user.password_reset_token = reset_token
+            user.password_reset_sent_at = datetime.now(timezone.utc)
+            db.commit()
+        except SQLAlchemyError:
+            db.rollback()
+            logger.error(f"Failed to save password reset token for {payload.email}")
+
+        # Send password reset email
+        try:
+            send_password_reset_email(
+                to=user.email,
+                token=reset_token,
+                name=user.first_name
+            )
+        except Exception as e:
+            logger.error(f"Failed to send password reset email: {e}")
+
     return {"message": "If an account exists for this email, reset instructions have been sent."}
+
+
+@router.post("/reset-password", status_code=status.HTTP_200_OK)
+async def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)):
+    """
+    Reset password using a valid reset token.
+    """
+    # Verify the token and get the email
+    email = verify_password_reset_token(payload.token)
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token"
+        )
+
+    try:
+        user = db.query(User).filter(User.email == email).first()
+    except SQLAlchemyError:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token"
+        )
+
+    # Verify the token matches what's stored (prevents token reuse)
+    if user.password_reset_token != payload.token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token"
+        )
+
+    # Update password
+    try:
+        user.password_hash = get_password_hash(payload.new_password)
+        user.password_reset_token = None
+        user.password_reset_sent_at = None
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    return {"message": "Password has been reset successfully"}
+
+
+@router.post("/verify-email", status_code=status.HTTP_200_OK)
+async def verify_email(payload: EmailVerificationRequest, db: Session = Depends(get_db)):
+    """
+    Verify email using a valid verification token.
+    """
+    # Verify the token and get the email
+    email = verify_email_verification_token(payload.token)
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired verification token"
+        )
+
+    try:
+        user = db.query(User).filter(User.email == email).first()
+    except SQLAlchemyError:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired verification token"
+        )
+
+    # Check if already verified
+    if user.is_verified:
+        return {"message": "Email already verified"}
+
+    # Verify the token matches what's stored
+    if user.email_verification_token != payload.token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired verification token"
+        )
+
+    # Mark user as verified
+    try:
+        user.is_verified = True
+        user.email_verification_token = None
+        user.email_verification_sent_at = None
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    # Send welcome email
+    try:
+        send_welcome_email(to=user.email, name=user.first_name)
+    except Exception as e:
+        logger.error(f"Failed to send welcome email: {e}")
+
+    return {"message": "Email verified successfully"}
+
+
+@router.post("/resend-verification", status_code=status.HTTP_202_ACCEPTED)
+async def resend_verification(payload: ResendVerificationRequest, db: Session = Depends(get_db)):
+    """
+    Resend verification email.
+    Always returns success to avoid leaking which emails exist.
+    """
+    try:
+        user = db.query(User).filter(User.email == payload.email).first()
+    except SQLAlchemyError:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    if user and not user.is_verified and user.auth_provider == "local":
+        # Generate new verification token
+        verification_token = create_email_verification_token(user.email)
+
+        # Store token in database
+        try:
+            user.email_verification_token = verification_token
+            user.email_verification_sent_at = datetime.now(timezone.utc)
+            db.commit()
+        except SQLAlchemyError:
+            db.rollback()
+            logger.error(f"Failed to save verification token for {payload.email}")
+
+        # Send verification email
+        try:
+            send_verification_email(
+                to=user.email,
+                token=verification_token,
+                name=user.first_name
+            )
+        except Exception as e:
+            logger.error(f"Failed to send verification email: {e}")
+
+    return {"message": "If an unverified account exists for this email, a verification link has been sent."}
+
+
+# Google OAuth endpoints
+@router.get("/google")
+async def google_login(request: Request):
+    """
+    Initiate Google OAuth flow.
+    Redirects the user to Google's consent page.
+    """
+    if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Google OAuth is not configured"
+        )
+
+    # Generate state for CSRF protection
+    state = generate_oauth_state()
+    request.session["oauth_state"] = state
+
+    redirect_uri = settings.GOOGLE_REDIRECT_URI
+    return await oauth.google.authorize_redirect(request, redirect_uri, state=state)
+
+
+@router.get("/google/callback")
+async def google_callback(request: Request, response: Response, db: Session = Depends(get_db)):
+    """
+    Handle Google OAuth callback.
+    Creates or links user account, issues tokens, and redirects to frontend.
+    """
+    if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Google OAuth is not configured"
+        )
+
+    try:
+        # Get the token from Google
+        token = await oauth.google.authorize_access_token(request)
+    except Exception as e:
+        logger.error(f"Google OAuth error: {e}")
+        return RedirectResponse(
+            url=f"{settings.FRONTEND_URL}/login?error=oauth_failed",
+            status_code=status.HTTP_302_FOUND
+        )
+
+    # Get user info from Google
+    user_info = token.get('userinfo')
+    if not user_info:
+        return RedirectResponse(
+            url=f"{settings.FRONTEND_URL}/login?error=oauth_failed",
+            status_code=status.HTTP_302_FOUND
+        )
+
+    google_id = user_info.get('sub')
+    email = user_info.get('email')
+    first_name = user_info.get('given_name', '')
+    last_name = user_info.get('family_name', '')
+    picture = user_info.get('picture', '')
+
+    if not google_id or not email:
+        return RedirectResponse(
+            url=f"{settings.FRONTEND_URL}/login?error=oauth_failed",
+            status_code=status.HTTP_302_FOUND
+        )
+
+    try:
+        # Check if user exists by Google ID
+        user = db.query(User).filter(User.google_id == google_id).first()
+
+        if not user:
+            # Check if user exists by email (linking existing account)
+            user = db.query(User).filter(User.email == email).first()
+
+            if user:
+                # Link existing account to Google
+                user.google_id = google_id
+                if not user.avatar_url and picture:
+                    user.avatar_url = picture
+                # If local user signs in with Google, mark as verified
+                user.is_verified = True
+            else:
+                # Create new user
+                user = User(
+                    email=email,
+                    password_hash="",  # OAuth users don't have a password
+                    first_name=first_name,
+                    last_name=last_name,
+                    avatar_url=picture,
+                    google_id=google_id,
+                    auth_provider="google",
+                    is_verified=True,  # Google accounts are pre-verified
+                    is_active=True,
+                )
+                db.add(user)
+
+        db.commit()
+        db.refresh(user)
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error during OAuth: {e}")
+        return RedirectResponse(
+            url=f"{settings.FRONTEND_URL}/login?error=oauth_failed",
+            status_code=status.HTTP_302_FOUND
+        )
+
+    # Create access token
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.email}, expires_delta=access_token_expires
+    )
+
+    # Create refresh token
+    refresh_token = create_refresh_token()
+    now = datetime.now(timezone.utc)
+    refresh_token_expires = now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+
+    # Store refresh token in database
+    try:
+        user.refresh_token = hash_refresh_token(refresh_token)
+        user.refresh_token_expires_at = refresh_token_expires
+        user.refresh_token_last_hash = None
+        user.refresh_token_last_seen_at = now
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        logger.error("Failed to save refresh token after OAuth")
+
+    # Set refresh token cookie
+    set_refresh_cookie(response, refresh_token)
+
+    # Redirect to frontend with access token
+    redirect_url = f"{settings.FRONTEND_URL}/auth/callback?access_token={access_token}"
+    return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)

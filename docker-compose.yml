@@ -111,6 +111,21 @@ services:
       - COLLAB_WS_URL=${COLLAB_WS_URL:-ws://collab:3001}
       - COLLAB_JWT_EXPIRE_SECONDS=${COLLAB_JWT_EXPIRE_SECONDS:-300}
       - LATEX_WARMUP_ON_STARTUP=${LATEX_WARMUP_ON_STARTUP:-true}
+      # Google OAuth
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI:-http://localhost:8000/api/v1/google/callback}
+      # Resend Email (production)
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - RESEND_FROM_EMAIL=${RESEND_FROM_EMAIL:-onboarding@resend.dev}
+      # SMTP Email (development - Mailtrap)
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USERNAME=${SMTP_USERNAME:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL:-noreply@scholarhub.dev}
+      # Frontend URL
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
     depends_on:
       postgres:
         condition: service_healthy

@@ -21,7 +21,7 @@ export function ReferenceSearchResults({
 }: ReferenceSearchResultsProps) {
   const queryClient = useQueryClient()
   const [addedPapers, setAddedPapers] = useState<Set<string>>(new Set())
-  const [addingPaper, setAddingPaper] = useState<string | null>(null)
+  const [addingPapers, setAddingPapers] = useState<Set<string>>(new Set())
 
   const addReferenceMutation = useMutation({
     mutationFn: async (paper: DiscoveredPaper) => {
@@ -40,27 +40,36 @@ export function ReferenceSearchResults({
           is_open_access: paper.is_open_access,
         }
       )
-      return response.data
+      return { data: response.data, paperId: paper.id }
     },
-    onSuccess: (data, paper) => {
+    onSuccess: ({ data, paperId }) => {
+      // Remove from adding state
+      setAddingPapers((prev) => {
+        const next = new Set(prev)
+        next.delete(paperId)
+        return next
+      })
       if (data.success) {
-        setAddedPapers((prev) => new Set([...prev, paper.id]))
+        setAddedPapers((prev) => new Set([...prev, paperId]))
         // Invalidate references query to refresh the list
         queryClient.invalidateQueries({ queryKey: ['projectReferences', projectId] })
       } else {
         alert(data.message || 'Failed to add reference')
       }
     },
-    onError: (error: Error) => {
+    onError: (error: Error, paper) => {
+      // Remove from adding state on error
+      setAddingPapers((prev) => {
+        const next = new Set(prev)
+        next.delete(paper.id)
+        return next
+      })
       alert(error.message || 'Failed to add reference')
-    },
-    onSettled: () => {
-      setAddingPaper(null)
     },
   })
 
   const handleAdd = (paper: DiscoveredPaper) => {
-    setAddingPaper(paper.id)
+    setAddingPapers((prev) => new Set([...prev, paper.id]))
     addReferenceMutation.mutate(paper)
   }
 
@@ -120,7 +129,7 @@ export function ReferenceSearchResults({
             key={paper.id}
             paper={paper}
             onAdd={() => handleAdd(paper)}
-            isAdding={addingPaper === paper.id}
+            isAdding={addingPapers.has(paper.id)}
             isAdded={addedPapers.has(paper.id)}
           />
         ))}

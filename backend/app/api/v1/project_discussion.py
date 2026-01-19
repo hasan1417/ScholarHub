@@ -1252,6 +1252,8 @@ def invoke_discussion_assistant(
                     ):
                         if event.get("type") == "token":
                             yield "data: " + json.dumps({"type": "token", "content": event.get("content", "")}) + "\n\n"
+                        elif event.get("type") == "status":
+                            yield "data: " + json.dumps({"type": "status", "tool": event.get("tool", ""), "message": event.get("message", "Processing")}) + "\n\n"
                         elif event.get("type") == "result":
                             final_result = event.get("data", {})
 
@@ -1827,6 +1829,7 @@ class PaperActionResponse(BaseModel):
 def execute_paper_action(
     project_id: UUID,
     request: PaperActionRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> PaperActionResponse:
@@ -1839,7 +1842,7 @@ def execute_paper_action(
     elif request.action_type == "edit_paper":
         return _handle_edit_paper(db, project, current_user, request.payload)
     elif request.action_type == "add_reference":
-        return _handle_add_reference(db, project, current_user, request.payload)
+        return _handle_add_reference(db, project, current_user, request.payload, background_tasks)
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -2044,6 +2047,7 @@ def _handle_add_reference(
     project,
     user: User,
     payload: Dict[str, Any],
+    background_tasks: Optional[BackgroundTasks] = None,
 ) -> PaperActionResponse:
     """Add a discovered paper as a project reference."""
     title = payload.get("title")
@@ -2125,19 +2129,26 @@ def _handle_add_reference(
     short_title = title[:50] + "..." if len(title) > 50 else title
     message = f"Added '{short_title}' to references"
 
-    # Trigger PDF ingestion if available (in background)
-    if pdf_url:
-        try:
-            from app.services.reference_ingestion_service import ingest_reference_pdf
-            # Refresh the reference to ensure it's attached to the session
-            ref = db.query(Reference).filter(Reference.id == ref.id).first()
-            if ref:
-                ingested = ingest_reference_pdf(db, ref, owner_id=str(user.id))
-                if ingested:
-                    message += " (PDF queued for processing)"
-                    logger.info("PDF ingestion triggered for reference %s", ref.id)
-        except Exception as e:
-            logger.warning("Failed to trigger PDF ingestion for reference %s: %s", ref.id, e)
+    # Trigger PDF ingestion in background if available
+    if pdf_url and background_tasks:
+        ref_id = ref.id
+        owner_id = str(user.id)
+
+        def _ingest_pdf_background():
+            """Run PDF ingestion in background thread with new DB session."""
+            try:
+                from app.services.reference_ingestion_service import ingest_reference_pdf
+                with SessionLocal() as bg_db:
+                    bg_ref = bg_db.query(Reference).filter(Reference.id == ref_id).first()
+                    if bg_ref:
+                        ingest_reference_pdf(bg_db, bg_ref, owner_id=owner_id)
+                        logger.info("PDF ingestion completed for reference %s", ref_id)
+            except Exception as e:
+                logger.warning("Background PDF ingestion failed for reference %s: %s", ref_id, e)
+
+        background_tasks.add_task(_ingest_pdf_background)
+        message += " (PDF processing in background)"
+        logger.info("PDF ingestion queued for reference %s", ref.id)
 
     logger.info(
         "Reference added via discussion AI: ref_id=%s title=%s project_id=%s",

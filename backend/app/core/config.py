@@ -30,6 +30,29 @@ class Settings(BaseSettings):
         "http://localhost:5500",
         "http://localhost:8080",
     ]
+
+    # Google OAuth
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
+    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/v1/google/callback"
+
+    # Resend Email (production)
+    RESEND_API_KEY: Optional[str] = None
+    RESEND_FROM_EMAIL: str = "noreply@scholarhub.app"
+
+    # SMTP Email (development - Mailtrap)
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_FROM_EMAIL: str = "noreply@scholarhub.dev"
+
+    # Email verification & password reset token expiration
+    EMAIL_VERIFICATION_EXPIRE_HOURS: int = 24
+    PASSWORD_RESET_EXPIRE_HOURS: int = 1
+
+    # Frontend URL (for email links)
+    FRONTEND_URL: str = "http://localhost:3000"
     
     # Unpaywall (for OA resolution)
     UNPAYWALL_EMAIL: Optional[str] = None

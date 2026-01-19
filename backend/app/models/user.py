@@ -13,6 +13,7 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     first_name = Column(String(100))
     last_name = Column(String(100))
+    avatar_url = Column(String(500), nullable=True)  # Profile picture URL
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
     refresh_token = Column(String(255))  # Stores hashed refresh token
@@ -21,6 +22,18 @@ class User(Base):
     refresh_token_last_seen_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # OAuth fields
+    google_id = Column(String(255), unique=True, nullable=True, index=True)
+    auth_provider = Column(String(50), default="local")  # "local" or "google"
+
+    # Email verification tokens
+    email_verification_token = Column(String(255), nullable=True)
+    email_verification_sent_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Password reset tokens
+    password_reset_token = Column(String(255), nullable=True)
+    password_reset_sent_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     owned_projects = relationship("Project", back_populates="owner", cascade="all, delete-orphan")

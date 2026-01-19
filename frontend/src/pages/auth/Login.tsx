@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { ArrowLeft, Mail, Lock, Loader2 } from 'lucide-react'
 import { Logo } from '../../components/brand/Logo'
+import GoogleSignInButton from '../../components/auth/GoogleSignInButton'
 
 type LoginErrors = {
   general?: string
@@ -190,6 +191,18 @@ const Login = () => {
                 </div>
               </button>
             </form>
+
+            {/* Divider */}
+            <div className="mt-8 flex items-center gap-4">
+              <div className="flex-1 h-px bg-gray-200 dark:bg-slate-700" />
+              <span className="text-sm text-gray-500 dark:text-slate-500">or continue with</span>
+              <div className="flex-1 h-px bg-gray-200 dark:bg-slate-700" />
+            </div>
+
+            {/* Google Sign In */}
+            <div className="mt-6">
+              <GoogleSignInButton mode="signin" disabled={isLoading} />
+            </div>
 
             {/* Divider */}
             <div className="mt-8 flex items-center gap-4">

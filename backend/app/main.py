@@ -1,6 +1,7 @@
 import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from app.api.v1 import auth, users, research_papers, documents, ai, team, branches, discovery, references, latex, onlyoffice, metrics, comments, section_locks, collab, collab_bootstrap, snapshots
@@ -20,6 +21,9 @@ app = FastAPI(
     description="AI-Powered Research Paper Management Platform",
     version="1.0.0"
 )
+
+# Session middleware for OAuth state management
+app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 
 # CORS middleware (configured via settings for production safety)
 app.add_middleware(

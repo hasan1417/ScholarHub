@@ -1,37 +1,6 @@
-import { Check, Clock, FileDown, Loader2, ShieldCheck, X } from 'lucide-react'
-import { ProjectDiscoveryResultItem, ProjectDiscoveryResultStatus } from '../../types'
-
-const formatDateTime = (value?: string | null) => {
-  if (!value) return '—'
-  const date = new Date(value)
-  return date.toLocaleString()
-}
-
-const statusBadge = (status: ProjectDiscoveryResultStatus) => {
-  switch (status) {
-    case 'pending':
-      return 'bg-amber-100 text-amber-800 border border-amber-200 dark:bg-amber-300/25 dark:text-amber-100 dark:border-amber-300/40'
-    case 'promoted':
-      return 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-200 dark:border-emerald-400/40'
-    case 'dismissed':
-      return 'bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-500/20 dark:text-rose-200 dark:border-rose-400/40'
-    default:
-      return 'bg-gray-100 text-gray-600 dark:bg-slate-700/60 dark:text-slate-300'
-  }
-}
-
-const statusLabel = (status: ProjectDiscoveryResultStatus) => {
-  switch (status) {
-    case 'pending':
-      return 'Pending'
-    case 'promoted':
-      return 'Promoted'
-    case 'dismissed':
-      return 'Dismissed'
-    default:
-      return status
-  }
-}
+import { useState } from 'react'
+import { Check, ChevronDown, ChevronUp, ExternalLink, FileText, Loader2, Lock, Unlock, X } from 'lucide-react'
+import { ProjectDiscoveryResultItem } from '../../types'
 
 interface DiscoveryResultCardProps {
   item: ProjectDiscoveryResultItem
@@ -43,6 +12,73 @@ interface DiscoveryResultCardProps {
   isDeleteMode?: boolean
   isSelected?: boolean
   onToggleSelect?: (id: string) => void
+  // Compact mode for lists
+  compact?: boolean
+}
+
+// Relevance bar component
+const RelevanceBar = ({ score }: { score: number }) => {
+  // Score is 0-1, map to percentage
+  const percentage = Math.round(score * 100)
+
+  // Color based on score
+  let barColor = 'bg-gray-300 dark:bg-slate-600'
+  if (score >= 0.8) barColor = 'bg-emerald-500'
+  else if (score >= 0.6) barColor = 'bg-green-500'
+  else if (score >= 0.4) barColor = 'bg-amber-500'
+  else if (score >= 0.2) barColor = 'bg-orange-500'
+  else barColor = 'bg-red-400'
+
+  return (
+    <div className="flex items-center gap-2" title={`Relevance: ${percentage}%`}>
+      <div className="w-16 h-1.5 bg-gray-200 dark:bg-slate-700 rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all ${barColor}`}
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+      <span className="text-[10px] text-gray-500 dark:text-slate-400 tabular-nums">
+        {percentage}%
+      </span>
+    </div>
+  )
+}
+
+// Source badge with link
+const SourceBadge = ({ source, url, doi }: { source: string; url?: string | null; doi?: string | null }) => {
+  const sourceColors: Record<string, string> = {
+    arxiv: 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+    semantic_scholar: 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+    openalex: 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+    crossref: 'bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
+    pubmed: 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+    core: 'bg-cyan-50 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
+    europe_pmc: 'bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300',
+  }
+
+  const color = sourceColors[source.toLowerCase()] || 'bg-gray-100 text-gray-700 dark:bg-slate-700 dark:text-slate-300'
+  const displayName = source.replace(/_/g, ' ')
+  const href = url || (doi ? `https://doi.org/${doi}` : null)
+
+  if (href) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${color} hover:opacity-80 transition-opacity`}
+      >
+        {displayName}
+        <ExternalLink className="h-2.5 w-2.5" />
+      </a>
+    )
+  }
+
+  return (
+    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${color}`}>
+      {displayName}
+    </span>
+  )
 }
 
 export const DiscoveryResultCard = ({
@@ -54,147 +90,213 @@ export const DiscoveryResultCard = ({
   isDeleteMode = false,
   isSelected = false,
   onToggleSelect,
+  compact = false,
 }: DiscoveryResultCardProps) => {
+  const [isExpanded, setIsExpanded] = useState(false)
+
   const hasPdf = Boolean(item.has_pdf ?? item.pdf_url)
   const isOpenAccess = Boolean(item.is_open_access)
   const pdfUrl = item.pdf_url ?? undefined
   const isDeletable = item.status !== 'promoted'
   const isActionDisabled = isPromoting || isDismissing
+  const isPending = item.status === 'pending'
 
-  const renderScoreBadge = (score?: number | null) => {
-    if (score == null) return null
-    let cls = 'bg-gray-100 text-gray-700 dark:bg-slate-800/60 dark:text-slate-200'
-    if (score >= 0.7) cls = 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200'
-    else if (score >= 0.4) cls = 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-200'
-    else cls = 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-200'
-    return (
-      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${cls} whitespace-nowrap shrink-0`}>
-        Score {score.toFixed(2)}
-      </span>
-    )
-  }
+  // Truncate abstract for preview
+  const abstractPreview = item.summary && item.summary.length > 200
+    ? item.summary.slice(0, 200) + '...'
+    : item.summary
+
+  const showExpandButton = item.summary && item.summary.length > 200
 
   return (
     <article
-      className={`space-y-3 rounded-xl border px-4 py-4 text-sm text-gray-700 transition dark:text-slate-200 ${
+      className={`rounded-xl border transition ${
         isDeleteMode && isSelected
           ? 'border-rose-300 bg-rose-50/40 dark:border-rose-400/50 dark:bg-rose-500/10'
           : 'border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-900/60'
-      }`}
+      } ${compact ? 'px-3 py-2.5' : 'px-4 py-3'}`}
     >
-      {/* Header row */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1">
-          <p className="text-base font-semibold text-gray-900 dark:text-slate-100">
-            {item.title ?? 'Untitled result'}
-          </p>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-slate-400">
-            <span>{item.source}</span>
-            {item.doi && <span className="truncate">DOI: {item.doi}</span>}
-            {item.published_year && <span>{item.published_year}</span>}
-            {hasPdf && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200">
-                <FileDown className="h-3 w-3" /> PDF available
+      {/* Main content row */}
+      <div className="flex gap-3">
+        {/* Delete mode checkbox */}
+        {isDeleteMode && isDeletable && onToggleSelect && (
+          <div className="flex items-start pt-1">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-gray-300 text-rose-600 focus:ring-rose-500 dark:border-slate-600 dark:bg-slate-900/60"
+              checked={isSelected}
+              onChange={() => onToggleSelect(item.id)}
+            />
+          </div>
+        )}
+
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          {/* Title row with relevance */}
+          <div className="flex items-start justify-between gap-3">
+            <h3 className={`font-semibold text-gray-900 dark:text-slate-100 leading-tight ${compact ? 'text-sm' : 'text-base'}`}>
+              {item.title ?? 'Untitled result'}
+            </h3>
+
+            {/* Relevance bar + status */}
+            <div className="flex items-center gap-2 shrink-0">
+              {item.relevance_score != null && (
+                <RelevanceBar score={item.relevance_score} />
+              )}
+              {!isPending && (
+                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                  item.status === 'promoted'
+                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200'
+                    : 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-200'
+                }`}>
+                  {item.status === 'promoted' ? 'Added' : 'Dismissed'}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Metadata row */}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-xs text-gray-500 dark:text-slate-400">
+            <SourceBadge source={item.source} url={item.source_url} doi={item.doi} />
+
+            {item.doi && (
+              <a
+                href={`https://doi.org/${item.doi}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-indigo-600 dark:text-indigo-400 hover:underline"
+              >
+                DOI
+              </a>
+            )}
+
+            {item.published_year && (
+              <span>{item.published_year}</span>
+            )}
+
+            {/* PDF/Open Access combined badge */}
+            {(hasPdf || isOpenAccess) && (
+              <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                hasPdf
+                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200'
+                  : 'bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-200'
+              }`}>
+                {hasPdf ? (
+                  <>
+                    <FileText className="h-3 w-3" />
+                    PDF
+                  </>
+                ) : (
+                  <>
+                    <Unlock className="h-3 w-3" />
+                    OA
+                  </>
+                )}
               </span>
             )}
-            {isOpenAccess && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-1 text-sky-700 dark:bg-sky-500/20 dark:text-sky-200">
-                <ShieldCheck className="h-3 w-3" /> Open access
+
+            {!hasPdf && !isOpenAccess && (
+              <span className="inline-flex items-center gap-1 text-gray-400 dark:text-slate-500">
+                <Lock className="h-3 w-3" />
               </span>
             )}
           </div>
-        </div>
-        <div className="flex items-center gap-2 self-start">
-          {renderScoreBadge(item.relevance_score)}
-          <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${statusBadge(item.status)}`}>
-            {statusLabel(item.status)}
-          </span>
-          {isDeleteMode && isDeletable && onToggleSelect && (
-            <label className="inline-flex items-center gap-2 text-xs text-gray-500 dark:text-slate-400">
-              <input
-                type="checkbox"
-                className="h-4 w-4 rounded border-gray-300 text-rose-600 focus:ring-rose-500 dark:border-slate-600 dark:bg-slate-900/60"
-                checked={isSelected}
-                onChange={() => onToggleSelect(item.id)}
-              />
-              Select
-            </label>
-          )}
-        </div>
-      </div>
 
-      {/* Summary */}
-      {item.summary && (
-        <p className="text-xs text-gray-600 line-clamp-3 dark:text-slate-300">{item.summary}</p>
-      )}
+          {/* Abstract */}
+          {item.summary && (
+            <div className="mt-2">
+              <p className="text-xs text-gray-600 dark:text-slate-300 leading-relaxed">
+                {isExpanded ? item.summary : abstractPreview}
+              </p>
+              {showExpandButton && (
+                <button
+                  type="button"
+                  onClick={() => setIsExpanded(!isExpanded)}
+                  className="inline-flex items-center gap-0.5 mt-1 text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline"
+                >
+                  {isExpanded ? (
+                    <>
+                      Show less <ChevronUp className="h-3 w-3" />
+                    </>
+                  ) : (
+                    <>
+                      Show more <ChevronDown className="h-3 w-3" />
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          )}
 
-      {/* Footer row */}
-      <div className="flex flex-col gap-2 text-xs text-gray-500 dark:text-slate-400 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1 text-gray-600 dark:bg-slate-800/60 dark:text-slate-300">
-            <Clock className="h-3 w-3" /> Discovered {formatDateTime(item.created_at)}
-          </span>
-          {pdfUrl && (
-            <a
-              href={pdfUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-200 dark:hover:bg-emerald-500/30"
-            >
-              <FileDown className="h-3 w-3" /> View PDF
-            </a>
-          )}
-          <a
-            href={item.source_url || (item.doi ? `https://doi.org/${item.doi}` : '#')}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-1 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-500/20 dark:text-indigo-200 dark:hover:bg-indigo-500/30"
-          >
-            View Source
-          </a>
-        </div>
+          {/* Action buttons */}
+          {!isDeleteMode && (
+            <div className="flex items-center gap-2 mt-3">
+              {isPending ? (
+                <>
+                  {/* View PDF button */}
+                  {pdfUrl && (
+                    <a
+                      href={pdfUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                    >
+                      <FileText className="h-3.5 w-3.5" />
+                      View PDF
+                    </a>
+                  )}
 
-        {/* Action buttons */}
-        <div className="flex items-center gap-2">
-          {!isDeleteMode && item.status === 'pending' && (
-            <>
-              <button
-                type="button"
-                onClick={() => onPromote(item.id)}
-                disabled={isActionDisabled}
-                className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-3 py-1.5 font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isPromoting ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Check className="h-3.5 w-3.5" />
-                )}
-                Add to project
-              </button>
-              <button
-                type="button"
-                onClick={() => onDismiss(item.id)}
-                disabled={isActionDisabled}
-                className="inline-flex items-center gap-2 rounded-full border border-gray-200 px-3 py-1.5 font-medium text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
-              >
-                {isDismissing ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <X className="h-3.5 w-3.5" />
-                )}
-                Dismiss
-              </button>
-            </>
-          )}
-          {item.status !== 'pending' && item.promoted_at && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200">
-              <Check className="h-3 w-3" /> Promoted {formatDateTime(item.promoted_at)}
-            </span>
-          )}
-          {item.status === 'dismissed' && item.dismissed_at && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-1 text-rose-700 dark:bg-rose-500/20 dark:text-rose-200">
-              <X className="h-3 w-3" /> Dismissed {formatDateTime(item.dismissed_at)}
-            </span>
+                  {/* Spacer */}
+                  <div className="flex-1" />
+
+                  {/* Add to project */}
+                  <button
+                    type="button"
+                    onClick={() => onPromote(item.id)}
+                    disabled={isActionDisabled}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isPromoting ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Check className="h-3.5 w-3.5" />
+                    )}
+                    Add
+                  </button>
+
+                  {/* Dismiss */}
+                  <button
+                    type="button"
+                    onClick={() => onDismiss(item.id)}
+                    disabled={isActionDisabled}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                  >
+                    {isDismissing ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <X className="h-3.5 w-3.5" />
+                    )}
+                    Dismiss
+                  </button>
+                </>
+              ) : (
+                // Already processed status
+                <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-slate-400">
+                  {item.status === 'promoted' && (
+                    <span className="inline-flex items-center gap-1">
+                      <Check className="h-3.5 w-3.5 text-emerald-500" />
+                      Added to project
+                    </span>
+                  )}
+                  {item.status === 'dismissed' && (
+                    <span className="inline-flex items-center gap-1">
+                      <X className="h-3.5 w-3.5 text-rose-500" />
+                      Dismissed
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>

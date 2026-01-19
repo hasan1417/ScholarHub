@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
-import { ArrowLeft, Mail, Lock, User, Loader2 } from 'lucide-react'
+import { ArrowLeft, Mail, Lock, User, Loader2, CheckCircle, ExternalLink } from 'lucide-react'
 import { Logo } from '../../components/brand/Logo'
+import GoogleSignInButton from '../../components/auth/GoogleSignInButton'
 
 type RegisterForm = {
   firstName: string
@@ -21,6 +22,12 @@ type RegisterErrors = {
   confirmPassword?: string
 }
 
+type RegistrationSuccess = {
+  email: string
+  message: string
+  devVerificationUrl?: string
+}
+
 const Register = () => {
   const [formData, setFormData] = useState<RegisterForm>({
     email: '',
@@ -31,6 +38,7 @@ const Register = () => {
   })
   const [isLoading, setIsLoading] = useState(false)
   const [formErrors, setFormErrors] = useState<RegisterErrors>({})
+  const [registrationSuccess, setRegistrationSuccess] = useState<RegistrationSuccess | null>(null)
 
   const { register } = useAuth()
   const navigate = useNavigate()
@@ -57,13 +65,19 @@ const Register = () => {
     setFormErrors({})
 
     try {
-      await register({
+      const response = await register({
         email: formData.email,
         password: formData.password,
         first_name: formData.firstName,
         last_name: formData.lastName,
       })
-      navigate('/projects')
+
+      // Show verification pending screen
+      setRegistrationSuccess({
+        email: formData.email,
+        message: response?.message || 'Please check your email to verify your account',
+        devVerificationUrl: response?.dev_verification_url,
+      })
     } catch (error: any) {
       const detail = error?.response?.data?.detail
       const apiErrors: RegisterErrors = {}
@@ -137,6 +151,56 @@ const Register = () => {
           <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-3xl blur-xl opacity-20 dark:opacity-30" />
 
           <div className="relative bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl rounded-2xl border border-gray-200/50 dark:border-slate-700/50 shadow-2xl shadow-gray-200/50 dark:shadow-slate-900/50 p-8">
+            {/* Registration Success Screen */}
+            {registrationSuccess ? (
+              <div className="text-center">
+                <div className="mx-auto w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-6">
+                  <CheckCircle className="w-8 h-8 text-green-600 dark:text-green-400" />
+                </div>
+                <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Check your email</h1>
+                <p className="text-gray-600 dark:text-slate-400 mb-6">
+                  We sent a verification link to<br />
+                  <span className="font-medium text-gray-900 dark:text-white">{registrationSuccess.email}</span>
+                </p>
+
+                {/* Dev mode verification link */}
+                {registrationSuccess.devVerificationUrl && (
+                  <div className="mb-6 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl">
+                    <p className="text-sm font-medium text-amber-800 dark:text-amber-200 mb-2">
+                      Development Mode
+                    </p>
+                    <p className="text-xs text-amber-700 dark:text-amber-300 mb-3">
+                      Click below to verify your email (this link is only shown in development):
+                    </p>
+                    <a
+                      href={registrationSuccess.devVerificationUrl}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-lg transition-colors"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      Verify Email Now
+                    </a>
+                  </div>
+                )}
+
+                <p className="text-sm text-gray-500 dark:text-slate-500 mb-6">
+                  Didn't receive the email? Check your spam folder or{' '}
+                  <button
+                    onClick={() => setRegistrationSuccess(null)}
+                    className="text-indigo-600 dark:text-indigo-400 hover:underline"
+                  >
+                    try again
+                  </button>
+                </p>
+
+                <Link
+                  to="/login"
+                  className="inline-flex items-center justify-center w-full py-3 px-4 rounded-xl border-2 border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 font-semibold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
+                >
+                  Back to Sign In
+                </Link>
+              </div>
+            ) : (
+            <>
             <div className="text-center mb-8">
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Create your account</h1>
               <p className="mt-2 text-gray-600 dark:text-slate-400">Join the research community</p>
@@ -318,6 +382,18 @@ const Register = () => {
             {/* Divider */}
             <div className="mt-8 flex items-center gap-4">
               <div className="flex-1 h-px bg-gray-200 dark:bg-slate-700" />
+              <span className="text-sm text-gray-500 dark:text-slate-500">or continue with</span>
+              <div className="flex-1 h-px bg-gray-200 dark:bg-slate-700" />
+            </div>
+
+            {/* Google Sign Up */}
+            <div className="mt-6">
+              <GoogleSignInButton mode="signup" disabled={isLoading} />
+            </div>
+
+            {/* Divider */}
+            <div className="mt-8 flex items-center gap-4">
+              <div className="flex-1 h-px bg-gray-200 dark:bg-slate-700" />
               <span className="text-sm text-gray-500 dark:text-slate-500">Already a member?</span>
               <div className="flex-1 h-px bg-gray-200 dark:bg-slate-700" />
             </div>
@@ -331,6 +407,8 @@ const Register = () => {
                 Sign in to your account
               </Link>
             </div>
+            </>
+            )}
           </div>
         </div>
 

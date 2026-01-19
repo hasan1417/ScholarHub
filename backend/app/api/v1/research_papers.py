@@ -779,24 +779,41 @@ def analyze_reference_task(reference_id: str):
             api_key = os.getenv('OPENAI_API_KEY')
             if api_key and profile_text:
                 client = OpenAI(api_key=api_key)
-                prompt = f"""Title: {ref.title or ''}\n\nText:\n{profile_text[:3000]}\n\nGenerate:\n- 3-5 key findings\n- 1-2 sentence methodology\n- 2-3 limitations\nProvide as JSON with keys: summary, key_findings, methodology, limitations."""
-                resp = client.responses.create(
-                    model="gpt-3.5-turbo",
-                    input=[{"role": "user", "content": prompt}],
-                    max_output_tokens=300,
+                prompt = f"""Analyze this academic paper and provide a JSON response with the following fields:
+- summary: A 2-3 sentence summary of the paper
+- key_findings: An array of 3-5 key findings
+- methodology: A 1-2 sentence description of the methodology
+- limitations: An array of 2-3 limitations
+
+Title: {ref.title or ''}
+
+Text:
+{profile_text[:4000]}
+
+Respond ONLY with valid JSON, no markdown or explanation."""
+                resp = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=800,
                     temperature=0.3
                 )
-                content = resp.output_text or ''
-                # naive JSON parse fallback
+                content = resp.choices[0].message.content or ''
+                # Strip markdown code blocks if present
                 import json as _json
+                import re as _re_json
+                json_match = _re_json.search(r'```(?:json)?\s*([\s\S]*?)\s*```', content)
+                if json_match:
+                    content = json_match.group(1)
                 try:
                     data = _json.loads(content)
                     ref.summary = data.get('summary')
                     ref.key_findings = data.get('key_findings')
                     ref.methodology = data.get('methodology')
                     ref.limitations = data.get('limitations')
-                except Exception:
+                    logger.info(f"Successfully analyzed reference {reference_id}")
+                except Exception as parse_err:
                     # fallback: set summary only
+                    logger.warning(f"JSON parse failed for reference {reference_id}: {parse_err}")
                     ref.summary = content[:800]
             else:
                 if profile_text:
