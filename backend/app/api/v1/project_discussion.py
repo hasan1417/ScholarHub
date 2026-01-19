@@ -70,9 +70,6 @@ from app.schemas.project_discussion import (
 )
 from app.core.config import settings
 from app.services.ai_service import AIService
-from app.services.discussion_ai import DiscussionAIService
-from app.services.discussion_ai.types import AssistantReply, SearchResultDigest
-from app.services.discussion_ai.skills import DiscussionOrchestrator
 from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
 from app.services.websocket_manager import connection_manager
 
@@ -81,11 +78,6 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 _discussion_ai_core = AIService()
-_skill_orchestrator = DiscussionOrchestrator(_discussion_ai_core)
-
-# Feature flags for Discussion AI
-USE_SKILL_BASED_SYSTEM = False  # Old skill-based system
-USE_TOOL_BASED_SYSTEM = True    # New tool-based AI (gpt-5.2)
 
 _slug_regex = re.compile(r"[^a-z0-9]+")
 
@@ -1151,13 +1143,6 @@ def invoke_discussion_assistant(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    print(f"\n{'#'*60}")
-    print(f"[ENDPOINT] invoke_discussion_assistant ENTERED")
-    print(f"[ENDPOINT] User: {current_user.email}")
-    print(f"[ENDPOINT] Question: {payload.question[:80] if payload.question else 'None'}")
-    print(f"[ENDPOINT] USE_TOOL_BASED_SYSTEM: {USE_TOOL_BASED_SYSTEM}")
-    print(f"{'#'*60}\n")
-
     project = get_project_or_404(db, project_id)
     ensure_project_member(db, project, current_user)
     channel = _get_channel_or_404(db, project, channel_id)
@@ -1173,400 +1158,196 @@ def invoke_discussion_assistant(
     }
     logger.info(f"🔍 AI Assistant - User: {current_user.email}, display_name: '{display_name}'")
 
-    # Use tool-based orchestrator if enabled (new intelligent AI)
-    if USE_TOOL_BASED_SYSTEM:
-        # Convert search results to list of dicts
-        search_results_list = None
-        if payload.recent_search_results:
-            search_results_list = [
-                {
-                    "title": r.title,
-                    "authors": r.authors,
-                    "year": r.year,
-                    "source": r.source,
-                    "abstract": getattr(r, "abstract", None),
-                    "doi": getattr(r, "doi", None),
-                    "url": getattr(r, "url", None),
-                    "pdf_url": getattr(r, "pdf_url", None),
-                    "is_open_access": getattr(r, "is_open_access", None),
-                    "journal": getattr(r, "journal", None),
-                }
-                for r in payload.recent_search_results
-            ]
-
-        # Load previous conversation state from the most recent exchange
-        # This enables the state machine to track clarification history
-        previous_state_dict = None
-        last_exchange = (
-            db.query(ProjectDiscussionAssistantExchange)
-            .filter(
-                ProjectDiscussionAssistantExchange.project_id == project.id,
-                ProjectDiscussionAssistantExchange.channel_id == channel.id,
-            )
-            .order_by(ProjectDiscussionAssistantExchange.created_at.desc())
-            .first()
-        )
-        if last_exchange and last_exchange.conversation_state:
-            previous_state_dict = last_exchange.conversation_state
-            logger.info(
-                "Loaded previous state: clarification_asked=%s, phase=%s",
-                previous_state_dict.get("clarification_asked", False),
-                previous_state_dict.get("phase", "initial"),
-            )
-
-        # Create tool orchestrator with DB access
-        tool_orchestrator = ToolOrchestrator(_discussion_ai_core, db)
-
-        # Convert conversation history if provided
-        conversation_history = None
-        if payload.conversation_history:
-            conversation_history = [
-                {"role": h.role, "content": h.content}
-                for h in payload.conversation_history
-            ]
-            print(f"\n{'='*60}")
-            print(f"[DEBUG] CONVERSATION HISTORY RECEIVED: {len(conversation_history)} messages")
-            print(f"[DEBUG] Question: {payload.question[:80]}")
-            for i, h in enumerate(conversation_history[-5:]):  # Last 5 messages
-                preview = h["content"][:100].replace("\n", " ")
-                print(f"  [{i}] {h['role']}: {preview}...")
-            print(f"{'='*60}\n")
-        else:
-            print(f"\n[DEBUG] NO CONVERSATION HISTORY - Question: {payload.question[:80]}\n")
-
-        # Use streaming if requested
-        if stream:
-            print(f"\n[DEBUG] STREAMING PATH ENTERED\n")
-            def tool_event_iterator():
-                try:
-                    print(f"\n[DEBUG] tool_event_iterator() STARTED\n")
-                    final_result = None
-                    for event in tool_orchestrator.handle_message_streaming(
-                        project,
-                        channel,
-                        payload.question,
-                        recent_search_results=search_results_list,
-                        previous_state_dict=previous_state_dict,
-                        conversation_history=conversation_history,
-                        reasoning_mode=payload.reasoning or False,
-                    ):
-                        if event.get("type") == "token":
-                            yield "data: " + json.dumps({"type": "token", "content": event.get("content", "")}) + "\n\n"
-                        elif event.get("type") == "status":
-                            yield "data: " + json.dumps({"type": "status", "tool": event.get("tool", ""), "message": event.get("message", "Processing")}) + "\n\n"
-                        elif event.get("type") == "result":
-                            final_result = event.get("data", {})
-
-                    # Build final response from result
-                    if final_result:
-                        citations = [
-                            DiscussionAssistantCitation(
-                                origin=c.get("origin"),
-                                origin_id=c.get("origin_id"),
-                                label=c.get("label", ""),
-                                resource_type=c.get("resource_type"),
-                            )
-                            for c in final_result.get("citations", [])
-                        ]
-                        suggested_actions = [
-                            {
-                                "action_type": a.get("type", a.get("action_type", "")),
-                                "summary": a.get("summary", ""),
-                                "payload": a.get("payload", {}),
-                            }
-                            for a in final_result.get("actions", [])
-                        ]
-                        response_model = DiscussionAssistantResponse(
-                            message=final_result.get("message", ""),
-                            citations=citations,
-                            reasoning_used=final_result.get("reasoning_used", False),
-                            model=final_result.get("model_used", "gpt-5.2"),
-                            usage=None,
-                            suggested_actions=suggested_actions,
-                        )
-                        payload_dict = response_model.model_dump(mode="json")
-
-                        # Persist exchange
-                        exchange_payload = {
-                            "id": str(uuid4()),
-                            "question": payload.question,
-                            "response": payload_dict,
-                            "created_at": datetime.utcnow().isoformat() + "Z",
-                            "author": author_info,
-                        }
-                        conversation_state = final_result.get("conversation_state", {})
-                        background_tasks.add_task(
-                            _persist_assistant_exchange,
-                            project.id,
-                            channel.id,
-                            current_user.id,
-                            exchange_payload["id"],
-                            payload.question,
-                            payload_dict,
-                            exchange_payload["created_at"],
-                            conversation_state,
-                        )
-                        background_tasks.add_task(
-                            _broadcast_discussion_event,
-                            project.id,
-                            channel.id,
-                            "assistant_reply",
-                            {"exchange": exchange_payload},
-                        )
-
-                        yield "data: " + json.dumps({"type": "result", "payload": payload_dict}) + "\n\n"
-
-                except Exception as exc:
-                    logger.exception("Tool-based assistant stream failed", exc_info=exc)
-                    yield "data: " + json.dumps({"type": "error", "message": "Assistant stream failed"}) + "\n\n"
-
-            return StreamingResponse(tool_event_iterator(), media_type="text/event-stream")
-
-        # Non-streaming: Call the tool-based orchestrator with state tracking
-        result = tool_orchestrator.handle_message(
-            project,
-            channel,
-            payload.question,
-            recent_search_results=search_results_list,
-            previous_state_dict=previous_state_dict,
-            conversation_history=conversation_history,
-            reasoning_mode=payload.reasoning or False,
-        )
-
-        # Convert orchestrator result to API response format
-        citations = [
-            DiscussionAssistantCitation(
-                origin=c.get("origin"),
-                origin_id=c.get("origin_id"),
-                label=c.get("label", ""),
-                resource_type=c.get("resource_type"),
-            )
-            for c in result.get("citations", [])
-        ]
-
-        suggested_actions = [
-            {
-                "action_type": a.get("type", a.get("action_type", "")),
-                "summary": a.get("summary", ""),
-                "payload": a.get("payload", {}),
-            }
-            for a in result.get("actions", [])
-        ]
-
-        # Include tools called in the response for debugging
-        tools_called = result.get("tools_called", [])
-        message = result.get("message", "")
-        if tools_called:
-            logger.info(f"Tools called: {tools_called}")
-
-        response_model = DiscussionAssistantResponse(
-            message=message,
-            citations=citations,
-            reasoning_used=result.get("reasoning_used", True),
-            model=result.get("model_used", "gpt-5.2"),
-            usage=None,
-            suggested_actions=suggested_actions,
-        )
-
-        # Extract conversation state for persistence
-        conversation_state = result.get("conversation_state", {})
-        logger.info(
-            "New conversation state: clarification_asked=%s, phase=%s",
-            conversation_state.get("clarification_asked", False),
-            conversation_state.get("phase", "initial"),
-        )
-
-        # Persist and broadcast
-        exchange_payload = {
-            "id": str(uuid4()),
-            "question": payload.question,
-            "response": response_model.model_dump(mode="json"),
-            "created_at": datetime.utcnow().isoformat() + "Z",
-            "author": author_info,
-        }
-        background_tasks.add_task(
-            _persist_assistant_exchange,
-            project.id,
-            channel.id,
-            current_user.id,
-            exchange_payload["id"],
-            payload.question,
-            exchange_payload["response"],
-            exchange_payload["created_at"],
-            conversation_state,  # Pass the new state to persist
-        )
-        background_tasks.add_task(
-            _broadcast_discussion_event,
-            project.id,
-            channel.id,
-            "assistant_reply",
-            {"exchange": exchange_payload},
-        )
-
-        return response_model
-
-    # Use skill-based orchestrator if enabled
-    if USE_SKILL_BASED_SYSTEM:
-        # Convert search results to list of dicts for orchestrator
-        search_results_list = None
-        if payload.recent_search_results:
-            search_results_list = [
-                {
-                    "title": r.title,
-                    "authors": r.authors,
-                    "year": r.year,
-                    "source": r.source,
-                    "abstract": getattr(r, "abstract", None),
-                    "doi": getattr(r, "doi", None),
-                    "url": getattr(r, "url", None),
-                    "pdf_url": getattr(r, "pdf_url", None),
-                    "is_open_access": getattr(r, "is_open_access", None),
-                    "journal": getattr(r, "journal", None),
-                }
-                for r in payload.recent_search_results
-            ]
-
-        # Call the skill-based orchestrator
-        result = _skill_orchestrator.handle_message(
-            project,
-            channel,
-            payload.question,
-            recent_search_results=search_results_list,
-            reasoning_mode=payload.reasoning or False,
-        )
-
-        # Convert orchestrator result to API response format
-        citations = [
-            DiscussionAssistantCitation(
-                origin=c.get("origin"),
-                origin_id=c.get("origin_id"),
-                label=c.get("label", ""),
-                resource_type=c.get("resource_type"),
-            )
-            for c in result.get("citations", [])
-        ]
-
-        suggested_actions = [
-            {
-                "action_type": a.get("type", a.get("action_type", "")),
-                "summary": a.get("summary", ""),
-                "payload": a.get("payload", {}),
-            }
-            for a in result.get("actions", [])
-        ]
-
-        response_model = DiscussionAssistantResponse(
-            message=result.get("message", ""),
-            citations=citations,
-            reasoning_used=result.get("reasoning_used", False),
-            model=result.get("model_used", "gpt-4o-mini"),
-            usage=None,
-            suggested_actions=suggested_actions,
-        )
-
-        # Persist and broadcast
-        exchange_payload = {
-            "id": str(uuid4()),
-            "question": payload.question,
-            "response": response_model.model_dump(mode="json"),
-            "created_at": datetime.utcnow().isoformat() + "Z",
-            "author": author_info,
-        }
-        background_tasks.add_task(
-            _persist_assistant_exchange,
-            project.id,
-            channel.id,
-            current_user.id,
-            exchange_payload["id"],
-            payload.question,
-            exchange_payload["response"],
-            exchange_payload["created_at"],
-        )
-        background_tasks.add_task(
-            _broadcast_discussion_event,
-            project.id,
-            channel.id,
-            "assistant_reply",
-            {"exchange": exchange_payload},
-        )
-
-        return response_model
-
-    # Fallback to old DiscussionAIService
-    assistant = DiscussionAIService(db=db, ai_service=_discussion_ai_core)
-
-    # Convert recent search results to context format
-    search_results_context = None
+    # Convert search results to list of dicts
+    search_results_list = None
     if payload.recent_search_results:
-        search_results_context = [
-            SearchResultDigest(
-                title=r.title,
-                authors=r.authors,
-                year=r.year,
-                source=r.source,
-            )
+        search_results_list = [
+            {
+                "title": r.title,
+                "authors": r.authors,
+                "year": r.year,
+                "source": r.source,
+                "abstract": getattr(r, "abstract", None),
+                "doi": getattr(r, "doi", None),
+                "url": getattr(r, "url", None),
+                "pdf_url": getattr(r, "pdf_url", None),
+                "is_open_access": getattr(r, "is_open_access", None),
+                "journal": getattr(r, "journal", None),
+            }
             for r in payload.recent_search_results
         ]
 
+    # Load previous conversation state from the most recent exchange
+    previous_state_dict = None
+    last_exchange = (
+        db.query(ProjectDiscussionAssistantExchange)
+        .filter(
+            ProjectDiscussionAssistantExchange.project_id == project.id,
+            ProjectDiscussionAssistantExchange.channel_id == channel.id,
+        )
+        .order_by(ProjectDiscussionAssistantExchange.created_at.desc())
+        .first()
+    )
+    if last_exchange and last_exchange.conversation_state:
+        previous_state_dict = last_exchange.conversation_state
+        logger.info(
+            "Loaded previous state: clarification_asked=%s, phase=%s",
+            previous_state_dict.get("clarification_asked", False),
+            previous_state_dict.get("phase", "initial"),
+        )
+
+    # Create tool orchestrator with DB access
+    tool_orchestrator = ToolOrchestrator(_discussion_ai_core, db)
+
+    # Convert conversation history if provided
+    conversation_history = None
+    if payload.conversation_history:
+        conversation_history = [
+            {"role": h.role, "content": h.content}
+            for h in payload.conversation_history
+        ]
+
+    # Use streaming if requested
     if stream:
-        def event_iterator():
+        def tool_event_iterator():
             try:
-                for event in assistant.stream_reply(
+                final_result = None
+                for event in tool_orchestrator.handle_message_streaming(
                     project,
                     channel,
                     payload.question,
-                    reasoning=payload.reasoning,
-                    scope=payload.scope,
-                    recent_search_results=search_results_context,
+                    recent_search_results=search_results_list,
+                    previous_state_dict=previous_state_dict,
+                    conversation_history=conversation_history,
+                    reasoning_mode=payload.reasoning or False,
                 ):
                     if event.get("type") == "token":
                         yield "data: " + json.dumps({"type": "token", "content": event.get("content", "")}) + "\n\n"
+                    elif event.get("type") == "status":
+                        yield "data: " + json.dumps({"type": "status", "tool": event.get("tool", ""), "message": event.get("message", "Processing")}) + "\n\n"
                     elif event.get("type") == "result":
-                        reply_obj = event.get("reply")
-                        if isinstance(reply_obj, AssistantReply):
-                            response_model = _build_assistant_response_model(reply_obj)
-                            payload_dict = response_model.model_dump(mode="json")
-                            exchange_payload = {
-                                "id": str(uuid4()),
-                                "question": payload.question,
-                                "response": payload_dict,
-                                "created_at": datetime.utcnow().isoformat() + "Z",
-                                "author": author_info,
-                            }
-                            background_tasks.add_task(
-                                _persist_assistant_exchange,
-                                project.id,
-                                channel.id,
-                                current_user.id,
-                                exchange_payload["id"],
-                                payload.question,
-                                payload_dict,
-                                exchange_payload["created_at"],
-                            )
-                            background_tasks.add_task(
-                                _broadcast_discussion_event,
-                                project.id,
-                                channel.id,
-                                "assistant_reply",
-                                {"exchange": exchange_payload},
-                            )
-                            yield "data: " + json.dumps({"type": "result", "payload": payload_dict}) + "\n\n"
-            except Exception as exc:  # pragma: no cover - defensive logging
-                logger.exception("Discussion assistant stream failed", exc_info=exc)
+                        final_result = event.get("data", {})
+
+                # Build final response from result
+                if final_result:
+                    citations = [
+                        DiscussionAssistantCitation(
+                            origin=c.get("origin"),
+                            origin_id=c.get("origin_id"),
+                            label=c.get("label", ""),
+                            resource_type=c.get("resource_type"),
+                        )
+                        for c in final_result.get("citations", [])
+                    ]
+                    suggested_actions = [
+                        {
+                            "action_type": a.get("type", a.get("action_type", "")),
+                            "summary": a.get("summary", ""),
+                            "payload": a.get("payload", {}),
+                        }
+                        for a in final_result.get("actions", [])
+                    ]
+                    response_model = DiscussionAssistantResponse(
+                        message=final_result.get("message", ""),
+                        citations=citations,
+                        reasoning_used=final_result.get("reasoning_used", False),
+                        model=final_result.get("model_used", "gpt-5.2"),
+                        usage=None,
+                        suggested_actions=suggested_actions,
+                    )
+                    payload_dict = response_model.model_dump(mode="json")
+
+                    # Persist exchange
+                    exchange_payload = {
+                        "id": str(uuid4()),
+                        "question": payload.question,
+                        "response": payload_dict,
+                        "created_at": datetime.utcnow().isoformat() + "Z",
+                        "author": author_info,
+                    }
+                    conversation_state = final_result.get("conversation_state", {})
+                    background_tasks.add_task(
+                        _persist_assistant_exchange,
+                        project.id,
+                        channel.id,
+                        current_user.id,
+                        exchange_payload["id"],
+                        payload.question,
+                        payload_dict,
+                        exchange_payload["created_at"],
+                        conversation_state,
+                    )
+                    background_tasks.add_task(
+                        _broadcast_discussion_event,
+                        project.id,
+                        channel.id,
+                        "assistant_reply",
+                        {"exchange": exchange_payload},
+                    )
+
+                    yield "data: " + json.dumps({"type": "result", "payload": payload_dict}) + "\n\n"
+
+            except Exception as exc:
+                logger.exception("Tool-based assistant stream failed", exc_info=exc)
                 yield "data: " + json.dumps({"type": "error", "message": "Assistant stream failed"}) + "\n\n"
 
-        return StreamingResponse(event_iterator(), media_type="text/event-stream")
+        return StreamingResponse(tool_event_iterator(), media_type="text/event-stream")
 
-    reply = assistant.generate_reply(
+    # Non-streaming: Call the tool-based orchestrator with state tracking
+    result = tool_orchestrator.handle_message(
         project,
         channel,
         payload.question,
-        reasoning=payload.reasoning,
-        scope=payload.scope,
-        recent_search_results=search_results_context,
+        recent_search_results=search_results_list,
+        previous_state_dict=previous_state_dict,
+        conversation_history=conversation_history,
+        reasoning_mode=payload.reasoning or False,
     )
 
-    response_model = _build_assistant_response_model(reply)
+    # Convert orchestrator result to API response format
+    citations = [
+        DiscussionAssistantCitation(
+            origin=c.get("origin"),
+            origin_id=c.get("origin_id"),
+            label=c.get("label", ""),
+            resource_type=c.get("resource_type"),
+        )
+        for c in result.get("citations", [])
+    ]
+
+    suggested_actions = [
+        {
+            "action_type": a.get("type", a.get("action_type", "")),
+            "summary": a.get("summary", ""),
+            "payload": a.get("payload", {}),
+        }
+        for a in result.get("actions", [])
+    ]
+
+    # Include tools called in the response for debugging
+    tools_called = result.get("tools_called", [])
+    message = result.get("message", "")
+    if tools_called:
+        logger.info(f"Tools called: {tools_called}")
+
+    response_model = DiscussionAssistantResponse(
+        message=message,
+        citations=citations,
+        reasoning_used=result.get("reasoning_used", True),
+        model=result.get("model_used", "gpt-5.2"),
+        usage=None,
+        suggested_actions=suggested_actions,
+    )
+
+    # Extract conversation state for persistence
+    conversation_state = result.get("conversation_state", {})
+    logger.info(
+        "New conversation state: clarification_asked=%s, phase=%s",
+        conversation_state.get("clarification_asked", False),
+        conversation_state.get("phase", "initial"),
+    )
+
+    # Persist and broadcast
     exchange_payload = {
         "id": str(uuid4()),
         "question": payload.question,
@@ -1583,6 +1364,7 @@ def invoke_discussion_assistant(
         payload.question,
         exchange_payload["response"],
         exchange_payload["created_at"],
+        conversation_state,  # Pass the new state to persist
     )
     background_tasks.add_task(
         _broadcast_discussion_event,

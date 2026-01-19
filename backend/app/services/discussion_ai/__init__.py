@@ -1,36 +1,7 @@
-"""Discussion AI service utilities."""
+"""Discussion AI service - Tool-based orchestrator."""
 
-from .types import (
-    ChannelContext,
-    MessageDigest,
-    ResourceDigest,
-    TaskDigest,
-    RetrievalSnippet,
-    AssistantCitation,
-    AssistantReply,
-    AssistantSuggestedAction,
-    PaperObjectiveDigest,
-)
-from .context import ChannelContextAssembler, ResourceDigestBuilder
-from .retrieval import DiscussionRetriever
-from .prompting import PromptComposer
-from .service import DiscussionAIService
-from .indexer import ChannelEmbeddingIndexer
+from .tool_orchestrator import ToolOrchestrator
 
 __all__ = [
-    "ChannelContext",
-    "MessageDigest",
-    "ResourceDigest",
-    "TaskDigest",
-    "RetrievalSnippet",
-    "AssistantCitation",
-    "AssistantReply",
-    "AssistantSuggestedAction",
-    "PaperObjectiveDigest",
-    "ChannelContextAssembler",
-    "ResourceDigestBuilder",
-    "ChannelEmbeddingIndexer",
-    "DiscussionRetriever",
-    "PromptComposer",
-    "DiscussionAIService",
+    "ToolOrchestrator",
 ]
