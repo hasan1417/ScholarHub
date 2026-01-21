@@ -111,7 +111,6 @@ const ProjectOverview = () => {
 
   const visibleObjectives = objectivesList.slice(0, VISIBLE_OBJECTIVES_COUNT)
   const hasMoreObjectives = objectivesList.length > VISIBLE_OBJECTIVES_COUNT
-  const hiddenCount = objectivesList.length - VISIBLE_OBJECTIVES_COUNT
 
   const formatRelativeTime = (value?: string | null) => {
     if (!value) return ''

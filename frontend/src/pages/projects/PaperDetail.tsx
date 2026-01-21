@@ -3,10 +3,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
   BookOpen,
-  CalendarDays,
   Crown,
   Eye,
-  FileText,
   Link2,
   MoreHorizontal,
   Pencil,
@@ -28,12 +26,10 @@ const stripXmlTags = (text: string | null | undefined): string => {
 
 
 import {
-  documentsAPI,
   projectReferencesAPI,
   researchPapersAPI,
 } from '../../services/api'
 import {
-  Document,
   PaperReferenceAttachment,
   ResearchPaper,
   ResearchPaperUpdate,
@@ -50,7 +46,6 @@ const PaperDetail: React.FC = () => {
   const { project } = useProjectContext()
 
   const [paper, setPaper] = useState<ResearchPaper | null>(null)
-  const [documents, setDocuments] = useState<Document[]>([])
   const [references, setReferences] = useState<PaperReferenceAttachment[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -155,18 +150,6 @@ const PaperDetail: React.FC = () => {
         is_public: paperData.is_public,
       })
 
-      try {
-        const documentsResponse = await documentsAPI.getDocuments(paperId, 0, 50)
-        setDocuments(documentsResponse.data.documents)
-      } catch (docError: unknown) {
-        const axiosError = docError as { response?: { status?: number } } | undefined
-        if (axiosError?.response?.status === 403) {
-          setDocuments([])
-        } else {
-          console.error('Error loading paper documents:', docError)
-          setDocuments([])
-        }
-      }
     } catch (error: unknown) {
       const axiosError = error as { response?: { status?: number } } | undefined
       if (axiosError) {
@@ -267,21 +250,6 @@ const PaperDetail: React.FC = () => {
       alert('Error deleting paper. Please try again.')
     } finally {
       setShowDeletePaperConfirm(false)
-    }
-  }
-
-  const getStatusClassName = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200'
-      case 'in_progress':
-        return 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-200'
-      case 'published':
-        return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-200'
-      case 'draft':
-        return 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-200'
-      default:
-        return 'bg-gray-100 text-gray-700 dark:bg-slate-800/60 dark:text-slate-200'
     }
   }
 

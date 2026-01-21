@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { ArrowLeft, Eye, Edit, MoreHorizontal, FileText, BookOpen, Clock, Calendar } from 'lucide-react'
+import { ArrowLeft, Eye, Edit, MoreHorizontal, FileText, BookOpen, Clock } from 'lucide-react'
 
 const DesignShowcase: React.FC = () => {
   const [selectedOption, setSelectedOption] = useState<number | null>(null)

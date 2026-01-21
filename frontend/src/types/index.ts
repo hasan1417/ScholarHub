@@ -321,6 +321,13 @@ export interface ResearchPaper {
   
   created_at: string
   updated_at: string
+  created_by?: string
+  created_by_user?: {
+    id: string
+    email: string
+    first_name?: string | null
+    last_name?: string | null
+  }
 }
 
 export interface ResearchPaperCreate {

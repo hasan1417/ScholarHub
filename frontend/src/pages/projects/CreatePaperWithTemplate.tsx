@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { researchPapersAPI } from '../../services/api'
 import {
   AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle,
-  ChevronDown, ChevronUp, FileText, X, Target, Sparkles, Code, Type
+  ChevronDown, ChevronUp, FileText, X, Target, Code, Type
 } from 'lucide-react'
 import { useProjectContext } from './ProjectLayout'
 import { hasDuplicatePaperTitle } from '../../utils/papers'
