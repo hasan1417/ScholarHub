@@ -1,28 +1,33 @@
-import { ReactNode, useMemo } from 'react'
+import { ReactNode, useMemo, useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { AlertCircle, Bell, FilePenLine, FilePlus, FolderPlus, Loader2, Settings, UserMinus, UserPlus, UserX, Video } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import {
+  AlertCircle, Bell, FilePenLine, FilePlus, FolderPlus, Loader2, Settings,
+  UserMinus, UserPlus, UserX, Video, Check, ChevronDown,
+  FileText, BookOpen, Search, MessageSquare, Sparkles, X, Target
+} from 'lucide-react'
 import ProjectTeamManager from '../../components/projects/ProjectTeamManager'
 import { useProjectContext } from './ProjectLayout'
-import { projectNotificationsAPI } from '../../services/api'
+import { projectNotificationsAPI, researchPapersAPI, projectReferencesAPI } from '../../services/api'
 import { ProjectNotification } from '../../types'
 
 const ProjectOverview = () => {
   const { project } = useProjectContext()
   const projectId = project?.id
+  const navigate = useNavigate()
 
-  const notificationsQuery = useQuery<ProjectNotification[]>({
-    queryKey: ['project', projectId, 'notifications'],
-    queryFn: async () => {
-      if (!projectId) return []
-      const response = await projectNotificationsAPI.listProjectNotifications(projectId)
-      return response.data.notifications
-    },
-    enabled: Boolean(projectId),
-    staleTime: 30_000,
+  // Objectives completion state (stored in localStorage)
+  const [completedObjectives, setCompletedObjectives] = useState<Set<number>>(() => {
+    if (typeof window === 'undefined') return new Set()
+    const stored = localStorage.getItem(`project-objectives-${projectId}`)
+    return stored ? new Set(JSON.parse(stored)) : new Set()
   })
 
-  const notifications = notificationsQuery.data ?? []
-  const descriptionText = project.idea?.trim() || project.scope?.trim() || ''
+  // Objectives modal state
+  const [objectivesModalOpen, setObjectivesModalOpen] = useState(false)
+  const VISIBLE_OBJECTIVES_COUNT = 8
+
+  // Parse objectives from project scope
   const objectivesList = useMemo(() => {
     if (!project.scope) return []
 
@@ -37,6 +42,76 @@ const ProjectOverview = () => {
 
     return project.scope.trim() ? [project.scope.trim()] : []
   }, [project.scope])
+
+  // Save completed objectives to localStorage
+  useEffect(() => {
+    if (projectId) {
+      localStorage.setItem(
+        `project-objectives-${projectId}`,
+        JSON.stringify([...completedObjectives])
+      )
+    }
+  }, [completedObjectives, projectId])
+
+  const toggleObjective = (index: number) => {
+    setCompletedObjectives(prev => {
+      const next = new Set(prev)
+      if (next.has(index)) {
+        next.delete(index)
+      } else {
+        next.add(index)
+      }
+      return next
+    })
+  }
+
+  // Fetch project stats
+  const papersQuery = useQuery({
+    queryKey: ['project', projectId, 'papers'],
+    queryFn: async () => {
+      if (!projectId) return { papers: [], total: 0 }
+      const response = await researchPapersAPI.getPapers({ projectId, limit: 100 })
+      return response.data
+    },
+    enabled: Boolean(projectId),
+    staleTime: 60_000,
+  })
+
+  const referencesQuery = useQuery({
+    queryKey: ['project', projectId, 'references'],
+    queryFn: async () => {
+      if (!projectId) return { references: [] }
+      const response = await projectReferencesAPI.list(projectId, { status: 'approved' })
+      return response.data
+    },
+    enabled: Boolean(projectId),
+    staleTime: 60_000,
+  })
+
+  const notificationsQuery = useQuery<ProjectNotification[]>({
+    queryKey: ['project', projectId, 'notifications'],
+    queryFn: async () => {
+      if (!projectId) return []
+      const response = await projectNotificationsAPI.listProjectNotifications(projectId)
+      return response.data.notifications
+    },
+    enabled: Boolean(projectId),
+    staleTime: 30_000,
+  })
+
+  const paperCount = papersQuery.data?.total ?? papersQuery.data?.papers?.length ?? 0
+  const referenceCount = referencesQuery.data?.references?.length ?? 0
+  const notifications = notificationsQuery.data ?? []
+
+  const descriptionText = project.idea?.trim() || ''
+
+  const completionPercentage = objectivesList.length > 0
+    ? Math.round((completedObjectives.size / objectivesList.length) * 100)
+    : 0
+
+  const visibleObjectives = objectivesList.slice(0, VISIBLE_OBJECTIVES_COUNT)
+  const hasMoreObjectives = objectivesList.length > VISIBLE_OBJECTIVES_COUNT
+  const hiddenCount = objectivesList.length - VISIBLE_OBJECTIVES_COUNT
 
   const formatRelativeTime = (value?: string | null) => {
     if (!value) return ''
@@ -339,10 +414,45 @@ const ProjectOverview = () => {
       )
     }
 
+    // Empty state with quick actions
     if (notifications.length === 0) {
       return (
-        <div className="rounded-xl border border-dashed border-gray-300 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 p-6 text-sm text-gray-500 dark:text-slate-300">
-          Project activity will appear here once teammates start collaborating (calls, paper edits, references, and more).
+        <div className="rounded-xl border border-dashed border-gray-300 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 p-6">
+          <div className="text-center mb-4">
+            <Sparkles className="h-8 w-8 text-indigo-400 mx-auto mb-2" />
+            <p className="text-sm text-gray-600 dark:text-slate-300 font-medium">Get started with your project</p>
+            <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">Activity will appear here as you collaborate</p>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <button
+              onClick={() => navigate(`/projects/${projectId}/papers`)}
+              className="flex flex-col items-center gap-1.5 p-3 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-300 dark:hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors group"
+            >
+              <FileText className="h-5 w-5 text-gray-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400" />
+              <span className="text-xs font-medium text-gray-600 dark:text-slate-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400">New Paper</span>
+            </button>
+            <button
+              onClick={() => navigate(`/projects/${projectId}/library/discover`)}
+              className="flex flex-col items-center gap-1.5 p-3 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-300 dark:hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors group"
+            >
+              <Search className="h-5 w-5 text-gray-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400" />
+              <span className="text-xs font-medium text-gray-600 dark:text-slate-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400">Find Papers</span>
+            </button>
+            <button
+              onClick={() => navigate(`/projects/${projectId}/collaborate`)}
+              className="flex flex-col items-center gap-1.5 p-3 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-300 dark:hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors group"
+            >
+              <MessageSquare className="h-5 w-5 text-gray-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400" />
+              <span className="text-xs font-medium text-gray-600 dark:text-slate-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400">Discussion</span>
+            </button>
+            <button
+              onClick={() => navigate(`/projects/${projectId}/library`)}
+              className="flex flex-col items-center gap-1.5 p-3 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-300 dark:hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors group"
+            >
+              <BookOpen className="h-5 w-5 text-gray-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400" />
+              <span className="text-xs font-medium text-gray-600 dark:text-slate-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400">References</span>
+            </button>
+          </div>
         </div>
       )
     }
@@ -353,11 +463,11 @@ const ProjectOverview = () => {
         {topNotifications.map((item) => renderNotification(item))}
       </ul>
     )
-  }, [notifications, notificationsQuery.isError, notificationsQuery.isLoading])
+  }, [notifications, notificationsQuery.isError, notificationsQuery.isLoading, projectId, navigate])
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-6 lg:grid-cols-[1.2fr,1fr]">
+      <div className="grid gap-6 lg:grid-cols-[1.2fr,1fr] items-start">
         <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800">
           <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">Project context</h2>
           <div className="mt-5 space-y-5">
@@ -369,21 +479,66 @@ const ProjectOverview = () => {
               </p>
             </div>
 
-            {/* Objectives */}
+            {/* Objectives with progress tracking */}
             <div>
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">Objectives</h3>
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">Objectives</h3>
+                {objectivesList.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <div className="w-20 h-1.5 bg-gray-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-emerald-500 dark:bg-emerald-400 rounded-full transition-all duration-300"
+                        style={{ width: `${completionPercentage}%` }}
+                      />
+                    </div>
+                    <span className="text-xs text-gray-500 dark:text-slate-400">{completionPercentage}%</span>
+                  </div>
+                )}
+              </div>
               <div className="mt-2">
                 {objectivesList.length > 0 ? (
-                  <ul className="space-y-2">
-                    {objectivesList.map((objective, index) => (
-                      <li key={`${objective}-${index}`} className="flex items-start gap-2.5">
-                        <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700 dark:bg-indigo-400/20 dark:text-indigo-300">
-                          {index + 1}
-                        </span>
-                        <span className="text-sm text-gray-700 dark:text-slate-300">{objective}</span>
-                      </li>
-                    ))}
-                  </ul>
+                  <>
+                    <ul className="space-y-2">
+                      {visibleObjectives.map((objective, index) => (
+                        <li
+                          key={`${objective}-${index}`}
+                          className="flex items-start gap-2.5 group cursor-pointer"
+                          onClick={() => toggleObjective(index)}
+                        >
+                          <button
+                            type="button"
+                            className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border-2 transition-all ${
+                              completedObjectives.has(index)
+                                ? 'bg-emerald-500 border-emerald-500 dark:bg-emerald-400 dark:border-emerald-400'
+                                : 'border-gray-300 dark:border-slate-600 group-hover:border-indigo-400 dark:group-hover:border-indigo-400'
+                            }`}
+                          >
+                            {completedObjectives.has(index) ? (
+                              <Check className="h-3 w-3 text-white" />
+                            ) : (
+                              <span className="text-[10px] font-semibold text-gray-400 dark:text-slate-500 group-hover:text-indigo-500">{index + 1}</span>
+                            )}
+                          </button>
+                          <span className={`text-sm transition-all ${
+                            completedObjectives.has(index)
+                              ? 'text-gray-400 dark:text-slate-500 line-through'
+                              : 'text-gray-700 dark:text-slate-300'
+                          }`}>
+                            {objective}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    {hasMoreObjectives && (
+                      <button
+                        onClick={() => setObjectivesModalOpen(true)}
+                        className="mt-3 flex items-center gap-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors"
+                      >
+                        <ChevronDown className="h-3.5 w-3.5" />
+                        View all {objectivesList.length} objectives
+                      </button>
+                    )}
+                  </>
                 ) : (
                   <p className="text-sm text-gray-400 dark:text-slate-500 italic">No objectives defined yet.</p>
                 )}
@@ -408,9 +563,33 @@ const ProjectOverview = () => {
             )}
           </div>
         </section>
-        <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800">
-          <ProjectTeamManager />
-        </section>
+
+        {/* Right column: Stats + Team */}
+        <div className="space-y-6">
+          {/* Project Stats */}
+          <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800">
+            <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100 mb-4">Project Stats</h2>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="text-center p-3 rounded-xl bg-gray-50 dark:bg-slate-700/50">
+                <div className="text-2xl font-bold text-gray-900 dark:text-slate-100">{paperCount}</div>
+                <div className="text-xs text-gray-500 dark:text-slate-400 mt-1">Papers</div>
+              </div>
+              <div className="text-center p-3 rounded-xl bg-gray-50 dark:bg-slate-700/50">
+                <div className="text-2xl font-bold text-gray-900 dark:text-slate-100">{referenceCount}</div>
+                <div className="text-xs text-gray-500 dark:text-slate-400 mt-1">References</div>
+              </div>
+              <div className="text-center p-3 rounded-xl bg-gray-50 dark:bg-slate-700/50">
+                <div className="text-2xl font-bold text-gray-900 dark:text-slate-100">{project.members?.length ?? 1}</div>
+                <div className="text-xs text-gray-500 dark:text-slate-400 mt-1">Members</div>
+              </div>
+            </div>
+          </section>
+
+          {/* Team Section */}
+          <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800">
+            <ProjectTeamManager />
+          </section>
+        </div>
       </div>
 
       {/* Recent Activity Section */}
@@ -423,6 +602,81 @@ const ProjectOverview = () => {
           {activityContent}
         </div>
       </section>
+
+      {/* Objectives Modal */}
+      {objectivesModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setObjectivesModalOpen(false)}
+          />
+          <div className="relative z-10 w-full max-w-lg mx-4 max-h-[80vh] flex flex-col rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-800">
+            {/* Header */}
+            <div className="flex items-center justify-between p-5 border-b border-gray-200 dark:border-slate-700">
+              <div className="flex items-center gap-2">
+                <Target className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+                  Project Objectives
+                </h2>
+              </div>
+              <div className="flex items-center gap-3">
+                {objectivesList.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <div className="w-16 h-1.5 bg-gray-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-emerald-500 dark:bg-emerald-400 rounded-full transition-all duration-300"
+                        style={{ width: `${completionPercentage}%` }}
+                      />
+                    </div>
+                    <span className="text-xs text-gray-500 dark:text-slate-400">{completionPercentage}%</span>
+                  </div>
+                )}
+                <button
+                  onClick={() => setObjectivesModalOpen(false)}
+                  className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:text-slate-200 dark:hover:bg-slate-700 transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-5">
+              <ul className="space-y-3">
+                {objectivesList.map((objective, index) => (
+                  <li
+                    key={`modal-${objective}-${index}`}
+                    className="flex items-start gap-3 group cursor-pointer p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors"
+                    onClick={() => toggleObjective(index)}
+                  >
+                    <button
+                      type="button"
+                      className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border-2 transition-all ${
+                        completedObjectives.has(index)
+                          ? 'bg-emerald-500 border-emerald-500 dark:bg-emerald-400 dark:border-emerald-400'
+                          : 'border-gray-300 dark:border-slate-600 group-hover:border-indigo-400 dark:group-hover:border-indigo-400'
+                      }`}
+                    >
+                      {completedObjectives.has(index) ? (
+                        <Check className="h-3.5 w-3.5 text-white" />
+                      ) : (
+                        <span className="text-xs font-semibold text-gray-400 dark:text-slate-500 group-hover:text-indigo-500">{index + 1}</span>
+                      )}
+                    </button>
+                    <span className={`text-sm transition-all ${
+                      completedObjectives.has(index)
+                        ? 'text-gray-400 dark:text-slate-500 line-through'
+                        : 'text-gray-700 dark:text-slate-300'
+                    }`}>
+                      {objective}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

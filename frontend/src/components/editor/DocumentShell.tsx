@@ -62,17 +62,22 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
   const [collabPeers, setCollabPeers] = useState<Array<{ id: string; name: string; email: string; color?: string }>>([])
   const [collabStatusMessage, setCollabStatusMessage] = useState<string | null>(null)
   const [collabTokenVersion, setCollabTokenVersion] = useState(0)
+  const [collabTimedOut, setCollabTimedOut] = useState(false) // Permanent flag for this paper load
   const collab = useCollabProvider({
     paperId,
+    // Keep provider enabled even after timeout - let it try connecting in background
+    // This keeps the Yjs doc alive so editor doesn't reinitialize and lose content
     enabled: !readOnly && Boolean(collabToken?.token),
     token: collabToken?.token ?? null,
     wsUrl: collabToken?.ws_url ?? null,
   })
-  const collabEnabled = !!(collab.enabled && !readOnly)
+  // collabEnabled determines if we're actively using collab for editing
+  // When timed out, we stop blocking the UI but keep the doc for content preservation
+  const collabEnabled = !!(collab.enabled && !readOnly && !collabTimedOut)
   const collabSynced = !!collab.synced
   const expectingCollab = collabFeatureEnabled && !readOnly
   const collabReady = collabEnabled && collabSynced
-  const collabUnavailable = collabStatusMessage === 'Collaboration unavailable'
+  const collabUnavailable = collabTimedOut || collabStatusMessage === 'Collaboration unavailable'
   const showToast = (text: string) => {
     setToast({ visible: true, text })
     setTimeout(() => setToast({ visible: false, text: '' }), 3000)
@@ -264,6 +269,27 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
 
   const collabBootstrappedRef = useRef(false)
 
+  // Reset timeout flag when paper changes
+  useEffect(() => {
+    setCollabTimedOut(false)
+  }, [paperId])
+
+  // Master timeout: if collaboration doesn't become ready within 4 seconds, give up permanently
+  // Keep short to avoid flickering - users shouldn't wait long when server is down
+  useEffect(() => {
+    // Don't set timeout if we've already timed out or collab is ready
+    if (collabTimedOut || collabReady || !expectingCollab) {
+      return
+    }
+
+    const timeout = setTimeout(() => {
+      console.warn('[DocumentShell] Master collab timeout - giving up on collaboration')
+      setCollabTimedOut(true)
+    }, 4000)
+
+    return () => clearTimeout(timeout)
+  }, [expectingCollab, collabReady, collabTimedOut])
+
   useEffect(() => {
     collabBootstrappedRef.current = false
     awaitingRealtimeBootstrapRef.current = expectingCollab && !collabUnavailable
@@ -284,7 +310,8 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
         const data = await fetchCollabToken(paperId, controller.signal)
         if (!isMounted) return
         setCollabToken({ token: data.token, ws_url: data.ws_url })
-        setCollabStatusMessage(null)
+        // Don't clear unavailable status if master timeout already fired
+        setCollabStatusMessage(prev => prev === 'Collaboration unavailable' ? prev : null)
       } catch (error: any) {
         if (controller.signal.aborted || !isMounted) return
         console.warn('[DocumentShell] failed to fetch collab token', error)
@@ -453,7 +480,10 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     if (collab.status === 'connected') {
       setCollabStatusMessage(prev => (prev === 'Collaboration unavailable' ? prev : null))
     } else if (collab.status === 'disconnected') {
-      setCollabStatusMessage('Collaboration offline')
+      // Don't overwrite 'unavailable' with 'offline'
+      setCollabStatusMessage(prev => (prev === 'Collaboration unavailable' ? prev : 'Collaboration offline'))
+    } else if (collab.status === 'timeout') {
+      setCollabStatusMessage('Collaboration unavailable')
     } else if (collab.status === 'connecting') {
       setCollabStatusMessage(prev => (prev === 'Collaboration unavailable' ? prev : null))
     }
@@ -462,18 +492,22 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
   // Removed mode-based content injection in one-mode workflow
 
   const realtimeContext = useMemo(() => {
-    if (!collabEnabled || !collab.doc) return undefined
+    // Keep passing realtime context even when timed out, as long as doc exists
+    // This prevents editor from reinitializing and losing content
+    if (!collab.doc) return undefined
+    // If not enabled (including timeout), don't pass realtime - let editor use its own content
+    if (!collabEnabled && !collabTimedOut) return undefined
     return {
       doc: collab.doc,
-      awareness: collab.awareness ?? null,
-      provider: collab.provider ?? null,
-      status: collab.status,
-      peers: collabPeers,
+      awareness: collabTimedOut ? null : (collab.awareness ?? null),
+      provider: collabTimedOut ? null : (collab.provider ?? null),
+      status: collabTimedOut ? 'timeout' : collab.status,
+      peers: collabTimedOut ? [] : collabPeers,
       version: collab.providerVersion ?? 0,
-      synced: collabSynced,
-      enabled: true,
+      synced: collabTimedOut ? true : collabSynced, // Mark as synced when timed out so editor proceeds
+      enabled: !collabTimedOut,
     }
-  }, [collab.awareness, collab.doc, collabEnabled, collab.status, collab.providerVersion, collabPeers, collabSynced])
+  }, [collab.awareness, collab.doc, collabEnabled, collab.status, collab.providerVersion, collabPeers, collabSynced, collabTimedOut])
 
   const handleContentChange = (html: string, json?: any) => {
     if (expectingCollab && !collabUnavailable && !collabReady) {
@@ -755,6 +789,8 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
         return 'Connecting collaborators…'
       case 'disconnected':
         return 'Collaboration offline'
+      case 'timeout':
+        return 'Collaboration unavailable'
       case 'idle':
       default:
         return 'Collaboration idle'

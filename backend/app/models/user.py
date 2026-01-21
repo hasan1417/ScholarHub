@@ -45,5 +45,9 @@ class User(Base):
     collaboration_participations = relationship("CollaborationParticipant", back_populates="user")
     notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
 
+    # Subscription relationships
+    subscription = relationship("UserSubscription", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    usage_records = relationship("UsageTracking", back_populates="user", cascade="all, delete-orphan")
+
     def __repr__(self):
         return f"<User(id={self.id}, email='{self.email}')>"

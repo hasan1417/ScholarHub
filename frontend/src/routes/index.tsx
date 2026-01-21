@@ -4,6 +4,7 @@ import PublicRoute from '../components/auth/PublicRoute'
 import Layout from '../components/layout/Layout'
 import Landing from '../pages/Landing'
 import OverviewShowcase from '../pages/OverviewShowcase'
+import DesignShowcase from '../pages/DesignShowcase'
 import { authRoutes } from './authRoutes'
 import { referenceRoutes } from './referenceRoutes'
 import { discoveryRoutes } from './discoveryRoutes'
@@ -45,6 +46,10 @@ export const appRouteConfig: RouteObject[] = [
       {
         path: 'overview-showcase',
         element: <OverviewShowcase />,
+      },
+      {
+        path: 'design-showcase',
+        element: <DesignShowcase />,
       },
       ...referenceRoutes,
       ...discoveryRoutes,

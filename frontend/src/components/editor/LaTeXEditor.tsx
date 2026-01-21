@@ -279,7 +279,7 @@ interface LaTeXEditorProps {
   realtime?: {
     doc: any
     awareness?: any
-    status?: 'idle' | 'connecting' | 'connected' | 'disconnected'
+    status?: 'idle' | 'connecting' | 'connected' | 'disconnected' | 'timeout'
     peers?: Array<{ id: string; name: string; email: string; color?: string }>
     version?: number
     synced?: boolean

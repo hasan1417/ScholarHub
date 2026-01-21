@@ -36,7 +36,7 @@ export interface EditorAdapterProps {
     doc: any
     awareness?: any
     provider?: any
-    status?: 'idle' | 'connecting' | 'connected' | 'disconnected'
+    status?: 'idle' | 'connecting' | 'connected' | 'disconnected' | 'timeout'
     peers?: Array<{ id: string; name: string; email: string; color?: string }>
     synced?: boolean
     enabled?: boolean

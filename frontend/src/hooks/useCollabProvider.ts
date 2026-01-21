@@ -22,14 +22,19 @@ interface UseCollabProviderArgs {
   wsUrl?: string | null
 }
 
+// Connection timeout in ms - if collab doesn't connect within this time, fall back to offline mode
+// Keep this short to avoid long waits when server is down
+const CONNECTION_TIMEOUT_MS = 3000
+
 export function useCollabProvider({ paperId, enabled, token, wsUrl }: UseCollabProviderArgs) {
   const featureEnabled = isCollabEnabled()
   const shouldEnable = featureEnabled && enabled && Boolean(paperId) && Boolean(token)
-  const [status, setStatus] = useState<'idle' | 'connecting' | 'connected' | 'disconnected'>('idle')
+  const [status, setStatus] = useState<'idle' | 'connecting' | 'connected' | 'disconnected' | 'timeout'>('idle')
   const [state, setState] = useState<{ instance: HocuspocusProvider; doc: Y.Doc } | null>(null)
   const [providerVersion, setProviderVersion] = useState(0)
   const [synced, setSynced] = useState(false)
   const safariSyncCheckRef = useRef<NodeJS.Timeout | null>(null)
+  const connectionTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     if (!shouldEnable || !paperId || !token) {
@@ -38,6 +43,10 @@ export function useCollabProvider({ paperId, enabled, token, wsUrl }: UseCollabP
       if (safariSyncCheckRef.current) {
         clearTimeout(safariSyncCheckRef.current)
         safariSyncCheckRef.current = null
+      }
+      if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current)
+        connectionTimeoutRef.current = null
       }
       setState(prev => {
         prev?.instance?.destroy()
@@ -56,6 +65,14 @@ export function useCollabProvider({ paperId, enabled, token, wsUrl }: UseCollabP
       document: doc,
     })
 
+    // Set connection timeout - if we don't sync within this time, allow offline editing
+    connectionTimeoutRef.current = setTimeout(() => {
+      console.warn('[useCollabProvider] Connection timeout - collaboration server may be unavailable')
+      setStatus('timeout')
+      setSynced(true) // Allow editing without collab
+      setProviderVersion(v => v + 1)
+    }, CONNECTION_TIMEOUT_MS)
+
     const handleStatus = (event: { status: string }) => {
       if (event.status === 'connected') {
         setStatus('connected')
@@ -70,6 +87,12 @@ export function useCollabProvider({ paperId, enabled, token, wsUrl }: UseCollabP
     }
 
     const handleSynced = () => {
+      // Clear connection timeout - we successfully synced
+      if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current)
+        connectionTimeoutRef.current = null
+      }
+
       const yText = doc.getText('main')
       const textLength = yText.length
 
@@ -135,6 +158,10 @@ export function useCollabProvider({ paperId, enabled, token, wsUrl }: UseCollabP
       if (safariSyncCheckRef.current) {
         clearTimeout(safariSyncCheckRef.current)
         safariSyncCheckRef.current = null
+      }
+      if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current)
+        connectionTimeoutRef.current = null
       }
       instance.off('status', handleStatus)
       instance.off('synced', handleSynced)

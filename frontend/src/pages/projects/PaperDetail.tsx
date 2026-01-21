@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
+  ArrowLeft,
   BookOpen,
   CalendarDays,
-  Clock,
   Crown,
-  Edit,
   Eye,
   FileText,
   Link2,
@@ -27,23 +26,6 @@ const stripXmlTags = (text: string | null | undefined): string => {
   return text.replace(/<[^>]*>/g, '').trim()
 }
 
-// Generate consistent avatar color from string
-const getAvatarColor = (str: string): string => {
-  const colors = [
-    'bg-indigo-100 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300',
-    'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-300',
-    'bg-amber-100 text-amber-600 dark:bg-amber-500/20 dark:text-amber-300',
-    'bg-rose-100 text-rose-600 dark:bg-rose-500/20 dark:text-rose-300',
-    'bg-sky-100 text-sky-600 dark:bg-sky-500/20 dark:text-sky-300',
-    'bg-purple-100 text-purple-600 dark:bg-purple-500/20 dark:text-purple-300',
-    'bg-teal-100 text-teal-600 dark:bg-teal-500/20 dark:text-teal-300',
-  ]
-  let hash = 0
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash)
-  }
-  return colors[Math.abs(hash) % colors.length]
-}
 
 import {
   documentsAPI,
@@ -315,42 +297,6 @@ const PaperDetail: React.FC = () => {
     return mapping[type] || type
   }
 
-  const normalizeMemberRole = (role?: string | null): 'admin' | 'editor' | 'viewer' => {
-    const value = (role || '').toLowerCase()
-    if (value === 'admin' || value === 'editor' || value === 'viewer') {
-      return value as 'admin' | 'editor' | 'viewer'
-    }
-    if (value === 'owner') return 'admin'
-    if (value === 'reviewer') return 'viewer'
-    return 'viewer'
-  }
-
-  const renderRoleIcon = (role: 'admin' | 'editor' | 'viewer') => {
-    switch (role) {
-      case 'admin':
-        return <Shield className="h-4 w-4 text-purple-600 dark:text-purple-300" />
-      case 'editor':
-        return <Edit className="h-4 w-4 text-green-600 dark:text-emerald-300" />
-      default:
-        return <Eye className="h-4 w-4 text-gray-500 dark:text-slate-300" />
-    }
-  }
-
-  const sortedProjectMembers = useMemo(() => {
-    const priority: Record<'admin' | 'editor' | 'viewer', number> = {
-      admin: 0,
-      editor: 1,
-      viewer: 2,
-    }
-    return [...projectMembers].sort((a, b) => {
-      const roleA = a.user_id === project?.created_by ? 'admin' : normalizeMemberRole(a.role)
-      const roleB = b.user_id === project?.created_by ? 'admin' : normalizeMemberRole(b.role)
-      if (priority[roleA] === priority[roleB]) {
-        return (a.user?.email || '').localeCompare(b.user?.email || '')
-      }
-      return priority[roleA] - priority[roleB]
-    })
-  }, [projectMembers, project?.created_by])
 
   const keywordDisplay = useMemo(() => {
     if (!paper?.keywords) return []
@@ -440,214 +386,182 @@ const PaperDetail: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 transition-colors dark:bg-slate-900">
-      <header className="border-b bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900/70">
+      <header className="border-b bg-white transition-colors dark:border-slate-700 dark:bg-slate-900/70">
         <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex min-w-0 items-start gap-4">
-              <Link to={resolveProjectPath()} className="text-gray-400 hover:text-gray-600 dark:text-slate-500 dark:hover:text-slate-300">
-                <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-              </Link>
+          {/* Top row: Back link + Actions */}
+          <div className="mb-4 flex items-center justify-between">
+            <Link
+              to={resolveProjectPath()}
+              className="inline-flex items-center gap-2 text-sm text-gray-500 transition-colors hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Papers
+            </Link>
 
-              <div className="min-w-0 space-y-2">
-                {project && (
-                  <div className="text-xs font-medium text-indigo-600 dark:text-indigo-300">
-                    <Link to={`/projects/${project.id}`} className="hover:underline">
-                      {project.title}
-                    </Link>
-                  </div>
-                )}
-
-                {isEditing ? (
-                  <input
-                    value={editForm.title || ''}
-                    onChange={(e) => setEditForm((prev) => ({ ...prev, title: e.target.value }))}
-                    className="w-full rounded border border-gray-300 px-3 py-2 text-xl font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                    placeholder="Paper title"
-                  />
-                ) : (
-                  <h1 className="truncate text-xl font-semibold text-gray-900 dark:text-slate-100" title={paper.title}>
-                    {paper.title || 'Paper Details'}
-                  </h1>
-                )}
-
-                {isEditing ? (
-                  <div className="flex flex-wrap items-center gap-3 text-xs text-gray-600 dark:text-slate-300">
-                    <label className="flex items-center gap-2">
-                      <span>Status</span>
-                      <select
-                        value={editForm.status || paper.status}
-                        onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))}
-                        className="rounded border border-gray-300 px-2 py-1 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                      >
-                        <option value="draft">Draft</option>
-                        <option value="in_progress">In Progress</option>
-                        <option value="completed">Completed</option>
-                        <option value="published">Published</option>
-                      </select>
-                    </label>
-                    <label className="flex items-center gap-2">
-                      <span>Type</span>
-                      <select
-                        value={editForm.paper_type || paper.paper_type}
-                        onChange={(e) => setEditForm((prev) => ({ ...prev, paper_type: e.target.value }))}
-                        className="rounded border border-gray-300 px-2 py-1 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                      >
-                        <option value="research">Research</option>
-                        <option value="review">Literature Review</option>
-                        <option value="case_study">Case Study</option>
-                        <option value="methodology">Methodology</option>
-                        <option value="theoretical">Theoretical</option>
-                        <option value="experimental">Experimental</option>
-                      </select>
-                    </label>
-                    <label className="flex items-center gap-2">
-                      <span>Visibility</span>
-                      <select
-                        value={(editForm.is_public ?? paper.is_public) ? 'true' : 'false'}
-                        onChange={(e) => setEditForm((prev) => ({ ...prev, is_public: e.target.value === 'true' }))}
-                        className="rounded border border-gray-300 px-2 py-1 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                      >
-                        <option value="true">Public</option>
-                        <option value="false">Private</option>
-                      </select>
-                    </label>
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600 dark:text-slate-400">
-                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ${getStatusClassName(paper.status)}`}>
-                      {paper.status.replace('_', ' ')}
-                    </span>
-                    <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-gray-700 dark:bg-slate-800/60 dark:text-slate-200">
-                      <BookOpen className="w-3 h-3" />
-                      {getPaperTypeLabel(paper.paper_type)}
-                    </span>
-                    {paper.year ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-gray-700 dark:bg-slate-800/60 dark:text-slate-200">
-                        <CalendarDays className="w-3 h-3" />
-                        {paper.year}
-                      </span>
-                    ) : null}
-                    {paper.doi ? (
-                      <a
-                        href={`https://doi.org/${paper.doi}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-500/20 dark:text-indigo-200 dark:hover:bg-indigo-500/30"
-                      >
-                        <Link2 className="w-3 h-3" /> DOI
-                      </a>
-                    ) : null}
-                    {documents.length > 0 && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-gray-700 dark:bg-slate-800/60 dark:text-slate-200">
-                        <FileText className="w-3 h-3" />
-                        {documents.length} {documents.length === 1 ? 'document' : 'documents'}
-                      </span>
-                    )}
-                    <span className="inline-flex items-center gap-1 rounded-full bg-gray-50 px-2 py-0.5 text-gray-600 dark:bg-slate-800/60 dark:text-slate-300">
-                      Created: {new Date(paper.created_at).toLocaleDateString()}
-                    </span>
-                    <span className="inline-flex items-center gap-1 rounded-full bg-gray-50 px-2 py-0.5 text-gray-600 dark:bg-slate-800/60 dark:text-slate-300">
-                      Updated: {new Date(paper.updated_at).toLocaleDateString()}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-          <div className="flex items-center gap-2">
-            {!isEditing ? (
-              <>
-                <button
-                  onClick={handleViewPaper}
-                  className="inline-flex items-center gap-2 rounded-md border border-indigo-200 px-4 py-2 text-sm font-medium text-indigo-600 transition-colors hover:bg-indigo-50 dark:border-indigo-400/40 dark:text-indigo-200 dark:hover:bg-indigo-500/10"
-                >
-                  <Eye className="w-4 h-4" />
-                  View paper
-                </button>
-                {canEditPaper && (
+            <div className="flex items-center gap-2">
+              {!isEditing ? (
+                <>
                   <button
-                    onClick={handleStartWriting}
-                    className="inline-flex items-center gap-2 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+                    onClick={handleViewPaper}
+                    className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
                   >
-                    <FileText className="w-4 h-4" />
-                    Open editor
+                    <Eye className="h-4 w-4" />
+                    View
                   </button>
-                )}
-                {(canEditPaper || canDeletePaper) && (
-                  <div className="relative" ref={actionsMenuRef}>
+                  {canEditPaper && (
                     <button
-                      onClick={() => setIsActionsMenuOpen((prev) => !prev)}
-                      className="inline-flex items-center justify-center rounded-md border border-gray-200 p-2 text-gray-600 transition-colors hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
-                      aria-haspopup="menu"
-                      aria-expanded={isActionsMenuOpen}
-                      aria-label="Paper actions"
+                      onClick={handleStartWriting}
+                      className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-400"
                     >
-                      <MoreHorizontal className="w-4 h-4" />
+                      <Pencil className="h-4 w-4" />
+                      Write
                     </button>
-                    {isActionsMenuOpen && (
-                      <div className="absolute right-0 z-20 mt-2 w-48 rounded-lg border border-gray-200 bg-white py-2 shadow-lg transition-colors dark:border-slate-700 dark:bg-slate-900/75">
-                        {canEditPaper && (
+                  )}
+                  {(canEditPaper || canDeletePaper) && (
+                    <div className="relative" ref={actionsMenuRef}>
+                      <button
+                        onClick={() => setIsActionsMenuOpen((prev) => !prev)}
+                        className="inline-flex items-center justify-center rounded-lg border border-gray-200 p-1.5 text-gray-500 transition-colors hover:bg-gray-50 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-800"
+                        aria-haspopup="menu"
+                        aria-expanded={isActionsMenuOpen}
+                        aria-label="Paper actions"
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </button>
+                      {isActionsMenuOpen && (
+                        <div className="absolute right-0 z-20 mt-2 w-48 rounded-lg border border-gray-200 bg-white py-1 shadow-lg transition-colors dark:border-slate-700 dark:bg-slate-900">
+                          {canEditPaper && (
+                            <button
+                              onClick={() => {
+                                setIsActionsMenuOpen(false)
+                                setIsEditing(true)
+                              }}
+                              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                              <Pencil className="h-4 w-4 text-gray-400 dark:text-slate-400" />
+                              Edit details
+                            </button>
+                          )}
                           <button
                             onClick={() => {
                               setIsActionsMenuOpen(false)
-                              setIsEditing(true)
+                              /* TODO: implement share */
                             }}
                             className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50 dark:text-slate-200 dark:hover:bg-slate-800"
                           >
-                            <Pencil className="h-4 w-4 text-gray-500 dark:text-slate-300" />
-                            Edit details
+                            <Share2 className="h-4 w-4 text-gray-400 dark:text-slate-400" />
+                            Share
                           </button>
-                        )}
-                        <button
-                          onClick={() => {
-                            setIsActionsMenuOpen(false)
-                            /* TODO: implement share */
-                          }}
-                          className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50 dark:text-slate-200 dark:hover:bg-slate-800"
-                        >
-                          <Share2 className="h-4 w-4 text-gray-500 dark:text-slate-300" />
-                          Share
-                        </button>
-                        {canDeletePaper && (
-                          <button
-                            onClick={() => {
-                              setIsActionsMenuOpen(false)
-                              handleDeletePaper()
-                            }}
-                            className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 transition-colors hover:bg-red-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                            Delete paper
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </>
-            ) : (
-              <>
-                <button
-                  onClick={handleCancelEdit}
-                  className="inline-flex items-center gap-2 rounded border border-gray-200 px-3 py-2 text-sm text-gray-600 transition-colors hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
-                >
-                    <X className="w-4 h-4" />
+                          {canDeletePaper && (
+                            <button
+                              onClick={() => {
+                                setIsActionsMenuOpen(false)
+                                handleDeletePaper()
+                              }}
+                              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 transition-colors hover:bg-red-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              Delete paper
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={handleCancelEdit}
+                    className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-600 transition-colors hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                  >
+                    <X className="h-4 w-4" />
                     Cancel
                   </button>
                   <button
                     onClick={handleSaveChanges}
                     disabled={isSaving}
-                    className="inline-flex items-center gap-2 rounded bg-indigo-600 px-3 py-2 text-sm text-white transition-colors hover:bg-indigo-700 disabled:opacity-60 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+                    className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-60 dark:bg-indigo-500 dark:hover:bg-indigo-400"
                   >
-                    <Save className="w-4 h-4" />
+                    <Save className="h-4 w-4" />
                     {isSaving ? 'Saving…' : 'Save changes'}
                   </button>
                 </>
               )}
             </div>
           </div>
+
+          {/* Title row */}
+          {isEditing ? (
+            <div className="space-y-3">
+              <input
+                value={editForm.title || ''}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, title: e.target.value }))}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-xl font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                placeholder="Paper title"
+              />
+              <div className="flex flex-wrap items-center gap-4 text-sm">
+                <label className="flex items-center gap-2 text-gray-600 dark:text-slate-300">
+                  <span>Status</span>
+                  <select
+                    value={editForm.status || paper.status}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))}
+                    className="rounded-lg border border-gray-300 px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                  >
+                    <option value="draft">Draft</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="completed">Completed</option>
+                    <option value="published">Published</option>
+                  </select>
+                </label>
+                <label className="flex items-center gap-2 text-gray-600 dark:text-slate-300">
+                  <span>Type</span>
+                  <select
+                    value={editForm.paper_type || paper.paper_type}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, paper_type: e.target.value }))}
+                    className="rounded-lg border border-gray-300 px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                  >
+                    <option value="research">Research</option>
+                    <option value="review">Literature Review</option>
+                    <option value="case_study">Case Study</option>
+                    <option value="methodology">Methodology</option>
+                    <option value="theoretical">Theoretical</option>
+                    <option value="experimental">Experimental</option>
+                  </select>
+                </label>
+                <label className="flex items-center gap-2 text-gray-600 dark:text-slate-300">
+                  <span>Visibility</span>
+                  <select
+                    value={(editForm.is_public ?? paper.is_public) ? 'true' : 'false'}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, is_public: e.target.value === 'true' }))}
+                    className="rounded-lg border border-gray-300 px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                  >
+                    <option value="true">Public</option>
+                    <option value="false">Private</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <h1 className="text-2xl font-semibold text-gray-900 dark:text-slate-100">
+                {paper.title || 'Untitled Paper'}
+              </h1>
+              <div className="mt-2 flex items-center gap-2 text-sm text-gray-500 dark:text-slate-400">
+                <span className={`capitalize font-medium ${
+                  paper.status === 'draft' ? 'text-amber-600 dark:text-amber-400' :
+                  paper.status === 'in_progress' ? 'text-blue-600 dark:text-blue-400' :
+                  paper.status === 'completed' ? 'text-emerald-600 dark:text-emerald-400' :
+                  paper.status === 'published' ? 'text-indigo-600 dark:text-indigo-400' :
+                  'text-gray-600 dark:text-slate-300'
+                }`}>{paper.status.replace('_', ' ')}</span>
+                <span className="text-gray-300 dark:text-slate-600">•</span>
+                <span>{getPaperTypeLabel(paper.paper_type)}</span>
+                <span className="text-gray-300 dark:text-slate-600">•</span>
+                <span>Last edited {new Date(paper.updated_at).toLocaleDateString()}</span>
+              </div>
+            </div>
+          )}
         </div>
       </header>
 
@@ -662,16 +576,19 @@ const PaperDetail: React.FC = () => {
                 )}
               </div>
               {objectivesDisplay.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {objectivesDisplay.map((objective) => (
-                    <span
+                <ol className="space-y-2">
+                  {objectivesDisplay.map((objective, index) => (
+                    <li
                       key={objective}
-                      className="inline-flex items-center rounded-lg bg-indigo-50 px-3 py-1.5 text-sm font-medium text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-200"
+                      className="flex items-start gap-3 text-sm text-gray-700 dark:text-slate-300"
                     >
-                      {objective}
-                    </span>
+                      <span className="flex-shrink-0 flex items-center justify-center h-5 w-5 rounded-full bg-indigo-100 text-xs font-semibold text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
+                        {index + 1}
+                      </span>
+                      <span className="leading-relaxed">{objective}</span>
+                    </li>
                   ))}
-                </div>
+                </ol>
               ) : (
                 <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-center dark:border-slate-700 dark:bg-slate-800/40">
                   <p className="text-sm text-gray-500 dark:text-slate-400">
@@ -828,72 +745,82 @@ const PaperDetail: React.FC = () => {
 
           <div className="space-y-6">
             <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800/60">
-              <div className="mb-4 flex items-center gap-2">
-                <Users className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Team</h2>
-              </div>
-              <p className="mb-4 text-xs text-gray-500 dark:text-slate-400">
-                Access follows project roster
-              </p>
-              {sortedProjectMembers.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-500 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
-                  No collaborators yet.
+              <div className="mb-4 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Users className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Team</h2>
                 </div>
-              ) : (
-                <ul className="space-y-2">
-                  {sortedProjectMembers.map((member) => {
-                    const effectiveRole = normalizeMemberRole(member.role)
-                    const status = (member.status || 'accepted').toLowerCase()
-                    const isPending = status === 'invited'
-                    const isDeclined = status === 'declined'
-                    const isOwner = member.user_id === project?.created_by
-                    const displayName = member.user?.display_name
-                      || [member.user?.first_name, member.user?.last_name].filter(Boolean).join(' ').trim()
-                      || member.user?.email
-                      || member.user_id
-                    const avatarInitial = (displayName || '?')[0].toUpperCase()
-                    const avatarColor = getAvatarColor(member.user_id || displayName)
+                {canEditPaper && (
+                  <button
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-600 transition-colors hover:bg-indigo-100 dark:border-indigo-400/40 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Invite
+                  </button>
+                )}
+              </div>
+              {(() => {
+                // Get creator info - compare as strings to avoid type mismatch
+                const isCurrentUserCreator = String(paper.created_by) === String(currentUserId)
+                const creatorMember = projectMembers.find((m) => String(m.user_id) === String(paper.created_by))
 
-                    return (
-                      <li
-                        key={member.id || member.user_id}
-                        className="flex items-center gap-3 rounded-xl border border-gray-100 bg-gray-50/50 px-3 py-2.5 transition-colors dark:border-slate-700 dark:bg-slate-800/40"
-                      >
-                        <div className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-sm font-semibold ${avatarColor}`}>
-                          {avatarInitial}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="flex items-center gap-2 truncate text-sm font-medium text-gray-900 dark:text-slate-100">
-                            <span className="truncate">{displayName}</span>
-                            {member.user_id === currentUserId && (
-                              <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
-                                You
-                              </span>
-                            )}
-                            {isOwner && <Crown className="h-3.5 w-3.5 text-amber-500" aria-label="Project owner" />}
-                            {isPending && <Clock className="h-3.5 w-3.5 text-amber-500" aria-label="Invitation pending" />}
-                          </p>
-                          {member.user?.email && (
-                            <p className="truncate text-xs text-gray-500 dark:text-slate-400">{member.user.email}</p>
+                // Build creator name from available sources
+                let creatorName = ''
+                let creatorEmail = ''
+
+                if (isCurrentUserCreator && user) {
+                  // Current user is the creator - use their auth data
+                  creatorName = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || ''
+                  creatorEmail = user.email || ''
+                } else if (creatorMember?.user) {
+                  // Found creator in project members
+                  creatorName = [creatorMember.user.first_name, creatorMember.user.last_name].filter(Boolean).join(' ') || creatorMember.user.email || ''
+                  creatorEmail = creatorMember.user.email || ''
+                } else if (paper.created_by_user) {
+                  // Paper has creator info embedded
+                  creatorName = [paper.created_by_user.first_name, paper.created_by_user.last_name].filter(Boolean).join(' ') || paper.created_by_user.email || ''
+                  creatorEmail = paper.created_by_user.email || ''
+                }
+
+                // Final fallback - if still no name, use current user if they have edit access (likely creator)
+                if (!creatorName && canEditPaper && user) {
+                  creatorName = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || 'Unknown'
+                  creatorEmail = user.email || ''
+                }
+
+                if (!creatorName) creatorName = 'Unknown'
+                const creatorInitial = creatorName[0]?.toUpperCase() || '?'
+
+                return (
+                  <ul className="space-y-2">
+                    <li className="flex items-center gap-3 rounded-xl border border-gray-100 bg-gray-50/50 px-3 py-2.5 transition-colors dark:border-slate-700 dark:bg-slate-800/40">
+                      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-semibold text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
+                        {creatorInitial}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="flex items-center gap-2 truncate text-sm font-medium text-gray-900 dark:text-slate-100">
+                          <span className="truncate">{creatorName}</span>
+                          {(isCurrentUserCreator || (canEditPaper && !creatorMember)) && (
+                            <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
+                              You
+                            </span>
                           )}
-                          {status !== 'accepted' && (
-                            <p
-                              className={`mt-0.5 text-xs ${
-                                isPending ? 'text-amber-600' : isDeclined ? 'text-red-500' : 'text-gray-500'
-                              }`}
-                            >
-                              {isPending ? 'Pending invite' : `Status: ${status}`}
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex-shrink-0">
-                          {renderRoleIcon(effectiveRole)}
-                        </div>
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
+                        </p>
+                        {creatorEmail && (
+                          <p className="truncate text-xs text-gray-500 dark:text-slate-400">{creatorEmail}</p>
+                        )}
+                      </div>
+                      <div className="flex-shrink-0">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-50 px-2.5 py-1 text-xs font-medium text-purple-700 dark:bg-purple-500/20 dark:text-purple-300">
+                          <Shield className="h-3.5 w-3.5" />
+                          Admin
+                          <Crown className="h-3 w-3 text-amber-500" />
+                        </span>
+                      </div>
+                    </li>
+                  </ul>
+                )
+              })()}
             </section>
 
             <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800/60">

@@ -2,32 +2,48 @@ import React, { useEffect, useMemo, useState, useCallback, KeyboardEvent } from 
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { researchPapersAPI } from '../../services/api'
-import { AlertTriangle, ArrowLeft, Check, CheckCircle, ChevronDown, ChevronUp, FileText, X } from 'lucide-react'
+import {
+  AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle,
+  ChevronDown, ChevronUp, FileText, X, Target, Sparkles, Code, Type
+} from 'lucide-react'
 import { useProjectContext } from './ProjectLayout'
 import { hasDuplicatePaperTitle } from '../../utils/papers'
 import { parseObjectives } from '../../utils/objectives'
 import { PAPER_TEMPLATES } from '../../constants/paperTemplates'
+
+type Step = 'title' | 'editor' | 'review'
+
+const STEPS: { id: Step; label: string; description: string }[] = [
+  { id: 'title', label: 'Title & Type', description: 'Name your paper and choose a template' },
+  { id: 'editor', label: 'Editor Mode', description: 'Choose how you want to write' },
+  { id: 'review', label: 'Review & Create', description: 'Confirm settings and create' },
+]
 
 const CreatePaperWithTemplate: React.FC = () => {
   const navigate = useNavigate()
   const { projectId } = useParams<{ projectId?: string }>()
   const { project, currentRole } = useProjectContext()
 
+  // Current step
+  const [currentStep, setCurrentStep] = useState<Step>('title')
+
+  // Form state
   const [selectedTypeId, setSelectedTypeId] = useState<string>(PAPER_TEMPLATES[0].id)
   const [paperTitle, setPaperTitle] = useState('')
   const [keywordTags, setKeywordTags] = useState<string[]>([])
   const [keywordInput, setKeywordInput] = useState('')
-  const [isCreating, setIsCreating] = useState(false)
   const [authoringMode, setAuthoringMode] = useState<'rich' | 'latex'>('rich')
-  const [createdPaper, setCreatedPaper] = useState<any>(null)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [objectiveError, setObjectiveError] = useState<string | null>(null)
   const [objectives, setObjectives] = useState<string[]>(() => parseObjectives(project.scope))
   const [selectedObjectives, setSelectedObjectives] = useState<string[]>(() => {
     const parsed = parseObjectives(project.scope)
     return parsed.length ? [parsed[0]] : []
   })
   const [showSections, setShowSections] = useState(false)
+
+  // UI state
+  const [isCreating, setIsCreating] = useState(false)
+  const [createdPaper, setCreatedPaper] = useState<any>(null)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   // Keyword tag handlers
   const addKeyword = useCallback((keyword: string) => {
@@ -58,7 +74,6 @@ const CreatePaperWithTemplate: React.FC = () => {
       }
       return [...prev, objective]
     })
-    setObjectiveError(null)
   }
 
   useEffect(() => {
@@ -95,20 +110,31 @@ const CreatePaperWithTemplate: React.FC = () => {
     return PAPER_TEMPLATES.find((template) => template.id === selectedTypeId) ?? PAPER_TEMPLATES[0]
   }, [selectedTypeId])
 
-  const handleCreatePaper = async () => {
-    if (!paperTitle.trim()) {
-      setErrorMessage('Paper title is required.')
-      return
-    }
-    if (selectedObjectives.length === 0) {
-      setObjectiveError('Please choose or create at least one objective before continuing.')
-      return
-    }
-    if (duplicateTitle) {
-      setErrorMessage('A paper with this title already exists in this project.')
-      return
-    }
+  // Step navigation
+  const currentStepIndex = STEPS.findIndex((s) => s.id === currentStep)
 
+  const canProceedFromTitle = paperTitle.trim().length > 0 && !duplicateTitle
+
+  const goToNextStep = () => {
+    setErrorMessage(null)
+    if (currentStep === 'title') {
+      if (!canProceedFromTitle) {
+        setErrorMessage(duplicateTitle ? 'A paper with this title already exists.' : 'Please enter a paper title.')
+        return
+      }
+      setCurrentStep('editor')
+    } else if (currentStep === 'editor') {
+      setCurrentStep('review')
+    }
+  }
+
+  const goToPrevStep = () => {
+    setErrorMessage(null)
+    if (currentStep === 'editor') setCurrentStep('title')
+    else if (currentStep === 'review') setCurrentStep('editor')
+  }
+
+  const handleCreatePaper = async () => {
     setIsCreating(true)
     setErrorMessage(null)
     try {
@@ -156,13 +182,14 @@ const CreatePaperWithTemplate: React.FC = () => {
   }
 
   const handleBack = () => {
-    navigate(projectId ? `/projects/${projectId}` : '/projects')
+    navigate(projectId ? `/projects/${projectId}/papers` : '/projects')
   }
 
   if (currentRole === 'viewer') {
     return <Navigate to={projectId ? `/projects/${projectId}/papers` : '/projects'} replace />
   }
 
+  // Success screen
   if (createdPaper) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-indigo-50 via-white to-white dark:from-slate-900 dark:via-slate-900 dark:to-slate-900 flex items-center justify-center px-4">
@@ -187,9 +214,9 @@ const CreatePaperWithTemplate: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-900">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-8">
-        {/* Header - aligned with form */}
-        <div className="flex items-center gap-4 mb-6">
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-8">
+        {/* Header */}
+        <div className="flex items-center gap-4 mb-8">
           <button
             onClick={handleBack}
             className="flex items-center justify-center h-10 w-10 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200 hover:border-gray-300 dark:hover:border-slate-600 transition-colors shadow-sm"
@@ -200,259 +227,410 @@ const CreatePaperWithTemplate: React.FC = () => {
             <div className="flex items-center justify-center h-10 w-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/30">
               <FileText className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
             </div>
-            <h1 className="text-xl font-semibold text-gray-900 dark:text-slate-100">Create New Paper</h1>
+            <div>
+              <h1 className="text-xl font-semibold text-gray-900 dark:text-slate-100">Create New Paper</h1>
+              <p className="text-xs text-gray-500 dark:text-slate-400">{project.title}</p>
+            </div>
           </div>
         </div>
 
-        {/* Form */}
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-700 p-6 md:p-8 space-y-8">
-          {/* Paper Type Selection */}
-          <section>
-            <p className="text-sm font-medium text-gray-700 dark:text-slate-300 mb-3">Paper Type & Template *</p>
-            <div className="grid gap-3 md:grid-cols-3">
-              {PAPER_TEMPLATES.map((template) => {
-                const isSelected = template.id === selectedTemplateDefinition.id
-                return (
+        {/* Progress Steps */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between">
+            {STEPS.map((step, index) => {
+              const isActive = step.id === currentStep
+              const isCompleted = index < currentStepIndex
+              const isLast = index === STEPS.length - 1
+
+              return (
+                <React.Fragment key={step.id}>
+                  <div className="flex flex-col items-center">
+                    <div
+                      className={`flex h-10 w-10 items-center justify-center rounded-full border-2 transition-all ${
+                        isCompleted
+                          ? 'border-indigo-500 bg-indigo-500 text-white'
+                          : isActive
+                          ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400'
+                          : 'border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-400 dark:text-slate-500'
+                      }`}
+                    >
+                      {isCompleted ? <Check className="h-5 w-5" /> : <span className="text-sm font-semibold">{index + 1}</span>}
+                    </div>
+                    <span
+                      className={`mt-2 text-xs font-medium ${
+                        isActive ? 'text-indigo-600 dark:text-indigo-400' : isCompleted ? 'text-gray-700 dark:text-slate-300' : 'text-gray-400 dark:text-slate-500'
+                      }`}
+                    >
+                      {step.label}
+                    </span>
+                  </div>
+                  {!isLast && (
+                    <div
+                      className={`flex-1 h-0.5 mx-3 mt-[-20px] ${
+                        index < currentStepIndex ? 'bg-indigo-500' : 'bg-gray-200 dark:bg-slate-700'
+                      }`}
+                    />
+                  )}
+                </React.Fragment>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Step Content */}
+        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
+          {/* Step Header */}
+          <div className="px-6 py-4 border-b border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/50">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+              {STEPS[currentStepIndex].label}
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-slate-400">{STEPS[currentStepIndex].description}</p>
+          </div>
+
+          {/* Step Body */}
+          <div className="p-6">
+            {/* Step 1: Title & Type */}
+            {currentStep === 'title' && (
+              <div className="space-y-6">
+                {/* Paper Title */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
+                    Paper Title <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={paperTitle}
+                    onChange={(e) => {
+                      setPaperTitle(e.target.value)
+                      if (errorMessage) setErrorMessage(null)
+                    }}
+                    className={`w-full px-4 py-3 border-2 rounded-xl bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition text-lg ${
+                      duplicateTitle ? 'border-red-400 dark:border-red-500' : 'border-gray-200 dark:border-slate-600'
+                    }`}
+                    placeholder="Enter a descriptive title for your paper..."
+                    autoFocus
+                  />
+                  {duplicateTitle && (
+                    <p className="mt-2 text-sm text-red-600 dark:text-red-400">A paper with this title already exists in this project.</p>
+                  )}
+                </div>
+
+                {/* Paper Type Selection */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-3">
+                    Paper Template <span className="text-red-500">*</span>
+                  </label>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    {PAPER_TEMPLATES.map((template) => {
+                      const isSelected = template.id === selectedTemplateDefinition.id
+                      return (
+                        <button
+                          key={template.id}
+                          type="button"
+                          onClick={() => setSelectedTypeId(template.id)}
+                          className={`relative rounded-xl border-2 px-4 py-4 text-left transition-all ${
+                            isSelected
+                              ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 ring-1 ring-indigo-500'
+                              : 'border-gray-200 dark:border-slate-600 hover:border-indigo-300 dark:hover:border-indigo-500 hover:bg-gray-50 dark:hover:bg-slate-700/50'
+                          }`}
+                        >
+                          {isSelected && (
+                            <span className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-indigo-500 text-white">
+                              <Check className="h-3 w-3" />
+                            </span>
+                          )}
+                          <p className={`text-sm font-semibold ${isSelected ? 'text-indigo-900 dark:text-indigo-200' : 'text-gray-900 dark:text-slate-100'}`}>
+                            {template.label}
+                          </p>
+                          <p className={`mt-1 text-xs ${isSelected ? 'text-indigo-700 dark:text-indigo-300' : 'text-gray-500 dark:text-slate-400'}`}>
+                            {template.description}
+                          </p>
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  {/* Collapsible Template Sections */}
                   <button
-                    key={template.id}
                     type="button"
-                    onClick={() => setSelectedTypeId(template.id)}
-                    className={`relative rounded-xl border-2 px-4 py-4 text-left transition-all ${
-                      isSelected
+                    onClick={() => setShowSections(!showSections)}
+                    className="mt-3 flex w-full items-center justify-between rounded-lg border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/50 px-4 py-2.5 text-left text-xs font-medium text-gray-600 dark:text-slate-300 transition hover:bg-gray-100 dark:hover:bg-slate-700"
+                  >
+                    <span>Preview template sections ({selectedTemplateDefinition.sections.length})</span>
+                    {showSections ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </button>
+                  {showSections && (
+                    <div className="mt-2 rounded-lg border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/50 p-4">
+                      <div className="flex flex-wrap gap-2">
+                        {selectedTemplateDefinition.sections.map((section) => (
+                          <span
+                            key={section}
+                            className="inline-flex items-center rounded-full bg-white dark:bg-slate-600 px-3 py-1 text-xs font-medium text-gray-700 dark:text-slate-200 border border-gray-200 dark:border-slate-500"
+                          >
+                            {section}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Keywords (optional) */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
+                    Keywords <span className="text-gray-400 dark:text-slate-500 font-normal">(optional)</span>
+                  </label>
+                  <div className="min-h-[44px] flex flex-wrap items-center gap-2 rounded-xl border-2 border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-2 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500 transition">
+                    {keywordTags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="inline-flex items-center gap-1 rounded-full bg-indigo-100 dark:bg-indigo-900/40 px-2.5 py-1 text-xs font-medium text-indigo-700 dark:text-indigo-300"
+                      >
+                        {tag}
+                        <button
+                          type="button"
+                          onClick={() => removeKeyword(tag)}
+                          className="ml-0.5 rounded-full p-0.5 hover:bg-indigo-200 dark:hover:bg-indigo-800 transition"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                    <input
+                      type="text"
+                      value={keywordInput}
+                      onChange={(e) => setKeywordInput(e.target.value)}
+                      onKeyDown={handleKeywordKeyDown}
+                      onBlur={() => keywordInput && addKeyword(keywordInput)}
+                      className="flex-1 min-w-[120px] border-0 bg-transparent py-1 text-sm text-gray-900 dark:text-slate-100 placeholder-gray-400 dark:placeholder-slate-500 focus:outline-none focus:ring-0"
+                      placeholder={keywordTags.length === 0 ? "Type and press Enter..." : "Add more..."}
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-slate-400 mt-1.5">Press Enter or comma to add</p>
+                </div>
+              </div>
+            )}
+
+            {/* Step 2: Editor Mode */}
+            {currentStep === 'editor' && (
+              <div className="space-y-6">
+                <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50">
+                  <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200">Important: This choice is permanent</h3>
+                    <p className="text-xs text-amber-700 dark:text-amber-300/80 mt-1">
+                      Papers cannot be converted between editor modes after creation. Choose the mode that best fits your workflow.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  {/* Rich Text Option */}
+                  <button
+                    type="button"
+                    onClick={() => setAuthoringMode('rich')}
+                    className={`relative rounded-xl border-2 p-6 text-left transition-all ${
+                      authoringMode === 'rich'
                         ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 ring-1 ring-indigo-500'
                         : 'border-gray-200 dark:border-slate-600 hover:border-indigo-300 dark:hover:border-indigo-500 hover:bg-gray-50 dark:hover:bg-slate-700/50'
                     }`}
                   >
-                    {isSelected && (
-                      <span className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-indigo-500 text-white">
-                        <Check className="h-3 w-3" />
+                    {authoringMode === 'rich' && (
+                      <span className="absolute top-4 right-4 flex h-6 w-6 items-center justify-center rounded-full bg-indigo-500 text-white">
+                        <Check className="h-4 w-4" />
                       </span>
                     )}
-                    <p className={`text-sm font-semibold ${isSelected ? 'text-indigo-900 dark:text-indigo-200' : 'text-gray-900 dark:text-slate-100'}`}>
-                      {template.label}
+                    <div className={`flex h-12 w-12 items-center justify-center rounded-xl mb-4 ${
+                      authoringMode === 'rich' ? 'bg-indigo-100 dark:bg-indigo-800/50' : 'bg-gray-100 dark:bg-slate-700'
+                    }`}>
+                      <Type className={`h-6 w-6 ${authoringMode === 'rich' ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-500 dark:text-slate-400'}`} />
+                    </div>
+                    <h3 className={`text-lg font-semibold ${authoringMode === 'rich' ? 'text-indigo-900 dark:text-indigo-200' : 'text-gray-900 dark:text-slate-100'}`}>
+                      Rich Text Editor
+                    </h3>
+                    <p className={`mt-2 text-sm ${authoringMode === 'rich' ? 'text-indigo-700 dark:text-indigo-300' : 'text-gray-500 dark:text-slate-400'}`}>
+                      Visual editing with formatting toolbar. Great for collaborative writing and quick drafts.
                     </p>
-                    <p className={`mt-1 text-xs ${isSelected ? 'text-indigo-700 dark:text-indigo-300' : 'text-gray-500 dark:text-slate-400'}`}>
-                      {template.description}
-                    </p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <span className="inline-flex items-center rounded-full bg-white dark:bg-slate-700 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-600">
+                        Easy formatting
+                      </span>
+                      <span className="inline-flex items-center rounded-full bg-white dark:bg-slate-700 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-600">
+                        Real-time collab
+                      </span>
+                    </div>
                   </button>
-                )
-              })}
-            </div>
 
-            {/* Collapsible Template Sections */}
-            <button
-              type="button"
-              onClick={() => setShowSections(!showSections)}
-              className="mt-3 flex w-full items-center justify-between rounded-lg border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/50 px-4 py-2.5 text-left text-xs font-medium text-gray-600 dark:text-slate-300 transition hover:bg-gray-100 dark:hover:bg-slate-700"
-            >
-              <span>View template sections ({selectedTemplateDefinition.sections.length})</span>
-              {showSections ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-            </button>
-            {showSections && (
-              <div className="mt-2 rounded-lg border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/50 p-4">
-                <div className="flex flex-wrap gap-2">
-                  {selectedTemplateDefinition.sections.map((section) => (
-                    <span
-                      key={section}
-                      className="inline-flex items-center rounded-full bg-white dark:bg-slate-600 px-3 py-1 text-xs font-medium text-gray-700 dark:text-slate-200 border border-gray-200 dark:border-slate-500"
-                    >
-                      {section}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </section>
-
-          {/* Paper Title */}
-          <section>
-            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Paper Title *</label>
-            <input
-              type="text"
-              value={paperTitle}
-              onChange={(e) => {
-                setPaperTitle(e.target.value)
-                if (errorMessage) setErrorMessage(null)
-              }}
-              className={`w-full px-4 py-2.5 border-2 rounded-xl bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition ${
-                errorMessage || duplicateTitle ? 'border-red-400 dark:border-red-500 bg-red-50 dark:bg-red-900/20' : 'border-gray-200 dark:border-slate-600'
-              }`}
-              placeholder="Enter your paper title..."
-            />
-            {errorMessage && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{errorMessage}</p>}
-            {!errorMessage && duplicateTitle && (
-              <p className="mt-2 text-sm text-red-600 dark:text-red-400">A paper with this title already exists in this project.</p>
-            )}
-          </section>
-
-          {/* Keywords & Objectives - 2 column on desktop */}
-          <div className="grid gap-6 md:grid-cols-2">
-            {/* Keywords as Tags */}
-            <section>
-              <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Keywords</label>
-              <div className="min-h-[44px] flex flex-wrap items-center gap-2 rounded-xl border-2 border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-2 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500 transition">
-                {keywordTags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="inline-flex items-center gap-1 rounded-full bg-indigo-100 dark:bg-indigo-900/40 px-2.5 py-1 text-xs font-medium text-indigo-700 dark:text-indigo-300"
+                  {/* LaTeX Option */}
+                  <button
+                    type="button"
+                    onClick={() => setAuthoringMode('latex')}
+                    className={`relative rounded-xl border-2 p-6 text-left transition-all ${
+                      authoringMode === 'latex'
+                        ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 ring-1 ring-indigo-500'
+                        : 'border-gray-200 dark:border-slate-600 hover:border-indigo-300 dark:hover:border-indigo-500 hover:bg-gray-50 dark:hover:bg-slate-700/50'
+                    }`}
                   >
-                    {tag}
-                    <button
-                      type="button"
-                      onClick={() => removeKeyword(tag)}
-                      className="ml-0.5 rounded-full p-0.5 hover:bg-indigo-200 dark:hover:bg-indigo-800 transition"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </span>
-                ))}
-                <input
-                  type="text"
-                  value={keywordInput}
-                  onChange={(e) => setKeywordInput(e.target.value)}
-                  onKeyDown={handleKeywordKeyDown}
-                  onBlur={() => keywordInput && addKeyword(keywordInput)}
-                  className="flex-1 min-w-[120px] border-0 bg-transparent py-1 text-sm text-gray-900 dark:text-slate-100 placeholder-gray-400 dark:placeholder-slate-500 focus:outline-none focus:ring-0"
-                  placeholder={keywordTags.length === 0 ? "Type and press Enter..." : "Add more..."}
-                />
+                    {authoringMode === 'latex' && (
+                      <span className="absolute top-4 right-4 flex h-6 w-6 items-center justify-center rounded-full bg-indigo-500 text-white">
+                        <Check className="h-4 w-4" />
+                      </span>
+                    )}
+                    <div className={`flex h-12 w-12 items-center justify-center rounded-xl mb-4 ${
+                      authoringMode === 'latex' ? 'bg-indigo-100 dark:bg-indigo-800/50' : 'bg-gray-100 dark:bg-slate-700'
+                    }`}>
+                      <Code className={`h-6 w-6 ${authoringMode === 'latex' ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-500 dark:text-slate-400'}`} />
+                    </div>
+                    <h3 className={`text-lg font-semibold ${authoringMode === 'latex' ? 'text-indigo-900 dark:text-indigo-200' : 'text-gray-900 dark:text-slate-100'}`}>
+                      LaTeX Editor
+                    </h3>
+                    <p className={`mt-2 text-sm ${authoringMode === 'latex' ? 'text-indigo-700 dark:text-indigo-300' : 'text-gray-500 dark:text-slate-400'}`}>
+                      Full LaTeX support with live preview. Ideal for academic papers with complex equations.
+                    </p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <span className="inline-flex items-center rounded-full bg-white dark:bg-slate-700 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-600">
+                        Math equations
+                      </span>
+                      <span className="inline-flex items-center rounded-full bg-white dark:bg-slate-700 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-600">
+                        Full control
+                      </span>
+                    </div>
+                  </button>
+                </div>
               </div>
-              <p className="text-xs text-gray-500 dark:text-slate-400 mt-1.5">Press Enter or comma to add a keyword</p>
-            </section>
+            )}
 
-            {/* Objectives */}
-            <section>
-              <div className="flex items-center justify-between mb-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">Research Goals *</label>
-                <span className="text-xs text-gray-400 dark:text-slate-500">{selectedObjectives.length} selected</span>
-              </div>
-              {objectivesAvailable ? (
-                <div className="space-y-1.5 rounded-xl border-2 border-gray-200 dark:border-slate-600 p-3 max-h-40 overflow-y-auto">
-                  {objectives.map((objective) => {
-                    const checked = selectedObjectives.includes(objective)
-                    return (
-                      <button
-                        type="button"
-                        key={objective}
-                        onClick={() => toggleObjectiveSelection(objective)}
-                        className={`w-full flex items-center gap-3 rounded-lg px-3 py-2.5 cursor-pointer transition text-left ${
-                          checked
-                            ? 'bg-indigo-100 dark:bg-indigo-600/30 ring-1 ring-indigo-500 dark:ring-indigo-400'
-                            : 'hover:bg-gray-50 dark:hover:bg-slate-700 ring-1 ring-transparent'
-                        }`}
+            {/* Step 3: Review */}
+            {currentStep === 'review' && (
+              <div className="space-y-5">
+                {/* Summary Cards */}
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded-xl border border-gray-200 dark:border-slate-700 p-4 bg-gray-50 dark:bg-slate-800/50">
+                    <p className="text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wide">Title</p>
+                    <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-slate-100 truncate">{paperTitle}</p>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 dark:border-slate-700 p-4 bg-gray-50 dark:bg-slate-800/50">
+                    <p className="text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wide">Template</p>
+                    <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-slate-100">{selectedTemplateDefinition.label}</p>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 dark:border-slate-700 p-4 bg-gray-50 dark:bg-slate-800/50">
+                    <p className="text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wide">Editor</p>
+                    <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-slate-100">
+                      {authoringMode === 'rich' ? 'Rich Text' : 'LaTeX'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Keywords */}
+                {keywordTags.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-medium text-gray-500 dark:text-slate-400">Keywords:</span>
+                    {keywordTags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="inline-flex items-center rounded-full bg-indigo-100 dark:bg-indigo-900/40 px-2.5 py-1 text-xs font-medium text-indigo-700 dark:text-indigo-300"
                       >
-                        <div className={`flex-shrink-0 h-5 w-5 rounded flex items-center justify-center transition ${
-                          checked
-                            ? 'bg-indigo-600 dark:bg-indigo-500'
-                            : 'border-2 border-gray-300 dark:border-slate-500'
-                        }`}>
-                          {checked && <Check className="h-3.5 w-3.5 text-white" />}
-                        </div>
-                        <span className={`text-sm ${checked ? 'text-indigo-900 dark:text-indigo-100 font-medium' : 'text-gray-700 dark:text-slate-300'}`}>
-                          {objective}
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Optional: Link to Project Goals */}
+                {objectivesAvailable && (
+                  <div className="rounded-xl border border-gray-200 dark:border-slate-700 p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <Target className="h-4 w-4 text-gray-400 dark:text-slate-500" />
+                        <span className="text-sm font-medium text-gray-700 dark:text-slate-300">
+                          Link to project goals
                         </span>
-                      </button>
-                    )
-                  })}
-                </div>
-              ) : (
-                <div className="rounded-xl border-2 border-dashed border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/50 p-4 text-center">
-                  <p className="text-sm text-gray-500 dark:text-slate-400">
-                    No goals defined yet. Add research goals in Project Settings.
-                  </p>
-                </div>
-              )}
-              {objectiveError && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{objectiveError}</p>}
-              {selectedObjectives.length === 0 && !objectiveError && objectivesAvailable && (
-                <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-400">Select at least one goal for this paper</p>
-              )}
-              <p className="mt-1.5 text-xs text-gray-400 dark:text-slate-500">
-                Goals help organize papers within your project
-              </p>
-            </section>
+                        <span className="text-xs text-gray-400 dark:text-slate-500">(optional)</span>
+                      </div>
+                      {selectedObjectives.length > 0 && (
+                        <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
+                          {selectedObjectives.length} selected
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {objectives.map((objective) => {
+                        const checked = selectedObjectives.includes(objective)
+                        return (
+                          <button
+                            type="button"
+                            key={objective}
+                            onClick={() => toggleObjectiveSelection(objective)}
+                            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition border ${
+                              checked
+                                ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300'
+                                : 'border-gray-200 dark:border-slate-600 text-gray-600 dark:text-slate-400 hover:border-indigo-300 dark:hover:border-indigo-500'
+                            }`}
+                          >
+                            {checked && <Check className="h-3 w-3" />}
+                            <span className="max-w-[200px] truncate">{objective}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {errorMessage && (
+                  <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-4 text-sm text-red-600 dark:text-red-400">
+                    {errorMessage}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* Authoring Mode - Prominent Warning Style */}
-          <section className="rounded-xl border-2 border-amber-200 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-900/20 p-5">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200 mb-1">Choose Authoring Mode</h3>
-                <p className="text-xs text-amber-700 dark:text-amber-300/80 mb-4">
-                  This choice is permanent. Papers cannot be converted between modes after creation.
-                </p>
-                <div className="flex flex-wrap gap-3">
-                  <label
-                    className={`flex items-center gap-3 rounded-lg border-2 px-4 py-3 cursor-pointer transition ${
-                      authoringMode === 'rich'
-                        ? 'border-amber-500 dark:border-amber-500 bg-white dark:bg-slate-700 shadow-sm'
-                        : 'border-amber-200 dark:border-amber-700/50 bg-amber-50/50 dark:bg-amber-900/10 hover:bg-white dark:hover:bg-slate-700'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="authoring_mode"
-                      checked={authoringMode === 'rich'}
-                      onChange={() => setAuthoringMode('rich')}
-                      className="h-4 w-4 text-amber-600 focus:ring-amber-500 dark:bg-slate-600 dark:border-slate-500"
-                    />
-                    <div>
-                      <p className={`text-sm font-medium ${authoringMode === 'rich' ? 'text-amber-900 dark:text-amber-200' : 'text-amber-800 dark:text-amber-300'}`}>
-                        Rich Text
-                      </p>
-                      <p className="text-xs text-amber-600 dark:text-amber-400">Visual editor, easy formatting</p>
-                    </div>
-                  </label>
-                  <label
-                    className={`flex items-center gap-3 rounded-lg border-2 px-4 py-3 cursor-pointer transition ${
-                      authoringMode === 'latex'
-                        ? 'border-amber-500 dark:border-amber-500 bg-white dark:bg-slate-700 shadow-sm'
-                        : 'border-amber-200 dark:border-amber-700/50 bg-amber-50/50 dark:bg-amber-900/10 hover:bg-white dark:hover:bg-slate-700'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="authoring_mode"
-                      checked={authoringMode === 'latex'}
-                      onChange={() => setAuthoringMode('latex')}
-                      className="h-4 w-4 text-amber-600 focus:ring-amber-500 dark:bg-slate-600 dark:border-slate-500"
-                    />
-                    <div>
-                      <p className={`text-sm font-medium ${authoringMode === 'latex' ? 'text-amber-900 dark:text-amber-200' : 'text-amber-800 dark:text-amber-300'}`}>
-                        LaTeX
-                      </p>
-                      <p className="text-xs text-amber-600 dark:text-amber-400">Full control, advanced math</p>
-                    </div>
-                  </label>
-                </div>
+          {/* Error message for non-review steps */}
+          {errorMessage && currentStep !== 'review' && (
+            <div className="px-6 pb-4">
+              <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-600 dark:text-red-400">
+                {errorMessage}
               </div>
             </div>
-          </section>
+          )}
 
-          {/* Action Buttons */}
-          <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 dark:border-slate-700">
+          {/* Navigation */}
+          <div className="px-6 py-4 border-t border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/50 flex items-center justify-between">
             <button
-              onClick={handleBack}
-              className="px-5 py-2.5 text-sm font-medium text-gray-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded-xl hover:bg-gray-50 dark:hover:bg-slate-600 transition"
+              onClick={currentStep === 'title' ? handleBack : goToPrevStep}
+              className="px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded-xl hover:bg-gray-50 dark:hover:bg-slate-600 transition flex items-center gap-2"
             >
-              Cancel
+              <ArrowLeft className="h-4 w-4" />
+              {currentStep === 'title' ? 'Cancel' : 'Back'}
             </button>
-            <button
-              onClick={handleCreatePaper}
-              disabled={isCreating || !paperTitle.trim() || duplicateTitle || selectedObjectives.length === 0}
-              className="px-6 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center gap-2 shadow-sm"
-            >
-              {isCreating ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                  Creating...
-                </>
-              ) : (
-                <>
-                  <FileText className="h-4 w-4" />
-                  Create Paper
-                </>
-              )}
-            </button>
+
+            {currentStep !== 'review' ? (
+              <button
+                onClick={goToNextStep}
+                className="px-5 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition flex items-center gap-2 shadow-sm"
+              >
+                Continue
+                <ArrowRight className="h-4 w-4" />
+              </button>
+            ) : (
+              <button
+                onClick={handleCreatePaper}
+                disabled={isCreating}
+                className="px-6 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center gap-2 shadow-sm"
+              >
+                {isCreating ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                    Creating...
+                  </>
+                ) : (
+                  <>
+                    <FileText className="h-4 w-4" />
+                    Create Paper
+                  </>
+                )}
+              </button>
+            )}
           </div>
         </div>
       </div>

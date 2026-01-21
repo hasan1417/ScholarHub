@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { Users, Shield, Edit, Eye, Trash2, Settings, Crown, Clock } from 'lucide-react'
+import { Users, Shield, Edit, Eye, Trash2, Settings, Crown, Clock, ChevronDown, X } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { useProjectContext } from '../../pages/projects/ProjectLayout'
@@ -43,6 +43,8 @@ const ProjectTeamManager: React.FC = () => {
   const [activeMemberId, setActiveMemberId] = useState<string | null>(null)
   const [globalError, setGlobalError] = useState<string | null>(null)
   const [isManaging, setIsManaging] = useState<boolean>(false)
+  const [membersModalOpen, setMembersModalOpen] = useState(false)
+  const VISIBLE_MEMBERS_COUNT = 4
 
   const stringifyDetail = (detail: unknown): string => {
     if (!detail) return 'Unknown error'
@@ -83,6 +85,12 @@ const ProjectTeamManager: React.FC = () => {
       return priority[roleA] - priority[roleB]
     })
   }, [members, project.created_by])
+
+  // In manage mode, show all members inline; otherwise show limited
+  const visibleMembers = isManaging
+    ? sortedMembers
+    : sortedMembers.slice(0, VISIBLE_MEMBERS_COUNT)
+  const hasMoreMembers = sortedMembers.length > VISIBLE_MEMBERS_COUNT
 
   const invalidateProject = async () => {
     await queryClient.invalidateQueries({ queryKey: ['project', project.id] })
@@ -228,7 +236,7 @@ const ProjectTeamManager: React.FC = () => {
             No collaborators yet.
           </li>
         ) : (
-          sortedMembers.map((member) => {
+          visibleMembers.map((member) => {
             const isProjectOwnerMember = member.user_id === project.created_by
             const effectiveRole: RoleOption = normalizeRole(member.role)
             const status = (member.status || 'accepted').toLowerCase()
@@ -325,6 +333,16 @@ const ProjectTeamManager: React.FC = () => {
         )}
       </ul>
 
+      {hasMoreMembers && !isManaging && (
+        <button
+          onClick={() => setMembersModalOpen(true)}
+          className="mt-3 flex items-center gap-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors w-full justify-center"
+        >
+          <ChevronDown className="h-3.5 w-3.5" />
+          View all {sortedMembers.length} members
+        </button>
+      )}
+
       {canManageTeam && (
         <TeamInviteModal
           isOpen={inviteOpen}
@@ -332,6 +350,84 @@ const ProjectTeamManager: React.FC = () => {
           onInvite={handleInvite}
           paperTitle={project.title}
         />
+      )}
+
+      {/* All Members Modal */}
+      {membersModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setMembersModalOpen(false)}
+          />
+          <div className="relative z-10 w-full max-w-lg mx-4 max-h-[80vh] flex flex-col rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-800">
+            {/* Header */}
+            <div className="flex items-center justify-between p-5 border-b border-gray-200 dark:border-slate-700">
+              <div className="flex items-center gap-2">
+                <Users className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+                  Team Members ({sortedMembers.length})
+                </h2>
+              </div>
+              <button
+                onClick={() => setMembersModalOpen(false)}
+                className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:text-slate-200 dark:hover:bg-slate-700 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-5">
+              <ul className="space-y-3">
+                {sortedMembers.map((member) => {
+                  const isProjectOwnerMember = member.user_id === project.created_by
+                  const effectiveRole: RoleOption = normalizeRole(member.role)
+                  const status = (member.status || 'accepted').toLowerCase()
+                  const isPending = status === 'invited'
+                  const isSelf = member.user_id === currentUserId
+                  const displayName = member.user?.display_name
+                    || [member.user?.first_name, member.user?.last_name].filter(Boolean).join(' ').trim()
+                    || member.user?.email
+                    || member.user_id
+
+                  return (
+                    <li
+                      key={`modal-${member.id}`}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-800/60"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 dark:bg-slate-700 flex-shrink-0">
+                          {roleIcon(effectiveRole)}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-slate-100">
+                            <span className="truncate">{displayName}</span>
+                            {isSelf && (
+                              <span className="text-[10px] uppercase tracking-wide text-indigo-500 dark:text-indigo-300">You</span>
+                            )}
+                          </p>
+                          {member.user?.email && (
+                            <p className="truncate text-xs text-gray-500 dark:text-slate-400">{member.user.email}</p>
+                          )}
+                        </div>
+                      </div>
+                      <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium flex-shrink-0 ${rolePillClasses[effectiveRole]}`}>
+                        {roleIcon(effectiveRole)}
+                        <span className="capitalize">{effectiveRole}</span>
+                        {isProjectOwnerMember && (
+                          <Crown className="h-3 w-3 text-yellow-500 dark:text-yellow-300" />
+                        )}
+                        {isPending && (
+                          <Clock className="h-3 w-3 text-amber-500 dark:text-amber-300" />
+                        )}
+                      </span>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

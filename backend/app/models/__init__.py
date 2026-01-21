@@ -58,6 +58,11 @@ from .project_discussion_embedding import (
     ProjectDiscussionEmbedding,
     DiscussionEmbeddingOrigin,
 )
+from .subscription import (
+    SubscriptionTier,
+    UserSubscription,
+    UsageTracking,
+)
 
 __all__ = [
     "User",
@@ -117,4 +122,7 @@ __all__ = [
     "DiscussionArtifactFormat",
     "ProjectDiscussionEmbedding",
     "DiscussionEmbeddingOrigin",
+    "SubscriptionTier",
+    "UserSubscription",
+    "UsageTracking",
 ]

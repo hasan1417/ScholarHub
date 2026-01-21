@@ -336,18 +336,6 @@ const ProjectLayout = () => {
               <UsersIcon className="h-3.5 w-3.5" />
               <span>{memberCount} member{memberCount === 1 ? '' : 's'}</span>
             </div>
-            {project.keywords && project.keywords.length > 0 && (
-              <div className="flex items-center gap-2">
-                {project.keywords.map((keyword) => (
-                  <span
-                    key={keyword}
-                    className="inline-flex rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-400/10 dark:text-indigo-200"
-                  >
-                    {keyword}
-                  </span>
-                ))}
-              </div>
-            )}
           </div>
         </div>
         <nav className="mt-8 flex flex-wrap items-center gap-2 text-sm font-medium">

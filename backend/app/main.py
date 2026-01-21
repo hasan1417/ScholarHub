@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
-from app.api.v1 import auth, users, research_papers, documents, ai, team, branches, discovery, references, latex, onlyoffice, metrics, comments, section_locks, collab, collab_bootstrap, snapshots
+from app.api.v1 import auth, users, research_papers, documents, ai, team, branches, discovery, references, latex, onlyoffice, metrics, comments, section_locks, collab, collab_bootstrap, snapshots, subscription
 from app.core.config import settings
 from app.database import engine
 import time
@@ -139,6 +139,9 @@ if settings.PROJECT_COLLAB_REALTIME_ENABLED:
 
 # Document history/snapshots
 app.include_router(snapshots.router, prefix="/api/v1", tags=["document history"])
+
+# Subscription management
+app.include_router(subscription.router, prefix="/api/v1/subscription", tags=["subscription"])
 
 
 @app.on_event("startup")

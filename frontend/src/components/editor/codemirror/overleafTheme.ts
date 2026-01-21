@@ -62,11 +62,6 @@ export const overleafLatexTheme: Extension = [
     },
     '.cm-activeLine': {
       backgroundColor: 'var(--latex-editor-active-line-bg)',
-      // Extend highlight to cover the gap created by content padding
-      marginLeft: '-16px',
-      paddingLeft: '16px',
-      marginRight: '-16px',
-      paddingRight: '16px',
     },
     '&.cm-has-selection .cm-activeLine': {
       backgroundColor: 'transparent',
