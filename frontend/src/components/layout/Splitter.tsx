@@ -209,9 +209,9 @@ const Splitter: React.FC<SplitterProps> = ({
         onPointerDown={onPointerDown}
         onDoubleClick={onDoubleClick}
         style={{ touchAction: 'none', userSelect: 'none', cursor: 'col-resize' }}
-        className="w-2 bg-transparent hover:bg-gray-200"
+        className="w-2 bg-transparent hover:bg-gray-200 dark:hover:bg-slate-600"
       />
-      <div style={rightStyle} className="border-l border-gray-200 min-h-0 min-w-0 overflow-hidden">
+      <div style={rightStyle} className="border-l border-gray-200 dark:border-slate-700 min-h-0 min-w-0 overflow-hidden">
         <div className="w-full h-full overflow-auto">
           {right}
         </div>

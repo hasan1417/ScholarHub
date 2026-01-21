@@ -3,6 +3,7 @@ import ProtectedRoute from '../components/auth/ProtectedRoute'
 import PublicRoute from '../components/auth/PublicRoute'
 import Layout from '../components/layout/Layout'
 import Landing from '../pages/Landing'
+import OverviewShowcase from '../pages/OverviewShowcase'
 import { authRoutes } from './authRoutes'
 import { referenceRoutes } from './referenceRoutes'
 import { discoveryRoutes } from './discoveryRoutes'
@@ -40,6 +41,10 @@ export const appRouteConfig: RouteObject[] = [
       {
         path: 'dashboard',
         element: <Navigate to="/projects" replace />,
+      },
+      {
+        path: 'overview-showcase',
+        element: <OverviewShowcase />,
       },
       ...referenceRoutes,
       ...discoveryRoutes,

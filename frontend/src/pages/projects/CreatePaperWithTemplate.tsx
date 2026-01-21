@@ -165,17 +165,17 @@ const CreatePaperWithTemplate: React.FC = () => {
 
   if (createdPaper) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-indigo-50 via-white to-white flex items-center justify-center px-4">
-        <div className="w-full max-w-xl rounded-3xl border border-indigo-100 bg-white shadow-xl p-8 text-center">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-green-600">
+      <div className="min-h-screen bg-gradient-to-b from-indigo-50 via-white to-white dark:from-slate-900 dark:via-slate-900 dark:to-slate-900 flex items-center justify-center px-4">
+        <div className="w-full max-w-xl rounded-3xl border border-indigo-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl p-8 text-center">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400">
             <CheckCircle className="h-8 w-8" />
           </div>
-          <h2 className="mt-6 text-2xl font-semibold text-gray-900">Paper created successfully</h2>
-          <p className="mt-2 text-sm text-gray-600">
-            “{createdPaper.title}” is ready. We’re opening the editor so you can start writing right away.
+          <h2 className="mt-6 text-2xl font-semibold text-gray-900 dark:text-slate-100">Paper created successfully</h2>
+          <p className="mt-2 text-sm text-gray-600 dark:text-slate-400">
+            "{createdPaper.title}" is ready. We're opening the editor so you can start writing right away.
           </p>
-          <div className="mt-6 flex items-center justify-center gap-2 text-sm font-medium text-indigo-600">
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-200 border-t-indigo-600" />
+          <div className="mt-6 flex items-center justify-center gap-2 text-sm font-medium text-indigo-600 dark:text-indigo-400">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-200 dark:border-indigo-800 border-t-indigo-600 dark:border-t-indigo-400" />
             Redirecting to editor…
           </div>
         </div>
@@ -186,29 +186,29 @@ const CreatePaperWithTemplate: React.FC = () => {
   const objectivesAvailable = objectives.length > 0
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-slate-900">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-8">
         {/* Header - aligned with form */}
         <div className="flex items-center gap-4 mb-6">
           <button
             onClick={handleBack}
-            className="flex items-center justify-center h-10 w-10 rounded-xl border border-gray-200 bg-white text-gray-500 hover:text-gray-700 hover:border-gray-300 transition-colors shadow-sm"
+            className="flex items-center justify-center h-10 w-10 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200 hover:border-gray-300 dark:hover:border-slate-600 transition-colors shadow-sm"
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div className="flex items-center gap-2.5">
-            <div className="flex items-center justify-center h-10 w-10 rounded-xl bg-indigo-100">
-              <FileText className="h-5 w-5 text-indigo-600" />
+            <div className="flex items-center justify-center h-10 w-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/30">
+              <FileText className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
             </div>
-            <h1 className="text-xl font-semibold text-gray-900">Create New Paper</h1>
+            <h1 className="text-xl font-semibold text-gray-900 dark:text-slate-100">Create New Paper</h1>
           </div>
         </div>
 
         {/* Form */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 md:p-8 space-y-8">
+        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-700 p-6 md:p-8 space-y-8">
           {/* Paper Type Selection */}
           <section>
-            <p className="text-sm font-medium text-gray-700 mb-3">Paper Type & Template *</p>
+            <p className="text-sm font-medium text-gray-700 dark:text-slate-300 mb-3">Paper Type & Template *</p>
             <div className="grid gap-3 md:grid-cols-3">
               {PAPER_TEMPLATES.map((template) => {
                 const isSelected = template.id === selectedTemplateDefinition.id
@@ -219,8 +219,8 @@ const CreatePaperWithTemplate: React.FC = () => {
                     onClick={() => setSelectedTypeId(template.id)}
                     className={`relative rounded-xl border-2 px-4 py-4 text-left transition-all ${
                       isSelected
-                        ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-500'
-                        : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50'
+                        ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 ring-1 ring-indigo-500'
+                        : 'border-gray-200 dark:border-slate-600 hover:border-indigo-300 dark:hover:border-indigo-500 hover:bg-gray-50 dark:hover:bg-slate-700/50'
                     }`}
                   >
                     {isSelected && (
@@ -228,10 +228,10 @@ const CreatePaperWithTemplate: React.FC = () => {
                         <Check className="h-3 w-3" />
                       </span>
                     )}
-                    <p className={`text-sm font-semibold ${isSelected ? 'text-indigo-900' : 'text-gray-900'}`}>
+                    <p className={`text-sm font-semibold ${isSelected ? 'text-indigo-900 dark:text-indigo-200' : 'text-gray-900 dark:text-slate-100'}`}>
                       {template.label}
                     </p>
-                    <p className={`mt-1 text-xs ${isSelected ? 'text-indigo-700' : 'text-gray-500'}`}>
+                    <p className={`mt-1 text-xs ${isSelected ? 'text-indigo-700 dark:text-indigo-300' : 'text-gray-500 dark:text-slate-400'}`}>
                       {template.description}
                     </p>
                   </button>
@@ -243,18 +243,18 @@ const CreatePaperWithTemplate: React.FC = () => {
             <button
               type="button"
               onClick={() => setShowSections(!showSections)}
-              className="mt-3 flex w-full items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-2.5 text-left text-xs font-medium text-gray-600 transition hover:bg-gray-100"
+              className="mt-3 flex w-full items-center justify-between rounded-lg border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/50 px-4 py-2.5 text-left text-xs font-medium text-gray-600 dark:text-slate-300 transition hover:bg-gray-100 dark:hover:bg-slate-700"
             >
               <span>View template sections ({selectedTemplateDefinition.sections.length})</span>
               {showSections ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
             </button>
             {showSections && (
-              <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <div className="mt-2 rounded-lg border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/50 p-4">
                 <div className="flex flex-wrap gap-2">
                   {selectedTemplateDefinition.sections.map((section) => (
                     <span
                       key={section}
-                      className="inline-flex items-center rounded-full bg-white px-3 py-1 text-xs font-medium text-gray-700 border border-gray-200"
+                      className="inline-flex items-center rounded-full bg-white dark:bg-slate-600 px-3 py-1 text-xs font-medium text-gray-700 dark:text-slate-200 border border-gray-200 dark:border-slate-500"
                     >
                       {section}
                     </span>
@@ -266,7 +266,7 @@ const CreatePaperWithTemplate: React.FC = () => {
 
           {/* Paper Title */}
           <section>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Paper Title *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Paper Title *</label>
             <input
               type="text"
               value={paperTitle}
@@ -274,14 +274,14 @@ const CreatePaperWithTemplate: React.FC = () => {
                 setPaperTitle(e.target.value)
                 if (errorMessage) setErrorMessage(null)
               }}
-              className={`w-full px-4 py-2.5 border-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition ${
-                errorMessage || duplicateTitle ? 'border-red-400 bg-red-50' : 'border-gray-200'
+              className={`w-full px-4 py-2.5 border-2 rounded-xl bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition ${
+                errorMessage || duplicateTitle ? 'border-red-400 dark:border-red-500 bg-red-50 dark:bg-red-900/20' : 'border-gray-200 dark:border-slate-600'
               }`}
               placeholder="Enter your paper title..."
             />
-            {errorMessage && <p className="mt-2 text-sm text-red-600">{errorMessage}</p>}
+            {errorMessage && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{errorMessage}</p>}
             {!errorMessage && duplicateTitle && (
-              <p className="mt-2 text-sm text-red-600">A paper with this title already exists in this project.</p>
+              <p className="mt-2 text-sm text-red-600 dark:text-red-400">A paper with this title already exists in this project.</p>
             )}
           </section>
 
@@ -289,18 +289,18 @@ const CreatePaperWithTemplate: React.FC = () => {
           <div className="grid gap-6 md:grid-cols-2">
             {/* Keywords as Tags */}
             <section>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Keywords</label>
-              <div className="min-h-[44px] flex flex-wrap items-center gap-2 rounded-xl border-2 border-gray-200 bg-white px-3 py-2 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500 transition">
+              <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Keywords</label>
+              <div className="min-h-[44px] flex flex-wrap items-center gap-2 rounded-xl border-2 border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-2 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500 transition">
                 {keywordTags.map((tag) => (
                   <span
                     key={tag}
-                    className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-medium text-indigo-700"
+                    className="inline-flex items-center gap-1 rounded-full bg-indigo-100 dark:bg-indigo-900/40 px-2.5 py-1 text-xs font-medium text-indigo-700 dark:text-indigo-300"
                   >
                     {tag}
                     <button
                       type="button"
                       onClick={() => removeKeyword(tag)}
-                      className="ml-0.5 rounded-full p-0.5 hover:bg-indigo-200 transition"
+                      className="ml-0.5 rounded-full p-0.5 hover:bg-indigo-200 dark:hover:bg-indigo-800 transition"
                     >
                       <X className="h-3 w-3" />
                     </button>
@@ -312,75 +312,80 @@ const CreatePaperWithTemplate: React.FC = () => {
                   onChange={(e) => setKeywordInput(e.target.value)}
                   onKeyDown={handleKeywordKeyDown}
                   onBlur={() => keywordInput && addKeyword(keywordInput)}
-                  className="flex-1 min-w-[120px] border-0 bg-transparent py-1 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-0"
+                  className="flex-1 min-w-[120px] border-0 bg-transparent py-1 text-sm text-gray-900 dark:text-slate-100 placeholder-gray-400 dark:placeholder-slate-500 focus:outline-none focus:ring-0"
                   placeholder={keywordTags.length === 0 ? "Type and press Enter..." : "Add more..."}
                 />
               </div>
-              <p className="text-xs text-gray-500 mt-1.5">Press Enter or comma to add a keyword</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400 mt-1.5">Press Enter or comma to add a keyword</p>
             </section>
 
             {/* Objectives */}
             <section>
               <div className="flex items-center justify-between mb-2">
-                <label className="block text-sm font-medium text-gray-700">Research Goals *</label>
-                <span className="text-xs text-gray-400">{selectedObjectives.length} selected</span>
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">Research Goals *</label>
+                <span className="text-xs text-gray-400 dark:text-slate-500">{selectedObjectives.length} selected</span>
               </div>
               {objectivesAvailable ? (
-                <div className="space-y-1.5 rounded-xl border-2 border-gray-200 p-3 max-h-40 overflow-y-auto">
+                <div className="space-y-1.5 rounded-xl border-2 border-gray-200 dark:border-slate-600 p-3 max-h-40 overflow-y-auto">
                   {objectives.map((objective) => {
                     const checked = selectedObjectives.includes(objective)
                     return (
-                      <label
+                      <button
+                        type="button"
                         key={objective}
-                        className={`flex items-center gap-3 rounded-lg px-3 py-2 cursor-pointer transition ${
-                          checked ? 'bg-indigo-50' : 'hover:bg-gray-50'
+                        onClick={() => toggleObjectiveSelection(objective)}
+                        className={`w-full flex items-center gap-3 rounded-lg px-3 py-2.5 cursor-pointer transition text-left ${
+                          checked
+                            ? 'bg-indigo-100 dark:bg-indigo-600/30 ring-1 ring-indigo-500 dark:ring-indigo-400'
+                            : 'hover:bg-gray-50 dark:hover:bg-slate-700 ring-1 ring-transparent'
                         }`}
                       >
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                          checked={checked}
-                          onChange={() => toggleObjectiveSelection(objective)}
-                        />
-                        <span className={`text-sm ${checked ? 'text-indigo-900 font-medium' : 'text-gray-700'}`}>
+                        <div className={`flex-shrink-0 h-5 w-5 rounded flex items-center justify-center transition ${
+                          checked
+                            ? 'bg-indigo-600 dark:bg-indigo-500'
+                            : 'border-2 border-gray-300 dark:border-slate-500'
+                        }`}>
+                          {checked && <Check className="h-3.5 w-3.5 text-white" />}
+                        </div>
+                        <span className={`text-sm ${checked ? 'text-indigo-900 dark:text-indigo-100 font-medium' : 'text-gray-700 dark:text-slate-300'}`}>
                           {objective}
                         </span>
-                      </label>
+                      </button>
                     )
                   })}
                 </div>
               ) : (
-                <div className="rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 p-4 text-center">
-                  <p className="text-sm text-gray-500">
+                <div className="rounded-xl border-2 border-dashed border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/50 p-4 text-center">
+                  <p className="text-sm text-gray-500 dark:text-slate-400">
                     No goals defined yet. Add research goals in Project Settings.
                   </p>
                 </div>
               )}
-              {objectiveError && <p className="mt-2 text-sm text-red-600">{objectiveError}</p>}
+              {objectiveError && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{objectiveError}</p>}
               {selectedObjectives.length === 0 && !objectiveError && objectivesAvailable && (
-                <p className="mt-1.5 text-xs text-amber-600">Select at least one goal for this paper</p>
+                <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-400">Select at least one goal for this paper</p>
               )}
-              <p className="mt-1.5 text-xs text-gray-400">
+              <p className="mt-1.5 text-xs text-gray-400 dark:text-slate-500">
                 Goals help organize papers within your project
               </p>
             </section>
           </div>
 
           {/* Authoring Mode - Prominent Warning Style */}
-          <section className="rounded-xl border-2 border-amber-200 bg-amber-50 p-5">
+          <section className="rounded-xl border-2 border-amber-200 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-900/20 p-5">
             <div className="flex items-start gap-3">
-              <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
               <div className="flex-1">
-                <h3 className="text-sm font-semibold text-amber-900 mb-1">Choose Authoring Mode</h3>
-                <p className="text-xs text-amber-700 mb-4">
+                <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200 mb-1">Choose Authoring Mode</h3>
+                <p className="text-xs text-amber-700 dark:text-amber-300/80 mb-4">
                   This choice is permanent. Papers cannot be converted between modes after creation.
                 </p>
                 <div className="flex flex-wrap gap-3">
                   <label
                     className={`flex items-center gap-3 rounded-lg border-2 px-4 py-3 cursor-pointer transition ${
                       authoringMode === 'rich'
-                        ? 'border-amber-500 bg-white shadow-sm'
-                        : 'border-amber-200 bg-amber-50/50 hover:bg-white'
+                        ? 'border-amber-500 dark:border-amber-500 bg-white dark:bg-slate-700 shadow-sm'
+                        : 'border-amber-200 dark:border-amber-700/50 bg-amber-50/50 dark:bg-amber-900/10 hover:bg-white dark:hover:bg-slate-700'
                     }`}
                   >
                     <input
@@ -388,20 +393,20 @@ const CreatePaperWithTemplate: React.FC = () => {
                       name="authoring_mode"
                       checked={authoringMode === 'rich'}
                       onChange={() => setAuthoringMode('rich')}
-                      className="h-4 w-4 text-amber-600 focus:ring-amber-500"
+                      className="h-4 w-4 text-amber-600 focus:ring-amber-500 dark:bg-slate-600 dark:border-slate-500"
                     />
                     <div>
-                      <p className={`text-sm font-medium ${authoringMode === 'rich' ? 'text-amber-900' : 'text-amber-800'}`}>
+                      <p className={`text-sm font-medium ${authoringMode === 'rich' ? 'text-amber-900 dark:text-amber-200' : 'text-amber-800 dark:text-amber-300'}`}>
                         Rich Text
                       </p>
-                      <p className="text-xs text-amber-600">Visual editor, easy formatting</p>
+                      <p className="text-xs text-amber-600 dark:text-amber-400">Visual editor, easy formatting</p>
                     </div>
                   </label>
                   <label
                     className={`flex items-center gap-3 rounded-lg border-2 px-4 py-3 cursor-pointer transition ${
                       authoringMode === 'latex'
-                        ? 'border-amber-500 bg-white shadow-sm'
-                        : 'border-amber-200 bg-amber-50/50 hover:bg-white'
+                        ? 'border-amber-500 dark:border-amber-500 bg-white dark:bg-slate-700 shadow-sm'
+                        : 'border-amber-200 dark:border-amber-700/50 bg-amber-50/50 dark:bg-amber-900/10 hover:bg-white dark:hover:bg-slate-700'
                     }`}
                   >
                     <input
@@ -409,13 +414,13 @@ const CreatePaperWithTemplate: React.FC = () => {
                       name="authoring_mode"
                       checked={authoringMode === 'latex'}
                       onChange={() => setAuthoringMode('latex')}
-                      className="h-4 w-4 text-amber-600 focus:ring-amber-500"
+                      className="h-4 w-4 text-amber-600 focus:ring-amber-500 dark:bg-slate-600 dark:border-slate-500"
                     />
                     <div>
-                      <p className={`text-sm font-medium ${authoringMode === 'latex' ? 'text-amber-900' : 'text-amber-800'}`}>
+                      <p className={`text-sm font-medium ${authoringMode === 'latex' ? 'text-amber-900 dark:text-amber-200' : 'text-amber-800 dark:text-amber-300'}`}>
                         LaTeX
                       </p>
-                      <p className="text-xs text-amber-600">Full control, advanced math</p>
+                      <p className="text-xs text-amber-600 dark:text-amber-400">Full control, advanced math</p>
                     </div>
                   </label>
                 </div>
@@ -424,10 +429,10 @@ const CreatePaperWithTemplate: React.FC = () => {
           </section>
 
           {/* Action Buttons */}
-          <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+          <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 dark:border-slate-700">
             <button
               onClick={handleBack}
-              className="px-5 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition"
+              className="px-5 py-2.5 text-sm font-medium text-gray-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded-xl hover:bg-gray-50 dark:hover:bg-slate-600 transition"
             >
               Cancel
             </button>
