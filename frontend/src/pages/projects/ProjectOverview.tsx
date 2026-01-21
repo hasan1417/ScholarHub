@@ -38,7 +38,7 @@ const ProjectOverview = () => {
     return project.scope.trim() ? [project.scope.trim()] : []
   }, [project.scope])
 
-  const formatDateTime = (value?: string | null) => {
+  const _formatDateTime = (value?: string | null) => {
     if (!value) return ''
     const date = new Date(value)
     if (Number.isNaN(date.getTime())) return ''
@@ -286,7 +286,7 @@ const ProjectOverview = () => {
         iconClassName: c.iconClass,
         title: c.title,
         subtitle: actorName,
-        detail: action.includes('reference') ? referenceTitle : paperTitle,
+        detail: (action.includes('reference') ? referenceTitle : paperTitle) ?? undefined,
         timestamp,
       })
     }
@@ -311,7 +311,7 @@ const ProjectOverview = () => {
         title: c.title,
         subtitle: actorName,
         badge: c.badge,
-        detail: referenceTitle,
+        detail: referenceTitle ?? undefined,
         timestamp,
       })
     }

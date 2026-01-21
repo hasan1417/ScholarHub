@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
-import { authAPI, setupTokenRefreshTimer } from '../services/api'
+import { authAPI, setupTokenRefreshTimer, subscriptionAPI } from '../services/api'
+import type { SubscriptionState, UserSubscription, UsageTracking } from '../types'
 
 interface User {
   id: string
@@ -25,6 +26,7 @@ interface AuthContextType {
   user: User | null
   isAuthenticated: boolean
   isLoading: boolean
+  subscription: SubscriptionState
   login: (email: string, password: string) => Promise<void>
   register: (userData: {
     email: string
@@ -35,6 +37,7 @@ interface AuthContextType {
   logout: () => void
   refreshUser: () => Promise<void>
   updateUser: (userData: Partial<User>) => void
+  refreshSubscription: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -54,12 +57,41 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [subscription, setSubscription] = useState<SubscriptionState>({
+    subscription: null,
+    usage: null,
+    limits: {},
+    loading: false,
+  })
 
   const isAuthenticated = !!user
+
+  const refreshSubscription = async () => {
+    if (!user) return
+    setSubscription(prev => ({ ...prev, loading: true }))
+    try {
+      const response = await subscriptionAPI.getMySubscription()
+      setSubscription({
+        subscription: response.data.subscription,
+        usage: response.data.usage,
+        limits: response.data.limits,
+        loading: false,
+      })
+    } catch (error) {
+      console.error('Failed to fetch subscription:', error)
+      setSubscription(prev => ({ ...prev, loading: false }))
+    }
+  }
 
   useEffect(() => {
     refreshUser()
   }, [])
+
+  useEffect(() => {
+    if (user) {
+      refreshSubscription()
+    }
+  }, [user?.id])
 
   const login = async (email: string, password: string) => {
     try {
@@ -135,11 +167,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     user,
     isAuthenticated,
     isLoading,
+    subscription,
     login,
     register,
     logout,
     refreshUser,
     updateUser,
+    refreshSubscription,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

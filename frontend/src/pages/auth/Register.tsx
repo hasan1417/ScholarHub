@@ -41,7 +41,7 @@ const Register = () => {
   const [registrationSuccess, setRegistrationSuccess] = useState<RegistrationSuccess | null>(null)
 
   const { register } = useAuth()
-  const navigate = useNavigate()
+  const _navigate = useNavigate()
 
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = event.target

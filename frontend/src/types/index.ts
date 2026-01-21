@@ -68,7 +68,7 @@ export interface ProjectMember {
   user: ProjectMemberUser
 }
 
-export interface ProjectDetail extends ProjectSummary {
+export interface ProjectDetail extends Omit<ProjectSummary, 'members'> {
   members: ProjectMember[]
 }
 
@@ -778,4 +778,53 @@ export interface DiscussionAssistantSuggestedAction {
   action_type: string
   summary: string
   payload: Record<string, any>
+}
+
+// Subscription types
+export interface SubscriptionTier {
+  id: string
+  name: string
+  price_monthly_cents: number
+  limits: Record<string, number>
+  is_active: boolean
+  created_at?: string
+}
+
+export interface UserSubscription {
+  id: string
+  user_id: string
+  tier_id: string
+  status: 'active' | 'cancelled'
+  current_period_start?: string
+  current_period_end?: string
+  custom_limits?: Record<string, number> | null
+  created_at?: string
+  updated_at?: string
+}
+
+export interface UsageTracking {
+  id: string
+  user_id: string
+  period_year: number
+  period_month: number
+  discussion_ai_calls: number
+  paper_discovery_searches: number
+  created_at?: string
+  updated_at?: string
+}
+
+export interface LimitExceededError {
+  error: 'limit_exceeded'
+  feature?: string
+  resource?: string
+  current: number
+  limit: number
+  tier: string
+}
+
+export interface SubscriptionState {
+  subscription: UserSubscription | null
+  usage: UsageTracking | null
+  limits: Record<string, number>
+  loading: boolean
 }

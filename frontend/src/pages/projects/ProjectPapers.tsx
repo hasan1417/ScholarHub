@@ -31,7 +31,7 @@ const ProjectPapers = () => {
   const canCreatePaper = currentRole !== 'viewer'
 
   // Get unique categories from papers
-  const availableCategories = useMemo(() => {
+  const _availableCategories = useMemo(() => {
     const categories = new Set<string>()
     allPapers.forEach((paper) => {
       if (paper.paper_type) {

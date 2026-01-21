@@ -1335,3 +1335,27 @@ export const snapshotsAPI = {
   restoreSnapshot: (paperId: string, snapshotId: string) =>
     api.post<SnapshotRestoreResponse>(`/papers/${paperId}/snapshots/${snapshotId}/restore`),
 }
+
+// Subscription API
+import type { SubscriptionTier, UserSubscription, UsageTracking } from '../types'
+
+export const subscriptionAPI = {
+  // Get current user's subscription and usage
+  getMySubscription: () =>
+    api.get<{
+      subscription: UserSubscription | null
+      usage: UsageTracking | null
+      limits: Record<string, number>
+    }>('/subscription/me'),
+
+  // List available tiers
+  listTiers: () =>
+    api.get<{ tiers: SubscriptionTier[] }>('/subscription/tiers'),
+
+  // Admin: change user tier
+  changeTier: (userId: string, tierId: string) =>
+    api.post<{ subscription: UserSubscription }>('/subscription/change-tier', {
+      user_id: userId,
+      tier_id: tierId,
+    }),
+}

@@ -170,7 +170,7 @@ const DiscussionChannelSidebar = ({
               const messageCount = channel.stats?.total_messages ?? 0
               const lastActivity = formatCompactTime(channel.updated_at)
               // Simulate unread for demo (in real app, this would come from API)
-              const hasActivity = messageCount > 0 && !isActive
+              const _hasActivity = messageCount > 0 && !isActive
 
               return (
                 <li key={channel.id}>
