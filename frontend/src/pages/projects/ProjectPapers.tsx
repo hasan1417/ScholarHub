@@ -30,17 +30,6 @@ const ProjectPapers = () => {
   const allPapers = useMemo(() => data?.papers ?? [], [data])
   const canCreatePaper = currentRole !== 'viewer'
 
-  // Get unique categories from papers
-  const _availableCategories = useMemo(() => {
-    const categories = new Set<string>()
-    allPapers.forEach((paper) => {
-      if (paper.paper_type) {
-        categories.add(paper.paper_type.toLowerCase())
-      }
-    })
-    return Array.from(categories)
-  }, [allPapers])
-
   // Filter and sort papers
   const papers = useMemo(() => {
     let filtered = [...allPapers]

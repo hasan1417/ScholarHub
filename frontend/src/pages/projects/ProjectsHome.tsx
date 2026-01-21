@@ -91,12 +91,6 @@ const ProjectsHome = () => {
     } catch {}
   }, [])
 
-  // Save pinned to localStorage
-  const _savePinned = useCallback((ids: string[]) => {
-    setPinnedIds(ids)
-    localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify(ids))
-  }, [])
-
   // Toggle pin
   const togglePin = useCallback((projectId: string) => {
     setPinnedIds((prev) => {

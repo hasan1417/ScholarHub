@@ -38,13 +38,6 @@ const ProjectOverview = () => {
     return project.scope.trim() ? [project.scope.trim()] : []
   }, [project.scope])
 
-  const _formatDateTime = (value?: string | null) => {
-    if (!value) return ''
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return ''
-    return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-  }
-
   const formatRelativeTime = (value?: string | null) => {
     if (!value) return ''
     const date = new Date(value)

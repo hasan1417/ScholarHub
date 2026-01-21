@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { ArrowLeft, Mail, Lock, User, Loader2, CheckCircle, ExternalLink } from 'lucide-react'
 import { Logo } from '../../components/brand/Logo'
@@ -41,7 +41,6 @@ const Register = () => {
   const [registrationSuccess, setRegistrationSuccess] = useState<RegistrationSuccess | null>(null)
 
   const { register } = useAuth()
-  const _navigate = useNavigate()
 
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = event.target

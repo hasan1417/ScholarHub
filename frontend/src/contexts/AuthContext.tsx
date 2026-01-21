@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { authAPI, setupTokenRefreshTimer, subscriptionAPI } from '../services/api'
-import type { SubscriptionState, UserSubscription, UsageTracking } from '../types'
+import type { SubscriptionState } from '../types'
 
 interface User {
   id: string
