@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react'
 import { authAPI, setupTokenRefreshTimer, subscriptionAPI } from '../services/api'
 import type { SubscriptionState } from '../types'
 
@@ -57,6 +57,7 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const authCompletedRef = useRef(false)  // Track if initial auth check completed
   const [subscription, setSubscription] = useState<SubscriptionState>({
     subscription: null,
     usage: null,
@@ -86,10 +87,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   useEffect(() => {
     refreshUser()
 
-    // Safety timeout: if loading takes too long (10 seconds), force logout
+    // Safety timeout: if auth check takes too long (10 seconds), force logout
     // This prevents infinite loading states when auth is broken
     const safetyTimeout = setTimeout(() => {
-      if (isLoading) {
+      // Use ref to check if auth completed (avoids stale closure issue)
+      if (!authCompletedRef.current) {
         console.warn('Auth loading timeout - forcing logout')
         localStorage.removeItem('access_token')
         localStorage.removeItem('user')
@@ -160,15 +162,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setupTokenRefreshTimer()
     } catch (error: any) {
       console.error('Failed to refresh user:', error)
-      
+
       // If token is expired or invalid (401), logout the user
       if (error.response?.status === 401) {
         logout()
         return
       }
-      
+
       // For other errors, keep user logged in (network issues, etc.)
     } finally {
+      authCompletedRef.current = true  // Mark auth check as completed
       setIsLoading(false)
     }
   }
