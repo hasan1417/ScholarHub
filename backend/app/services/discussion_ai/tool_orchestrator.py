@@ -2444,10 +2444,17 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 existing = project.scope or ""
                 existing_list = [o.strip() for o in existing.split("\n") if o.strip()]
                 # Don't add duplicates
+                added_count = 0
                 for new_obj in validated_objectives:
                     if new_obj not in existing_list:
                         existing_list.append(new_obj)
+                        added_count += 1
                 project.scope = "\n".join(existing_list)
+                if added_count > 0:
+                    updated_fields.append(f"objectives (added {added_count})")
+                else:
+                    # All objectives were duplicates
+                    pass
             elif objectives_mode == "remove":
                 # Remove specific objectives
                 existing = project.scope or ""
