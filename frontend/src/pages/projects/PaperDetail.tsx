@@ -5,11 +5,13 @@ import {
   BookOpen,
   Crown,
   Eye,
+  FileText,
   Link2,
   MoreHorizontal,
   Pencil,
   Plus,
   Save,
+  Settings,
   Share2,
   Shield,
   Trash2,
@@ -471,33 +473,47 @@ const PaperDetail: React.FC = () => {
 
           {/* Title row */}
           {isEditing ? (
-            <div className="space-y-3">
+            <div className="rounded-xl border border-indigo-100 bg-indigo-50/30 p-6 dark:border-indigo-500/20 dark:bg-indigo-500/5">
+              <div className="mb-4 flex items-center gap-2 text-sm font-medium text-indigo-600 dark:text-indigo-400">
+                <Pencil className="h-4 w-4" />
+                Editing Paper Details
+              </div>
               <input
                 value={editForm.title || ''}
                 onChange={(e) => setEditForm((prev) => ({ ...prev, title: e.target.value }))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-xl font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                className="mb-5 w-full rounded-lg border border-gray-200 bg-white px-4 py-3 text-xl font-semibold text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                 placeholder="Paper title"
               />
-              <div className="flex flex-wrap items-center gap-4 text-sm">
-                <label className="flex items-center gap-2 text-gray-600 dark:text-slate-300">
-                  <span>Status</span>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div>
+                  <label className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-slate-300">
+                    <div className="flex h-6 w-6 items-center justify-center rounded-md bg-amber-100 dark:bg-amber-500/20">
+                      <Settings className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                    </div>
+                    Status
+                  </label>
                   <select
                     value={editForm.status || paper.status}
                     onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))}
-                    className="rounded-lg border border-gray-300 px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                   >
                     <option value="draft">Draft</option>
                     <option value="in_progress">In Progress</option>
                     <option value="completed">Completed</option>
                     <option value="published">Published</option>
                   </select>
-                </label>
-                <label className="flex items-center gap-2 text-gray-600 dark:text-slate-300">
-                  <span>Type</span>
+                </div>
+                <div>
+                  <label className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-slate-300">
+                    <div className="flex h-6 w-6 items-center justify-center rounded-md bg-blue-100 dark:bg-blue-500/20">
+                      <FileText className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                    </div>
+                    Type
+                  </label>
                   <select
                     value={editForm.paper_type || paper.paper_type}
                     onChange={(e) => setEditForm((prev) => ({ ...prev, paper_type: e.target.value }))}
-                    className="rounded-lg border border-gray-300 px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                   >
                     <option value="research">Research</option>
                     <option value="review">Literature Review</option>
@@ -506,18 +522,23 @@ const PaperDetail: React.FC = () => {
                     <option value="theoretical">Theoretical</option>
                     <option value="experimental">Experimental</option>
                   </select>
-                </label>
-                <label className="flex items-center gap-2 text-gray-600 dark:text-slate-300">
-                  <span>Visibility</span>
+                </div>
+                <div>
+                  <label className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-slate-300">
+                    <div className="flex h-6 w-6 items-center justify-center rounded-md bg-gray-100 dark:bg-slate-700">
+                      <Eye className="h-3.5 w-3.5 text-gray-600 dark:text-slate-400" />
+                    </div>
+                    Visibility
+                  </label>
                   <select
                     value={(editForm.is_public ?? paper.is_public) ? 'true' : 'false'}
                     onChange={(e) => setEditForm((prev) => ({ ...prev, is_public: e.target.value === 'true' }))}
-                    className="rounded-lg border border-gray-300 px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                   >
-                    <option value="true">Public</option>
                     <option value="false">Private</option>
+                    <option value="true">Public</option>
                   </select>
-                </label>
+                </div>
               </div>
             </div>
           ) : (
