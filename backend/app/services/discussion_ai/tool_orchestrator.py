@@ -417,12 +417,18 @@ CRITICAL RULES:
     This ensures your paper is based on actual paper content, not just abstracts!
 13. PROJECT OBJECTIVES: Each objective should be concise (max ~150 chars). Use update_project_info with:
     - objectives_mode="append" to ADD new objectives to existing ones
-    - objectives_mode="replace" to REPLACE all objectives with new ones
-    - objectives_mode="remove" to REMOVE specific objectives (by text match or index like "1", "objective 2")
-    Examples:
-    - Add: update_project_info(objectives=["Analyze ML performance"], objectives_mode="append")
-    - Remove: update_project_info(objectives=["1", "objective 3"], objectives_mode="remove")
-    - Replace all: update_project_info(objectives=["New obj 1", "New obj 2"], objectives_mode="replace")
+    - objectives_mode="remove" to REMOVE specific objectives (by index like "1", "2" or text match)
+    - objectives_mode="replace" to REPLACE all objectives (use for COMPLEX edits!)
+
+    **COMPLEX EDITS** (remove some + reword some + add new): Use "replace" mode!
+    1. Look at current objectives in the Project Overview above
+    2. Apply ALL changes (removals, rewordings, additions) to create the final list
+    3. Call update_project_info(objectives=[...final list...], objectives_mode="replace")
+
+    Example: User says "remove first two, reword third, add 2 more"
+    Current: ["Obj A", "Obj B", "Obj C", "Obj D"]
+    → Final: ["Reworded Obj C", "Obj D", "New Obj 1", "New Obj 2"]
+    → Call: update_project_info(objectives=["Reworded Obj C", "Obj D", "New Obj 1", "New Obj 2"], objectives_mode="replace")
 
 **WHEN USER CONFIRMS TOPICS OR REQUESTS A SEARCH:**
 - You MUST call the search_papers or batch_search_papers tool!
