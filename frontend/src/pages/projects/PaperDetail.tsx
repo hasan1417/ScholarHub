@@ -11,10 +11,8 @@ import {
   Plus,
   Save,
   Settings,
-  Shield,
   Trash2,
   Unlink,
-  Users,
   X,
 } from 'lucide-react'
 
@@ -38,20 +36,9 @@ import {
 import ConfirmationModal from '../../components/common/ConfirmationModal'
 import AttachProjectReferenceModal from '../../components/projects/AttachProjectReferenceModal'
 import TeamInviteModal from '../../components/team/TeamInviteModal'
+import TeamMembersList from '../../components/team/TeamMembersList'
 import { useAuth } from '../../contexts/AuthContext'
 import { useProjectContext } from './ProjectLayout'
-
-interface PaperTeamMember {
-  id: string
-  user_id: string
-  email: string
-  first_name?: string
-  last_name?: string
-  role: string
-  status: string
-  joined_at?: string
-  is_owner: boolean
-}
 
 const PaperDetail: React.FC = () => {
   const { projectId, paperId } = useParams<{ projectId?: string; paperId: string }>()
@@ -69,8 +56,7 @@ const PaperDetail: React.FC = () => {
   const [showAttachModal, setShowAttachModal] = useState(false)
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false)
   const [showInviteModal, setShowInviteModal] = useState(false)
-  const [paperTeamMembers, setPaperTeamMembers] = useState<PaperTeamMember[]>([])
-  const [isLoadingTeam, setIsLoadingTeam] = useState(false)
+  const [teamRefreshKey, setTeamRefreshKey] = useState(0)
 
   const projectMembers = project?.members ?? []
   const currentUserId = user?.id
@@ -150,34 +136,12 @@ const PaperDetail: React.FC = () => {
     }
   }, [isEditing])
 
-  // Load paper team members
-  useEffect(() => {
-    if (!paperId) return
-    const loadTeamMembers = async () => {
-      setIsLoadingTeam(true)
-      try {
-        const response = await teamAPI.getTeamMembers(paperId)
-        const data = response.data
-        const members = Array.isArray(data) ? data : (data as any)?.members ?? []
-        setPaperTeamMembers(members)
-      } catch (err) {
-        console.error('Error loading paper team members:', err)
-        setPaperTeamMembers([])
-      } finally {
-        setIsLoadingTeam(false)
-      }
-    }
-    loadTeamMembers()
-  }, [paperId])
 
   const handleInvite = async (email: string, role: string) => {
     if (!paperId) return
     await teamAPI.inviteTeamMember(paperId, email, role)
-    // Refresh team members after invite
-    const response = await teamAPI.getTeamMembers(paperId)
-    const data = response.data
-    const members = Array.isArray(data) ? data : (data as any)?.members ?? []
-    setPaperTeamMembers(members)
+    // Trigger refresh of TeamMembersList
+    setTeamRefreshKey((k) => k + 1)
   }
 
   const loadPaperData = async () => {
@@ -778,95 +742,11 @@ const PaperDetail: React.FC = () => {
           </div>
 
           <div className="space-y-6">
-            <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800/60">
-              <div className="mb-4 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Users className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
-                  <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Team</h2>
-                </div>
-                {canEditPaper && (
-                  <button
-                    onClick={() => setShowInviteModal(true)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-600 transition-colors hover:bg-indigo-100 dark:border-indigo-400/40 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    Invite
-                  </button>
-                )}
-              </div>
-              {isLoadingTeam ? (
-                <div className="animate-pulse space-y-2">
-                  <div className="h-14 rounded-xl bg-gray-100 dark:bg-slate-700" />
-                </div>
-              ) : paperTeamMembers.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-center dark:border-slate-700 dark:bg-slate-800/40">
-                  <p className="text-sm text-gray-500 dark:text-slate-400">No team members yet</p>
-                </div>
-              ) : (
-                <ul className="space-y-2">
-                  {paperTeamMembers.map((member) => {
-                    const displayName = member.first_name && member.last_name
-                      ? `${member.first_name} ${member.last_name}`
-                      : member.email
-                    const initial = displayName[0]?.toUpperCase() || '?'
-                    const isCurrentUser = member.user_id === currentUserId
-                    const normalizedRole = (member.role || 'viewer').toLowerCase()
-
-                    const getRoleBadgeClasses = () => {
-                      switch (normalizedRole) {
-                        case 'admin':
-                          return 'bg-purple-50 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300'
-                        case 'editor':
-                          return 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
-                        default:
-                          return 'bg-gray-100 text-gray-700 dark:bg-slate-600/30 dark:text-slate-300'
-                      }
-                    }
-
-                    const getRoleIcon = () => {
-                      switch (normalizedRole) {
-                        case 'admin':
-                          return <Shield className="h-3.5 w-3.5" />
-                        case 'editor':
-                          return <Pencil className="h-3.5 w-3.5" />
-                        default:
-                          return <Eye className="h-3.5 w-3.5" />
-                      }
-                    }
-
-                    return (
-                      <li key={member.id} className="flex items-center gap-3 rounded-xl border border-gray-100 bg-gray-50/50 px-3 py-2.5 transition-colors dark:border-slate-700 dark:bg-slate-800/40">
-                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-semibold text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
-                          {initial}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="flex items-center gap-2 truncate text-sm font-medium text-gray-900 dark:text-slate-100">
-                            <span className="truncate">{displayName}</span>
-                            {isCurrentUser && (
-                              <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
-                                You
-                              </span>
-                            )}
-                            {member.status === 'invited' && (
-                              <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-600 dark:bg-amber-500/20 dark:text-amber-300">
-                                Pending
-                              </span>
-                            )}
-                          </p>
-                          <p className="truncate text-xs text-gray-500 dark:text-slate-400">{member.email}</p>
-                        </div>
-                        <div className="flex-shrink-0">
-                          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium capitalize ${getRoleBadgeClasses()}`}>
-                            {getRoleIcon()}
-                            {normalizedRole}
-                          </span>
-                        </div>
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
-            </section>
+            <TeamMembersList
+                paperId={paperId}
+                onInviteMember={canEditPaper ? () => setShowInviteModal(true) : undefined}
+                refreshKey={teamRefreshKey}
+              />
 
             <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800/60">
               <div className="mb-3 flex items-center justify-between">
