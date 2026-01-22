@@ -359,7 +359,7 @@ const PaperDetail: React.FC = () => {
           {/* Top row: Back link + Actions */}
           <div className="mb-4 flex items-center justify-between">
             <Link
-              to={resolveProjectPath()}
+              to={resolveProjectPath('/papers')}
               className="inline-flex items-center gap-2 text-sm text-gray-500 transition-colors hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200"
             >
               <ArrowLeft className="h-4 w-4" />
