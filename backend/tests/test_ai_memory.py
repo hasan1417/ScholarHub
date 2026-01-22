@@ -773,13 +773,316 @@ class TestUpdateMemoryReturnValue:
 
 
 # ============================================================
+# Phase 3 Tests
+# ============================================================
+
+class TestResearchStateTracking:
+    """Test research state detection and tracking."""
+
+    def test_detect_research_stage_exploring(self):
+        """Test detecting exploring stage."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        db = MockDB()
+        ai_service = MockAIService()
+        orchestrator = ToolOrchestrator(ai_service, db)
+
+        stage, confidence = orchestrator.detect_research_stage(
+            "What should I research for my thesis? I need ideas for a topic.",
+            "I can help you explore several research areas...",
+            "exploring"
+        )
+
+        assert stage == "exploring"
+        assert confidence >= 0.5
+
+        print("✓ test_detect_research_stage_exploring passed")
+
+    def test_detect_research_stage_finding_papers(self):
+        """Test detecting finding_papers stage."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        db = MockDB()
+        ai_service = MockAIService()
+        orchestrator = ToolOrchestrator(ai_service, db)
+
+        stage, confidence = orchestrator.detect_research_stage(
+            "Can you find papers about neural network optimization?",
+            "I found several recent papers on neural network optimization...",
+            "exploring"
+        )
+
+        assert stage == "finding_papers"
+
+        print("✓ test_detect_research_stage_finding_papers passed")
+
+    def test_detect_research_stage_writing(self):
+        """Test detecting writing stage."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        db = MockDB()
+        ai_service = MockAIService()
+        orchestrator = ToolOrchestrator(ai_service, db)
+
+        stage, confidence = orchestrator.detect_research_stage(
+            "Help me write the introduction section for my literature review.",
+            "Here's a draft introduction for your literature review...",
+            "analyzing"
+        )
+
+        assert stage == "writing"
+
+        print("✓ test_detect_research_stage_writing passed")
+
+    def test_update_research_state(self):
+        """Test updating research state."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        db = MockDB()
+        ai_service = MockAIService()
+        orchestrator = ToolOrchestrator(ai_service, db)
+
+        channel = MockChannel()
+        channel.ai_memory = {
+            "research_state": {
+                "stage": "exploring",
+                "stage_confidence": 0.5,
+                "stage_history": [],
+            }
+        }
+
+        state = orchestrator.update_research_state(
+            channel,
+            "Find papers about transformers",
+            "Here are some papers about transformers..."
+        )
+
+        assert "stage" in state
+        assert "stage_confidence" in state
+        assert isinstance(state["stage_history"], list)
+
+        print("✓ test_update_research_state passed")
+
+
+class TestLongTermMemory:
+    """Test long-term memory functionality."""
+
+    def test_update_long_term_memory_preferences(self):
+        """Test extracting user preferences."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        db = MockDB()
+        ai_service = MockAIService()
+        orchestrator = ToolOrchestrator(ai_service, db)
+
+        channel = MockChannel()
+        channel.ai_memory = {
+            "long_term": {
+                "user_preferences": [],
+                "rejected_approaches": [],
+                "successful_searches": [],
+            }
+        }
+
+        orchestrator.update_long_term_memory(
+            channel,
+            "I prefer using recent papers from the last 5 years.",
+            "I'll focus on papers from 2021 onwards..."
+        )
+
+        prefs = channel.ai_memory["long_term"]["user_preferences"]
+        assert len(prefs) >= 1
+        assert any("prefer" in p.lower() for p in prefs)
+
+        print("✓ test_update_long_term_memory_preferences passed")
+
+    def test_update_long_term_memory_rejections(self):
+        """Test extracting rejected approaches."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        db = MockDB()
+        ai_service = MockAIService()
+        orchestrator = ToolOrchestrator(ai_service, db)
+
+        channel = MockChannel()
+        channel.ai_memory = {
+            "long_term": {
+                "user_preferences": [],
+                "rejected_approaches": [],
+                "successful_searches": [],
+            }
+        }
+
+        orchestrator.update_long_term_memory(
+            channel,
+            "I don't want to use traditional machine learning methods.",
+            "Understood, I'll focus on deep learning approaches..."
+        )
+
+        rejections = channel.ai_memory["long_term"]["rejected_approaches"]
+        assert len(rejections) >= 1
+
+        print("✓ test_update_long_term_memory_rejections passed")
+
+    def test_memory_defaults_include_long_term(self):
+        """Test that default memory includes long-term structure."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        db = MockDB()
+        ai_service = MockAIService()
+        orchestrator = ToolOrchestrator(ai_service, db)
+
+        channel = MockChannel()
+        channel.ai_memory = None
+
+        memory = orchestrator._get_ai_memory(channel)
+
+        assert "long_term" in memory
+        assert "user_preferences" in memory["long_term"]
+        assert "rejected_approaches" in memory["long_term"]
+
+        print("✓ test_memory_defaults_include_long_term passed")
+
+
+class TestQuestionTracking:
+    """Test unanswered question tracking."""
+
+    def test_track_unanswered_question(self):
+        """Test tracking questions AI couldn't answer."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        db = MockDB()
+        ai_service = MockAIService()
+        orchestrator = ToolOrchestrator(ai_service, db)
+
+        channel = MockChannel()
+        channel.ai_memory = {
+            "facts": {
+                "unanswered_questions": []
+            }
+        }
+
+        orchestrator.track_unanswered_question(
+            channel,
+            "What is the exact implementation of the XYZ algorithm?",
+            "I don't have access to the specific implementation details. You might need to check the original paper."
+        )
+
+        unanswered = channel.ai_memory["facts"]["unanswered_questions"]
+        assert len(unanswered) >= 1
+
+        print("✓ test_track_unanswered_question passed")
+
+    def test_resolve_unanswered_question(self):
+        """Test resolving a previously unanswered question."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        db = MockDB()
+        ai_service = MockAIService()
+        orchestrator = ToolOrchestrator(ai_service, db)
+
+        channel = MockChannel()
+        channel.ai_memory = {
+            "facts": {
+                "unanswered_questions": ["What is the XYZ algorithm?"]
+            }
+        }
+
+        orchestrator.resolve_unanswered_question(channel, "XYZ algorithm")
+
+        unanswered = channel.ai_memory["facts"]["unanswered_questions"]
+        assert len(unanswered) == 0
+
+        print("✓ test_resolve_unanswered_question passed")
+
+    def test_memory_defaults_include_unanswered_questions(self):
+        """Test that default memory includes unanswered questions."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        db = MockDB()
+        ai_service = MockAIService()
+        orchestrator = ToolOrchestrator(ai_service, db)
+
+        channel = MockChannel()
+        channel.ai_memory = None
+
+        memory = orchestrator._get_ai_memory(channel)
+
+        assert "unanswered_questions" in memory["facts"]
+
+        print("✓ test_memory_defaults_include_unanswered_questions passed")
+
+
+class TestSessionReturn:
+    """Test welcome-back context generation."""
+
+    def test_get_session_context_for_return(self):
+        """Test generating context for returning user."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        db = MockDB()
+        ai_service = MockAIService()
+        orchestrator = ToolOrchestrator(ai_service, db)
+
+        channel = MockChannel()
+        channel.ai_memory = {
+            "research_state": {
+                "stage": "finding_papers",
+                "stage_confidence": 0.8,
+                "stage_history": [],
+            },
+            "facts": {
+                "research_topic": "Neural network optimization",
+                "decisions_made": ["Focus on Adam optimizer variants"],
+                "pending_questions": ["Which learning rate schedule?"],
+                "unanswered_questions": [],
+                "papers_discussed": [],
+                "methodology_notes": [],
+            },
+            "long_term": {
+                "user_preferences": ["I prefer recent papers"],
+                "rejected_approaches": [],
+                "successful_searches": [],
+            },
+            "key_quotes": [],
+        }
+
+        context = orchestrator.get_session_context_for_return(channel)
+
+        assert "Welcome Back" in context
+        assert "finding_papers" in context.lower() or "searching" in context.lower()
+        assert "Neural network optimization" in context
+        assert "Adam optimizer" in context
+
+        print("✓ test_get_session_context_for_return passed")
+
+
+class TestResearchStages:
+    """Test research stage constants."""
+
+    def test_research_stages_defined(self):
+        """Test that research stages are defined."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        stages = ToolOrchestrator.RESEARCH_STAGES
+
+        assert "exploring" in stages
+        assert "refining" in stages
+        assert "finding_papers" in stages
+        assert "analyzing" in stages
+        assert "writing" in stages
+
+        print("✓ test_research_stages_defined passed")
+
+
+# ============================================================
 # Run Tests
 # ============================================================
 
 def run_all_tests():
     """Run all tests and report results."""
     print("\n" + "=" * 60)
-    print("AI Memory System - Phase 1 & 2 Tests")
+    print("AI Memory System - Phase 1, 2 & 3 Tests")
     print("=" * 60 + "\n")
 
     test_classes = [
@@ -796,6 +1099,12 @@ def run_all_tests():
         TestRateLimiting,
         TestContradictionDetection,
         TestUpdateMemoryReturnValue,
+        # Phase 3
+        TestResearchStateTracking,
+        TestLongTermMemory,
+        TestQuestionTracking,
+        TestSessionReturn,
+        TestResearchStages,
     ]
 
     passed = 0

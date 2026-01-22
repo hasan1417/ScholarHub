@@ -2636,10 +2636,35 @@ Respond ONLY with valid JSON, no markdown or explanation."""
     }
     SLIDING_WINDOW_SIZE = 20  # Number of recent messages to keep in full
 
+    # Research stages for state tracking
+    RESEARCH_STAGES = [
+        "exploring",      # Initial exploration, broad questions
+        "refining",       # Narrowing down scope, comparing options
+        "finding_papers", # Actively searching for literature
+        "analyzing",      # Deep dive into specific papers/methods
+        "writing",        # Drafting, synthesizing findings
+    ]
+
     def _get_ai_memory(self, channel: "ProjectDiscussionChannel") -> Dict[str, Any]:
         """Get AI memory from channel, with defaults."""
         if channel.ai_memory:
-            return channel.ai_memory
+            # Ensure new fields exist in old memory structures
+            memory = channel.ai_memory
+            if "research_state" not in memory:
+                memory["research_state"] = {
+                    "stage": "exploring",
+                    "stage_confidence": 0.5,
+                    "stage_history": [],
+                }
+            if "long_term" not in memory:
+                memory["long_term"] = {
+                    "user_preferences": [],
+                    "rejected_approaches": [],
+                    "successful_searches": [],
+                }
+            if "unanswered_questions" not in memory.get("facts", {}):
+                memory.setdefault("facts", {})["unanswered_questions"] = []
+            return memory
         return {
             "summary": None,
             "facts": {
@@ -2647,7 +2672,18 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 "papers_discussed": [],
                 "decisions_made": [],
                 "pending_questions": [],
+                "unanswered_questions": [],  # Questions AI couldn't answer
                 "methodology_notes": [],
+            },
+            "research_state": {
+                "stage": "exploring",           # Current research stage
+                "stage_confidence": 0.5,        # How confident we are (0-1)
+                "stage_history": [],            # Track stage transitions
+            },
+            "long_term": {
+                "user_preferences": [],         # Learned preferences (e.g., "prefers recent papers")
+                "rejected_approaches": [],      # Approaches user explicitly rejected
+                "successful_searches": [],      # Search queries that yielded good results
             },
             "key_quotes": [],
             "last_summarized_exchange_id": None,
@@ -2901,33 +2937,57 @@ Return ONLY valid JSON, no explanation:"""
         # Save updated memory
         self._save_ai_memory(channel, memory)
 
+        # Phase 3: Update research state and long-term memory (lightweight, do always)
+        try:
+            self.update_research_state(channel, user_message, ai_response)
+            self.track_unanswered_question(channel, user_message, ai_response)
+            self.update_long_term_memory(channel, user_message, ai_response)
+        except Exception as e:
+            logger.error(f"Failed to update Phase 3 memory: {e}")
+
         return contradiction_warning
 
     def _build_memory_context(self, channel: "ProjectDiscussionChannel") -> str:
-        """Build context string from AI memory for inclusion in system prompt."""
+        """
+        Build context string from AI memory for inclusion in system prompt.
+        Includes all three memory tiers: working, session, and long-term.
+        """
         memory = self._get_ai_memory(channel)
         lines = []
 
-        # Add session summary if exists
+        # Tier 2: Session summary
         if memory.get("summary"):
             lines.append("## Previous Conversation Summary")
             lines.append(memory["summary"])
             lines.append("")
 
-        # Add research facts
+        # Tier 3: Research state (Phase 3)
+        research_state = memory.get("research_state", {})
+        stage = research_state.get("stage", "exploring")
+        if stage != "exploring" or research_state.get("stage_confidence", 0) > 0.6:
+            stage_desc = {
+                "exploring": "Initial exploration",
+                "refining": "Refining scope",
+                "finding_papers": "Literature search",
+                "analyzing": "Deep analysis",
+                "writing": "Writing phase",
+            }
+            lines.append(f"**Research Phase:** {stage_desc.get(stage, stage)}")
+
+        # Research facts
         facts = memory.get("facts", {})
         if facts.get("research_topic"):
             lines.append(f"**Research Focus:** {facts['research_topic']}")
 
         if facts.get("papers_discussed"):
             lines.append("**Papers Discussed:**")
-            for p in facts["papers_discussed"][-5:]:  # Last 5 papers
+            for p in facts["papers_discussed"][-5:]:
                 reaction = f" ({p.get('user_reaction', '')})" if p.get('user_reaction') else ""
                 lines.append(f"- {p.get('title', 'Unknown')} by {p.get('author', 'Unknown')}{reaction}")
 
         if facts.get("decisions_made"):
             lines.append("**Decisions Made:**")
-            for d in facts["decisions_made"][-5:]:  # Last 5 decisions
+            for d in facts["decisions_made"][-5:]:
                 lines.append(f"- {d}")
 
         if facts.get("pending_questions"):
@@ -2935,7 +2995,25 @@ Return ONLY valid JSON, no explanation:"""
             for q in facts["pending_questions"]:
                 lines.append(f"- {q}")
 
-        # Add key quotes
+        # Tier 3: Unanswered questions (Phase 3)
+        if facts.get("unanswered_questions"):
+            lines.append("**Previously Unanswered Questions:**")
+            for q in facts["unanswered_questions"]:
+                lines.append(f"- {q}")
+
+        # Tier 3: Long-term memory (Phase 3)
+        long_term = memory.get("long_term", {})
+        if long_term.get("user_preferences"):
+            lines.append("**User Preferences:**")
+            for p in long_term["user_preferences"][-3:]:
+                lines.append(f"- {p}")
+
+        if long_term.get("rejected_approaches"):
+            lines.append("**Rejected Approaches (avoid suggesting):**")
+            for r in long_term["rejected_approaches"][-3:]:
+                lines.append(f"- {r}")
+
+        # Key quotes
         if memory.get("key_quotes"):
             lines.append("**Key User Statements:**")
             for q in memory["key_quotes"]:
@@ -3150,3 +3228,388 @@ Response:"""
         memory = self._get_ai_memory(channel)
         memory["_exchanges_since_fact_update"] = 0
         self._save_ai_memory(channel, memory)
+
+    # =========================================================================
+    # Phase 3: Research State Tracking & Long-Term Memory
+    # =========================================================================
+
+    def detect_research_stage(
+        self,
+        user_message: str,
+        ai_response: str,
+        current_stage: str,
+    ) -> tuple[str, float]:
+        """
+        Detect the user's current research stage based on conversation.
+        Returns (stage, confidence) tuple.
+
+        Stages:
+        - exploring: Broad questions, "what should I research?"
+        - refining: Narrowing scope, comparing approaches
+        - finding_papers: Actively searching literature
+        - analyzing: Deep dive into specific papers/methods
+        - writing: Drafting, synthesizing, asking about citations
+        """
+        # Heuristic detection based on message patterns
+        message_lower = user_message.lower()
+        response_lower = ai_response.lower()
+
+        # Stage indicators (patterns that suggest each stage)
+        stage_indicators = {
+            "exploring": [
+                "what should i", "where do i start", "research topic",
+                "ideas for", "suggest a topic", "broad overview",
+                "what are the main", "introduce me to",
+            ],
+            "refining": [
+                "narrow down", "focus on", "compare", "which approach",
+                "between these", "pros and cons", "should i choose",
+                "more specific", "scope", "limit to",
+            ],
+            "finding_papers": [
+                "find papers", "search for", "literature on",
+                "recent papers", "seminal work", "key papers",
+                "who wrote about", "publications on", "references for",
+            ],
+            "analyzing": [
+                "explain this paper", "methodology in", "how does this work",
+                "implement", "replicate", "details of", "dive deeper",
+                "understand the", "specific technique",
+            ],
+            "writing": [
+                "write", "draft", "summarize for", "citation",
+                "how to cite", "literature review", "introduction section",
+                "conclusion", "abstract", "thesis statement",
+            ],
+        }
+
+        # Count matches for each stage
+        stage_scores = {}
+        for stage, patterns in stage_indicators.items():
+            score = sum(1 for p in patterns if p in message_lower or p in response_lower)
+            stage_scores[stage] = score
+
+        # Find best matching stage
+        best_stage = max(stage_scores, key=stage_scores.get)
+        best_score = stage_scores[best_stage]
+
+        # Calculate confidence based on score and whether it matches current
+        if best_score == 0:
+            # No clear indicators, stay at current stage
+            return current_stage, 0.5
+
+        confidence = min(0.9, 0.5 + (best_score * 0.1))
+
+        # Add inertia - prefer to stay in current stage unless strong signal
+        if best_stage != current_stage and best_score < 2:
+            return current_stage, 0.6
+
+        return best_stage, confidence
+
+    def update_research_state(
+        self,
+        channel: "ProjectDiscussionChannel",
+        user_message: str,
+        ai_response: str,
+    ) -> Dict[str, Any]:
+        """
+        Update research state based on current exchange.
+        Returns the updated research state.
+        """
+        from datetime import datetime, timezone
+
+        memory = self._get_ai_memory(channel)
+        research_state = memory.get("research_state", {
+            "stage": "exploring",
+            "stage_confidence": 0.5,
+            "stage_history": [],
+        })
+
+        current_stage = research_state.get("stage", "exploring")
+        new_stage, confidence = self.detect_research_stage(
+            user_message, ai_response, current_stage
+        )
+
+        # Record stage transition if changed
+        if new_stage != current_stage:
+            research_state["stage_history"].append({
+                "from": current_stage,
+                "to": new_stage,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "confidence": confidence,
+            })
+            # Keep only last 10 transitions
+            research_state["stage_history"] = research_state["stage_history"][-10:]
+
+        research_state["stage"] = new_stage
+        research_state["stage_confidence"] = confidence
+
+        memory["research_state"] = research_state
+        self._save_ai_memory(channel, memory)
+
+        return research_state
+
+    def track_unanswered_question(
+        self,
+        channel: "ProjectDiscussionChannel",
+        user_message: str,
+        ai_response: str,
+    ) -> None:
+        """
+        Track questions the AI couldn't fully answer for follow-up.
+        """
+        # Detect if AI indicated it couldn't answer
+        uncertainty_phrases = [
+            "i don't have access to",
+            "i cannot find",
+            "i'm not sure",
+            "i don't know",
+            "couldn't find information",
+            "no results found",
+            "unable to locate",
+            "you might need to",
+            "i recommend checking",
+        ]
+
+        response_lower = ai_response.lower()
+        is_uncertain = any(phrase in response_lower for phrase in uncertainty_phrases)
+
+        if not is_uncertain:
+            return
+
+        # Extract the question from user message
+        memory = self._get_ai_memory(channel)
+        facts = memory.get("facts", {})
+        unanswered = facts.get("unanswered_questions", [])
+
+        # Simple question extraction (first sentence or whole message if short)
+        question = user_message.strip()
+        if len(question) > 200:
+            question = question[:200] + "..."
+
+        # Avoid duplicates
+        if question not in unanswered:
+            unanswered.append(question)
+            # Keep only last 5 unanswered questions
+            facts["unanswered_questions"] = unanswered[-5:]
+            memory["facts"] = facts
+            self._save_ai_memory(channel, memory)
+
+    def resolve_unanswered_question(
+        self,
+        channel: "ProjectDiscussionChannel",
+        resolved_question: str,
+    ) -> None:
+        """
+        Remove a question from unanswered list when resolved.
+        """
+        memory = self._get_ai_memory(channel)
+        facts = memory.get("facts", {})
+        unanswered = facts.get("unanswered_questions", [])
+
+        # Remove if found (fuzzy match)
+        resolved_lower = resolved_question.lower()
+        facts["unanswered_questions"] = [
+            q for q in unanswered
+            if resolved_lower not in q.lower()
+        ]
+        memory["facts"] = facts
+        self._save_ai_memory(channel, memory)
+
+    def update_long_term_memory(
+        self,
+        channel: "ProjectDiscussionChannel",
+        user_message: str,
+        ai_response: str,
+    ) -> None:
+        """
+        Update long-term memory with persistent learnings.
+        Extracts user preferences and rejected approaches.
+        """
+        memory = self._get_ai_memory(channel)
+        long_term = memory.get("long_term", {
+            "user_preferences": [],
+            "rejected_approaches": [],
+            "successful_searches": [],
+        })
+
+        message_lower = user_message.lower()
+
+        # Detect preferences (patterns like "I prefer", "I like", "always use")
+        preference_patterns = [
+            ("i prefer", "prefers"),
+            ("i like", "likes"),
+            ("i always", "always"),
+            ("i usually", "usually"),
+            ("my preference is", "prefers"),
+        ]
+
+        for pattern, label in preference_patterns:
+            if pattern in message_lower:
+                # Extract the preference statement
+                idx = message_lower.find(pattern)
+                end_idx = message_lower.find(".", idx)
+                if end_idx == -1:
+                    end_idx = min(idx + 100, len(user_message))
+                pref = user_message[idx:end_idx].strip()
+                if pref and pref not in long_term["user_preferences"]:
+                    long_term["user_preferences"].append(pref)
+                    # Keep last 10 preferences
+                    long_term["user_preferences"] = long_term["user_preferences"][-10:]
+                break
+
+        # Detect rejected approaches
+        rejection_patterns = [
+            "i don't want", "not interested in", "avoid", "don't like",
+            "rejected", "ruled out", "won't work", "not suitable",
+        ]
+
+        for pattern in rejection_patterns:
+            if pattern in message_lower:
+                idx = message_lower.find(pattern)
+                end_idx = message_lower.find(".", idx)
+                if end_idx == -1:
+                    end_idx = min(idx + 100, len(user_message))
+                rejection = user_message[idx:end_idx].strip()
+                if rejection and rejection not in long_term["rejected_approaches"]:
+                    long_term["rejected_approaches"].append(rejection)
+                    long_term["rejected_approaches"] = long_term["rejected_approaches"][-10:]
+                break
+
+        memory["long_term"] = long_term
+        self._save_ai_memory(channel, memory)
+
+    def get_session_context_for_return(
+        self,
+        channel: "ProjectDiscussionChannel",
+    ) -> str:
+        """
+        Generate a context summary for when user returns to a session.
+        Useful for "welcome back" scenarios.
+        """
+        memory = self._get_ai_memory(channel)
+
+        lines = []
+        lines.append("## Session Context (Welcome Back)")
+
+        # Research state
+        research_state = memory.get("research_state", {})
+        stage = research_state.get("stage", "exploring")
+        stage_labels = {
+            "exploring": "exploring research topics",
+            "refining": "refining your research scope",
+            "finding_papers": "searching for relevant literature",
+            "analyzing": "analyzing specific papers/methods",
+            "writing": "working on your writing",
+        }
+        lines.append(f"\n**Current Stage:** You were {stage_labels.get(stage, stage)}.")
+
+        # Research topic
+        facts = memory.get("facts", {})
+        if facts.get("research_topic"):
+            lines.append(f"**Research Topic:** {facts['research_topic']}")
+
+        # Recent decisions
+        decisions = facts.get("decisions_made", [])
+        if decisions:
+            lines.append("\n**Recent Decisions:**")
+            for d in decisions[-3:]:
+                lines.append(f"- {d}")
+
+        # Pending questions
+        pending = facts.get("pending_questions", [])
+        if pending:
+            lines.append("\n**Open Questions:**")
+            for q in pending:
+                lines.append(f"- {q}")
+
+        # Unanswered questions
+        unanswered = facts.get("unanswered_questions", [])
+        if unanswered:
+            lines.append("\n**Questions I Couldn't Answer Previously:**")
+            for q in unanswered:
+                lines.append(f"- {q}")
+
+        # User preferences
+        long_term = memory.get("long_term", {})
+        prefs = long_term.get("user_preferences", [])
+        if prefs:
+            lines.append("\n**Your Preferences:**")
+            for p in prefs[-3:]:
+                lines.append(f"- {p}")
+
+        return "\n".join(lines) if len(lines) > 1 else ""
+
+    def build_full_memory_context(
+        self,
+        channel: "ProjectDiscussionChannel",
+        include_welcome_back: bool = False,
+    ) -> str:
+        """
+        Build complete memory context including all three tiers:
+        1. Working memory (handled in _build_messages)
+        2. Session summary
+        3. Long-term memory (research state, preferences, etc.)
+        """
+        memory = self._get_ai_memory(channel)
+        lines = []
+
+        # Session summary (Tier 2)
+        if memory.get("summary"):
+            lines.append("## Conversation Summary")
+            lines.append(memory["summary"])
+            lines.append("")
+
+        # Research state
+        research_state = memory.get("research_state", {})
+        stage = research_state.get("stage", "exploring")
+        if stage != "exploring" or research_state.get("stage_confidence", 0) > 0.6:
+            stage_desc = {
+                "exploring": "Initial exploration phase",
+                "refining": "Refining research scope",
+                "finding_papers": "Literature search phase",
+                "analyzing": "Deep analysis phase",
+                "writing": "Writing/synthesis phase",
+            }
+            lines.append(f"**Research Phase:** {stage_desc.get(stage, stage)}")
+
+        # Research facts
+        facts = memory.get("facts", {})
+        if facts.get("research_topic"):
+            lines.append(f"**Research Focus:** {facts['research_topic']}")
+
+        if facts.get("papers_discussed"):
+            lines.append("**Papers Discussed:**")
+            for p in facts["papers_discussed"][-5:]:
+                reaction = f" ({p.get('user_reaction', '')})" if p.get('user_reaction') else ""
+                lines.append(f"- {p.get('title', 'Unknown')} by {p.get('author', 'Unknown')}{reaction}")
+
+        if facts.get("decisions_made"):
+            lines.append("**Decisions Made:**")
+            for d in facts["decisions_made"][-5:]:
+                lines.append(f"- {d}")
+
+        if facts.get("pending_questions"):
+            lines.append("**Open Questions:**")
+            for q in facts["pending_questions"]:
+                lines.append(f"- {q}")
+
+        # Long-term memory
+        long_term = memory.get("long_term", {})
+        if long_term.get("user_preferences"):
+            lines.append("**User Preferences:**")
+            for p in long_term["user_preferences"][-3:]:
+                lines.append(f"- {p}")
+
+        if long_term.get("rejected_approaches"):
+            lines.append("**Rejected Approaches:**")
+            for r in long_term["rejected_approaches"][-3:]:
+                lines.append(f"- {r}")
+
+        # Key quotes
+        if memory.get("key_quotes"):
+            lines.append("**Key User Statements:**")
+            for q in memory["key_quotes"]:
+                lines.append(f'- "{q}"')
+
+        return "\n".join(lines) if lines else ""
