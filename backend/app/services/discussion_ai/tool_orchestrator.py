@@ -160,8 +160,8 @@ DISCUSSION_TOOLS = [
                     },
                     "objectives_mode": {
                         "type": "string",
-                        "enum": ["replace", "append"],
-                        "description": "'replace' = replace all existing objectives with new ones. 'append' = add new objectives to existing ones. Default is 'replace'.",
+                        "enum": ["replace", "append", "remove"],
+                        "description": "'replace' = replace all objectives. 'append' = add new objectives. 'remove' = remove specific objectives (match by text or index like 'objective 1', 'objective 2'). Default is 'replace'.",
                         "default": "replace"
                     }
                 }
@@ -418,7 +418,11 @@ CRITICAL RULES:
 13. PROJECT OBJECTIVES: Each objective should be concise (max ~150 chars). Use update_project_info with:
     - objectives_mode="append" to ADD new objectives to existing ones
     - objectives_mode="replace" to REPLACE all objectives with new ones
-    Example: update_project_info(objectives=["Analyze ML performance", "Compare datasets"], objectives_mode="append")
+    - objectives_mode="remove" to REMOVE specific objectives (by text match or index like "1", "objective 2")
+    Examples:
+    - Add: update_project_info(objectives=["Analyze ML performance"], objectives_mode="append")
+    - Remove: update_project_info(objectives=["1", "objective 3"], objectives_mode="remove")
+    - Replace all: update_project_info(objectives=["New obj 1", "New obj 2"], objectives_mode="replace")
 
 **WHEN USER CONFIRMS TOPICS OR REQUESTS A SEARCH:**
 - You MUST call the search_papers or batch_search_papers tool!
@@ -2438,11 +2442,51 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                     if new_obj not in existing_list:
                         existing_list.append(new_obj)
                 project.scope = "\n".join(existing_list)
+            elif objectives_mode == "remove":
+                # Remove specific objectives
+                existing = project.scope or ""
+                existing_list = [o.strip() for o in existing.split("\n") if o.strip()]
+                removed = []
+
+                for to_remove in validated_objectives:
+                    to_remove_lower = to_remove.lower()
+                    # Check if it's an index reference like "objective 1", "1", "first"
+                    index_to_remove = None
+                    if to_remove_lower.startswith("objective "):
+                        try:
+                            index_to_remove = int(to_remove_lower.replace("objective ", "")) - 1
+                        except ValueError:
+                            pass
+                    elif to_remove.isdigit():
+                        index_to_remove = int(to_remove) - 1
+
+                    if index_to_remove is not None and 0 <= index_to_remove < len(existing_list):
+                        removed.append(existing_list[index_to_remove])
+                        existing_list[index_to_remove] = None  # Mark for removal
+                    else:
+                        # Match by text (partial match, case-insensitive)
+                        for i, existing_obj in enumerate(existing_list):
+                            if existing_obj and to_remove_lower in existing_obj.lower():
+                                removed.append(existing_obj)
+                                existing_list[i] = None  # Mark for removal
+                                break
+
+                # Filter out removed items
+                existing_list = [o for o in existing_list if o is not None]
+                project.scope = "\n".join(existing_list)
+
+                if removed:
+                    updated_fields.append(f"objectives (removed {len(removed)})")
+                else:
+                    return {
+                        "status": "error",
+                        "message": "Could not find objectives to remove. Provide the objective text or index (e.g., 'objective 1' or '1').",
+                        "current_objectives": existing_list,
+                    }
             else:
                 # Replace all objectives
                 project.scope = "\n".join(validated_objectives)
-
-            updated_fields.append("objectives")
+                updated_fields.append("objectives")
 
         if not updated_fields:
             return {
