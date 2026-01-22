@@ -247,6 +247,23 @@ DISCUSSION_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "get_created_artifacts",
+            "description": "Get artifacts (PDFs, documents) that were created in this discussion channel. Use when user asks about 'the PDF I created', 'the file you generated', 'my artifacts', or refers to previously created downloadable content.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of artifacts to return",
+                        "default": 10
+                    }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "discover_topics",
             "description": "Search the web to discover what specific topics/algorithms/methods exist for a broad area. Use when user asks about 'recent X', 'latest trends', 'new algorithms in Y', or vague topics where you don't know what specific things to search for. Returns a list of specific topics you can then search papers for.",
             "parameters": {
@@ -301,6 +318,7 @@ TOOLS:
 - get_project_papers: Get user's draft papers in this project
 - create_paper: Create a new paper IN THE PROJECT (LaTeX editor)
 - create_artifact: Create downloadable content (doesn't save to project)
+- get_created_artifacts: Get previously created artifacts (PDFs, documents) in this channel
 - update_paper: Add content to an existing paper
 
 WORKFLOW - Choose based on request clarity:
@@ -336,6 +354,8 @@ CRITICAL RULES:
    - If user confirms, use create_paper tool with the content
    - Only provide SHORT summaries (1-2 paragraphs) directly in chat
 9. NEVER show IDs (UUIDs, paper_id, artifact_id, etc.) to users - they are meaningless to humans. Just show titles and relevant info.
+10. ALWAYS confirm what you created by NAME after using create_paper or create_artifact. Example: "I created a paper titled 'Literature Review: AI in Healthcare' in your project." or "I generated a PDF: 'Drug Discovery Summary.pdf'"
+11. To see artifacts you previously created (PDFs, documents), use get_created_artifacts. To see papers you created, use get_project_papers.
 
 **WHEN USER CONFIRMS TOPICS OR REQUESTS A SEARCH:**
 - You MUST call the search_papers or batch_search_papers tool!
@@ -934,6 +954,8 @@ class ToolOrchestrator:
                     result = self._tool_update_paper(ctx, **args)
                 elif name == "create_artifact":
                     result = self._tool_create_artifact(ctx, **args)
+                elif name == "get_created_artifacts":
+                    result = self._tool_get_created_artifacts(ctx, **args)
                 elif name == "discover_topics":
                     result = self._tool_discover_topics(**args)
                 elif name == "batch_search_papers":
@@ -1596,11 +1618,24 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 \\end{{abstract}}
 """
 
+        # Check if content has citations
+        has_citations = '\\cite{' in content
+
+        # Bibliography section - only include if citations are used
+        bibliography_section = ""
+        if has_citations:
+            bibliography_section = """
+
+\\bibliographystyle{plain}
+\\bibliography{references}
+"""
+
         latex_template = f"""\\documentclass{{article}}
 \\usepackage[utf8]{{inputenc}}
 \\usepackage{{amsmath}}
 \\usepackage{{graphicx}}
 \\usepackage{{hyperref}}
+\\usepackage{{natbib}}
 
 \\title{{{title}}}
 \\date{{\\today}}
@@ -1610,7 +1645,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 \\maketitle
 {abstract_section}
 {content}
-
+{bibliography_section}
 \\end{{document}}
 """
         return latex_template.strip()
@@ -1843,6 +1878,66 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 }
             }
         }
+
+    def _tool_get_created_artifacts(
+        self,
+        ctx: Dict[str, Any],
+        limit: int = 10,
+    ) -> Dict:
+        """Get artifacts that were created in this discussion channel."""
+        from app.models import DiscussionArtifact
+
+        channel = ctx.get("channel")
+        if not channel:
+            return {
+                "status": "error",
+                "message": "Channel context not available.",
+                "artifacts": [],
+            }
+
+        try:
+            artifacts = (
+                self.db.query(DiscussionArtifact)
+                .filter(DiscussionArtifact.channel_id == channel.id)
+                .order_by(DiscussionArtifact.created_at.desc())
+                .limit(limit)
+                .all()
+            )
+
+            if not artifacts:
+                return {
+                    "status": "success",
+                    "message": "No artifacts have been created in this channel yet.",
+                    "artifacts": [],
+                    "count": 0,
+                }
+
+            artifact_list = []
+            for artifact in artifacts:
+                artifact_list.append({
+                    "title": artifact.title,
+                    "filename": artifact.filename,
+                    "format": artifact.format,
+                    "artifact_type": artifact.artifact_type,
+                    "file_size": artifact.file_size,
+                    "mime_type": artifact.mime_type,
+                    "created_at": artifact.created_at.isoformat() if artifact.created_at else None,
+                })
+
+            return {
+                "status": "success",
+                "message": f"Found {len(artifact_list)} artifact(s) in this channel.",
+                "artifacts": artifact_list,
+                "count": len(artifact_list),
+            }
+
+        except Exception as e:
+            logger.exception(f"Error fetching created artifacts: {e}")
+            return {
+                "status": "error",
+                "message": f"Failed to retrieve artifacts: {str(e)}",
+                "artifacts": [],
+            }
 
     def _tool_discover_topics(self, area: str) -> Dict:
         """Use web search to discover specific topics in a broad area."""
