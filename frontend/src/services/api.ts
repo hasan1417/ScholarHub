@@ -250,8 +250,9 @@ api.interceptors.response.use(
       return Promise.reject(error)
     }
 
-    // Skip token refresh for auth endpoints (login, register, etc.)
-    const authEndpoints = ['/login', '/register', '/forgot-password', '/reset-password', '/verify-email']
+    // Skip token refresh for auth endpoints (login, register, refresh, etc.)
+    // IMPORTANT: /refresh must be here to prevent infinite loop when refresh token is invalid
+    const authEndpoints = ['/login', '/register', '/forgot-password', '/reset-password', '/verify-email', '/refresh']
     const requestUrl = originalRequest.url || ''
     const isAuthEndpoint = authEndpoints.some(endpoint => requestUrl.endsWith(endpoint))
 

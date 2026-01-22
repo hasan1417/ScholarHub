@@ -85,6 +85,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   useEffect(() => {
     refreshUser()
+
+    // Safety timeout: if loading takes too long (10 seconds), force logout
+    // This prevents infinite loading states when auth is broken
+    const safetyTimeout = setTimeout(() => {
+      if (isLoading) {
+        console.warn('Auth loading timeout - forcing logout')
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('user')
+        setUser(null)
+        setIsLoading(false)
+        // Redirect to login if not already there
+        if (!window.location.pathname.includes('/login')) {
+          window.location.href = '/login'
+        }
+      }
+    }, 10000)
+
+    return () => clearTimeout(safetyTimeout)
   }, [])
 
   useEffect(() => {
