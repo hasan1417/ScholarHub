@@ -752,13 +752,16 @@ class ToolOrchestrator:
         print(f"\n[STREAMING] Extracted actions: {actions}\n")
 
         # Update AI memory after successful response
+        contradiction_warning = None
         try:
-            self.update_memory_after_exchange(
+            contradiction_warning = self.update_memory_after_exchange(
                 ctx["channel"],
                 ctx["user_message"],
                 final_message,
                 ctx.get("conversation_history", []),
             )
+            if contradiction_warning:
+                logger.info(f"Contradiction detected: {contradiction_warning}")
         except Exception as mem_err:
             logger.error(f"Failed to update AI memory: {mem_err}")
 
@@ -772,6 +775,7 @@ class ToolOrchestrator:
                 "reasoning_used": ctx.get("reasoning_mode", False),
                 "tools_called": [t["name"] for t in all_tool_results] if all_tool_results else [],
                 "conversation_state": {},
+                "memory_warning": contradiction_warning,  # Include contradiction warning
             }
         }
 
@@ -832,13 +836,16 @@ class ToolOrchestrator:
             actions = self._extract_actions(final_message, all_tool_results)
 
             # Update AI memory after successful response (async in background)
+            contradiction_warning = None
             try:
-                self.update_memory_after_exchange(
+                contradiction_warning = self.update_memory_after_exchange(
                     ctx["channel"],
                     ctx["user_message"],
                     final_message,
                     ctx.get("conversation_history", []),
                 )
+                if contradiction_warning:
+                    logger.info(f"Contradiction detected: {contradiction_warning}")
             except Exception as mem_err:
                 logger.error(f"Failed to update AI memory: {mem_err}")
 
@@ -850,6 +857,7 @@ class ToolOrchestrator:
                 "reasoning_used": ctx.get("reasoning_mode", False),
                 "tools_called": [t["name"] for t in all_tool_results] if all_tool_results else [],
                 "conversation_state": {},
+                "memory_warning": contradiction_warning,  # Include contradiction warning
             }
 
         except Exception as e:
@@ -2820,11 +2828,12 @@ Return ONLY valid JSON, no explanation:"""
 
         message_lower = user_message.lower()
         for pattern in important_patterns:
-            if pattern in message_lower:
+            pattern_lower = pattern.lower()
+            if pattern_lower in message_lower:
                 # Extract the sentence containing the pattern
                 sentences = user_message.replace("!", ".").replace("?", ".").split(".")
                 for sentence in sentences:
-                    if pattern in sentence.lower() and len(sentence.strip()) > 20:
+                    if pattern_lower in sentence.lower() and len(sentence.strip()) > 20:
                         quote = sentence.strip()[:200]
                         if quote not in existing_quotes:
                             existing_quotes.append(quote)
@@ -2839,14 +2848,17 @@ Return ONLY valid JSON, no explanation:"""
         user_message: str,
         ai_response: str,
         conversation_history: List[Dict[str, str]],
-    ) -> None:
+    ) -> Optional[str]:
         """
         Update AI memory after an exchange. Called after each successful response.
-        Handles summarization, fact extraction, and quote preservation.
+        Handles summarization, fact extraction, quote preservation, and pruning.
+
+        Returns: Optional contradiction warning if detected.
         """
         memory = self._get_ai_memory(channel)
+        contradiction_warning = None
 
-        # Extract key quotes from user message
+        # Extract key quotes from user message (cheap, do always)
         memory["key_quotes"] = self._extract_key_quotes(
             user_message,
             memory.get("key_quotes", [])
@@ -2863,17 +2875,33 @@ Return ONLY valid JSON, no explanation:"""
                     memory.get("summary"),
                 )
 
-        # Extract research facts (do this async in production, sync for now)
-        # Only extract if response is substantial
-        if len(ai_response) > 100:
+        # Rate-limited fact extraction (only every N exchanges or when needed)
+        if self.should_update_facts(channel, ai_response):
+            # Check for contradictions before updating facts
+            existing_facts = memory.get("facts", {})
+            if existing_facts.get("decisions_made") or existing_facts.get("research_topic"):
+                contradiction_warning = self.detect_contradictions(user_message, existing_facts)
+
+            # Extract research facts
             memory["facts"] = self._extract_research_facts(
                 user_message,
                 ai_response,
-                memory.get("facts", {}),
+                existing_facts,
             )
+            self.reset_exchange_counter(channel)
+        else:
+            # Increment counter for rate limiting
+            self.increment_exchange_counter(channel)
+
+        # Prune stale data periodically (every 10 exchanges)
+        exchange_count = memory.get("_exchanges_since_fact_update", 0)
+        if exchange_count % 10 == 0:
+            self.prune_stale_memory(channel)
 
         # Save updated memory
         self._save_ai_memory(channel, memory)
+
+        return contradiction_warning
 
     def _build_memory_context(self, channel: "ProjectDiscussionChannel") -> str:
         """Build context string from AI memory for inclusion in system prompt."""
@@ -2922,7 +2950,7 @@ Return ONLY valid JSON, no explanation:"""
         result: Dict[str, Any],
     ) -> None:
         """Cache a tool result in AI memory for session reuse."""
-        from datetime import datetime
+        from datetime import datetime, timezone
         memory = self._get_ai_memory(channel)
 
         # Only cache certain tools that are worth caching
@@ -2933,7 +2961,7 @@ Return ONLY valid JSON, no explanation:"""
         tool_cache = memory.get("tool_cache", {})
         tool_cache[tool_name] = {
             "result": result,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         memory["tool_cache"] = tool_cache
 
@@ -2946,7 +2974,7 @@ Return ONLY valid JSON, no explanation:"""
         max_age_seconds: int = 300,  # 5 minutes default
     ) -> Optional[Dict[str, Any]]:
         """Get a cached tool result if still valid."""
-        from datetime import datetime
+        from datetime import datetime, timezone
         memory = self._get_ai_memory(channel)
 
         tool_cache = memory.get("tool_cache", {})
@@ -2958,9 +2986,167 @@ Return ONLY valid JSON, no explanation:"""
         # Check age
         try:
             cached_time = datetime.fromisoformat(cached["timestamp"])
-            age = (datetime.utcnow() - cached_time).total_seconds()
+            # Ensure timezone-aware comparison
+            if cached_time.tzinfo is None:
+                cached_time = cached_time.replace(tzinfo=timezone.utc)
+            age = (datetime.now(timezone.utc) - cached_time).total_seconds()
             if age > max_age_seconds:
                 return None
             return cached["result"]
         except Exception:
             return None
+
+    def prune_stale_memory(
+        self,
+        channel: "ProjectDiscussionChannel",
+        cache_max_age_seconds: int = 600,  # 10 minutes
+        max_papers: int = 10,
+        max_decisions: int = 10,
+        max_methodology_notes: int = 8,
+    ) -> None:
+        """
+        Prune stale data from AI memory to prevent unbounded growth.
+        Called periodically to clean up old cache entries and limit array sizes.
+        """
+        from datetime import datetime, timezone
+        memory = self._get_ai_memory(channel)
+        modified = False
+
+        # Prune stale tool cache entries
+        tool_cache = memory.get("tool_cache", {})
+        stale_keys = []
+        for tool_name, cached in tool_cache.items():
+            try:
+                cached_time = datetime.fromisoformat(cached.get("timestamp", ""))
+                if cached_time.tzinfo is None:
+                    cached_time = cached_time.replace(tzinfo=timezone.utc)
+                age = (datetime.now(timezone.utc) - cached_time).total_seconds()
+                if age > cache_max_age_seconds:
+                    stale_keys.append(tool_name)
+            except Exception:
+                stale_keys.append(tool_name)
+
+        for key in stale_keys:
+            del tool_cache[key]
+            modified = True
+
+        if tool_cache != memory.get("tool_cache", {}):
+            memory["tool_cache"] = tool_cache
+
+        # Limit papers_discussed to most recent
+        facts = memory.get("facts", {})
+        if len(facts.get("papers_discussed", [])) > max_papers:
+            facts["papers_discussed"] = facts["papers_discussed"][-max_papers:]
+            modified = True
+
+        # Limit decisions_made
+        if len(facts.get("decisions_made", [])) > max_decisions:
+            facts["decisions_made"] = facts["decisions_made"][-max_decisions:]
+            modified = True
+
+        # Limit methodology_notes
+        if len(facts.get("methodology_notes", [])) > max_methodology_notes:
+            facts["methodology_notes"] = facts["methodology_notes"][-max_methodology_notes:]
+            modified = True
+
+        if modified:
+            memory["facts"] = facts
+            self._save_ai_memory(channel, memory)
+
+    def detect_contradictions(
+        self,
+        user_message: str,
+        existing_facts: Dict[str, Any],
+    ) -> Optional[str]:
+        """
+        Detect if new user statement contradicts existing facts.
+        Returns a warning message if contradiction detected, None otherwise.
+        Uses LLM to analyze semantic contradictions.
+        """
+        # Only check if we have substantial existing facts
+        decisions = existing_facts.get("decisions_made", [])
+        topic = existing_facts.get("research_topic")
+
+        if not decisions and not topic:
+            return None
+
+        # Build context of existing facts
+        facts_summary = []
+        if topic:
+            facts_summary.append(f"Research topic: {topic}")
+        if decisions:
+            facts_summary.append(f"Decisions made: {', '.join(decisions[-5:])}")
+
+        prompt = f"""Analyze if the new user statement contradicts any established facts.
+
+ESTABLISHED FACTS:
+{chr(10).join(facts_summary)}
+
+NEW USER STATEMENT:
+{user_message[:500]}
+
+Does the new statement contradict any established fact? If yes, briefly explain the contradiction.
+If no contradiction, respond with exactly: NO_CONTRADICTION
+
+Response:"""
+
+        try:
+            client = self.ai_service.openai_client
+            if not client:
+                return None
+
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=150,
+                temperature=0.1,
+            )
+            result = response.choices[0].message.content.strip()
+
+            if "NO_CONTRADICTION" in result.upper():
+                return None
+
+            return result
+        except Exception as e:
+            logger.error(f"Contradiction detection failed: {e}")
+            return None
+
+    def should_update_facts(
+        self,
+        channel: "ProjectDiscussionChannel",
+        ai_response: str,
+        min_response_length: int = 200,
+        min_exchanges_between_updates: int = 3,
+    ) -> bool:
+        """
+        Determine if we should run fact extraction on this exchange.
+        Prevents excessive LLM calls by rate limiting fact extraction.
+        """
+        # Only extract facts for substantial responses
+        if len(ai_response) < min_response_length:
+            return False
+
+        memory = self._get_ai_memory(channel)
+
+        # Track exchange count since last fact extraction
+        exchange_count = memory.get("_exchanges_since_fact_update", 0)
+
+        # Update every N exchanges or if facts are empty
+        has_facts = bool(memory.get("facts", {}).get("research_topic"))
+
+        if not has_facts or exchange_count >= min_exchanges_between_updates:
+            return True
+
+        return False
+
+    def increment_exchange_counter(self, channel: "ProjectDiscussionChannel") -> None:
+        """Increment the exchange counter for rate limiting fact extraction."""
+        memory = self._get_ai_memory(channel)
+        memory["_exchanges_since_fact_update"] = memory.get("_exchanges_since_fact_update", 0) + 1
+        self._save_ai_memory(channel, memory)
+
+    def reset_exchange_counter(self, channel: "ProjectDiscussionChannel") -> None:
+        """Reset the exchange counter after fact extraction."""
+        memory = self._get_ai_memory(channel)
+        memory["_exchanges_since_fact_update"] = 0
+        self._save_ai_memory(channel, memory)
