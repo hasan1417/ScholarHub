@@ -526,7 +526,7 @@ class ToolOrchestrator:
         try:
             # Build request context (thread-safe - local variable)
             ctx = self._build_request_context(
-                project, channel, message, recent_search_results, reasoning_mode
+                project, channel, message, recent_search_results, reasoning_mode, conversation_history
             )
 
             # Build messages for LLM
@@ -559,7 +559,7 @@ class ToolOrchestrator:
         try:
             # Build request context (thread-safe - local variable)
             ctx = self._build_request_context(
-                project, channel, message, recent_search_results, reasoning_mode
+                project, channel, message, recent_search_results, reasoning_mode, conversation_history
             )
 
             # Build messages for LLM
@@ -579,6 +579,7 @@ class ToolOrchestrator:
         message: str,
         recent_search_results: Optional[List[Dict]],
         reasoning_mode: bool,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """Build thread-safe request context."""
         import re
@@ -594,6 +595,8 @@ class ToolOrchestrator:
             "reasoning_mode": reasoning_mode,
             "max_papers": extracted_count if extracted_count else 999,
             "papers_requested": 0,
+            "user_message": message,  # Store for memory update
+            "conversation_history": conversation_history or [],  # Store for memory update
         }
 
     def _build_messages(
@@ -604,19 +607,30 @@ class ToolOrchestrator:
         recent_search_results: Optional[List[Dict]],
         conversation_history: Optional[List[Dict[str, str]]],
     ) -> List[Dict]:
-        """Build the messages array for the LLM."""
+        """Build the messages array for the LLM with smart memory management."""
         context_summary = self._build_context_summary(project, channel, recent_search_results)
+
+        # Build memory context from AI memory (summary + facts)
+        memory_context = self._build_memory_context(channel)
+
+        # Combine context and memory
+        full_context = context_summary
+        if memory_context:
+            full_context = f"{context_summary}\n\n{memory_context}"
+
         system_prompt = BASE_SYSTEM_PROMPT.format(
             project_title=project.title,
             channel_name=channel.name,
-            context_summary=context_summary,
+            context_summary=full_context,
         )
 
         messages = [{"role": "system", "content": system_prompt}]
 
-        # Add conversation history
+        # Add conversation history with sliding window
         if conversation_history:
-            for msg in conversation_history[-10:]:  # Last 10 messages
+            # Use sliding window: keep last SLIDING_WINDOW_SIZE messages in full
+            window_messages = conversation_history[-self.SLIDING_WINDOW_SIZE:]
+            for msg in window_messages:
                 messages.append({"role": msg["role"], "content": msg["content"]})
 
             # Add reminder after history to override old patterns
@@ -737,6 +751,17 @@ class ToolOrchestrator:
         actions = self._extract_actions(final_message, all_tool_results)
         print(f"\n[STREAMING] Extracted actions: {actions}\n")
 
+        # Update AI memory after successful response
+        try:
+            self.update_memory_after_exchange(
+                ctx["channel"],
+                ctx["user_message"],
+                final_message,
+                ctx.get("conversation_history", []),
+            )
+        except Exception as mem_err:
+            logger.error(f"Failed to update AI memory: {mem_err}")
+
         yield {
             "type": "result",
             "data": {
@@ -805,6 +830,17 @@ class ToolOrchestrator:
 
             final_message = response.get("content", "")
             actions = self._extract_actions(final_message, all_tool_results)
+
+            # Update AI memory after successful response (async in background)
+            try:
+                self.update_memory_after_exchange(
+                    ctx["channel"],
+                    ctx["user_message"],
+                    final_message,
+                    ctx.get("conversation_history", []),
+                )
+            except Exception as mem_err:
+                logger.error(f"Failed to update AI memory: {mem_err}")
 
             return {
                 "message": final_message,
@@ -1039,11 +1075,24 @@ class ToolOrchestrator:
                     # Track papers requested
                     ctx["papers_requested"] = papers_so_far + args.get("count", 1)
 
+                # Check cache for cacheable tools
+                channel = ctx.get("channel")
+                cached_result = None
+                if name in {"get_project_references", "get_project_papers"} and channel:
+                    cached_result = self.get_cached_tool_result(channel, name, max_age_seconds=300)
+                    if cached_result:
+                        logger.info(f"Using cached result for {name}")
+                        results.append({"name": name, "result": cached_result})
+                        continue
+
                 # Route to appropriate tool handler
                 if name == "get_recent_search_results":
                     result = self._tool_get_recent_search_results(ctx)
                 elif name == "get_project_references":
                     result = self._tool_get_project_references(ctx, **args)
+                    # Cache the result
+                    if channel and result.get("count", 0) > 0:
+                        self.cache_tool_result(channel, name, result)
                 elif name == "get_reference_details":
                     result = self._tool_get_reference_details(ctx, **args)
                 elif name == "analyze_reference":
@@ -1052,6 +1101,9 @@ class ToolOrchestrator:
                     result = self._tool_search_papers(**args)
                 elif name == "get_project_papers":
                     result = self._tool_get_project_papers(ctx, **args)
+                    # Cache the result
+                    if channel and result.get("count", 0) > 0:
+                        self.cache_tool_result(channel, name, result)
                 elif name == "get_project_info":
                     result = self._tool_get_project_info(ctx)
                 elif name == "get_channel_resources":
@@ -1477,7 +1529,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         paper_id: str,
         latex_content: str,
     ) -> Dict[str, Any]:
-        """
+        r"""
         Parse citations from LaTeX content and link matching references to the paper.
 
         1. Extract \cite{} keys from content
@@ -2562,3 +2614,353 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 actions.append(action)
 
         return actions
+
+    # ============================================================
+    # AI Memory Management Methods
+    # ============================================================
+
+    # Token budget allocation (approximate)
+    MEMORY_TOKEN_BUDGET = {
+        "working_memory": 4000,    # Last 20 messages (full text)
+        "session_summary": 1000,   # Compressed older messages
+        "research_facts": 500,     # Structured facts
+        "key_quotes": 300,         # Important verbatim statements
+    }
+    SLIDING_WINDOW_SIZE = 20  # Number of recent messages to keep in full
+
+    def _get_ai_memory(self, channel: "ProjectDiscussionChannel") -> Dict[str, Any]:
+        """Get AI memory from channel, with defaults."""
+        if channel.ai_memory:
+            return channel.ai_memory
+        return {
+            "summary": None,
+            "facts": {
+                "research_topic": None,
+                "papers_discussed": [],
+                "decisions_made": [],
+                "pending_questions": [],
+                "methodology_notes": [],
+            },
+            "key_quotes": [],
+            "last_summarized_exchange_id": None,
+            "tool_cache": {},
+        }
+
+    def _save_ai_memory(self, channel: "ProjectDiscussionChannel", memory: Dict[str, Any]) -> None:
+        """Save AI memory to channel."""
+        try:
+            channel.ai_memory = memory
+            self.db.commit()
+        except Exception as e:
+            logger.error(f"Failed to save AI memory: {e}")
+            self.db.rollback()
+
+    def _summarize_old_messages(
+        self,
+        old_messages: List[Dict[str, str]],
+        existing_summary: Optional[str] = None,
+    ) -> str:
+        """
+        Summarize older messages into a compressed summary.
+        Uses recursive summarization to incorporate existing summary.
+        """
+        if not old_messages:
+            return existing_summary or ""
+
+        # Format messages for summarization
+        message_text = "\n".join([
+            f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content'][:500]}"
+            for m in old_messages
+        ])
+
+        # Build summarization prompt
+        if existing_summary:
+            prompt = f"""You are summarizing a research conversation for context retention.
+
+EXISTING SUMMARY (from earlier in the conversation):
+{existing_summary}
+
+NEW MESSAGES TO INCORPORATE:
+{message_text}
+
+Create an UPDATED summary that:
+1. Preserves key information from the existing summary
+2. Incorporates new developments from the messages
+3. Focuses on: research topics, papers discussed, decisions made, methodology choices
+4. Keeps it under 300 words
+5. Uses bullet points for clarity
+
+Updated Summary:"""
+        else:
+            prompt = f"""Summarize this research conversation for context retention.
+
+MESSAGES:
+{message_text}
+
+Create a summary that:
+1. Captures the main research topic/focus
+2. Lists any papers or references discussed
+3. Notes key decisions or preferences expressed
+4. Highlights methodology choices if any
+5. Keeps it under 300 words
+6. Uses bullet points for clarity
+
+Summary:"""
+
+        try:
+            client = self.ai_service.openai_client
+            if not client:
+                return existing_summary or ""
+
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",  # Use faster/cheaper model for summarization
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=500,
+                temperature=0.3,
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            logger.error(f"Failed to summarize messages: {e}")
+            return existing_summary or ""
+
+    def _extract_research_facts(
+        self,
+        user_message: str,
+        ai_response: str,
+        existing_facts: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Extract structured research facts from the latest exchange.
+        Updates existing facts with new information.
+        """
+        prompt = f"""Analyze this research conversation exchange and extract key facts.
+
+USER MESSAGE:
+{user_message[:1000]}
+
+AI RESPONSE:
+{ai_response[:1500]}
+
+EXISTING FACTS:
+{json.dumps(existing_facts, indent=2)}
+
+Extract and UPDATE the facts JSON. Only include new/changed information.
+Return a JSON object with these fields (keep existing values if not changed):
+- research_topic: Main research topic (string or null)
+- papers_discussed: Array of {{"title": "...", "author": "...", "relevance": "why discussed", "user_reaction": "positive/negative/neutral"}}
+- decisions_made: Array of decision strings (append new ones, don't remove old)
+- pending_questions: Array of unanswered questions (can remove if answered)
+- methodology_notes: Array of methodology-related notes
+
+Return ONLY valid JSON, no explanation:"""
+
+        try:
+            client = self.ai_service.openai_client
+            if not client:
+                return existing_facts
+
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=800,
+                temperature=0.2,
+            )
+
+            result_text = response.choices[0].message.content.strip()
+            # Try to parse JSON from response
+            if result_text.startswith("```"):
+                result_text = result_text.split("```")[1]
+                if result_text.startswith("json"):
+                    result_text = result_text[4:]
+
+            new_facts = json.loads(result_text)
+
+            # Merge with existing facts (append arrays, update scalars)
+            merged = existing_facts.copy()
+            if new_facts.get("research_topic"):
+                merged["research_topic"] = new_facts["research_topic"]
+
+            # Append new papers (avoid duplicates by title)
+            existing_titles = {p.get("title", "").lower() for p in merged.get("papers_discussed", [])}
+            for paper in new_facts.get("papers_discussed", []):
+                if paper.get("title", "").lower() not in existing_titles:
+                    merged.setdefault("papers_discussed", []).append(paper)
+
+            # Append new decisions
+            existing_decisions = set(merged.get("decisions_made", []))
+            for decision in new_facts.get("decisions_made", []):
+                if decision not in existing_decisions:
+                    merged.setdefault("decisions_made", []).append(decision)
+
+            # Update pending questions (can add or remove)
+            merged["pending_questions"] = new_facts.get("pending_questions", merged.get("pending_questions", []))
+
+            # Append methodology notes
+            existing_notes = set(merged.get("methodology_notes", []))
+            for note in new_facts.get("methodology_notes", []):
+                if note not in existing_notes:
+                    merged.setdefault("methodology_notes", []).append(note)
+
+            return merged
+
+        except Exception as e:
+            logger.error(f"Failed to extract research facts: {e}")
+            return existing_facts
+
+    def _extract_key_quotes(self, user_message: str, existing_quotes: List[str]) -> List[str]:
+        """
+        Extract important verbatim user statements to preserve exact wording.
+        Keeps the most recent/important quotes (max 5).
+        """
+        # Simple heuristic: capture definitive statements
+        important_patterns = [
+            "I want", "I need", "I decided", "I prefer", "I'm focusing on",
+            "my goal is", "the main", "specifically", "must have", "don't want",
+        ]
+
+        message_lower = user_message.lower()
+        for pattern in important_patterns:
+            if pattern in message_lower:
+                # Extract the sentence containing the pattern
+                sentences = user_message.replace("!", ".").replace("?", ".").split(".")
+                for sentence in sentences:
+                    if pattern in sentence.lower() and len(sentence.strip()) > 20:
+                        quote = sentence.strip()[:200]
+                        if quote not in existing_quotes:
+                            existing_quotes.append(quote)
+                        break
+
+        # Keep only the last 5 quotes
+        return existing_quotes[-5:]
+
+    def update_memory_after_exchange(
+        self,
+        channel: "ProjectDiscussionChannel",
+        user_message: str,
+        ai_response: str,
+        conversation_history: List[Dict[str, str]],
+    ) -> None:
+        """
+        Update AI memory after an exchange. Called after each successful response.
+        Handles summarization, fact extraction, and quote preservation.
+        """
+        memory = self._get_ai_memory(channel)
+
+        # Extract key quotes from user message
+        memory["key_quotes"] = self._extract_key_quotes(
+            user_message,
+            memory.get("key_quotes", [])
+        )
+
+        # Check if we need to summarize (conversation exceeds sliding window)
+        total_messages = len(conversation_history) + 2  # +2 for current exchange
+        if total_messages > self.SLIDING_WINDOW_SIZE:
+            # Get messages that need to be summarized
+            messages_to_summarize = conversation_history[:-self.SLIDING_WINDOW_SIZE + 2]
+            if messages_to_summarize:
+                memory["summary"] = self._summarize_old_messages(
+                    messages_to_summarize,
+                    memory.get("summary"),
+                )
+
+        # Extract research facts (do this async in production, sync for now)
+        # Only extract if response is substantial
+        if len(ai_response) > 100:
+            memory["facts"] = self._extract_research_facts(
+                user_message,
+                ai_response,
+                memory.get("facts", {}),
+            )
+
+        # Save updated memory
+        self._save_ai_memory(channel, memory)
+
+    def _build_memory_context(self, channel: "ProjectDiscussionChannel") -> str:
+        """Build context string from AI memory for inclusion in system prompt."""
+        memory = self._get_ai_memory(channel)
+        lines = []
+
+        # Add session summary if exists
+        if memory.get("summary"):
+            lines.append("## Previous Conversation Summary")
+            lines.append(memory["summary"])
+            lines.append("")
+
+        # Add research facts
+        facts = memory.get("facts", {})
+        if facts.get("research_topic"):
+            lines.append(f"**Research Focus:** {facts['research_topic']}")
+
+        if facts.get("papers_discussed"):
+            lines.append("**Papers Discussed:**")
+            for p in facts["papers_discussed"][-5:]:  # Last 5 papers
+                reaction = f" ({p.get('user_reaction', '')})" if p.get('user_reaction') else ""
+                lines.append(f"- {p.get('title', 'Unknown')} by {p.get('author', 'Unknown')}{reaction}")
+
+        if facts.get("decisions_made"):
+            lines.append("**Decisions Made:**")
+            for d in facts["decisions_made"][-5:]:  # Last 5 decisions
+                lines.append(f"- {d}")
+
+        if facts.get("pending_questions"):
+            lines.append("**Open Questions:**")
+            for q in facts["pending_questions"]:
+                lines.append(f"- {q}")
+
+        # Add key quotes
+        if memory.get("key_quotes"):
+            lines.append("**Key User Statements:**")
+            for q in memory["key_quotes"]:
+                lines.append(f'- "{q}"')
+
+        return "\n".join(lines) if lines else ""
+
+    def cache_tool_result(
+        self,
+        channel: "ProjectDiscussionChannel",
+        tool_name: str,
+        result: Dict[str, Any],
+    ) -> None:
+        """Cache a tool result in AI memory for session reuse."""
+        from datetime import datetime
+        memory = self._get_ai_memory(channel)
+
+        # Only cache certain tools that are worth caching
+        cacheable_tools = {"get_project_references", "get_project_papers", "get_reference_details"}
+        if tool_name not in cacheable_tools:
+            return
+
+        tool_cache = memory.get("tool_cache", {})
+        tool_cache[tool_name] = {
+            "result": result,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        memory["tool_cache"] = tool_cache
+
+        self._save_ai_memory(channel, memory)
+
+    def get_cached_tool_result(
+        self,
+        channel: "ProjectDiscussionChannel",
+        tool_name: str,
+        max_age_seconds: int = 300,  # 5 minutes default
+    ) -> Optional[Dict[str, Any]]:
+        """Get a cached tool result if still valid."""
+        from datetime import datetime
+        memory = self._get_ai_memory(channel)
+
+        tool_cache = memory.get("tool_cache", {})
+        cached = tool_cache.get(tool_name)
+
+        if not cached:
+            return None
+
+        # Check age
+        try:
+            cached_time = datetime.fromisoformat(cached["timestamp"])
+            age = (datetime.utcnow() - cached_time).total_seconds()
+            if age > max_age_seconds:
+                return None
+            return cached["result"]
+        except Exception:
+            return None

@@ -38,6 +38,21 @@ class ProjectDiscussionChannel(Base):
     is_archived = Column(Boolean, nullable=False, server_default=text("false"))
     # Scope configuration: null = project-wide (all resources), or array of types: ["papers", "references", "transcripts"]
     scope = Column(JSONB, nullable=True, server_default=text("NULL"))
+    # AI Memory: stores session context for long conversations
+    # Structure: {
+    #   "summary": "Compressed summary of older messages",
+    #   "facts": {
+    #     "research_topic": "main topic",
+    #     "papers_discussed": [{"title": "...", "author": "...", "relevance": "...", "user_reaction": "..."}],
+    #     "decisions_made": ["decision 1", "decision 2"],
+    #     "pending_questions": ["question 1"],
+    #     "methodology_notes": ["note 1"]
+    #   },
+    #   "key_quotes": ["exact user statement 1", "exact user statement 2"],
+    #   "last_summarized_exchange_id": "uuid",
+    #   "tool_cache": {"tool_name": {"result": ..., "timestamp": "..."}}
+    # }
+    ai_memory = Column(JSONB, nullable=True, server_default=text("NULL"))
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
