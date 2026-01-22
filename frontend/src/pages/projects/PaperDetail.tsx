@@ -12,7 +12,6 @@ import {
   Plus,
   Save,
   Settings,
-  Share2,
   Shield,
   Trash2,
   Unlink,
@@ -422,16 +421,6 @@ const PaperDetail: React.FC = () => {
                               Edit details
                             </button>
                           )}
-                          <button
-                            onClick={() => {
-                              setIsActionsMenuOpen(false)
-                              /* TODO: implement share */
-                            }}
-                            className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50 dark:text-slate-200 dark:hover:bg-slate-800"
-                          >
-                            <Share2 className="h-4 w-4 text-gray-400 dark:text-slate-400" />
-                            Share
-                          </button>
                           {canDeletePaper && (
                             <button
                               onClick={() => {
