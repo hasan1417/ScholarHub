@@ -29,7 +29,7 @@ const SubscriptionSection = () => {
     const fetchData = async () => {
       try {
         const res = await subscriptionAPI.getMySubscription()
-        setData(res.data)
+        setData(res.data as SubscriptionResponse)
       } catch (err) {
         console.error(err)
       } finally {
