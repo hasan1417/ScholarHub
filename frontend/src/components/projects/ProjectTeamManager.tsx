@@ -7,17 +7,18 @@ import { useAuth } from '../../contexts/AuthContext'
 import { projectsAPI } from '../../services/api'
 import TeamInviteModal from '../team/TeamInviteModal'
 
-type RoleOption = 'admin' | 'editor' | 'viewer'
+type RoleOption = 'owner' | 'admin' | 'editor' | 'viewer'
 
 const normalizeRole = (role?: string | null): RoleOption => {
   const value = (role || '').toLowerCase()
-  if (value === 'admin' || value === 'editor' || value === 'viewer') {
+  if (value === 'owner' || value === 'admin' || value === 'editor' || value === 'viewer') {
     return value as RoleOption
   }
   return 'viewer'
 }
 
 const rolePillClasses: Record<RoleOption, string> = {
+  owner: 'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-100',
   admin: 'bg-purple-100 text-purple-800 dark:bg-purple-500/20 dark:text-purple-100',
   editor: 'bg-green-100 text-green-800 dark:bg-emerald-500/20 dark:text-emerald-100',
   viewer: 'bg-gray-100 text-gray-800 dark:bg-slate-600/30 dark:text-slate-100',
@@ -25,6 +26,8 @@ const rolePillClasses: Record<RoleOption, string> = {
 
 const roleIcon = (role: RoleOption) => {
   switch (role) {
+    case 'owner':
+      return <Crown className="h-4 w-4 text-amber-600 dark:text-amber-300" />
     case 'admin':
       return <Shield className="h-4 w-4 text-purple-600 dark:text-purple-300" />
     case 'editor':
@@ -70,21 +73,21 @@ const ProjectTeamManager: React.FC = () => {
   const membership = members.find((member) => member.user_id === currentUserId)
   const membershipStatus = membership?.status?.toLowerCase()
   const isMembershipAccepted = membershipStatus === 'accepted'
-  const myRole: RoleOption = isProjectOwner ? 'admin' : normalizeRole(membership?.role)
-  const canManageTeam = isMembershipAccepted && myRole === 'admin'
+  const myRole: RoleOption = normalizeRole(membership?.role)
+  const canManageTeam = isMembershipAccepted && (myRole === 'owner' || myRole === 'admin')
   const canAssignAdmin = isProjectOwner
 
   const sortedMembers = useMemo(() => {
-    const priority: Record<RoleOption, number> = { admin: 0, editor: 1, viewer: 2 }
+    const priority: Record<RoleOption, number> = { owner: 0, admin: 1, editor: 2, viewer: 3 }
     return [...members].sort((a, b) => {
-      const roleA = a.user_id === project.created_by ? 'admin' : normalizeRole(a.role)
-      const roleB = b.user_id === project.created_by ? 'admin' : normalizeRole(b.role)
+      const roleA = normalizeRole(a.role)
+      const roleB = normalizeRole(b.role)
       if (priority[roleA] === priority[roleB]) {
         return (a.user?.email || '').localeCompare(b.user?.email || '')
       }
       return priority[roleA] - priority[roleB]
     })
-  }, [members, project.created_by])
+  }, [members])
 
   // In manage mode, show all members inline; otherwise show limited
   const visibleMembers = isManaging
@@ -229,18 +232,18 @@ const ProjectTeamManager: React.FC = () => {
           </li>
         ) : (
           visibleMembers.map((member) => {
-            const isProjectOwnerMember = member.user_id === project.created_by
             const effectiveRole: RoleOption = normalizeRole(member.role)
+            const isOwner = effectiveRole === 'owner'
             const status = (member.status || 'accepted').toLowerCase()
             const isPending = status === 'invited'
             const isDeclined = status === 'declined'
             const isSelf = member.user_id === currentUserId
             const disableRoleSelect =
               !canManageTeam ||
-              isProjectOwnerMember ||
+              isOwner ||
               isPending ||
               (!canAssignAdmin && effectiveRole === 'admin')
-            const disableRemove = !canManageTeam || isProjectOwnerMember || isSelf
+            const disableRemove = !canManageTeam || isOwner || isSelf
             const displayName = member.user?.display_name
               || [member.user?.first_name, member.user?.last_name].filter(Boolean).join(' ').trim()
               || member.user?.email
@@ -285,9 +288,6 @@ const ProjectTeamManager: React.FC = () => {
                   <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${rolePillClasses[effectiveRole]}`}>
                     {roleIcon(effectiveRole)}
                     <span className="capitalize">{effectiveRole}</span>
-                    {isProjectOwnerMember && (
-                      <Crown className="h-3 w-3 text-yellow-500 dark:text-yellow-300" aria-label="Project creator" />
-                    )}
                     {isPending && (
                       <Clock className="h-3 w-3 text-amber-500 dark:text-amber-300" aria-label="Invitation pending" />
                     )}
@@ -372,7 +372,6 @@ const ProjectTeamManager: React.FC = () => {
             <div className="flex-1 overflow-y-auto p-5">
               <ul className="space-y-3">
                 {sortedMembers.map((member) => {
-                  const isProjectOwnerMember = member.user_id === project.created_by
                   const effectiveRole: RoleOption = normalizeRole(member.role)
                   const status = (member.status || 'accepted').toLowerCase()
                   const isPending = status === 'invited'
@@ -406,9 +405,6 @@ const ProjectTeamManager: React.FC = () => {
                       <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium flex-shrink-0 ${rolePillClasses[effectiveRole]}`}>
                         {roleIcon(effectiveRole)}
                         <span className="capitalize">{effectiveRole}</span>
-                        {isProjectOwnerMember && (
-                          <Crown className="h-3 w-3 text-yellow-500 dark:text-yellow-300" />
-                        )}
                         {isPending && (
                           <Clock className="h-3 w-3 text-amber-500 dark:text-amber-300" />
                         )}
