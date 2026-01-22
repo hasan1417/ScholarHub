@@ -29,6 +29,7 @@ const stripXmlTags = (text: string | null | undefined): string => {
 import {
   projectReferencesAPI,
   researchPapersAPI,
+  teamAPI,
 } from '../../services/api'
 import {
   PaperReferenceAttachment,
@@ -37,8 +38,21 @@ import {
 } from '../../types'
 import ConfirmationModal from '../../components/common/ConfirmationModal'
 import AttachProjectReferenceModal from '../../components/projects/AttachProjectReferenceModal'
+import TeamInviteModal from '../../components/team/TeamInviteModal'
 import { useAuth } from '../../contexts/AuthContext'
 import { useProjectContext } from './ProjectLayout'
+
+interface PaperTeamMember {
+  id: string
+  user_id: string
+  email: string
+  first_name?: string
+  last_name?: string
+  role: string
+  status: string
+  joined_at?: string
+  is_owner: boolean
+}
 
 const PaperDetail: React.FC = () => {
   const { projectId, paperId } = useParams<{ projectId?: string; paperId: string }>()
@@ -55,6 +69,9 @@ const PaperDetail: React.FC = () => {
   const [showDeletePaperConfirm, setShowDeletePaperConfirm] = useState(false)
   const [showAttachModal, setShowAttachModal] = useState(false)
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false)
+  const [showInviteModal, setShowInviteModal] = useState(false)
+  const [paperTeamMembers, setPaperTeamMembers] = useState<PaperTeamMember[]>([])
+  const [isLoadingTeam, setIsLoadingTeam] = useState(false)
 
   const projectMembers = project?.members ?? []
   const currentUserId = user?.id
@@ -133,6 +150,36 @@ const PaperDetail: React.FC = () => {
       setIsActionsMenuOpen(false)
     }
   }, [isEditing])
+
+  // Load paper team members
+  useEffect(() => {
+    if (!paperId) return
+    const loadTeamMembers = async () => {
+      setIsLoadingTeam(true)
+      try {
+        const response = await teamAPI.getTeamMembers(paperId)
+        const data = response.data
+        const members = Array.isArray(data) ? data : (data as any)?.members ?? []
+        setPaperTeamMembers(members)
+      } catch (err) {
+        console.error('Error loading paper team members:', err)
+        setPaperTeamMembers([])
+      } finally {
+        setIsLoadingTeam(false)
+      }
+    }
+    loadTeamMembers()
+  }, [paperId])
+
+  const handleInvite = async (email: string, role: string) => {
+    if (!paperId) return
+    await teamAPI.inviteTeamMember(paperId, email, role)
+    // Refresh team members after invite
+    const response = await teamAPI.getTeamMembers(paperId)
+    const data = response.data
+    const members = Array.isArray(data) ? data : (data as any)?.members ?? []
+    setPaperTeamMembers(members)
+  }
 
   const loadPaperData = async () => {
     if (!paperId) return
@@ -740,6 +787,7 @@ const PaperDetail: React.FC = () => {
                 </div>
                 {canEditPaper && (
                   <button
+                    onClick={() => setShowInviteModal(true)}
                     className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-600 transition-colors hover:bg-indigo-100 dark:border-indigo-400/40 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20"
                   >
                     <Plus className="h-3.5 w-3.5" />
@@ -747,68 +795,78 @@ const PaperDetail: React.FC = () => {
                   </button>
                 )}
               </div>
-              {(() => {
-                // Get creator info - compare as strings to avoid type mismatch
-                const isCurrentUserCreator = String(paper.created_by) === String(currentUserId)
-                const creatorMember = projectMembers.find((m) => String(m.user_id) === String(paper.created_by))
+              {isLoadingTeam ? (
+                <div className="animate-pulse space-y-2">
+                  <div className="h-14 rounded-xl bg-gray-100 dark:bg-slate-700" />
+                </div>
+              ) : paperTeamMembers.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-center dark:border-slate-700 dark:bg-slate-800/40">
+                  <p className="text-sm text-gray-500 dark:text-slate-400">No team members yet</p>
+                </div>
+              ) : (
+                <ul className="space-y-2">
+                  {paperTeamMembers.map((member) => {
+                    const displayName = member.first_name && member.last_name
+                      ? `${member.first_name} ${member.last_name}`
+                      : member.email
+                    const initial = displayName[0]?.toUpperCase() || '?'
+                    const isCurrentUser = member.user_id === currentUserId
+                    const normalizedRole = (member.role || 'viewer').toLowerCase()
 
-                // Build creator name from available sources
-                let creatorName = ''
-                let creatorEmail = ''
+                    const getRoleBadgeClasses = () => {
+                      switch (normalizedRole) {
+                        case 'admin':
+                          return 'bg-purple-50 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300'
+                        case 'editor':
+                          return 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
+                        default:
+                          return 'bg-gray-100 text-gray-700 dark:bg-slate-600/30 dark:text-slate-300'
+                      }
+                    }
 
-                if (isCurrentUserCreator && user) {
-                  // Current user is the creator - use their auth data
-                  creatorName = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || ''
-                  creatorEmail = user.email || ''
-                } else if (creatorMember?.user) {
-                  // Found creator in project members
-                  creatorName = [creatorMember.user.first_name, creatorMember.user.last_name].filter(Boolean).join(' ') || creatorMember.user.email || ''
-                  creatorEmail = creatorMember.user.email || ''
-                } else if (paper.created_by_user) {
-                  // Paper has creator info embedded
-                  creatorName = [paper.created_by_user.first_name, paper.created_by_user.last_name].filter(Boolean).join(' ') || paper.created_by_user.email || ''
-                  creatorEmail = paper.created_by_user.email || ''
-                }
+                    const getRoleIcon = () => {
+                      switch (normalizedRole) {
+                        case 'admin':
+                          return <Shield className="h-3.5 w-3.5" />
+                        case 'editor':
+                          return <Pencil className="h-3.5 w-3.5" />
+                        default:
+                          return <Eye className="h-3.5 w-3.5" />
+                      }
+                    }
 
-                // Final fallback - if still no name, use current user if they have edit access (likely creator)
-                if (!creatorName && canEditPaper && user) {
-                  creatorName = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || 'Unknown'
-                  creatorEmail = user.email || ''
-                }
-
-                if (!creatorName) creatorName = 'Unknown'
-                const creatorInitial = creatorName[0]?.toUpperCase() || '?'
-
-                return (
-                  <ul className="space-y-2">
-                    <li className="flex items-center gap-3 rounded-xl border border-gray-100 bg-gray-50/50 px-3 py-2.5 transition-colors dark:border-slate-700 dark:bg-slate-800/40">
-                      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-semibold text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
-                        {creatorInitial}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="flex items-center gap-2 truncate text-sm font-medium text-gray-900 dark:text-slate-100">
-                          <span className="truncate">{creatorName}</span>
-                          {(isCurrentUserCreator || (canEditPaper && !creatorMember)) && (
-                            <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
-                              You
-                            </span>
-                          )}
-                        </p>
-                        {creatorEmail && (
-                          <p className="truncate text-xs text-gray-500 dark:text-slate-400">{creatorEmail}</p>
-                        )}
-                      </div>
-                      <div className="flex-shrink-0">
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-50 px-2.5 py-1 text-xs font-medium text-purple-700 dark:bg-purple-500/20 dark:text-purple-300">
-                          <Shield className="h-3.5 w-3.5" />
-                          Admin
-                          <Crown className="h-3 w-3 text-amber-500" />
-                        </span>
-                      </div>
-                    </li>
-                  </ul>
-                )
-              })()}
+                    return (
+                      <li key={member.id} className="flex items-center gap-3 rounded-xl border border-gray-100 bg-gray-50/50 px-3 py-2.5 transition-colors dark:border-slate-700 dark:bg-slate-800/40">
+                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-semibold text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
+                          {initial}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="flex items-center gap-2 truncate text-sm font-medium text-gray-900 dark:text-slate-100">
+                            <span className="truncate">{displayName}</span>
+                            {isCurrentUser && (
+                              <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
+                                You
+                              </span>
+                            )}
+                            {member.status === 'invited' && (
+                              <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-600 dark:bg-amber-500/20 dark:text-amber-300">
+                                Pending
+                              </span>
+                            )}
+                          </p>
+                          <p className="truncate text-xs text-gray-500 dark:text-slate-400">{member.email}</p>
+                        </div>
+                        <div className="flex-shrink-0">
+                          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium capitalize ${getRoleBadgeClasses()}`}>
+                            {getRoleIcon()}
+                            {normalizedRole}
+                          </span>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
             </section>
 
             <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800/60">
@@ -878,6 +936,13 @@ const PaperDetail: React.FC = () => {
         cancelText="Cancel"
         confirmButtonColor="red"
         icon="warning"
+      />
+
+      <TeamInviteModal
+        isOpen={showInviteModal}
+        onClose={() => setShowInviteModal(false)}
+        onInvite={handleInvite}
+        paperTitle={paper?.title || 'this paper'}
       />
     </div>
   )

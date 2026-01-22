@@ -9,6 +9,7 @@ from app.api.deps import get_current_user
 from app.models.user import User
 from app.models.research_paper import ResearchPaper
 from app.models.paper_member import PaperMember, PaperRole
+from app.models.project_member import ProjectMember
 from app.schemas.team import (
     TeamMemberCreate,
     TeamMemberResponse,
@@ -65,7 +66,26 @@ async def invite_team_member(
     if desired_role not in assignable_roles:
         raise HTTPException(status_code=400, detail="Invalid role for invitation")
 
-    # Create team member invitation
+    # If paper belongs to a project, also invite user to the project if not already a member
+    if paper.project_id:
+        existing_project_member = db.query(ProjectMember).filter(
+            ProjectMember.project_id == paper.project_id,
+            ProjectMember.user_id == invitee.id
+        ).first()
+
+        if not existing_project_member:
+            # Map paper role to project role (same roles apply)
+            project_role = desired_role.value.lower() if hasattr(desired_role, 'value') else str(desired_role).lower()
+            project_member = ProjectMember(
+                project_id=paper.project_id,
+                user_id=invitee.id,
+                role=project_role,
+                status="invited",
+                invited_by=current_user.id,
+            )
+            db.add(project_member)
+
+    # Create team member invitation for the paper
     team_member = PaperMember(
         paper_id=paper_id,
         user_id=invitee.id,
@@ -74,14 +94,14 @@ async def invite_team_member(
         invited_by=current_user.id,
         invited_at=datetime.utcnow()
     )
-    
+
     db.add(team_member)
     db.commit()
     db.refresh(team_member)
-    
+
     # TODO: Send email invitation in background
     # background_tasks.add_task(send_team_invitation_email, invitee.email, paper.title, current_user.email)
-    
+
     return TeamInviteResponse(
         message=f"Invitation sent to {invitee.email}",
         team_member_id=team_member.id,
