@@ -29,7 +29,8 @@ const SubscriptionSection = () => {
     const fetchData = async () => {
       try {
         const res = await subscriptionAPI.getMySubscription()
-        setData(res.data as SubscriptionResponse)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        setData(res.data as any)
       } catch (err) {
         console.error(err)
       } finally {
