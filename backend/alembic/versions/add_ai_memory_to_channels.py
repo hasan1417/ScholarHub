@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = 'add_ai_memory_001'
-down_revision = None  # Will be set by alembic
+down_revision = 'add_pending_invitations'
 branch_labels = None
 depends_on = None
 
