@@ -788,6 +788,21 @@ class ToolOrchestrator:
 
         lines = []
 
+        # Project info - always include so AI knows the context
+        lines.append("## Project Overview")
+        lines.append(f"**Title:** {project.title or 'Untitled Project'}")
+        if project.idea:
+            # Truncate long descriptions
+            idea_preview = project.idea[:500] + "..." if len(project.idea) > 500 else project.idea
+            lines.append(f"**Description:** {idea_preview}")
+        if project.scope:
+            lines.append(f"**Objectives:** {project.scope}")
+        if project.keywords:
+            lines.append(f"**Keywords:** {project.keywords}")
+        lines.append("")  # Empty line separator
+
+        lines.append("## Available Resources")
+
         # Count project references
         ref_count = self.db.query(ProjectReference).filter(
             ProjectReference.project_id == project.id
@@ -817,7 +832,8 @@ class ToolOrchestrator:
         if resource_count > 0:
             lines.append(f"- Channel resources: {resource_count} attached")
 
-        if not lines:
+        # If no resources at all, add a note
+        if ref_count == 0 and paper_count == 0 and not recent_search_results and resource_count == 0:
             lines.append("- No papers or references loaded yet")
 
         return "\n".join(lines)
