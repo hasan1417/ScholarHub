@@ -265,6 +265,16 @@ const PaperDetail: React.FC = () => {
     return mapping[type] || type
   }
 
+  const getPaperTypeColor = (type: string) => {
+    const normalized = type?.toLowerCase() || ''
+    if (normalized.includes('research')) return 'text-blue-600 dark:text-blue-400'
+    if (normalized.includes('review') || normalized.includes('literature')) return 'text-emerald-600 dark:text-emerald-400'
+    if (normalized.includes('case') || normalized.includes('study')) return 'text-cyan-600 dark:text-cyan-400'
+    if (normalized.includes('methodology')) return 'text-violet-600 dark:text-violet-400'
+    if (normalized.includes('theoretical')) return 'text-purple-600 dark:text-purple-400'
+    if (normalized.includes('experimental')) return 'text-orange-600 dark:text-orange-400'
+    return 'text-gray-600 dark:text-slate-300'
+  }
 
   const keywordDisplay = useMemo(() => {
     if (!paper?.keywords) return []
@@ -524,7 +534,7 @@ const PaperDetail: React.FC = () => {
                   'text-gray-600 dark:text-slate-300'
                 }`}>{paper.status.replace('_', ' ')}</span>
                 <span className="text-gray-300 dark:text-slate-600">•</span>
-                <span>{getPaperTypeLabel(paper.paper_type)}</span>
+                <span className={getPaperTypeColor(paper.paper_type)}>{getPaperTypeLabel(paper.paper_type)}</span>
                 <span className="text-gray-300 dark:text-slate-600">•</span>
                 <span>Last edited {new Date(paper.updated_at).toLocaleDateString()}</span>
               </div>
