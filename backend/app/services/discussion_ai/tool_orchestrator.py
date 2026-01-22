@@ -784,7 +784,7 @@ class ToolOrchestrator:
         recent_search_results: Optional[List[Dict]],
     ) -> str:
         """Build a lightweight summary of available context."""
-        from app.models import ProjectReference, ResearchPaper, ProjectDiscussionChannelResource
+        from app.models import ProjectReference, ResearchPaper, ProjectDiscussionChannelResource, ProjectDiscussionTask
 
         lines = []
 
@@ -800,6 +800,23 @@ class ToolOrchestrator:
         if project.keywords:
             lines.append(f"**Keywords:** {project.keywords}")
         lines.append("")  # Empty line separator
+
+        # Discussion tasks - show open and in-progress tasks
+        active_tasks = self.db.query(ProjectDiscussionTask).filter(
+            ProjectDiscussionTask.project_id == project.id,
+            ProjectDiscussionTask.status.in_(["open", "in_progress"])
+        ).order_by(ProjectDiscussionTask.created_at.desc()).limit(10).all()
+
+        if active_tasks:
+            lines.append("## Active Tasks")
+            for task in active_tasks:
+                status_icon = "🔄" if task.status == "in_progress" else "📋"
+                due_str = f" (due: {task.due_date.strftime('%Y-%m-%d')})" if task.due_date else ""
+                lines.append(f"- {status_icon} **{task.title}**{due_str}")
+                if task.description:
+                    desc_preview = task.description[:100] + "..." if len(task.description) > 100 else task.description
+                    lines.append(f"  {desc_preview}")
+            lines.append("")  # Empty line separator
 
         lines.append("## Available Resources")
 
