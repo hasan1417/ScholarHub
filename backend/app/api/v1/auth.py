@@ -689,9 +689,11 @@ async def google_callback(request: Request, response: Response, db: Session = De
         db.rollback()
         logger.error("Failed to save refresh token after OAuth")
 
-    # Set refresh token cookie
-    set_refresh_cookie(response, refresh_token)
-
     # Redirect to frontend with access token
     redirect_url = f"{settings.FRONTEND_URL}/auth/callback?access_token={access_token}"
-    return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
+    redirect_response = RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
+
+    # Set refresh token cookie on the redirect response
+    set_refresh_cookie(redirect_response, refresh_token)
+
+    return redirect_response
