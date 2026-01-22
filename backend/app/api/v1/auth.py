@@ -111,7 +111,7 @@ class RegisterResponse(BaseModel):
     is_verified: bool = False
     message: str = "Please check your email to verify your account"
     dev_verification_url: Optional[str] = None  # Only in development
-    auto_enrolled_projects: int = 0  # Number of projects user was auto-enrolled in
+    pending_project_invites: int = 0  # Number of project invitations awaiting acceptance
 
 
 @router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
@@ -153,8 +153,8 @@ async def register(request: Request, user_data: UserCreate, db: Session = Depend
         db.rollback()
         raise HTTPException(status_code=503, detail="Database unavailable")
 
-    # Process pending invitations - auto-enroll user in projects they were invited to
-    auto_enrolled_count = 0
+    # Process pending invitations - convert to ProjectMember invitations
+    pending_invite_count = 0
     try:
         pending_invitations = (
             db.query(PendingInvitation)
@@ -163,22 +163,22 @@ async def register(request: Request, user_data: UserCreate, db: Session = Depend
         )
 
         for invitation in pending_invitations:
-            # Create ProjectMember entry
+            # Create ProjectMember entry with "invited" status - user must accept
             membership = ProjectMember(
                 project_id=invitation.project_id,
                 user_id=db_user.id,
                 role=invitation.role,
-                status="accepted",  # Auto-accept since they registered with the invite
+                status="invited",  # User must explicitly accept the invitation
                 invited_by=invitation.invited_by,
             )
             db.add(membership)
-            # Delete the pending invitation
+            # Delete the pending invitation (now converted to ProjectMember)
             db.delete(invitation)
 
         if pending_invitations:
             db.commit()
-            auto_enrolled_count = len(pending_invitations)
-            logger.info(f"Auto-enrolled user {db_user.email} in {auto_enrolled_count} project(s)")
+            pending_invite_count = len(pending_invitations)
+            logger.info(f"Converted {pending_invite_count} pending invitation(s) for {db_user.email}")
     except Exception as e:
         logger.error(f"Failed to process pending invitations for {db_user.email}: {e}")
         # Don't fail registration if invitation processing fails
@@ -201,7 +201,7 @@ async def register(request: Request, user_data: UserCreate, db: Session = Depend
         "last_name": db_user.last_name,
         "is_verified": db_user.is_verified,
         "message": "Please check your email to verify your account",
-        "auto_enrolled_projects": auto_enrolled_count,
+        "pending_project_invites": pending_invite_count,
     }
 
 @router.post("/login", response_model=Token)
