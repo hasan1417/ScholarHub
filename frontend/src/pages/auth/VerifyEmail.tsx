@@ -4,43 +4,42 @@ import { authAPI } from '../../services/api'
 import { Loader2, CheckCircle, XCircle, ArrowLeft, Mail } from 'lucide-react'
 import { Logo } from '../../components/brand/Logo'
 
-type VerificationStatus = 'loading' | 'success' | 'error' | 'no-token'
+type VerificationStatus = 'pending' | 'loading' | 'success' | 'error' | 'no-token'
 
 const VerifyEmail = () => {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const [status, setStatus] = useState<VerificationStatus>('loading')
+  const [status, setStatus] = useState<VerificationStatus>('pending')
   const [errorMessage, setErrorMessage] = useState<string>('')
   const [resendEmail, setResendEmail] = useState('')
   const [resendStatus, setResendStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
+  const token = searchParams.get('token')
 
   useEffect(() => {
-    const verifyToken = async () => {
-      const token = searchParams.get('token')
+    if (!token) {
+      setStatus('no-token')
+    }
+  }, [token])
 
-      if (!token) {
-        setStatus('no-token')
-        return
-      }
+  const handleVerify = async () => {
+    if (!token) return
 
-      try {
-        await authAPI.verifyEmail(token)
-        setStatus('success')
-        // Redirect to login after 3 seconds
-        setTimeout(() => navigate('/login'), 3000)
-      } catch (error: any) {
-        setStatus('error')
-        const detail = error?.response?.data?.detail
-        if (typeof detail === 'string') {
-          setErrorMessage(detail)
-        } else {
-          setErrorMessage('Failed to verify email. The link may be invalid or expired.')
-        }
+    setStatus('loading')
+    try {
+      await authAPI.verifyEmail(token)
+      setStatus('success')
+      // Redirect to login after 3 seconds
+      setTimeout(() => navigate('/login'), 3000)
+    } catch (error: any) {
+      setStatus('error')
+      const detail = error?.response?.data?.detail
+      if (typeof detail === 'string') {
+        setErrorMessage(detail)
+      } else {
+        setErrorMessage('Failed to verify email. The link may be invalid or expired.')
       }
     }
-
-    verifyToken()
-  }, [searchParams, navigate])
+  }
 
   const handleResendVerification = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -57,6 +56,29 @@ const VerifyEmail = () => {
 
   const renderContent = () => {
     switch (status) {
+      case 'pending':
+        return (
+          <>
+            <div className="mb-4">
+              <div className="w-16 h-16 mx-auto rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">
+                <Mail className="w-8 h-8 text-indigo-600 dark:text-indigo-400" />
+              </div>
+            </div>
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+              Verify Your Email
+            </h2>
+            <p className="text-gray-600 dark:text-slate-400 mb-6">
+              Click the button below to verify your email address and activate your account.
+            </p>
+            <button
+              onClick={handleVerify}
+              className="w-full py-3 px-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-semibold rounded-xl transition-all shadow-lg shadow-indigo-500/25"
+            >
+              Verify My Email
+            </button>
+          </>
+        )
+
       case 'loading':
         return (
           <>
