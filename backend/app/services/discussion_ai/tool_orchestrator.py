@@ -1369,7 +1369,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         Parse citations from LaTeX content and link matching references to the paper.
 
         1. Extract \cite{} keys from content
-        2. Match keys to recent_search_results by author/year pattern
+        2. Match keys to recent_search_results AND project library references
         3. Create Reference entries (if not exist)
         4. Add to project library (ProjectReference)
         5. Link to paper (PaperReference)
@@ -1383,8 +1383,36 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         project = ctx["project"]
         recent_search_results = ctx.get("recent_search_results", [])
 
-        if not recent_search_results:
-            return {"linked": 0, "message": "No recent search results to match against"}
+        # Also get references from the project library
+        project_refs = (
+            self.db.query(Reference)
+            .join(ProjectReference, ProjectReference.reference_id == Reference.id)
+            .filter(ProjectReference.project_id == project.id)
+            .all()
+        )
+
+        # Convert project library refs to same format as search results
+        library_papers = []
+        for ref in project_refs:
+            library_papers.append({
+                "title": ref.title,
+                "authors": ref.authors if isinstance(ref.authors, str) else ", ".join(ref.authors or []),
+                "year": ref.year,
+                "doi": ref.doi,
+                "url": ref.url,
+                "source": ref.source,
+                "journal": ref.journal,
+                "abstract": ref.abstract,
+                "is_open_access": ref.is_open_access,
+                "pdf_url": ref.pdf_url,
+                "_reference_id": str(ref.id),  # Track existing ref ID
+            })
+
+        # Combine recent search results with project library
+        all_papers = recent_search_results + library_papers
+
+        if not all_papers:
+            return {"linked": 0, "message": "No references available to match against (no recent search results and no project library references)"}
 
         # Extract all citation keys from \cite{key1, key2} commands
         cite_pattern = r'\\cite\{([^}]+)\}'
@@ -1429,9 +1457,9 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 
             return normalize_for_matching(f"{last_name}{year}{title_word}")
 
-        # Create lookup mapping
+        # Create lookup mapping from all available papers (search results + library)
         paper_lookup = {}
-        for paper in recent_search_results:
+        for paper in all_papers:
             key = get_author_year_key(paper)
             paper_lookup[key] = paper
             # Also add by normalized title for fallback matching
@@ -1464,12 +1492,23 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             if not matched_paper:
                 continue
 
-            # Check if reference already exists by DOI or title
+            # Check if reference already exists
             doi = matched_paper.get("doi")
             title = matched_paper.get("title", "")
 
             existing_ref = None
-            if doi:
+
+            # First check if this came from project library (has _reference_id)
+            if matched_paper.get("_reference_id"):
+                from uuid import UUID as UUIDType
+                try:
+                    ref_uuid = UUIDType(matched_paper["_reference_id"])
+                    existing_ref = self.db.query(Reference).filter(Reference.id == ref_uuid).first()
+                except (ValueError, TypeError):
+                    pass
+
+            # Otherwise check by DOI or title
+            if not existing_ref and doi:
                 existing_ref = self.db.query(Reference).filter(
                     Reference.doi == doi,
                     Reference.owner_id == project.created_by
