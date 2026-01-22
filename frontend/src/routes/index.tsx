@@ -5,6 +5,7 @@ import Layout from '../components/layout/Layout'
 import Landing from '../pages/Landing'
 import OverviewShowcase from '../pages/OverviewShowcase'
 import DesignShowcase from '../pages/DesignShowcase'
+import EditDetailsShowcase from '../pages/EditDetailsShowcase'
 import { authRoutes } from './authRoutes'
 import { referenceRoutes } from './referenceRoutes'
 import { discoveryRoutes } from './discoveryRoutes'
@@ -50,6 +51,10 @@ export const appRouteConfig: RouteObject[] = [
       {
         path: 'design-showcase',
         element: <DesignShowcase />,
+      },
+      {
+        path: 'edit-details-showcase',
+        element: <EditDetailsShowcase />,
       },
       ...referenceRoutes,
       ...discoveryRoutes,
