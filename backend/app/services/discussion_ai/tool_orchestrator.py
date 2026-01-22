@@ -1545,14 +1545,10 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 self.db.add(existing_ref)
                 self.db.flush()
 
-            # Trigger PDF ingestion for new references with pdf_url
-            if is_new_ref and existing_ref.pdf_url:
-                try:
-                    from app.services.reference_ingestion_service import ingest_reference_pdf
-                    ingest_reference_pdf(self.db, existing_ref, owner_id=str(project.created_by))
-                    logger.info("PDF ingestion triggered for reference %s", existing_ref.id)
-                except Exception as e:
-                    logger.warning("Failed to trigger PDF ingestion for reference %s: %s", existing_ref.id, e)
+            # NOTE: PDF ingestion is NOT triggered here to avoid:
+            # 1. Slow paper creation (PDF download + embedding is expensive)
+            # 2. Database session corruption if ingestion fails
+            # Users can ingest PDFs later via the library UI or it happens via background tasks
 
             # Add to project library if not already there
             existing_project_ref = self.db.query(ProjectReference).filter(
