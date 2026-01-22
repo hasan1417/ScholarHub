@@ -144,6 +144,33 @@ DISCUSSION_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "update_project_info",
+            "description": "Update project description and/or objectives. Use when user asks to 'update project description', 'add objective', 'change project goals', 'modify objectives', etc. Objectives are stored as separate items - you can add new ones or replace all.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "description": {
+                        "type": "string",
+                        "description": "New project description (replaces existing). Omit to keep current description unchanged."
+                    },
+                    "objectives": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of objectives. Each objective should be concise (max 150 chars). Example: ['Analyze ML algorithms', 'Compare performance metrics']"
+                    },
+                    "objectives_mode": {
+                        "type": "string",
+                        "enum": ["replace", "append"],
+                        "description": "'replace' = replace all existing objectives with new ones. 'append' = add new objectives to existing ones. Default is 'replace'.",
+                        "default": "replace"
+                    }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_channel_resources",
             "description": "Get papers/references specifically attached to this discussion channel. Use when user mentions 'channel papers' or papers in this specific discussion.",
             "parameters": {
@@ -345,6 +372,7 @@ TOOLS:
 - create_artifact: Create downloadable content (doesn't save to project)
 - get_created_artifacts: Get previously created artifacts (PDFs, documents) in this channel
 - update_paper: Add content to an existing paper
+- update_project_info: Update project description and/or objectives (use for "add objective", "update description", "change goals")
 
 WORKFLOW - Choose based on request clarity:
 
@@ -387,6 +415,10 @@ CRITICAL RULES:
     c) Read full content: get_reference_details for each ingested reference
     d) THEN create paper with deep understanding from full PDF content
     This ensures your paper is based on actual paper content, not just abstracts!
+13. PROJECT OBJECTIVES: Each objective should be concise (max ~150 chars). Use update_project_info with:
+    - objectives_mode="append" to ADD new objectives to existing ones
+    - objectives_mode="replace" to REPLACE all objectives with new ones
+    Example: update_project_info(objectives=["Analyze ML performance", "Compare datasets"], objectives_mode="append")
 
 **WHEN USER CONFIRMS TOPICS OR REQUESTS A SEARCH:**
 - You MUST call the search_papers or batch_search_papers tool!
@@ -612,6 +644,7 @@ class ToolOrchestrator:
             "discover_topics": "Discovering topics",
             "batch_search_papers": "Searching multiple topics",
             "add_to_library": "Adding papers to library & ingesting PDFs",
+            "update_project_info": "Updating project info",
         }
         return tool_messages.get(tool_name, "Processing")
 
@@ -1027,6 +1060,8 @@ class ToolOrchestrator:
                     result = self._tool_batch_search_papers(**args)
                 elif name == "add_to_library":
                     result = self._tool_add_to_library(ctx, **args)
+                elif name == "update_project_info":
+                    result = self._tool_update_project_info(ctx, **args)
                 else:
                     result = {"error": f"Unknown tool: {name}"}
 
@@ -2343,6 +2378,103 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             },
             "next_step": "Use get_reference_details(reference_id) to read the full content of ingested papers before creating your paper." if ingested_count > 0 else "Papers added with abstract only. You can create a paper based on abstracts, but full PDF analysis is not available.",
         }
+
+    def _tool_update_project_info(
+        self,
+        ctx: Dict[str, Any],
+        description: Optional[str] = None,
+        objectives: Optional[List[str]] = None,
+        objectives_mode: str = "replace",
+    ) -> Dict:
+        """
+        Update project description and/or objectives.
+
+        Objectives are stored as newline-separated string in the 'scope' field.
+        Each objective should be concise (max 150 chars recommended).
+        """
+        from app.models import Project
+
+        project = ctx["project"]
+        updated_fields = []
+
+        # Update description if provided
+        if description is not None:
+            # Validate description length
+            if len(description) > 2000:
+                return {
+                    "status": "error",
+                    "message": "Description is too long. Maximum 2000 characters allowed.",
+                }
+            project.idea = description.strip()
+            updated_fields.append("description")
+
+        # Update objectives if provided
+        if objectives is not None:
+            if not isinstance(objectives, list):
+                return {
+                    "status": "error",
+                    "message": "Objectives must be a list of strings.",
+                }
+
+            # Validate each objective
+            validated_objectives = []
+            for i, obj in enumerate(objectives):
+                if not isinstance(obj, str):
+                    continue
+                obj = obj.strip()
+                if not obj:
+                    continue
+                # Truncate if too long (max 150 chars per objective)
+                if len(obj) > 150:
+                    obj = obj[:147] + "..."
+                validated_objectives.append(obj)
+
+            if objectives_mode == "append":
+                # Append to existing objectives
+                existing = project.scope or ""
+                existing_list = [o.strip() for o in existing.split("\n") if o.strip()]
+                # Don't add duplicates
+                for new_obj in validated_objectives:
+                    if new_obj not in existing_list:
+                        existing_list.append(new_obj)
+                project.scope = "\n".join(existing_list)
+            else:
+                # Replace all objectives
+                project.scope = "\n".join(validated_objectives)
+
+            updated_fields.append("objectives")
+
+        if not updated_fields:
+            return {
+                "status": "error",
+                "message": "No fields to update. Provide description and/or objectives.",
+            }
+
+        try:
+            self.db.commit()
+            self.db.refresh(project)
+
+            # Parse current objectives for response
+            current_objectives = [o.strip() for o in (project.scope or "").split("\n") if o.strip()]
+
+            return {
+                "status": "success",
+                "message": f"Updated project {', '.join(updated_fields)}.",
+                "updated_fields": updated_fields,
+                "current_state": {
+                    "title": project.title,
+                    "description": project.idea,
+                    "objectives": current_objectives,
+                    "objectives_count": len(current_objectives),
+                }
+            }
+        except Exception as e:
+            self.db.rollback()
+            logger.exception("Error updating project info")
+            return {
+                "status": "error",
+                "message": f"Failed to update project: {str(e)}",
+            }
 
     def _extract_actions(
         self,
