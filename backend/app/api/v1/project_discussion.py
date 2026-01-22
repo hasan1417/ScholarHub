@@ -72,6 +72,7 @@ from app.core.config import settings
 from app.services.ai_service import AIService
 from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
 from app.services.websocket_manager import connection_manager
+from app.services.subscription_service import SubscriptionService
 
 router = APIRouter()
 
@@ -1147,6 +1148,22 @@ def invoke_discussion_assistant(
     ensure_project_member(db, project, current_user)
     channel = _get_channel_or_404(db, project, channel_id)
 
+    # Check subscription limit for discussion AI calls
+    allowed, current, limit = SubscriptionService.check_feature_limit(
+        db, current_user.id, "discussion_ai_calls"
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "error": "limit_exceeded",
+                "feature": "discussion_ai_calls",
+                "current": current,
+                "limit": limit,
+                "message": f"You have reached your AI assistant limit ({current}/{limit} calls this month). Upgrade to Pro for more AI calls.",
+            },
+        )
+
     display_name = _display_name_for_user(current_user)
     author_info = {
         "id": str(current_user.id),
@@ -1287,6 +1304,14 @@ def invoke_discussion_assistant(
 
                     yield "data: " + json.dumps({"type": "result", "payload": payload_dict}) + "\n\n"
 
+                    # Increment usage counter after successful AI call (streaming)
+                    try:
+                        streaming_db = SessionLocal()
+                        SubscriptionService.increment_usage(streaming_db, current_user.id, "discussion_ai_calls")
+                        streaming_db.close()
+                    except Exception:
+                        pass  # Don't fail the stream if usage tracking fails
+
             except Exception as exc:
                 logger.exception("Tool-based assistant stream failed", exc_info=exc)
                 yield "data: " + json.dumps({"type": "error", "message": "Assistant stream failed"}) + "\n\n"
@@ -1373,6 +1398,9 @@ def invoke_discussion_assistant(
         "assistant_reply",
         {"exchange": exchange_payload},
     )
+
+    # Increment usage counter after successful AI call
+    SubscriptionService.increment_usage(db, current_user.id, "discussion_ai_calls")
 
     return response_model
 

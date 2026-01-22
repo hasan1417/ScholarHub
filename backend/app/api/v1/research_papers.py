@@ -29,6 +29,7 @@ from app.services.reference_ingestion_service import ingest_reference_pdf
 from app.services.paper_membership_service import ensure_paper_membership_for_project_member
 import traceback
 from app.services.activity_feed import record_project_activity, preview_text
+from app.services.subscription_service import SubscriptionService
 
 # Security logging
 logger = logging.getLogger(__name__)
@@ -112,6 +113,22 @@ async def create_research_paper(
                 raise HTTPException(status_code=403, detail="Project access denied")
         if not objectives:
             raise HTTPException(status_code=400, detail="Please select or create at least one project objective for this paper.")
+
+        # Check subscription limit for papers per project
+        allowed, current, limit = SubscriptionService.check_resource_limit(
+            db, current_user.id, "papers_per_project", project_id=paper_data.project_id
+        )
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail={
+                    "error": "limit_exceeded",
+                    "feature": "papers_per_project",
+                    "current": current,
+                    "limit": limit,
+                    "message": f"You have reached your paper limit ({current}/{limit}) for this project. Upgrade to Pro for more papers per project.",
+                },
+            )
 
     paper_data.objectives = objectives or None
 

@@ -1,14 +1,11 @@
 import React, { useState } from 'react'
 import {
   ArrowLeft,
-  Check,
   ChevronDown,
   Eye,
-  EyeOff,
   FileText,
   Globe,
   Lock,
-  MoreHorizontal,
   Pencil,
   Save,
   Settings,

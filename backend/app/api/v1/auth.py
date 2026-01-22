@@ -7,6 +7,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from authlib.integrations.starlette_client import OAuth
 from app.database import get_db
 from app.models.user import User
+from app.models.pending_invitation import PendingInvitation
+from app.models.project_member import ProjectMember
 from app.schemas.user import (
     UserCreate,
     Token,
@@ -109,6 +111,7 @@ class RegisterResponse(BaseModel):
     is_verified: bool = False
     message: str = "Please check your email to verify your account"
     dev_verification_url: Optional[str] = None  # Only in development
+    auto_enrolled_projects: int = 0  # Number of projects user was auto-enrolled in
 
 
 @router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
@@ -149,6 +152,36 @@ async def register(request: Request, user_data: UserCreate, db: Session = Depend
         db.rollback()
         raise HTTPException(status_code=503, detail="Database unavailable")
 
+    # Process pending invitations - auto-enroll user in projects they were invited to
+    auto_enrolled_count = 0
+    try:
+        pending_invitations = (
+            db.query(PendingInvitation)
+            .filter(PendingInvitation.email == user_data.email.lower())
+            .all()
+        )
+
+        for invitation in pending_invitations:
+            # Create ProjectMember entry
+            membership = ProjectMember(
+                project_id=invitation.project_id,
+                user_id=db_user.id,
+                role=invitation.role,
+                status="accepted",  # Auto-accept since they registered with the invite
+                invited_by=invitation.invited_by,
+            )
+            db.add(membership)
+            # Delete the pending invitation
+            db.delete(invitation)
+
+        if pending_invitations:
+            db.commit()
+            auto_enrolled_count = len(pending_invitations)
+            logger.info(f"Auto-enrolled user {db_user.email} in {auto_enrolled_count} project(s)")
+    except Exception as e:
+        logger.error(f"Failed to process pending invitations for {db_user.email}: {e}")
+        # Don't fail registration if invitation processing fails
+
     # Send verification email (non-blocking - don't fail registration if email fails)
     try:
         send_verification_email(
@@ -167,6 +200,7 @@ async def register(request: Request, user_data: UserCreate, db: Session = Depend
         "last_name": db_user.last_name,
         "is_verified": db_user.is_verified,
         "message": "Please check your email to verify your account",
+        "auto_enrolled_projects": auto_enrolled_count,
     }
 
 @router.post("/login", response_model=Token)

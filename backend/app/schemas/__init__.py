@@ -30,6 +30,12 @@ from .snapshot import (
     SnapshotResponse, SnapshotDetailResponse, SnapshotListResponse,
     DiffLine, DiffStats, SnapshotDiffResponse, SnapshotRestoreResponse
 )
+from .pending_invitation import (
+    PendingInvitationCreate,
+    PendingInvitationResponse,
+    ProjectInviteRequest,
+    ProjectInviteResponse,
+)
 
 __all__ = [
     "UserCreate",
@@ -95,4 +101,9 @@ __all__ = [
     "DiffStats",
     "SnapshotDiffResponse",
     "SnapshotRestoreResponse",
+    # Pending Invitation Schemas
+    "PendingInvitationCreate",
+    "PendingInvitationResponse",
+    "ProjectInviteRequest",
+    "ProjectInviteResponse",
 ]

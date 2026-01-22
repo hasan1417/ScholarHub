@@ -24,6 +24,7 @@ from app.services.paper_discovery_service import PaperDiscoveryService, Discover
 from app.services.literature_review_service import LiteratureReviewService, LiteratureReview
 from app.services.university_proxy_access import UniversityProxyService
 from app.services.enhanced_paper_access import EnhancedPaperAccessService
+from app.services.subscription_service import SubscriptionService
 
 logger = logging.getLogger(__name__)
 
@@ -306,6 +307,22 @@ async def discover_papers(
     """
     Discover research papers using multiple academic sources and AI-powered relevance ranking
     """
+    # Check subscription limit for paper discovery searches
+    allowed, current, limit = SubscriptionService.check_feature_limit(
+        db, current_user.id, "paper_discovery_searches"
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "error": "limit_exceeded",
+                "feature": "paper_discovery_searches",
+                "current": current,
+                "limit": limit,
+                "message": f"You have reached your paper discovery limit ({current}/{limit} searches this month). Upgrade to Pro for more searches.",
+            },
+        )
+
     try:
         req_start = time.time()
         logger.info(f"Paper discovery request from user {current_user.id}: '{request.query}'")
@@ -457,7 +474,10 @@ async def discover_papers(
         
         elapsed = time.time() - req_start
         logger.info(f"Discovery completed: {len(paper_responses)} papers found in {elapsed:.2f}s")
-        
+
+        # Increment usage counter after successful discovery
+        SubscriptionService.increment_usage(db, current_user.id, "paper_discovery_searches")
+
         return PaperDiscoveryResponse(
             papers=paper_responses,
             total_found=len(paper_responses),
@@ -682,6 +702,22 @@ async def discover_papers_stream(
     This endpoint delegates to the orchestrated PaperDiscoveryService to ensure
     consistent source filtering and ranking.
     """
+    # Check subscription limit for paper discovery searches
+    allowed, current, limit = SubscriptionService.check_feature_limit(
+        db, current_user.id, "paper_discovery_searches"
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "error": "limit_exceeded",
+                "feature": "paper_discovery_searches",
+                "current": current,
+                "limit": limit,
+                "message": f"You have reached your paper discovery limit ({current}/{limit} searches this month). Upgrade to Pro for more searches.",
+            },
+        )
+
     async def event_stream():
         start_ts = time.time()
         try:
@@ -722,6 +758,15 @@ async def discover_papers_stream(
 
                 payload = {'type': 'final', 'papers': batch, 'total': len(batch), 'search_time': time.time() - start_ts}
                 yield f"data: {json.dumps(payload)}\n\n"
+
+                # Increment usage counter after successful discovery (streaming)
+                try:
+                    from app.database import SessionLocal
+                    streaming_db = SessionLocal()
+                    SubscriptionService.increment_usage(streaming_db, current_user.id, "paper_discovery_searches")
+                    streaming_db.close()
+                except Exception:
+                    pass  # Don't fail the stream if usage tracking fails
 
         except asyncio.TimeoutError:
             yield f"data: {json.dumps({'type': 'done', 'total': 0, 'timeout': True})}\n\n"

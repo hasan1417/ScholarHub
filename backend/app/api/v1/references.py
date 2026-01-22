@@ -13,6 +13,7 @@ from app.models import ProjectReference, ProjectMember, ProjectRole, Project
 from app.services.document_service import DocumentService
 from app.services.document_processing_service import DocumentProcessingService
 from app.services.reference_ingestion_service import ingest_reference_pdf
+from app.services.subscription_service import SubscriptionService
 from pydantic import BaseModel
 from app.schemas.reference import ReferenceResponse, ReferenceList
 import aiohttp
@@ -154,6 +155,22 @@ async def create_reference(
     db: Session = Depends(get_db),
     background_tasks: BackgroundTasks = None,
 ):
+    # Check subscription limit for total references
+    allowed, current, limit = SubscriptionService.check_resource_limit(
+        db, current_user.id, "references_total"
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "error": "limit_exceeded",
+                "feature": "references_total",
+                "current": current,
+                "limit": limit,
+                "message": f"You have reached your reference library limit ({current}/{limit}). Upgrade to Pro for more references.",
+            },
+        )
+
     try:
         _ensure_references_schema(db)
         # Prevent duplicates in the target scope (paper-specific or user library)

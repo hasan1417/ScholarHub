@@ -472,7 +472,7 @@ const ProjectOverview = () => {
           <div className="mt-5 space-y-5">
             {/* Description */}
             <div>
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">Description</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400">Description</h3>
               <p className="mt-2 text-sm text-gray-700 dark:text-slate-300 whitespace-pre-line leading-relaxed">
                 {descriptionText || <span className="text-gray-400 dark:text-slate-500 italic">No description captured yet.</span>}
               </p>
@@ -481,7 +481,7 @@ const ProjectOverview = () => {
             {/* Objectives with progress tracking */}
             <div>
               <div className="flex items-center justify-between">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">Objectives</h3>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400">Objectives</h3>
                 {objectivesList.length > 0 && (
                   <div className="flex items-center gap-2">
                     <div className="w-20 h-1.5 bg-gray-200 dark:bg-slate-700 rounded-full overflow-hidden">
@@ -547,7 +547,7 @@ const ProjectOverview = () => {
             {/* Keywords */}
             {project.keywords && project.keywords.length > 0 && (
               <div>
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">Keywords</h3>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400">Keywords</h3>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {project.keywords.map((keyword) => (
                     <span

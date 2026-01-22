@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
-import { usersAPI } from '../../services/api'
+import { usersAPI, subscriptionAPI } from '../../services/api'
 import {
   User,
   Mail,
@@ -41,6 +41,20 @@ const EditProfile = () => {
   const [showCurrentPassword, setShowCurrentPassword] = useState(false)
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [subscriptionTier, setSubscriptionTier] = useState<string>('free')
+
+  // Fetch subscription tier
+  useEffect(() => {
+    const fetchSubscription = async () => {
+      try {
+        const res = await subscriptionAPI.getMySubscription()
+        setSubscriptionTier(res.data?.subscription?.tier_id || 'free')
+      } catch {
+        setSubscriptionTier('free')
+      }
+    }
+    fetchSubscription()
+  }, [])
 
   useEffect(() => {
     if (user) {
@@ -622,7 +636,9 @@ const EditProfile = () => {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-indigo-100">Account type</span>
-                <span className="text-sm font-medium">Standard</span>
+                <span className={`text-sm font-medium ${subscriptionTier === 'pro' ? 'text-amber-300' : ''}`}>
+                  {subscriptionTier === 'pro' ? 'Pro' : 'Free'}
+                </span>
               </div>
             </div>
           </div>

@@ -24,6 +24,15 @@ export default {
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
       },
+      keyframes: {
+        gleam: {
+          '0%': { transform: 'translateX(-100%)' },
+          '50%, 100%': { transform: 'translateX(100%)' },
+        },
+      },
+      animation: {
+        gleam: 'gleam 3s ease-in-out infinite',
+      },
     },
   },
   plugins: [

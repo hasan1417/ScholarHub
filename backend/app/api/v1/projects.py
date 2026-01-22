@@ -11,8 +11,15 @@ from datetime import datetime
 
 from app.api.deps import get_current_user
 from app.database import get_db
-from app.models import Project, ProjectMember, ProjectRole, User, ResearchPaper, ProjectReference
+from app.models import Project, ProjectMember, ProjectRole, User, ResearchPaper, ProjectReference, PendingInvitation
 from app.services.activity_feed import record_project_activity, preview_text
+from app.services.subscription_service import SubscriptionService
+from app.services.email_service import send_project_invitation_email
+from app.schemas.pending_invitation import (
+    PendingInvitationResponse,
+    ProjectInviteRequest,
+    ProjectInviteResponse,
+)
 from app.schemas.project import (
     ProjectCreate,
     ProjectDetail,
@@ -85,6 +92,22 @@ def create_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # Check subscription limit for projects
+    allowed, current, limit = SubscriptionService.check_resource_limit(
+        db, current_user.id, "projects"
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "error": "limit_exceeded",
+                "feature": "projects",
+                "current": current,
+                "limit": limit,
+                "message": f"You have reached your project limit ({current}/{limit}). Upgrade to Pro for more projects.",
+            },
+        )
+
     project = Project(
         title=payload.title,
         idea=payload.idea,
@@ -302,6 +325,22 @@ def add_project_member(
     project = _get_project(db, project_id)
     _ensure_project_manager(db, project, current_user)
 
+    # Check subscription limit for collaborators per project
+    allowed, current, limit = SubscriptionService.check_resource_limit(
+        db, current_user.id, "collaborators_per_project", project_id=project.id
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "error": "limit_exceeded",
+                "feature": "collaborators_per_project",
+                "current": current,
+                "limit": limit,
+                "message": f"You have reached your collaborator limit ({current}/{limit}) for this project. Upgrade to Pro for more collaborators.",
+            },
+        )
+
     # Get invited user info for activity recording
     invited_user = db.query(User).filter(User.id == payload.user_id).first()
 
@@ -342,6 +381,231 @@ def add_project_member(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Member already exists") from exc
     db.refresh(membership)
     return ProjectMemberResponse.model_validate(membership, from_attributes=True)
+
+
+@router.post("/{project_id}/invite", response_model=ProjectInviteResponse, status_code=status.HTTP_201_CREATED)
+def invite_user_to_project(
+    project_id: UUID,
+    payload: ProjectInviteRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Invite a user to a project by email.
+
+    If the user exists (is registered), create a ProjectMember invitation.
+    If the user doesn't exist, create a PendingInvitation that will be fulfilled
+    when they register.
+    """
+    project = _get_project(db, project_id)
+    _ensure_project_manager(db, project, current_user)
+
+    # Check subscription limit for collaborators per project
+    allowed, current, limit = SubscriptionService.check_resource_limit(
+        db, current_user.id, "collaborators_per_project", project_id=project.id
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "error": "limit_exceeded",
+                "feature": "collaborators_per_project",
+                "current": current,
+                "limit": limit,
+                "message": f"You have reached your collaborator limit ({current}/{limit}) for this project. Upgrade to Pro for more collaborators.",
+            },
+        )
+
+    # Check if user is already a member or has a pending invitation
+    email_lower = payload.email.lower()
+
+    # Look up user by email
+    existing_user = db.query(User).filter(User.email == email_lower).first()
+
+    if existing_user:
+        # Check if already a member
+        existing_membership = (
+            db.query(ProjectMember)
+            .filter(
+                ProjectMember.project_id == project.id,
+                ProjectMember.user_id == existing_user.id,
+            )
+            .first()
+        )
+        if existing_membership:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User is already a member of this project"
+            )
+
+        # Create ProjectMember invitation
+        membership = ProjectMember(
+            project_id=project.id,
+            user_id=existing_user.id,
+            role=payload.role,
+            status="invited",
+            invited_by=current_user.id,
+        )
+        db.add(membership)
+
+        # Record activity
+        invited_user_name = None
+        parts = [p.strip() for p in [existing_user.first_name or "", existing_user.last_name or ""] if p]
+        invited_user_name = " ".join(parts) if parts else existing_user.email
+
+        record_project_activity(
+            db=db,
+            project=project,
+            actor=current_user,
+            event_type="member.invited",
+            payload={
+                "category": "member",
+                "action": "invited",
+                "invited_user_id": str(existing_user.id),
+                "invited_user_name": invited_user_name,
+                "invited_user_email": existing_user.email,
+                "role": payload.role.value,
+            },
+        )
+
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Member already exists") from exc
+        db.refresh(membership)
+
+        # Send invitation email to registered user
+        inviter_name = " ".join(filter(None, [current_user.first_name, current_user.last_name])) or current_user.email
+        try:
+            send_project_invitation_email(
+                to=existing_user.email,
+                project_title=project.title,
+                inviter_name=inviter_name,
+                role=payload.role.value,
+                is_registered=True,
+            )
+        except Exception:
+            pass  # Don't fail the invitation if email fails
+
+        return ProjectInviteResponse(
+            success=True,
+            message=f"Invitation sent to {existing_user.email}",
+            user_exists=True,
+            member_id=membership.id,
+        )
+    else:
+        # User doesn't exist - check for existing pending invitation
+        existing_pending = (
+            db.query(PendingInvitation)
+            .filter(
+                PendingInvitation.project_id == project.id,
+                PendingInvitation.email == email_lower,
+            )
+            .first()
+        )
+        if existing_pending:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="An invitation has already been sent to this email"
+            )
+
+        # Create PendingInvitation
+        pending_invitation = PendingInvitation(
+            email=email_lower,
+            project_id=project.id,
+            role=payload.role.value,
+            invited_by=current_user.id,
+        )
+        db.add(pending_invitation)
+
+        # Record activity for pending invitation
+        record_project_activity(
+            db=db,
+            project=project,
+            actor=current_user,
+            event_type="member.invited_pending",
+            payload={
+                "category": "member",
+                "action": "invited_pending",
+                "invited_email": email_lower,
+                "role": payload.role.value,
+                "message": "User is not registered yet. They will be added when they sign up.",
+            },
+        )
+
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invitation already exists") from exc
+        db.refresh(pending_invitation)
+
+        # Send invitation email to unregistered user
+        inviter_name = " ".join(filter(None, [current_user.first_name, current_user.last_name])) or current_user.email
+        try:
+            send_project_invitation_email(
+                to=email_lower,
+                project_title=project.title,
+                inviter_name=inviter_name,
+                role=payload.role.value,
+                is_registered=False,
+            )
+        except Exception:
+            pass  # Don't fail the invitation if email fails
+
+        return ProjectInviteResponse(
+            success=True,
+            message=f"Invitation created for {email_lower}. They will be added to the project when they register.",
+            user_exists=False,
+            pending_invitation_id=pending_invitation.id,
+        )
+
+
+@router.get("/{project_id}/pending-invitations", response_model=List[PendingInvitationResponse])
+def get_pending_invitations(
+    project_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get all pending invitations for unregistered users for this project."""
+    project = _get_project(db, project_id)
+    _ensure_project_manager(db, project, current_user)
+
+    pending = (
+        db.query(PendingInvitation)
+        .filter(PendingInvitation.project_id == project.id)
+        .order_by(PendingInvitation.created_at.desc())
+        .all()
+    )
+    return [PendingInvitationResponse.model_validate(p, from_attributes=True) for p in pending]
+
+
+@router.delete("/{project_id}/pending-invitations/{invitation_id}", status_code=status.HTTP_204_NO_CONTENT)
+def cancel_pending_invitation(
+    project_id: UUID,
+    invitation_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Cancel a pending invitation for an unregistered user."""
+    project = _get_project(db, project_id)
+    _ensure_project_manager(db, project, current_user)
+
+    pending = (
+        db.query(PendingInvitation)
+        .filter(
+            PendingInvitation.id == invitation_id,
+            PendingInvitation.project_id == project.id,
+        )
+        .first()
+    )
+    if not pending:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pending invitation not found")
+
+    db.delete(pending)
+    db.commit()
+    return None
 
 
 @router.patch("/{project_id}/members/{member_id}", response_model=ProjectMemberResponse)

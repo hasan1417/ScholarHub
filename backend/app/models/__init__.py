@@ -63,6 +63,7 @@ from .subscription import (
     UserSubscription,
     UsageTracking,
 )
+from .pending_invitation import PendingInvitation
 
 __all__ = [
     "User",
@@ -125,4 +126,5 @@ __all__ = [
     "SubscriptionTier",
     "UserSubscription",
     "UsageTracking",
+    "PendingInvitation",
 ]

@@ -1,18 +1,38 @@
 import { Outlet, useNavigate, Link, useLocation } from 'react-router-dom'
-import { useMemo, useState } from 'react'
-import { FolderKanban, UserCircle, Settings as SettingsIcon, Sun, Moon, ChevronRight, Palette } from 'lucide-react'
+import { useMemo, useState, useEffect } from 'react'
+import { FolderKanban, UserCircle, Settings as SettingsIcon, Sun, Moon, ChevronRight, Palette, Sparkles } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import SettingsModal from '../settings/SettingsModal'
 import { useThemePreference } from '../../hooks/useThemePreference'
 import { Logo } from '../brand/Logo'
+import { UpgradeModal, SubscriptionSection } from '../subscription'
+import { subscriptionAPI } from '../../services/api'
 
 const Layout = () => {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isFreeTier, setIsFreeTier] = useState(false)
+  const [tierLoaded, setTierLoaded] = useState(false)
 
   const { theme, setTheme } = useThemePreference()
+
+  // Check subscription tier
+  useEffect(() => {
+    const checkTier = async () => {
+      try {
+        const res = await subscriptionAPI.getMySubscription()
+        const tier = res.data?.subscription?.tier_id || 'free'
+        setIsFreeTier(tier === 'free')
+      } catch {
+        setIsFreeTier(true)
+      } finally {
+        setTierLoaded(true)
+      }
+    }
+    checkTier()
+  }, [])
 
   const handleLogout = () => {
     setIsSettingsOpen(false)
@@ -94,6 +114,9 @@ const Layout = () => {
           </button>
         </div>
       </div>
+
+      {/* Subscription Section */}
+      <SubscriptionSection />
     </div>
   ), [theme, user, setIsSettingsOpen])
 
@@ -105,6 +128,18 @@ const Layout = () => {
             <Logo textClassName="text-lg font-semibold" />
           </Link>
           <div className="flex items-center space-x-2">
+            {/* Upgrade button for free tier users */}
+            {tierLoaded && isFreeTier && (
+              <Link
+                to="/pricing"
+                className="group relative mr-3 hidden sm:inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all hover:from-amber-600 hover:to-orange-600 hover:shadow-md overflow-hidden"
+              >
+                {/* Gleam animation */}
+                <span className="absolute inset-0 animate-gleam bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+                <Sparkles className="h-3.5 w-3.5 relative z-10" />
+                <span className="relative z-10">Upgrade</span>
+              </Link>
+            )}
             {navItems.map(({ to, label, icon: Icon, isActive }) => (
               <Link
                 key={label}
@@ -142,6 +177,9 @@ const Layout = () => {
       >
         {settingsContent}
       </SettingsModal>
+
+      {/* Global upgrade modal - listens for limit-exceeded events */}
+      <UpgradeModal />
     </div>
   )
 }

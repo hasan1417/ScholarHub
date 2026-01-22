@@ -239,6 +239,17 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = (error?.config || {}) as RetryableRequest
 
+    // Handle subscription limit exceeded errors (402 Payment Required)
+    if (error?.response?.status === 402 && error?.response?.data?.error === 'limit_exceeded') {
+      // Dispatch custom event for UpgradeModal to catch
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('limit-exceeded', {
+          detail: error.response.data
+        }))
+      }
+      return Promise.reject(error)
+    }
+
     // Skip token refresh for auth endpoints (login, register, etc.)
     const authEndpoints = ['/login', '/register', '/forgot-password', '/reset-password', '/verify-email']
     const requestUrl = originalRequest.url || ''
@@ -378,6 +389,29 @@ export const projectsAPI = {
 
   addMember: (projectId: string, payload: { user_id: string; role: string }) =>
     api.post(`/projects/${projectId}/members`, payload),
+
+  inviteByEmail: (projectId: string, payload: { email: string; role: string }) =>
+    api.post<{
+      success: boolean;
+      message: string;
+      user_exists: boolean;
+      member_id?: string;
+      pending_invitation_id?: string;
+    }>(`/projects/${projectId}/invite`, payload),
+
+  getPendingInvitations: (projectId: string) =>
+    api.get<Array<{
+      id: string;
+      email: string;
+      project_id: string;
+      role: string;
+      invited_by?: string;
+      created_at: string;
+      expires_at?: string;
+    }>>(`/projects/${projectId}/pending-invitations`),
+
+  cancelPendingInvitation: (projectId: string, invitationId: string) =>
+    api.delete(`/projects/${projectId}/pending-invitations/${invitationId}`),
 
   updateMember: (projectId: string, memberId: string, payload: { role: string }) =>
     api.patch(`/projects/${projectId}/members/${memberId}`, payload),

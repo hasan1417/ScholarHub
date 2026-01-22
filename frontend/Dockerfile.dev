@@ -7,7 +7,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install ALL dependencies (including dev)
-RUN npm ci
+RUN npm install --legacy-peer-deps
 
 # Expose port for vite dev server
 EXPOSE 3000

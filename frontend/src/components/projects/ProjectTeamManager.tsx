@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 
 import { useProjectContext } from '../../pages/projects/ProjectLayout'
 import { useAuth } from '../../contexts/AuthContext'
-import { projectsAPI, usersAPI } from '../../services/api'
+import { projectsAPI } from '../../services/api'
 import TeamInviteModal from '../team/TeamInviteModal'
 
 type RoleOption = 'admin' | 'editor' | 'viewer'
@@ -112,23 +112,15 @@ const ProjectTeamManager: React.FC = () => {
 
     try {
       setGlobalError(null)
-      const lookup = await usersAPI.lookupByEmail(email)
-      const lookupData = lookup.data as { id?: string; user_id?: string; userId?: string } | null
-      const targetId: string = lookupData?.id || lookupData?.user_id || lookupData?.userId || ''
-      if (!targetId) {
-        throw new Error('Lookup response missing user id')
-      }
+      console.debug('Inviting project member by email', { projectId: project.id, email, role: normalized })
 
-      const uuidPattern = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
-      if (!uuidPattern.test(targetId)) {
-        throw new Error('Invitee must have a registered account before joining this project.')
-      }
-
-      console.debug('Inviting project member', { projectId: project.id, userId: targetId, role: normalized })
-      await projectsAPI.addMember(project.id, {
-        user_id: targetId,
+      // Use the new inviteByEmail endpoint that handles both registered and unregistered users
+      const response = await projectsAPI.inviteByEmail(project.id, {
+        email: email.trim(),
         role: normalized,
       })
+
+      console.debug('Invite response:', response.data)
       await invalidateProject()
     } catch (error: any) {
       const detail = error?.response?.data?.detail

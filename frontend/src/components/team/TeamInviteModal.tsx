@@ -72,8 +72,12 @@ const TeamInviteModal: React.FC<TeamInviteModalProps> = ({
         setError('No account found for this email. Ask the user to register, then try again.')
       } else if (detail === 'Not authorized to invite team members') {
         setError('You do not have permission to invite members for this paper.')
-      } else if (detail === 'User is already a team member') {
-        setError('This user is already a member of the paper.')
+      } else if (detail === 'User is already a team member' || detail === 'User is already a member of this project') {
+        setError('This user is already a member of the project.')
+      } else if (detail === 'An invitation has already been sent to this email') {
+        setError('An invitation has already been sent to this email.')
+      } else if (detail === 'Member already exists' || detail === 'Invitation already exists') {
+        setError('This person has already been invited.')
       } else if (detail === 'Invalid role for invitation') {
         setError('Select a valid role: Admin, Editor, or Viewer.')
       } else {
@@ -162,12 +166,12 @@ const TeamInviteModal: React.FC<TeamInviteModalProps> = ({
                   <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs">
                     {lookupStatus === 'checking' && <span className="text-gray-400 dark:text-slate-400">Checking...</span>}
                     {lookupStatus === 'found' && <span className="text-green-600 dark:text-emerald-300">User found</span>}
-                    {lookupStatus === 'not_found' && <span className="text-yellow-600 dark:text-amber-300">No account</span>}
+                    {lookupStatus === 'not_found' && <span className="text-blue-600 dark:text-blue-400">Will invite</span>}
                   </div>
                 )}
               </div>
               {lookupStatus === 'not_found' && (
-                <p className="mt-1 text-xs text-yellow-700 dark:text-amber-300">This email is not registered. Ask them to sign up, then try again.</p>
+                <p className="mt-1 text-xs text-blue-600 dark:text-blue-400">This email is not registered. They'll receive an invite and will be auto-enrolled when they sign up.</p>
               )}
             </div>
 
@@ -226,10 +230,10 @@ const TeamInviteModal: React.FC<TeamInviteModalProps> = ({
               </button>
               <button
                 type="submit"
-                disabled={isLoading || !email.trim() || lookupStatus === 'not_found'}
+                disabled={isLoading || !email.trim()}
                 className="flex-1 rounded-md bg-blue-600 px-4 py-2 text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-400"
               >
-                {isLoading ? 'Sending...' : 'Send Invitation'}
+                {isLoading ? 'Sending...' : lookupStatus === 'not_found' ? 'Send Invite Link' : 'Send Invitation'}
               </button>
             </div>
           </form>

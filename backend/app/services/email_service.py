@@ -301,3 +301,93 @@ def send_welcome_email(to: str, name: Optional[str] = None) -> bool:
     """
 
     return _send_email(to, "Welcome to ScholarHub!", html)
+
+
+def send_project_invitation_email(
+    to: str,
+    project_title: str,
+    inviter_name: str,
+    role: str,
+    is_registered: bool = False
+) -> bool:
+    """
+    Send project invitation email.
+    For unregistered users, includes a link to register.
+    For registered users, includes a link to the project.
+    """
+    if is_registered:
+        # Registered user - link to projects
+        action_url = f"{settings.FRONTEND_URL}/projects"
+        action_text = "View Project"
+        message = f"You've been invited to join <strong>{project_title}</strong> as a <strong>{role}</strong>."
+        sub_message = "Log in to ScholarHub to accept the invitation and start collaborating."
+    else:
+        # Unregistered user - link to register
+        action_url = f"{settings.FRONTEND_URL}/register"
+        action_text = "Create Account"
+        message = f"You've been invited to join <strong>{project_title}</strong> as a <strong>{role}</strong>."
+        sub_message = "Create a ScholarHub account to accept this invitation. You'll be automatically added to the project once you register with this email address."
+
+    # In development, log the invitation
+    if settings.ENVIRONMENT == "development":
+        logger.info("=" * 60)
+        logger.info(f"[DEV] PROJECT INVITATION for {to}")
+        logger.info(f"[DEV] Project: {project_title}, Role: {role}")
+        logger.info(f"[DEV] Registered: {is_registered}")
+        logger.info(f"[DEV] Action URL: {action_url}")
+        logger.info("=" * 60)
+
+    logo_b64 = _get_logo_base64()
+    logo_img = f'<img src="data:image/gif;base64,{logo_b64}" alt="ScholarHub" width="40" height="40" style="vertical-align: middle;" />' if logo_b64 else ''
+
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    </head>
+    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #1e293b; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); padding: 32px; border-radius: 16px 16px 0 0; text-align: center;">
+            <h1 style="color: white; margin: 0; font-size: 28px; font-weight: 700;">
+                {logo_img}
+                <span style="vertical-align: middle; margin-left: 2px;">ScholarHub</span>
+            </h1>
+            <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">Your Research Collaboration Platform</p>
+        </div>
+
+        <div style="background: #ffffff; padding: 32px; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 16px 16px;">
+            <h2 style="color: #1e293b; margin-top: 0;">You're invited to collaborate!</h2>
+
+            <p>Hi there,</p>
+
+            <p><strong>{inviter_name}</strong> has invited you to collaborate on a research project.</p>
+
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin: 24px 0;">
+                <p style="margin: 0 0 8px 0; color: #64748b; font-size: 14px;">PROJECT</p>
+                <p style="margin: 0 0 16px 0; font-size: 18px; font-weight: 600; color: #1e293b;">{project_title}</p>
+                <p style="margin: 0 0 8px 0; color: #64748b; font-size: 14px;">YOUR ROLE</p>
+                <p style="margin: 0; font-size: 16px; color: #6366f1; font-weight: 500;">{role.title()}</p>
+            </div>
+
+            <p>{message}</p>
+            <p style="color: #64748b;">{sub_message}</p>
+
+            <div style="text-align: center; margin: 32px 0;">
+                <a href="{action_url}" style="display: inline-block; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 16px;">
+                    {action_text}
+                </a>
+            </div>
+
+            <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;">
+
+            <p style="color: #94a3b8; font-size: 12px; margin-bottom: 0;">
+                If you weren't expecting this invitation, you can safely ignore this email.
+            </p>
+        </div>
+    </body>
+    </html>
+    """
+
+    subject = f"You're invited to join {project_title} on ScholarHub"
+    return _send_email(to, subject, html)
