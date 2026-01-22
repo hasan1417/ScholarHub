@@ -38,7 +38,7 @@ class Settings(BaseSettings):
 
     # Resend Email (production)
     RESEND_API_KEY: Optional[str] = None
-    RESEND_FROM_EMAIL: str = "noreply@scholarhub.app"
+    RESEND_FROM_EMAIL: str = "noreply@scholarhub.space"
 
     # SMTP Email (development - Mailtrap)
     SMTP_HOST: Optional[str] = None
