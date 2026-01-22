@@ -303,6 +303,29 @@ DISCUSSION_TOOLS = [
                 "required": ["topics"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_to_library",
+            "description": "Add papers from recent search results to the project library AND ingest their PDFs for full-text AI analysis. IMPORTANT: Use this BEFORE creating a paper so you have full PDF content, not just abstracts. Returns which papers were added and their ingestion status.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "paper_indices": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": "Indices of papers from recent search results to add (0-based). Use [0,1,2,3,4] to add first 5 papers."
+                    },
+                    "ingest_pdfs": {
+                        "type": "boolean",
+                        "description": "Whether to download and ingest PDFs for AI analysis. Default true.",
+                        "default": True
+                    }
+                },
+                "required": ["paper_indices"]
+            }
+        }
     }
 ]
 
@@ -314,7 +337,9 @@ TOOLS:
 - search_papers: Search for academic papers on a SPECIFIC topic
 - batch_search_papers: Search multiple specific topics at once (grouped results)
 - get_recent_search_results: Get papers from last search (for "these papers", "use them")
+- add_to_library: Add search results to library AND ingest PDFs (USE BEFORE create_paper!)
 - get_project_references: Get user's saved papers (for "my library")
+- get_reference_details: Get full content of an ingested reference
 - get_project_papers: Get user's draft papers in this project
 - create_paper: Create a new paper IN THE PROJECT (LaTeX editor)
 - create_artifact: Create downloadable content (doesn't save to project)
@@ -341,7 +366,7 @@ WORKFLOW - Choose based on request clarity:
   → After user answers → proceed to CLEAR or DISCOVERY workflow
 
 CRITICAL RULES:
-1. NEVER create a paper before finding references - search FIRST
+1. NEVER create a paper before having FULL PDF CONTEXT - search → add_to_library → read content → THEN create
 2. NEVER ask more than ONE clarifying question
 3. NEVER use user's literal words as search query - use proper academic terms
 4. NEVER list papers from your training data - you don't have access to real papers!
@@ -356,6 +381,12 @@ CRITICAL RULES:
 9. NEVER show IDs (UUIDs, paper_id, artifact_id, etc.) to users - they are meaningless to humans. Just show titles and relevant info.
 10. ALWAYS confirm what you created by NAME after using create_paper or create_artifact. Example: "I created a paper titled 'Literature Review: AI in Healthcare' in your project." or "I generated a PDF: 'Drug Discovery Summary.pdf'"
 11. To see artifacts you previously created (PDFs, documents), use get_created_artifacts. To see papers you created, use get_project_papers.
+12. PAPER CREATION WORKFLOW (REQUIRED for quality papers):
+    a) Search for papers (search_papers or batch_search_papers)
+    b) Add to library with PDF ingestion: add_to_library(paper_indices=[0,1,2...], ingest_pdfs=True)
+    c) Read full content: get_reference_details for each ingested reference
+    d) THEN create paper with deep understanding from full PDF content
+    This ensures your paper is based on actual paper content, not just abstracts!
 
 **WHEN USER CONFIRMS TOPICS OR REQUESTS A SEARCH:**
 - You MUST call the search_papers or batch_search_papers tool!
@@ -580,6 +611,7 @@ class ToolOrchestrator:
             "create_artifact": "Generating document",
             "discover_topics": "Discovering topics",
             "batch_search_papers": "Searching multiple topics",
+            "add_to_library": "Adding papers to library & ingesting PDFs",
         }
         return tool_messages.get(tool_name, "Processing")
 
@@ -960,6 +992,8 @@ class ToolOrchestrator:
                     result = self._tool_discover_topics(**args)
                 elif name == "batch_search_papers":
                     result = self._tool_batch_search_papers(**args)
+                elif name == "add_to_library":
+                    result = self._tool_add_to_library(ctx, **args)
                 else:
                     result = {"error": f"Unknown tool: {name}"}
 
@@ -2110,6 +2144,171 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                     "queries": formatted_topics,
                 },
             },
+        }
+
+    def _tool_add_to_library(
+        self,
+        ctx: Dict[str, Any],
+        paper_indices: List[int],
+        ingest_pdfs: bool = True,
+    ) -> Dict:
+        """
+        Add papers from recent search results to the project library and optionally ingest PDFs.
+        This allows the AI to have full PDF context before creating papers.
+        """
+        from app.models import Reference, ProjectReference, ProjectReferenceStatus, ProjectReferenceOrigin
+        from app.services.reference_ingestion_service import ingest_reference_pdf
+
+        project = ctx["project"]
+        recent_search_results = ctx.get("recent_search_results", [])
+
+        if not recent_search_results:
+            return {
+                "status": "error",
+                "message": "No recent search results. Search for papers first using search_papers.",
+            }
+
+        if not paper_indices:
+            return {
+                "status": "error",
+                "message": "No paper indices provided. Specify which papers to add (e.g., [0,1,2] for first 3 papers).",
+            }
+
+        added_papers = []
+        failed_papers = []
+        ingestion_results = []
+
+        for idx in paper_indices:
+            if idx < 0 or idx >= len(recent_search_results):
+                failed_papers.append({"index": idx, "error": "Index out of range"})
+                continue
+
+            paper = recent_search_results[idx]
+            title = paper.get("title", "Untitled")
+
+            try:
+                # Check if reference already exists by DOI or title
+                doi = paper.get("doi")
+                existing_ref = None
+
+                if doi:
+                    existing_ref = self.db.query(Reference).filter(
+                        Reference.doi == doi,
+                        Reference.owner_id == project.created_by
+                    ).first()
+
+                if not existing_ref:
+                    existing_ref = self.db.query(Reference).filter(
+                        Reference.title == title,
+                        Reference.owner_id == project.created_by
+                    ).first()
+
+                # Create Reference if not exists
+                if not existing_ref:
+                    authors = paper.get("authors", [])
+                    if isinstance(authors, str):
+                        authors = [a.strip() for a in authors.split(",")]
+
+                    existing_ref = Reference(
+                        owner_id=project.created_by,
+                        title=title,
+                        authors=authors,
+                        year=paper.get("year"),
+                        doi=doi,
+                        url=paper.get("url"),
+                        source=paper.get("source", "ai_discovery"),
+                        journal=paper.get("journal"),
+                        abstract=paper.get("abstract"),
+                        is_open_access=paper.get("is_open_access", False),
+                        pdf_url=paper.get("pdf_url"),
+                        status="pending",
+                    )
+                    self.db.add(existing_ref)
+                    self.db.flush()
+
+                # Add to project library if not already there
+                existing_project_ref = self.db.query(ProjectReference).filter(
+                    ProjectReference.project_id == project.id,
+                    ProjectReference.reference_id == existing_ref.id
+                ).first()
+
+                if not existing_project_ref:
+                    project_ref = ProjectReference(
+                        project_id=project.id,
+                        reference_id=existing_ref.id,
+                        status=ProjectReferenceStatus.ACCEPTED,
+                        origin=ProjectReferenceOrigin.AI_SUGGESTED,
+                    )
+                    self.db.add(project_ref)
+
+                # Commit changes before attempting PDF ingestion
+                self.db.commit()
+
+                added_info = {
+                    "index": idx,
+                    "title": title,
+                    "reference_id": str(existing_ref.id),
+                    "has_pdf": bool(existing_ref.pdf_url),
+                }
+
+                # Attempt PDF ingestion if requested and PDF is available
+                if ingest_pdfs and existing_ref.pdf_url:
+                    try:
+                        # Use a fresh session for ingestion to avoid transaction issues
+                        success = ingest_reference_pdf(
+                            self.db,
+                            existing_ref,
+                            owner_id=str(project.created_by)
+                        )
+                        if success:
+                            added_info["ingestion_status"] = "success"
+                            ingestion_results.append({"title": title, "status": "ingested"})
+                        else:
+                            added_info["ingestion_status"] = "failed"
+                            ingestion_results.append({"title": title, "status": "failed"})
+                    except Exception as e:
+                        logger.warning(f"PDF ingestion failed for {title}: {e}")
+                        added_info["ingestion_status"] = "error"
+                        added_info["ingestion_error"] = str(e)
+                        ingestion_results.append({"title": title, "status": "error", "error": str(e)})
+                        # Rollback ingestion failure but keep the reference
+                        self.db.rollback()
+                elif not existing_ref.pdf_url:
+                    added_info["ingestion_status"] = "no_pdf_available"
+                else:
+                    added_info["ingestion_status"] = "skipped"
+
+                added_papers.append(added_info)
+
+            except Exception as e:
+                logger.exception(f"Error adding paper at index {idx}")
+                self.db.rollback()
+                failed_papers.append({"index": idx, "title": title, "error": str(e)})
+
+        # Summary
+        ingested_count = sum(1 for p in added_papers if p.get("ingestion_status") == "success")
+        no_pdf_count = sum(1 for p in added_papers if p.get("ingestion_status") == "no_pdf_available")
+
+        message_parts = [f"Added {len(added_papers)} papers to your library."]
+        if ingested_count > 0:
+            message_parts.append(f"{ingested_count} PDFs ingested for full-text analysis.")
+        if no_pdf_count > 0:
+            message_parts.append(f"{no_pdf_count} papers have no PDF available (abstract only).")
+        if failed_papers:
+            message_parts.append(f"{len(failed_papers)} papers failed to add.")
+
+        return {
+            "status": "success" if added_papers else "error",
+            "message": " ".join(message_parts),
+            "added_papers": added_papers,
+            "failed_papers": failed_papers,
+            "summary": {
+                "total_added": len(added_papers),
+                "pdfs_ingested": ingested_count,
+                "no_pdf_available": no_pdf_count,
+                "failed": len(failed_papers),
+            },
+            "next_step": "Use get_reference_details(reference_id) to read the full content of ingested papers before creating your paper." if ingested_count > 0 else "Papers added with abstract only. You can create a paper based on abstracts, but full PDF analysis is not available.",
         }
 
     def _extract_actions(

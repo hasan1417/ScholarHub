@@ -19,7 +19,14 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.database import Base
-from sqlalchemy.dialects.postgresql import JSONB
+
+# Import VECTOR from pgvector extension
+try:
+    from pgvector.sqlalchemy import Vector
+    VECTOR = Vector
+except ImportError:
+    # Fallback for development without pgvector
+    from sqlalchemy import Text as VECTOR
 
 
 class DiscussionEmbeddingOrigin(str, enum.Enum):
@@ -46,7 +53,7 @@ class ProjectDiscussionEmbedding(Base):
     origin_id = Column(UUID(as_uuid=True), nullable=False)
     text = Column(Text, nullable=False)
     text_signature = Column(String(64), nullable=False)
-    embedding = Column(JSONB, nullable=False)
+    embedding = Column(VECTOR(1536), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     stale = Column(Boolean, nullable=False, default=False)
