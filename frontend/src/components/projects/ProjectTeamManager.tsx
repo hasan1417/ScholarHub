@@ -1,11 +1,21 @@
-import React, { useMemo, useState } from 'react'
-import { Users, Shield, Edit, Eye, Trash2, Settings, Crown, Clock, ChevronDown, X } from 'lucide-react'
+import React, { useMemo, useState, useEffect } from 'react'
+import { Users, Shield, Edit, Eye, Trash2, Settings, Crown, Clock, ChevronDown, X, Mail } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { useProjectContext } from '../../pages/projects/ProjectLayout'
 import { useAuth } from '../../contexts/AuthContext'
 import { projectsAPI } from '../../services/api'
 import TeamInviteModal from '../team/TeamInviteModal'
+
+interface PendingInvitation {
+  id: string
+  email: string
+  project_id: string
+  role: string
+  invited_by?: string
+  created_at: string
+  expires_at?: string
+}
 
 type RoleOption = 'owner' | 'admin' | 'editor' | 'viewer'
 
@@ -47,7 +57,21 @@ const ProjectTeamManager: React.FC = () => {
   const [globalError, setGlobalError] = useState<string | null>(null)
   const [isManaging, setIsManaging] = useState<boolean>(false)
   const [membersModalOpen, setMembersModalOpen] = useState(false)
+  const [pendingInvitations, setPendingInvitations] = useState<PendingInvitation[]>([])
   const VISIBLE_MEMBERS_COUNT = 4
+
+  // Fetch pending invitations for unregistered users
+  useEffect(() => {
+    const fetchPendingInvitations = async () => {
+      try {
+        const response = await projectsAPI.getPendingInvitations(project.id)
+        setPendingInvitations(response.data || [])
+      } catch (error) {
+        console.error('Failed to fetch pending invitations:', error)
+      }
+    }
+    fetchPendingInvitations()
+  }, [project.id])
 
   const stringifyDetail = (detail: unknown): string => {
     if (!detail) return 'Unknown error'
@@ -97,6 +121,29 @@ const ProjectTeamManager: React.FC = () => {
 
   const invalidateProject = async () => {
     await queryClient.invalidateQueries({ queryKey: ['project', project.id] })
+    // Also refresh pending invitations
+    try {
+      const response = await projectsAPI.getPendingInvitations(project.id)
+      setPendingInvitations(response.data || [])
+    } catch (error) {
+      console.error('Failed to refresh pending invitations:', error)
+    }
+  }
+
+  const handleCancelPendingInvitation = async (invitationId: string, email: string) => {
+    if (!canManageTeam) return
+    const confirmed = window.confirm(`Cancel invitation for ${email}?`)
+    if (!confirmed) return
+    setActiveMemberId(invitationId)
+    try {
+      await projectsAPI.cancelPendingInvitation(project.id, invitationId)
+      setPendingInvitations((prev) => prev.filter((inv) => inv.id !== invitationId))
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail
+      alert(detail || 'Failed to cancel invitation')
+    } finally {
+      setActiveMemberId(null)
+    }
   }
 
   const handleInvite = async (email: string, role: string) => {
@@ -324,6 +371,54 @@ const ProjectTeamManager: React.FC = () => {
           })
         )}
       </ul>
+
+      {/* Pending Invitations for Unregistered Users */}
+      {pendingInvitations.length > 0 && canManageTeam && (
+        <div className="mt-4">
+          <div className="mb-2 text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wide">
+            Pending Invitations
+          </div>
+          <ul className="space-y-2">
+            {pendingInvitations.map((invitation) => (
+              <li
+                key={invitation.id}
+                className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-blue-200 bg-blue-50/50 px-4 py-3 dark:border-blue-500/30 dark:bg-blue-500/10"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-500/20">
+                    <Mail className="h-4 w-4 text-blue-600 dark:text-blue-300" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-gray-900 dark:text-slate-100">
+                      {invitation.email}
+                    </p>
+                    <p className="text-xs text-blue-600 dark:text-blue-300">
+                      Invited • Not yet registered
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-800 dark:bg-blue-500/20 dark:text-blue-100">
+                    <Clock className="h-3 w-3" />
+                    <span className="capitalize">{normalizeRole(invitation.role)}</span>
+                  </span>
+                  {isManaging && (
+                    <button
+                      type="button"
+                      onClick={() => handleCancelPendingInvitation(invitation.id, invitation.email)}
+                      disabled={Boolean(activeMemberId)}
+                      className="inline-flex items-center rounded-md p-1 text-gray-400 transition-colors hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-400 dark:hover:text-red-400"
+                      title="Cancel invitation"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {hasMoreMembers && !isManaging && (
         <button
