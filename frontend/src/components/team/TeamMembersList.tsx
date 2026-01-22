@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { Users, Shield, Edit, Eye, Trash2, Clock } from 'lucide-react'
+import { Users, Shield, Edit, Eye, Trash2, Clock, Crown } from 'lucide-react'
 import clsx from 'clsx'
 import { useAuth } from '../../contexts/AuthContext'
 import { teamAPI } from '../../services/api'
@@ -28,15 +28,17 @@ interface TeamMembersListProps {
 
 const emptyMembers: TeamMember[] = []
 
-type RoleOption = 'admin' | 'editor' | 'viewer'
+type RoleOption = 'owner' | 'admin' | 'editor' | 'viewer'
 
 const rolePillClasses: Record<RoleOption, string> = {
+  owner: 'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-100',
   admin: 'bg-purple-100 text-purple-800 dark:bg-purple-500/20 dark:text-purple-100',
   editor: 'bg-green-100 text-green-800 dark:bg-emerald-500/20 dark:text-emerald-100',
   viewer: 'bg-gray-100 text-gray-800 dark:bg-slate-600/30 dark:text-slate-100',
 }
 
 const roleIconBgClasses: Record<RoleOption, string> = {
+  owner: 'bg-amber-100 dark:bg-amber-500/20',
   admin: 'bg-purple-100 dark:bg-purple-500/20',
   editor: 'bg-green-100 dark:bg-emerald-500/20',
   viewer: 'bg-gray-100 dark:bg-slate-700',
@@ -80,8 +82,7 @@ const TeamMembersList: React.FC<TeamMembersListProps> = ({
   const normalizeRole = useCallback((role: string): RoleOption => {
     const value = (role || '').toLowerCase()
     if (value === 'reviewer') return 'viewer'
-    if (value === 'owner') return 'admin'
-    if (value === 'admin' || value === 'editor' || value === 'viewer') {
+    if (value === 'owner' || value === 'admin' || value === 'editor' || value === 'viewer') {
       return value as RoleOption
     }
     return 'viewer'
@@ -128,6 +129,8 @@ const TeamMembersList: React.FC<TeamMembersListProps> = ({
 
   const getRoleIcon = useCallback((role: RoleOption) => {
     switch (role) {
+      case 'owner':
+        return <Crown className="h-4 w-4 text-amber-600 dark:text-amber-300" />
       case 'admin':
         return <Shield className="h-4 w-4 text-purple-600 dark:text-purple-300" />
       case 'editor':
@@ -139,8 +142,8 @@ const TeamMembersList: React.FC<TeamMembersListProps> = ({
 
   const canManageTeam = useMemo(() => {
     if (isProjectScope) return false
-    const viewerRole = normalizeRole(members.find((m) => m.user_id === user?.id)?.role || 'viewer')
-    return viewerRole === 'admin'
+    const myRole = normalizeRole(members.find((m) => m.user_id === user?.id)?.role || 'viewer')
+    return myRole === 'owner' || myRole === 'admin'
   }, [isProjectScope, members, normalizeRole, user?.id])
 
   const handleRoleChange = async (member: TeamMember, nextRole: string) => {
@@ -281,7 +284,7 @@ const TeamMembersList: React.FC<TeamMembersListProps> = ({
                     )}
                   </span>
 
-                  {canManageTeam && !member.is_owner && (
+                  {canManageTeam && !member.is_owner && normalizedRole !== 'owner' && (
                     <div className="flex items-center gap-2">
                       <select
                         className="rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-700 transition-colors dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
