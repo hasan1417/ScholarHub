@@ -217,7 +217,7 @@ async def get_sample_document(paperId: Optional[str] = None):
             headers={"Cache-Control": "no-cache"}
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create sample document: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to create document. Please try again.")
 
 @router.get("/document")
 async def get_document_for_paper(paperId: str, db: Session = Depends(get_db)):
@@ -316,7 +316,7 @@ async def get_document_for_paper(paperId: str, db: Session = Depends(get_db)):
             headers={"Cache-Control": "no-cache"}
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to build document for paper: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to build document. Please try again.")
 
 from app.database import SessionLocal
 from app.models.collaboration_session import CollaborationSession
@@ -833,7 +833,7 @@ async def get_plugin_config(plugin_id: str, request: Request):
 
         return config
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error reading plugin config: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error reading plugin configuration.")
 
 @router.get("/install-plugin-script")
 async def get_install_plugin_script():

@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     # Security
     SECRET_KEY: str = "your-super-secret-key-change-this-in-production"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours for testing
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30  # 30 minutes for security
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7  # Refresh token expires in 7 days
     ACCESS_TOKEN_COOKIE_NAME: str = "access_token"
     REFRESH_TOKEN_COOKIE_NAME: str = "refresh_token"

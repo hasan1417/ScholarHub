@@ -115,6 +115,7 @@ class RegisterResponse(BaseModel):
 
 
 @router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("5/minute")
 async def register(request: Request, user_data: UserCreate, db: Session = Depends(get_db)):
     """Register a new user and send verification email."""
     # Check if user already exists
@@ -204,6 +205,7 @@ async def register(request: Request, user_data: UserCreate, db: Session = Depend
     }
 
 @router.post("/login", response_model=Token)
+@limiter.limit("10/minute")
 async def login(request: Request, login_data: UserLogin, response: Response, db: Session = Depends(get_db)):
     """Login user and return access token."""
     # Find user by email
@@ -383,7 +385,8 @@ async def logout(response: Response, current_user: User = Depends(get_current_ac
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 @router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED)
-async def request_password_reset(payload: PasswordResetRequest, db: Session = Depends(get_db)):
+@limiter.limit("3/minute")
+async def request_password_reset(request: Request, payload: PasswordResetRequest, db: Session = Depends(get_db)):
     """
     Request a password reset email.
     Always returns success to avoid leaking which emails exist.

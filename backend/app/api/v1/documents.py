@@ -25,6 +25,31 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["documents"])
 
+# Magic byte signatures for file validation
+FILE_SIGNATURES = {
+    "application/pdf": [b"%PDF"],
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [b"PK\x03\x04", b"PK\x05\x06"],  # ZIP format
+    "text/plain": None,  # No specific signature for text files
+}
+
+def validate_file_magic_bytes(content: bytes, content_type: str) -> bool:
+    """Validate file content matches expected magic bytes for the content type."""
+    signatures = FILE_SIGNATURES.get(content_type)
+    if signatures is None:
+        # For text files, check if content is valid UTF-8
+        if content_type == "text/plain":
+            try:
+                content[:1000].decode('utf-8')
+                return True
+            except UnicodeDecodeError:
+                return False
+        return True  # Unknown type, skip validation
+
+    for sig in signatures:
+        if content.startswith(sig):
+            return True
+    return False
+
 # Initialize services
 document_service = DocumentService()
 ai_service = AIService()
@@ -83,7 +108,14 @@ async def upload_document(
     try:
         # Read file content
         file_content = await file.read()
-        
+
+        # Validate file magic bytes match the declared content type
+        if not validate_file_magic_bytes(file_content, file.content_type):
+            raise HTTPException(
+                status_code=400,
+                detail="File content does not match the declared file type."
+            )
+
         # Calculate file hash for duplicate detection
         file_hash = document_service.duplicate_detector.calculate_file_hash(file_content)
         
@@ -158,7 +190,7 @@ async def upload_document(
         import traceback
         print(f"Error uploading document: {str(e)}")
         print(f"Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Error uploading document: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error uploading document. Please try again.")
 
 @router.post("/create", response_model=DocumentResponse)
 async def create_document(
@@ -572,7 +604,7 @@ async def analyze_document(
         analysis = await ai_service.analyze_document_content(document, [])
         return analysis
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error analyzing document: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error analyzing document. Please try again.")
 
 @router.post("/{document_id}/chat")
 async def chat_with_document(
@@ -617,7 +649,7 @@ async def chat_with_document(
         response = await ai_service.answer_question_from_context(question, chunks)
         return response
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error chatting with document: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error processing your request. Please try again.")
 @router.post("/ingest-remote", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
 async def ingest_remote_document(
     url: str = Form(..., description="Direct PDF URL"),
@@ -672,7 +704,7 @@ async def ingest_remote_document(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error downloading file: {str(e)}")
+        raise HTTPException(status_code=400, detail="Error downloading file. Please try again.")
 
     # Duplicate detection
     try:
@@ -696,7 +728,7 @@ async def ingest_remote_document(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Duplicate check failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error checking for duplicates. Please try again.")
 
     # Save file
     try:
@@ -729,4 +761,4 @@ async def ingest_remote_document(
 
         return document
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error saving document: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error saving document. Please try again.")

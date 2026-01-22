@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from app.api.v1 import auth, users, research_papers, documents, ai, team, branches, discovery, references, latex, onlyoffice, metrics, comments, section_locks, collab, collab_bootstrap, snapshots, subscription
 from app.core.config import settings
+from app.core.rate_limiter import init_rate_limiter
 from app.database import engine
 import time
 from sqlalchemy import text
@@ -30,9 +31,12 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.BACKEND_CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["*"],
 )
+
+# Initialize rate limiter
+init_rate_limiter(app)
 
 # Serve static files (assets)
 try:

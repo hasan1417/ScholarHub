@@ -48,8 +48,9 @@ async def invite_team_member(
     # Find the user to invite
     invitee = db.query(User).filter(User.email == invite_data.email).first()
     if not invitee:
-        raise HTTPException(status_code=404, detail="User not found")
-    
+        # Return generic error to prevent user enumeration
+        raise HTTPException(status_code=400, detail="Unable to send invitation. The user may not exist or may not be eligible.")
+
     # Check if already a team member
     existing_member = db.query(PaperMember).filter(
         PaperMember.paper_id == paper_id,
