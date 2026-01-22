@@ -265,17 +265,11 @@ async def refresh_token(
     db: Session = Depends(get_db)
 ):
     """Refresh access token using refresh token stored in cookies (or request body for legacy clients)."""
-    # Debug logging for cookie issues
-    logger.info(f"Refresh endpoint called. Cookie names received: {list(request.cookies.keys())}")
-    logger.info(f"Looking for cookie: {REFRESH_COOKIE_NAME}, COOKIE_DOMAIN: {COOKIE_DOMAIN}, COOKIE_SECURE: {COOKIE_SECURE}")
-
     provided_token = None
     if refresh_data and refresh_data.refresh_token:
         provided_token = refresh_data.refresh_token
-        logger.info("Using refresh token from request body")
     else:
         provided_token = request.cookies.get(REFRESH_COOKIE_NAME)
-        logger.info(f"Cookie value present: {provided_token is not None}")
 
     if not provided_token:
         clear_refresh_cookie(response)
