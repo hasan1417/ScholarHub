@@ -53,6 +53,8 @@ services:
   backend:
     build: ./backend
     environment:
+      - DEBUG=false
+      - COOKIE_DOMAIN=scholarhub.space
       - LOG_LEVEL=info
       - DATABASE_URL=postgresql://scholarhub:${POSTGRES_PASSWORD}@postgres:5432/scholarhub
       - REDIS_URL=redis://redis:6379
