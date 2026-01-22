@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
   BookOpen,
+  Check,
   Eye,
   FileText,
   Link2,
@@ -11,6 +12,7 @@ import {
   Plus,
   Save,
   Settings,
+  Target,
   Trash2,
   Unlink,
   X,
@@ -39,6 +41,7 @@ import TeamInviteModal from '../../components/team/TeamInviteModal'
 import TeamMembersList from '../../components/team/TeamMembersList'
 import { useAuth } from '../../contexts/AuthContext'
 import { useProjectContext } from './ProjectLayout'
+import { parseObjectives } from '../../utils/objectives'
 
 const PaperDetail: React.FC = () => {
   const { projectId, paperId } = useParams<{ projectId?: string; paperId: string }>()
@@ -57,6 +60,9 @@ const PaperDetail: React.FC = () => {
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false)
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [teamRefreshKey, setTeamRefreshKey] = useState(0)
+  const [showObjectivesModal, setShowObjectivesModal] = useState(false)
+  const [selectedObjectives, setSelectedObjectives] = useState<string[]>([])
+  const [isSavingObjectives, setIsSavingObjectives] = useState(false)
 
   const projectMembers = project?.members ?? []
   const currentUserId = user?.id
@@ -314,6 +320,38 @@ const PaperDetail: React.FC = () => {
     return []
   }, [paper?.objectives])
 
+  const projectObjectives = useMemo(() => parseObjectives(project?.scope), [project?.scope])
+
+  const handleOpenObjectivesModal = () => {
+    setSelectedObjectives(objectivesDisplay)
+    setShowObjectivesModal(true)
+  }
+
+  const toggleObjectiveSelection = (objective: string) => {
+    setSelectedObjectives((prev) =>
+      prev.includes(objective)
+        ? prev.filter((item) => item !== objective)
+        : [...prev, objective]
+    )
+  }
+
+  const handleSaveObjectives = async () => {
+    if (!paper) return
+    try {
+      setIsSavingObjectives(true)
+      const response = await researchPapersAPI.updatePaper(paper.id, {
+        objectives: selectedObjectives,
+      })
+      setPaper(response.data)
+      setShowObjectivesModal(false)
+    } catch (err) {
+      console.error('Failed to save objectives', err)
+      alert('Failed to save objectives. Please try again.')
+    } finally {
+      setIsSavingObjectives(false)
+    }
+  }
+
   const keywordInputValue = useMemo(() => {
     if (typeof editForm.keywords === 'string') {
       return editForm.keywords
@@ -568,9 +606,27 @@ const PaperDetail: React.FC = () => {
           <div className="space-y-6 lg:col-span-2">
             <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800/60">
               <div className="mb-4 flex items-center justify-between gap-3">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Research Goals</h2>
-                {objectivesDisplay.length > 0 && (
-                  <span className="text-xs text-gray-400 dark:text-slate-500">From project</span>
+                <div>
+                  <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900 dark:text-slate-100">
+                    Research Goals
+                    {objectivesDisplay.length > 0 && (
+                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-sm font-normal text-gray-600 dark:bg-slate-700 dark:text-slate-300">
+                        {objectivesDisplay.length}
+                      </span>
+                    )}
+                  </h2>
+                  <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
+                    Linked to project objectives
+                  </p>
+                </div>
+                {canEditPaper && projectObjectives.length > 0 && (
+                  <button
+                    onClick={handleOpenObjectivesModal}
+                    className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-600 transition-colors hover:bg-indigo-100 dark:border-indigo-400/40 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20"
+                  >
+                    <Target className="h-4 w-4" />
+                    Edit
+                  </button>
                 )}
               </div>
               {objectivesDisplay.length > 0 ? (
@@ -589,12 +645,24 @@ const PaperDetail: React.FC = () => {
                 </ol>
               ) : (
                 <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-center dark:border-slate-700 dark:bg-slate-800/40">
-                  <p className="text-sm text-gray-500 dark:text-slate-400">
+                  <Target className="mx-auto h-8 w-8 text-gray-300 dark:text-slate-600" />
+                  <p className="mt-2 text-sm text-gray-500 dark:text-slate-400">
                     No goals linked to this paper yet.
                   </p>
-                  <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">
-                    Goals can be set when creating a paper
-                  </p>
+                  {canEditPaper && projectObjectives.length > 0 ? (
+                    <button
+                      onClick={handleOpenObjectivesModal}
+                      className="mt-2 text-sm text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+                    >
+                      Link project goals
+                    </button>
+                  ) : (
+                    <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">
+                      {projectObjectives.length === 0
+                        ? 'Define objectives in project settings first'
+                        : 'Goals can be linked by editors'}
+                    </p>
+                  )}
                 </div>
               )}
             </section>
@@ -823,6 +891,109 @@ const PaperDetail: React.FC = () => {
         onInvite={handleInvite}
         paperTitle={paper?.title || 'this paper'}
       />
+
+      {/* Objectives Modal */}
+      {showObjectivesModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div
+            className="relative w-full max-w-lg rounded-2xl bg-white shadow-2xl dark:bg-slate-800"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-slate-700">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+                  Link Project Goals
+                </h3>
+                <p className="mt-0.5 text-sm text-gray-500 dark:text-slate-400">
+                  Select which project objectives this paper addresses
+                </p>
+              </div>
+              <button
+                onClick={() => setShowObjectivesModal(false)}
+                className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="max-h-[60vh] overflow-y-auto px-6 py-4">
+              {projectObjectives.length === 0 ? (
+                <p className="text-center text-sm text-gray-500 dark:text-slate-400">
+                  No objectives defined in project settings.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {projectObjectives.map((objective) => {
+                    const isSelected = selectedObjectives.includes(objective)
+                    return (
+                      <button
+                        key={objective}
+                        type="button"
+                        onClick={() => toggleObjectiveSelection(objective)}
+                        className={`flex w-full items-start gap-3 rounded-lg border px-4 py-3 text-left transition-colors ${
+                          isSelected
+                            ? 'border-indigo-500 bg-indigo-50 dark:border-indigo-400 dark:bg-indigo-900/30'
+                            : 'border-gray-200 bg-white hover:border-indigo-300 hover:bg-gray-50 dark:border-slate-600 dark:bg-slate-800 dark:hover:border-indigo-500 dark:hover:bg-slate-700'
+                        }`}
+                      >
+                        <div
+                          className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded ${
+                            isSelected
+                              ? 'bg-indigo-600 text-white'
+                              : 'border-2 border-gray-300 dark:border-slate-500'
+                          }`}
+                        >
+                          {isSelected && <Check className="h-3 w-3" />}
+                        </div>
+                        <span
+                          className={`text-sm ${
+                            isSelected
+                              ? 'font-medium text-indigo-700 dark:text-indigo-300'
+                              : 'text-gray-700 dark:text-slate-300'
+                          }`}
+                        >
+                          {objective}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between border-t border-gray-200 px-6 py-4 dark:border-slate-700">
+              <span className="text-sm text-gray-500 dark:text-slate-400">
+                {selectedObjectives.length} of {projectObjectives.length} selected
+              </span>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setShowObjectivesModal(false)}
+                  className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveObjectives}
+                  disabled={isSavingObjectives}
+                  className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-60 dark:bg-indigo-500 dark:hover:bg-indigo-600"
+                >
+                  {isSavingObjectives ? (
+                    <>
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4" />
+                      Save
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
