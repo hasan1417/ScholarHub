@@ -380,10 +380,13 @@ const ProjectReferences = () => {
               const summary = ref?.summary || ref?.abstract
               const referenceId = ref?.id || item.reference_id || null
               const hasDocument = Boolean(ref?.document_id)
-              const isPdfProcessed = Boolean(ref?.pdf_processed || (hasDocument && documentDownloadPath))
+              const hasPdfStored = Boolean(hasDocument || documentDownloadPath)
+              const isPdfProcessed = Boolean(ref?.pdf_processed)
               const hasPdfUrl = Boolean(ref?.pdf_url)
-              const showIngestButton = Boolean(canManageReferences && referenceId && hasPdfUrl && !isPdfProcessed)
-              const showUploadButton = Boolean(canManageReferences && referenceId && !hasPdfUrl && !isPdfProcessed)
+              // Show "Analyze PDF" if there's a stored PDF or accessible URL, but not yet processed
+              const showIngestButton = Boolean(canManageReferences && referenceId && (hasPdfStored || hasPdfUrl) && !isPdfProcessed)
+              // Show "Upload PDF" only if no PDF is stored and no URL available
+              const showUploadButton = Boolean(canManageReferences && referenceId && !hasPdfStored && !hasPdfUrl)
 
               return (
                 <li
@@ -405,7 +408,7 @@ const ProjectReferences = () => {
                             <CheckCircle2 className="h-3.5 w-3.5" />
                             PDF analyzed
                           </span>
-                        ) : hasPdfUrl ? (
+                        ) : hasPdfStored ? (
                           <span className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 dark:border-blue-400/40 dark:bg-blue-500/20 dark:text-blue-200">
                             <FileText className="h-3.5 w-3.5" />
                             PDF available
