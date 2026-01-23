@@ -194,6 +194,8 @@ def create_project(
     # Return without members - they're not needed for create response
     return ProjectSummary(
         id=project.id,
+        slug=project.slug,
+        short_id=project.short_id,
         title=project.title,
         idea=project.idea,
         keywords=project.keywords,
@@ -266,6 +268,8 @@ def list_projects(
 
         summary = ProjectSummary(
             id=project.id,
+            slug=project.slug,
+            short_id=project.short_id,
             title=project.title,
             idea=project.idea,
             keywords=project.keywords,
@@ -337,6 +341,8 @@ def update_project(
     # Return without members - they're not needed for update response
     return ProjectSummary(
         id=project.id,
+        slug=project.slug,
+        short_id=project.short_id,
         title=project.title,
         idea=project.idea,
         keywords=project.keywords,
