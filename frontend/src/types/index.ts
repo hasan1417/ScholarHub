@@ -199,6 +199,7 @@ export interface ProjectDiscoveryResultItem {
   authors?: string[] | null
   published_year?: number | null
   relevance_score?: number | null
+  journal?: string | null
   created_at: string
   promoted_at?: string | null
   dismissed_at?: string | null

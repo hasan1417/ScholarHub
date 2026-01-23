@@ -174,6 +174,12 @@ export const DiscoveryResultCard = ({
               <span>{item.published_year}</span>
             )}
 
+            {item.journal && (
+              <span className="italic text-gray-600 dark:text-slate-300 truncate max-w-[200px]" title={item.journal}>
+                {item.journal}
+              </span>
+            )}
+
             {/* PDF/Open Access combined badge */}
             {(hasPdf || isOpenAccess) && (
               <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${

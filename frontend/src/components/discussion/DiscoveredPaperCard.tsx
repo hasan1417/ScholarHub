@@ -12,6 +12,7 @@ export interface DiscoveredPaper {
   relevance_score?: number
   pdf_url?: string
   is_open_access?: boolean
+  journal?: string
 }
 
 interface DiscoveredPaperCardProps {
@@ -56,6 +57,7 @@ export function DiscoveredPaperCard({
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             {formatAuthors()}
             {paper.year && ` • ${paper.year}`}
+            {paper.journal && <span className="italic"> • {paper.journal}</span>}
           </p>
           {paper.abstract && (
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5 line-clamp-2">

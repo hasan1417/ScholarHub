@@ -133,6 +133,11 @@ def _serialize_result(
     if not source_url and result_row.doi:
         source_url = f"https://doi.org/{result_row.doi}"
 
+    # Extract journal from payload or reference
+    journal = payload.get('journal')
+    if not journal and reference:
+        journal = reference.journal
+
     return DiscoveryResultItem(
         id=result_row.id,
         run_id=result_row.run_id,
@@ -145,6 +150,7 @@ def _serialize_result(
         authors=result_row.authors,
         published_year=result_row.published_year,
         relevance_score=result_row.relevance_score,
+        journal=journal,
         created_at=result_row.created_at,
         promoted_at=result_row.promoted_at,
         dismissed_at=result_row.dismissed_at,
@@ -199,6 +205,7 @@ class DiscoveryResultItem(BaseModel):
     authors: list[str] | None
     published_year: int | None
     relevance_score: float | None
+    journal: str | None = None
     created_at: datetime
     promoted_at: datetime | None
     dismissed_at: datetime | None

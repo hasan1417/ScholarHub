@@ -322,6 +322,8 @@ class ProjectDiscoveryManager:
                 payload['pdf_url'] = normalized_pdf
             if paper.url and 'source_url' not in payload:
                 payload['source_url'] = paper.url
+            if paper.journal:
+                payload['journal'] = paper.journal
 
             if existing_result:
                 existing_result.run_id = run.id
