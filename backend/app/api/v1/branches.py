@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
@@ -27,6 +27,46 @@ from app.schemas.branch import (
 )
 
 router = APIRouter()
+
+
+def _is_valid_uuid(val: str) -> bool:
+    """Check if a string is a valid UUID."""
+    try:
+        UUID(str(val))
+        return True
+    except (ValueError, AttributeError):
+        return False
+
+
+def _parse_short_id(url_id: str) -> Optional[str]:
+    """Extract short_id from a URL identifier (slug-shortid or just shortid)."""
+    if not url_id or _is_valid_uuid(url_id):
+        return None
+    if len(url_id) == 8 and url_id.isalnum():
+        return url_id
+    last_hyphen = url_id.rfind('-')
+    if last_hyphen > 0:
+        potential_short_id = url_id[last_hyphen + 1:]
+        if len(potential_short_id) == 8 and potential_short_id.isalnum():
+            return potential_short_id
+    return None
+
+
+def _get_paper_or_404(db: Session, paper_id: str) -> ResearchPaper:
+    """Get paper by UUID or slug-shortid format."""
+    paper = None
+    if _is_valid_uuid(paper_id):
+        try:
+            paper = db.query(ResearchPaper).filter(ResearchPaper.id == UUID(paper_id)).first()
+        except (ValueError, AttributeError):
+            pass
+    if not paper:
+        short_id = _parse_short_id(paper_id)
+        if short_id:
+            paper = db.query(ResearchPaper).filter(ResearchPaper.short_id == short_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    return paper
 
 
 def calculate_changes_from_html(previous_content: str, new_content: str) -> List[dict]:
@@ -211,26 +251,24 @@ def create_branch(
 
 @router.get("/paper/{paper_id}", response_model=List[BranchWithAuthor])
 def get_branches(
-    paper_id: UUID,
+    paper_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Get all branches for a paper"""
     # Check if paper exists and user has access
-    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Paper not found")
-    
+    paper = _get_paper_or_404(db, paper_id)
+
     # Get branches with author info
     branches = db.query(Branch, User).join(User, Branch.author_id == User.id).filter(
-        Branch.paper_id == paper_id
+        Branch.paper_id == paper.id
     ).all()
-    
+
     # If no branches exist, create a main branch
     if not branches:
         main_branch = Branch(
             name='main',
-            paper_id=paper_id,
+            paper_id=paper.id,
             author_id=current_user.id,
             is_main=True,
             last_commit_message='Initial commit'
@@ -482,11 +520,13 @@ def create_merge_request(
 
 @router.get("/merge-requests/paper/{paper_id}", response_model=List[MergeRequestWithDetails])
 def get_merge_requests(
-    paper_id: UUID,
+    paper_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Get merge requests for a paper"""
+    paper = _get_paper_or_404(db, paper_id)
+
     merge_requests = db.query(
         MergeRequest,
         User,
@@ -499,7 +539,7 @@ def get_merge_requests(
     ).join(
         Branch.alias('target_branch'), MergeRequest.target_branch_id == Branch.alias('target_branch').id
     ).filter(
-        MergeRequest.paper_id == paper_id
+        MergeRequest.paper_id == paper.id
     ).all()
     
     return [

@@ -44,6 +44,29 @@ class AttachReferencePayload(BaseModel):
     paper_id: UUID
 
 
+def _is_valid_uuid(val: str) -> bool:
+    """Check if a string is a valid UUID."""
+    try:
+        UUID(str(val))
+        return True
+    except (ValueError, AttributeError):
+        return False
+
+
+def _parse_short_id(url_id: str) -> Optional[str]:
+    """Extract short_id from a URL identifier (slug-shortid or just shortid)."""
+    if not url_id or _is_valid_uuid(url_id):
+        return None
+    if len(url_id) == 8 and url_id.isalnum():
+        return url_id
+    last_hyphen = url_id.rfind('-')
+    if last_hyphen > 0:
+        potential_short_id = url_id[last_hyphen + 1:]
+        if len(potential_short_id) == 8 and potential_short_id.isalnum():
+            return potential_short_id
+    return None
+
+
 def _coerce_document_status(value) -> DocumentStatus | None:
     if isinstance(value, DocumentStatus):
         return value
@@ -509,7 +532,7 @@ def attach_reference_to_paper(
 def detach_reference_from_paper(
     project_id: str,
     project_reference_id: UUID,
-    paper_id: UUID,
+    paper_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -528,11 +551,21 @@ def detach_reference_from_paper(
     if not project_ref:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project reference not found")
 
-    paper = (
-        db.query(ResearchPaper)
-        .filter(ResearchPaper.id == paper_id, ResearchPaper.project_id == project.id)
-        .first()
-    )
+    paper = None
+    if _is_valid_uuid(paper_id):
+        paper = (
+            db.query(ResearchPaper)
+            .filter(ResearchPaper.id == UUID(paper_id), ResearchPaper.project_id == project.id)
+            .first()
+        )
+    if not paper:
+        short_id = _parse_short_id(paper_id)
+        if short_id:
+            paper = (
+                db.query(ResearchPaper)
+                .filter(ResearchPaper.short_id == short_id, ResearchPaper.project_id == project.id)
+                .first()
+            )
     if not paper:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found in project")
 
@@ -611,7 +644,7 @@ def delete_project_reference(
 @router.get("/projects/{project_id}/papers/{paper_id}/references")
 def list_references_for_paper(
     project_id: str,
-    paper_id: UUID,
+    paper_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -619,11 +652,21 @@ def list_references_for_paper(
     project = get_project_or_404(db, project_id)
     ensure_project_member(db, project, current_user)
 
-    paper = (
-        db.query(ResearchPaper)
-        .filter(ResearchPaper.id == paper_id, ResearchPaper.project_id == project.id)
-        .first()
-    )
+    paper = None
+    if _is_valid_uuid(paper_id):
+        paper = (
+            db.query(ResearchPaper)
+            .filter(ResearchPaper.id == UUID(paper_id), ResearchPaper.project_id == project.id)
+            .first()
+        )
+    if not paper:
+        short_id = _parse_short_id(paper_id)
+        if short_id:
+            paper = (
+                db.query(ResearchPaper)
+                .filter(ResearchPaper.short_id == short_id, ResearchPaper.project_id == project.id)
+                .first()
+            )
     if not paper:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found in project")
 
