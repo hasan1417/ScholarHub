@@ -10,7 +10,6 @@ import {
   ChevronDown,
   Pin,
   Star,
-  Eye,
   Sparkles,
   FolderPlus,
   FileText,
@@ -24,8 +23,6 @@ import ProjectFormModal from '../../components/projects/ProjectFormModal'
 import { getProjectUrlId } from '../../utils/urlId'
 
 const PINNED_STORAGE_KEY = 'scholarhub_pinned_projects'
-const RECENT_STORAGE_KEY = 'scholarhub_recent_projects'
-const MAX_RECENT = 5
 
 const formatDate = (value: string) => {
   try {
@@ -57,12 +54,6 @@ const getStatusColor = (status: string) => {
 type FilterTab = 'all' | 'my' | 'shared'
 type SortOption = 'updated' | 'created' | 'title'
 
-interface RecentProject {
-  id: string
-  title: string
-  viewedAt: number
-}
-
 const ProjectsHome = () => {
   const [searchTerm, setSearchTerm] = useState('')
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
@@ -70,7 +61,6 @@ const ProjectsHome = () => {
   const [sortOption, setSortOption] = useState<SortOption>('updated')
   const [showSortMenu, setShowSortMenu] = useState(false)
   const [pinnedIds, setPinnedIds] = useState<string[]>([])
-  const [recentProjects, setRecentProjects] = useState<RecentProject[]>([])
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [creationError, setCreationError] = useState<string | null>(null)
   const [editingProject, setEditingProject] = useState<ProjectSummary | null>(null)
@@ -80,15 +70,11 @@ const ProjectsHome = () => {
   const navigate = useNavigate()
   const userId = user?.id
 
-  // Load pinned and recent from localStorage
+  // Load pinned from localStorage
   useEffect(() => {
     try {
       const stored = localStorage.getItem(PINNED_STORAGE_KEY)
       if (stored) setPinnedIds(JSON.parse(stored))
-    } catch {}
-    try {
-      const stored = localStorage.getItem(RECENT_STORAGE_KEY)
-      if (stored) setRecentProjects(JSON.parse(stored))
     } catch {}
   }, [])
 
@@ -99,16 +85,6 @@ const ProjectsHome = () => {
         ? prev.filter((id) => id !== projectId)
         : [...prev, projectId]
       localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify(next))
-      return next
-    })
-  }, [])
-
-  // Add to recent
-  const addToRecent = useCallback((project: { id: string; title: string }) => {
-    setRecentProjects((prev) => {
-      const filtered = prev.filter((p) => p.id !== project.id)
-      const next = [{ id: project.id, title: project.title, viewedAt: Date.now() }, ...filtered].slice(0, MAX_RECENT)
-      localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(next))
       return next
     })
   }, [])
@@ -243,21 +219,10 @@ const ProjectsHome = () => {
 
   const totalProjects = data?.total ?? 0
 
-  // Handle opening a project (adds to recent)
+  // Handle opening a project
   const handleOpenProject = (project: ProjectSummary) => {
-    addToRecent({ id: project.id, title: project.title })
     navigate(`/projects/${getProjectUrlId(project)}`)
   }
-
-  // Get recent projects that still exist
-  const validRecentProjects = useMemo(() => {
-    return recentProjects
-      .map((r) => {
-        const project = projects.find((p) => p.id === r.id)
-        return project ? { ...r, project } : null
-      })
-      .filter(Boolean) as Array<RecentProject & { project: ProjectSummary }>
-  }, [recentProjects, projects])
 
   const sortLabels: Record<SortOption, string> = {
     updated: 'Recently Updated',
@@ -517,31 +482,6 @@ const ProjectsHome = () => {
           )}
         </div>
       </div>
-
-      {/* Recently Viewed */}
-      {validRecentProjects.length > 0 && !isLoading && (
-        <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Eye className="h-4 w-4 text-gray-400" />
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Recently Viewed</h3>
-          </div>
-          <div className="flex gap-3 overflow-x-auto pb-1">
-            {validRecentProjects.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => handleOpenProject(item.project)}
-                className="flex-shrink-0 rounded-lg border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/50 px-4 py-2.5 hover:border-indigo-300 dark:hover:border-indigo-500/50 hover:bg-white dark:hover:bg-slate-700 transition-colors text-left min-w-[180px] max-w-[220px]"
-              >
-                <div className="font-medium text-gray-900 dark:text-white text-sm truncate">{item.title}</div>
-                <div className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
-                  {new Date(item.viewedAt).toLocaleDateString()}
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Pending Invitations */}
       {pendingInvitesQuery.isLoading ? (
