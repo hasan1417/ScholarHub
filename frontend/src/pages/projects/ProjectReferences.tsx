@@ -385,8 +385,8 @@ const ProjectReferences = () => {
               const hasPdfUrl = Boolean(ref?.pdf_url)
               // Show "Analyze PDF" if there's a stored PDF or accessible URL, but not yet processed
               const showIngestButton = Boolean(canManageReferences && referenceId && (hasPdfStored || hasPdfUrl) && !isPdfProcessed)
-              // Show "Upload PDF" only if no PDF is stored and no URL available
-              const showUploadButton = Boolean(canManageReferences && referenceId && !hasPdfStored && !hasPdfUrl)
+              // Show "Upload PDF" if no PDF is stored (even if there's a pdf_url that might be inaccessible)
+              const showUploadButton = Boolean(canManageReferences && referenceId && !hasPdfStored && !isPdfProcessed)
 
               return (
                 <li
@@ -419,6 +419,7 @@ const ProjectReferences = () => {
                             className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 transition hover:bg-amber-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-400/40 dark:bg-amber-500/20 dark:text-amber-200 dark:hover:bg-amber-500/30"
                             onClick={() => referenceId && handleUploadRequest(referenceId)}
                             disabled={!!uploadingId}
+                            title="Upload a PDF file for this paper"
                           >
                             {uploadingId === referenceId ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
