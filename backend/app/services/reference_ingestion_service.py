@@ -22,18 +22,31 @@ logger = logging.getLogger(__name__)
 
 
 def _run_async(coro):
-    """Execute an async coroutine from synchronous context."""
+    """Execute an async coroutine from synchronous context.
+
+    Uses a thread pool to properly handle running async code when
+    an event loop is already running (e.g., from FastAPI).
+    """
+    import concurrent.futures
+
+    def run_in_thread():
+        new_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(new_loop)
+        try:
+            return new_loop.run_until_complete(coro)
+        finally:
+            new_loop.close()
+
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:
         loop = None
 
     if loop and loop.is_running():
-        new_loop = asyncio.new_event_loop()
-        try:
-            return new_loop.run_until_complete(coro)
-        finally:
-            new_loop.close()
+        # Run in a separate thread to avoid nested event loop issues
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(run_in_thread)
+            return future.result(timeout=60)
 
     return asyncio.run(coro)
 

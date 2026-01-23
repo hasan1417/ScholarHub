@@ -380,9 +380,10 @@ const ProjectReferences = () => {
               const summary = ref?.summary || ref?.abstract
               const referenceId = ref?.id || item.reference_id || null
               const hasDocument = Boolean(ref?.document_id)
-              const hasStoredPdf = Boolean(ref?.pdf_url || documentDownloadPath || hasDocument)
-              const showIngestButton = Boolean(canManageReferences && referenceId && ref?.pdf_url && !ref?.pdf_processed)
-              const showUploadButton = Boolean(canManageReferences && referenceId && !hasStoredPdf)
+              const isPdfProcessed = Boolean(ref?.pdf_processed || (hasDocument && documentDownloadPath))
+              const hasPdfUrl = Boolean(ref?.pdf_url)
+              const showIngestButton = Boolean(canManageReferences && referenceId && hasPdfUrl && !isPdfProcessed)
+              const showUploadButton = Boolean(canManageReferences && referenceId && !hasPdfUrl && !isPdfProcessed)
 
               return (
                 <li
@@ -399,7 +400,17 @@ const ProjectReferences = () => {
                       {/* Actions - always visible on mobile, hover on desktop */}
                       <div className="relative flex items-center gap-2 flex-shrink-0">
                         {/* PDF Status/Upload Button */}
-                        {showUploadButton ? (
+                        {isPdfProcessed ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-200">
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            PDF analyzed
+                          </span>
+                        ) : hasPdfUrl ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 dark:border-blue-400/40 dark:bg-blue-500/20 dark:text-blue-200">
+                            <FileText className="h-3.5 w-3.5" />
+                            PDF available
+                          </span>
+                        ) : showUploadButton ? (
                           <button
                             type="button"
                             className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 transition hover:bg-amber-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-400/40 dark:bg-amber-500/20 dark:text-amber-200 dark:hover:bg-amber-500/30"
@@ -413,12 +424,7 @@ const ProjectReferences = () => {
                             )}
                             {uploadingId === referenceId ? 'Uploading…' : 'Upload PDF'}
                           </button>
-                        ) : (
-                          <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-200">
-                            <CheckCircle2 className="h-3.5 w-3.5" />
-                            PDF on file
-                          </span>
-                        )}
+                        ) : null}
 
                         {/* Overflow Menu */}
                         {canManageReferences && (

@@ -408,7 +408,7 @@ def list_discovery_results(  # pylint: disable=too-many-arguments,too-many-local
     base_query = (
         db.query(ProjectDiscoveryResultModel, ProjectDiscoveryRun)
         .join(ProjectDiscoveryRun, ProjectDiscoveryResultModel.run_id == ProjectDiscoveryRun.id)
-        .filter(ProjectDiscoveryResultModel.project_id == project_id)
+        .filter(ProjectDiscoveryResultModel.project_id == project.id)
     )
 
     if status_filter is not None:
@@ -450,7 +450,7 @@ def clear_discovery_results(
     deleted_count = (
         db.query(ProjectDiscoveryResultModel)
         .filter(
-            ProjectDiscoveryResultModel.project_id == project_id,
+            ProjectDiscoveryResultModel.project_id == project.id,
             ProjectDiscoveryResultModel.status != ProjectDiscoveryResultStatus.PROMOTED,
         )
         .delete(synchronize_session='fetch')
@@ -478,7 +478,7 @@ def get_pending_discovery_count(
     pending = (
         db.query(ProjectDiscoveryResultModel)
         .filter(
-            ProjectDiscoveryResultModel.project_id == project_id,
+            ProjectDiscoveryResultModel.project_id == project.id,
             ProjectDiscoveryResultModel.status == ProjectDiscoveryResultStatus.PENDING,
         )
         .count()
@@ -506,7 +506,7 @@ def promote_discovery_result(
         db.query(ProjectDiscoveryResultModel, ProjectDiscoveryRun)
         .join(ProjectDiscoveryRun, ProjectDiscoveryResultModel.run_id == ProjectDiscoveryRun.id)
         .filter(
-            ProjectDiscoveryResultModel.project_id == project_id,
+            ProjectDiscoveryResultModel.project_id == project.id,
             ProjectDiscoveryResultModel.id == result_id,
         )
         .first()
@@ -523,7 +523,7 @@ def promote_discovery_result(
         project_ref = (
             db.query(ProjectReference)
             .filter(
-                ProjectReference.project_id == project_id,
+                ProjectReference.project_id == project.id,
                 ProjectReference.reference_id == result_row.reference_id,
             )
             .first()
@@ -537,7 +537,7 @@ def promote_discovery_result(
                 detail="Result not linked to a reference",
             )
         project_ref = ProjectReference(
-            project_id=project_id,
+            project_id=project.id,
             reference_id=result_row.reference_id,
             status=ProjectReferenceStatus.PENDING,
             origin=(
@@ -628,7 +628,7 @@ def dismiss_discovery_result(
         db.query(ProjectDiscoveryResultModel, ProjectDiscoveryRun)
         .join(ProjectDiscoveryRun, ProjectDiscoveryResultModel.run_id == ProjectDiscoveryRun.id)
         .filter(
-            ProjectDiscoveryResultModel.project_id == project_id,
+            ProjectDiscoveryResultModel.project_id == project.id,
             ProjectDiscoveryResultModel.id == result_id,
         )
         .first()
@@ -651,7 +651,7 @@ def dismiss_discovery_result(
         project_ref = (
             db.query(ProjectReference)
             .filter(
-                ProjectReference.project_id == project_id,
+                ProjectReference.project_id == project.id,
                 ProjectReference.reference_id == result_row.reference_id,
             )
             .first()
@@ -701,7 +701,7 @@ def delete_discovery_result(
         db.query(ProjectDiscoveryResultModel, ProjectDiscoveryRun)
         .join(ProjectDiscoveryRun, ProjectDiscoveryResultModel.run_id == ProjectDiscoveryRun.id)
         .filter(
-            ProjectDiscoveryResultModel.project_id == project_id,
+            ProjectDiscoveryResultModel.project_id == project.id,
             ProjectDiscoveryResultModel.id == result_id,
         )
         .first()
@@ -720,7 +720,7 @@ def delete_discovery_result(
         project_ref = (
             db.query(ProjectReference)
             .filter(
-                ProjectReference.project_id == project_id,
+                ProjectReference.project_id == project.id,
                 ProjectReference.reference_id == result_row.reference_id,
             )
             .first()
@@ -753,7 +753,7 @@ def clear_dismissed_discovery_results(
     query = (
         db.query(ProjectDiscoveryResultModel)
         .filter(
-            ProjectDiscoveryResultModel.project_id == project_id,
+            ProjectDiscoveryResultModel.project_id == project.id,
             ProjectDiscoveryResultModel.status == ProjectDiscoveryResultStatus.DISMISSED,
         )
     )
