@@ -170,7 +170,7 @@ def create_project(
     membership = ProjectMember(
         project_id=project.id,
         user_id=current_user.id,
-        role=ProjectRole.ADMIN,
+        role=ProjectRole.OWNER,
         status="accepted",
     )
     db.add(membership)
