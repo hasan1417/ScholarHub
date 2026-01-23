@@ -34,6 +34,7 @@ import ChannelArtifactsPanel from '../../components/discussion/ChannelArtifactsP
 import { ReferenceSearchResults } from '../../components/discussion/ReferenceSearchResults'
 import { DiscoveredPaper } from '../../components/discussion/DiscoveredPaperCard'
 import { DiscoveryQueuePanel } from '../../components/discussion/DiscoveryQueuePanel'
+import { getProjectUrlId } from '../../utils/urlId'
 
 type AssistantExchange = {
   id: string
@@ -757,7 +758,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       if (data.success) {
         // Navigate to paper if created
         if (variables.actionType === 'create_paper' && data.paper_id) {
-          navigate(`/projects/${project.id}/papers/${data.paper_id}`)
+          navigate(`/projects/${getProjectUrlId(project)}/papers/${data.paper_id}`)
         }
         // Invalidate paper queries if edited
         if (variables.actionType === 'edit_paper') {

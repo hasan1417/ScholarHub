@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, computed_field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from uuid import UUID
@@ -62,6 +62,8 @@ class ResearchPaperUpdate(BaseModel):
 
 class ResearchPaperResponse(ResearchPaperBase):
     id: UUID
+    slug: Optional[str] = None
+    short_id: Optional[str] = None
     owner_id: UUID
     project_id: Optional[UUID] = None
     status: str
@@ -71,7 +73,7 @@ class ResearchPaperResponse(ResearchPaperBase):
     current_version: Optional[str] = None
     format: Optional[str] = None
     summary: Optional[str] = None
-    
+
     # Discovery metadata
     year: Optional[int] = None
     doi: Optional[str] = None
@@ -80,10 +82,17 @@ class ResearchPaperResponse(ResearchPaperBase):
     authors: Optional[List[str]] = None
     journal: Optional[str] = None
     description: Optional[str] = None
-    
+
     created_at: datetime
     updated_at: datetime
-    
+
+    @computed_field(return_type=str)
+    def url_id(self) -> str:
+        """URL-friendly identifier: slug-shortid or just shortid."""
+        if self.slug and self.short_id:
+            return f"{self.slug}-{self.short_id}"
+        return self.short_id or str(self.id)
+
     class Config:
         from_attributes = True
 

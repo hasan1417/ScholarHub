@@ -25,6 +25,9 @@ export interface ProjectMemberSummary {
 
 export interface ProjectSummary {
   id: string
+  slug?: string | null
+  short_id?: string | null
+  url_id?: string  // Computed: slug-shortid or shortid
   title: string
   idea?: string
   keywords?: string[] | null
@@ -294,6 +297,9 @@ export interface ProjectCreateInput {
 // Research Paper types
 export interface ResearchPaper {
   id: string
+  slug?: string | null
+  short_id?: string | null
+  url_id?: string  // Computed: slug-shortid or shortid
   title: string
   abstract?: string
   content?: string
@@ -309,7 +315,7 @@ export interface ResearchPaper {
   keywords?: string[] | string  // Support both array and string for backward compatibility
   references?: string
   current_version?: string
-  
+
   // Discovery metadata
   year?: number
   doi?: string
@@ -318,7 +324,7 @@ export interface ResearchPaper {
   authors?: string[]
   journal?: string
   description?: string
-  
+
   created_at: string
   updated_at: string
   created_by?: string

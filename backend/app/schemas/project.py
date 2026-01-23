@@ -101,6 +101,8 @@ class ProjectMemberSummary(BaseModel):
 
 class ProjectSummary(ProjectBase):
     id: UUID
+    slug: Optional[str] = None
+    short_id: Optional[str] = None
     created_by: UUID
     created_at: datetime
     updated_at: datetime
@@ -110,6 +112,13 @@ class ProjectSummary(ProjectBase):
     members: Optional[List[ProjectMemberSummary]] = None
     paper_count: int = 0
     reference_count: int = 0
+
+    @computed_field(return_type=str)
+    def url_id(self) -> str:
+        """URL-friendly identifier: slug-shortid or just shortid."""
+        if self.slug and self.short_id:
+            return f"{self.slug}-{self.short_id}"
+        return self.short_id or str(self.id)
 
     class Config:
         from_attributes = True

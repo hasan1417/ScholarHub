@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useProjectContext } from './ProjectLayout'
 import { researchPapersAPI } from '../../services/api'
+import { getProjectUrlId, getPaperUrlId } from '../../utils/urlId'
 
 type SortOption = 'newest' | 'oldest' | 'title-az' | 'title-za'
 type CategoryFilter = 'all' | 'literature_review' | 'research' | 'review' | 'survey' | 'other'
@@ -191,7 +192,7 @@ const ProjectPapers = () => {
         {canCreatePaper && (
           <button
             type="button"
-            onClick={() => navigate(`/projects/${project.id}/papers/new`)}
+            onClick={() => navigate(`/projects/${getProjectUrlId(project)}/papers/new`)}
             className="inline-flex items-center gap-2 rounded-full bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-indigo-700"
           >
             <Plus className="h-4 w-4" />
@@ -297,7 +298,7 @@ const ProjectPapers = () => {
             return (
               <Link
                 key={paper.id}
-                to={`/projects/${project.id}/papers/${paper.id}`}
+                to={`/projects/${getProjectUrlId(project)}/papers/${getPaperUrlId(paper)}`}
                 className={`group flex items-center gap-4 rounded-xl border border-l-4 border-gray-100 bg-gray-50/50 px-4 py-3.5 transition hover:bg-white hover:shadow-sm dark:border-slate-700 dark:bg-slate-800/50 dark:hover:bg-slate-800 ${categoryStyle.border}`}
               >
                 {/* Icon - color based on category */}

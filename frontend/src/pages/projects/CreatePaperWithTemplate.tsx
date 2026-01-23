@@ -10,6 +10,7 @@ import { useProjectContext } from './ProjectLayout'
 import { hasDuplicatePaperTitle } from '../../utils/papers'
 import { parseObjectives } from '../../utils/objectives'
 import { PAPER_TEMPLATES } from '../../constants/paperTemplates'
+import { getProjectUrlId, getPaperUrlId } from '../../utils/urlId'
 
 type Step = 'title' | 'editor' | 'review'
 
@@ -165,9 +166,9 @@ const CreatePaperWithTemplate: React.FC = () => {
       setCreatedPaper(newPaper)
 
       setTimeout(() => {
-        const targetProjectId = projectId || newPaper.project_id
-        if (targetProjectId) {
-          navigate(`/projects/${targetProjectId}/papers/${newPaper.id}/editor`)
+        const targetProjectUrlId = getProjectUrlId(project) || projectId || newPaper.project_id
+        if (targetProjectUrlId) {
+          navigate(`/projects/${targetProjectUrlId}/papers/${getPaperUrlId(newPaper)}/editor`)
         } else {
           navigate(`/projects`)
         }

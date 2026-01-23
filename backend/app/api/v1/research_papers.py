@@ -30,9 +30,55 @@ from app.services.paper_membership_service import ensure_paper_membership_for_pr
 import traceback
 from app.services.activity_feed import record_project_activity, preview_text
 from app.services.subscription_service import SubscriptionService
+from app.utils.slugify import slugify, generate_short_id
 
 # Security logging
 logger = logging.getLogger(__name__)
+
+
+def _is_valid_uuid(val: str) -> bool:
+    """Check if a string is a valid UUID."""
+    try:
+        UUID(str(val))
+        return True
+    except (ValueError, AttributeError):
+        return False
+
+
+def _parse_short_id(url_id: str) -> Optional[str]:
+    """Extract short_id from a URL identifier (slug-shortid or just shortid)."""
+    if not url_id or _is_valid_uuid(url_id):
+        return None
+    if len(url_id) == 8 and url_id.isalnum():
+        return url_id
+    last_hyphen = url_id.rfind('-')
+    if last_hyphen > 0:
+        potential = url_id[last_hyphen + 1:]
+        if len(potential) == 8 and potential.isalnum():
+            return potential
+    return None
+
+
+def _get_paper_or_404(db: Session, paper_id: str) -> ResearchPaper:
+    """Get paper by UUID or slug-shortid format."""
+    paper = None
+
+    # Try UUID lookup first
+    if _is_valid_uuid(paper_id):
+        try:
+            paper = db.query(ResearchPaper).filter(ResearchPaper.id == UUID(paper_id)).first()
+        except (ValueError, AttributeError):
+            pass
+
+    # Try short_id lookup
+    if not paper:
+        short_id = _parse_short_id(paper_id)
+        if short_id:
+            paper = db.query(ResearchPaper).filter(ResearchPaper.short_id == short_id).first()
+
+    if not paper:
+        raise HTTPException(status_code=404, detail="Research paper not found")
+    return paper
 
 router = APIRouter()
 
@@ -142,7 +188,9 @@ async def create_research_paper(
 
     paper = ResearchPaper(
         **paper_data.dict(),
-        owner_id=current_user.id
+        owner_id=current_user.id,
+        slug=slugify(normalized_title) if normalized_title else None,
+        short_id=generate_short_id(),
     )
     
     db.add(paper)
@@ -266,9 +314,7 @@ async def get_research_paper(
     db: Session = Depends(get_db)
 ):
     """Get a specific research paper."""
-    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Research paper not found")
+    paper = _get_paper_or_404(db, paper_id)
     
     # Check if user has access
     if paper.owner_id != current_user.id:
@@ -312,9 +358,7 @@ async def update_research_paper(
     db: Session = Depends(get_db)
 ):
     """Update a research paper."""
-    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Research paper not found")
+    paper = _get_paper_or_404(db, paper_id)
     
     # Check if user is owner or has edit permissions
     if paper.owner_id != current_user.id:
@@ -392,9 +436,7 @@ async def delete_research_paper(
     db: Session = Depends(get_db)
 ):
     """Delete a research paper."""
-    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Research paper not found")
+    paper = _get_paper_or_404(db, paper_id)
     
     # Only owner can delete
     if paper.owner_id != current_user.id:
@@ -413,9 +455,7 @@ async def update_paper_content(
     db: Session = Depends(get_db)
 ):
     """Update content of a research paper with optional versioning."""
-    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Research paper not found")
+    paper = _get_paper_or_404(db, paper_id)
     
     # Check if user is owner or has edit permissions
     if paper.owner_id != current_user.id:
@@ -634,9 +674,7 @@ async def add_reference(
     db: Session = Depends(get_db),
     background_tasks: BackgroundTasks = None
 ):
-    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Research paper not found")
+    paper = _get_paper_or_404(db, paper_id)
     # Access check: owner or accepted member
     if paper.owner_id != current_user.id:
         member = db.query(PaperMember).filter(
@@ -722,9 +760,7 @@ async def list_references(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Research paper not found")
+    paper = _get_paper_or_404(db, paper_id)
     if paper.owner_id != current_user.id:
         member = db.query(PaperMember).filter(
             PaperMember.paper_id == paper_id,
@@ -856,9 +892,7 @@ async def add_paper_member(
     db: Session = Depends(get_db)
 ):
     """Add a member to a research paper."""
-    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Research paper not found")
+    paper = _get_paper_or_404(db, paper_id)
     
     # Only owner can add members
     if paper.owner_id != current_user.id:
@@ -946,9 +980,7 @@ async def remove_paper_member(
     db: Session = Depends(get_db)
 ):
     """Remove a member from a research paper."""
-    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Research paper not found")
+    paper = _get_paper_or_404(db, paper_id)
     
     # Only owner can remove members
     if paper.owner_id != current_user.id:
@@ -1006,9 +1038,7 @@ async def get_paper_versions(
     db: Session = Depends(get_db)
 ):
     """Get all versions of a research paper."""
-    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Research paper not found")
+    paper = _get_paper_or_404(db, paper_id)
     
     # Check if user has access
     if paper.owner_id != current_user.id:
@@ -1041,9 +1071,7 @@ async def get_paper_version(
     db: Session = Depends(get_db)
 ):
     """Get a specific version of a research paper."""
-    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Research paper not found")
+    paper = _get_paper_or_404(db, paper_id)
     
     # Check if user has access
     if paper.owner_id != current_user.id:
@@ -1076,9 +1104,7 @@ async def create_paper_version(
     db: Session = Depends(get_db)
 ):
     """Create a new version of a research paper."""
-    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Research paper not found")
+    paper = _get_paper_or_404(db, paper_id)
     
     # Check if user has edit access
     if paper.owner_id != current_user.id:
@@ -1134,9 +1160,7 @@ async def restore_paper_version(
     db: Session = Depends(get_db)
 ):
     """Restore a paper to a specific version."""
-    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Research paper not found")
+    paper = _get_paper_or_404(db, paper_id)
     
     # Check if user has edit access
     if paper.owner_id != current_user.id:

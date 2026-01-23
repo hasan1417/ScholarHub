@@ -7,6 +7,7 @@ import { ProjectCreateInput, ProjectDetail } from '../../types'
 import ProjectFormModal from '../../components/projects/ProjectFormModal'
 import { useAuth } from '../../contexts/AuthContext'
 import ConfirmationModal from '../../components/common/ConfirmationModal'
+import { getProjectUrlId } from '../../utils/urlId'
 import TabDropdown from '../../components/projects/TabDropdown'
 import { getNavigationMode } from '../../config/navigation'
 
@@ -344,7 +345,7 @@ const ProjectLayout = () => {
             NEW_TAB_GROUPS.main.map(({ label, path, exact, icon: Icon, tooltip, badge }) => (
               <div key={label} className="relative">
                 <NavLink
-                  to={path ? `/projects/${project.id}/${path}` : `/projects/${project.id}`}
+                  to={path ? `/projects/${getProjectUrlId(project)}/${path}` : `/projects/${getProjectUrlId(project)}`}
                   end={Boolean(exact)}
                   title={tooltip}
                   className={({ isActive }) =>
@@ -370,7 +371,7 @@ const ProjectLayout = () => {
               {OLD_TAB_GROUPS.standalone.map(({ label, path, exact, icon: Icon, tooltip }) => (
                 <NavLink
                   key={label}
-                  to={path ? `/projects/${project.id}/${path}` : `/projects/${project.id}`}
+                  to={path ? `/projects/${getProjectUrlId(project)}/${path}` : `/projects/${getProjectUrlId(project)}`}
                   end={Boolean(exact)}
                   title={tooltip}
                   className={({ isActive }) =>

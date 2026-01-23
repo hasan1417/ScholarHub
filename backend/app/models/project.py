@@ -13,6 +13,8 @@ class Project(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title = Column(String(255), nullable=False)
+    slug = Column(String(300), nullable=True, index=True)  # URL-friendly slug
+    short_id = Column(String(12), nullable=True, unique=True, index=True)  # Short unique ID for URLs
     idea = Column(Text)
     keywords = Column(ARRAY(String))
     scope = Column(Text)

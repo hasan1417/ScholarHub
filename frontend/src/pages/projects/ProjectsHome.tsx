@@ -21,6 +21,7 @@ import { projectsAPI } from '../../services/api'
 import { useAuth } from '../../contexts/AuthContext'
 import { ProjectCreateInput, ProjectSummary } from '../../types'
 import ProjectFormModal from '../../components/projects/ProjectFormModal'
+import { getProjectUrlId } from '../../utils/urlId'
 
 const PINNED_STORAGE_KEY = 'scholarhub_pinned_projects'
 const RECENT_STORAGE_KEY = 'scholarhub_recent_projects'
@@ -245,7 +246,7 @@ const ProjectsHome = () => {
   // Handle opening a project (adds to recent)
   const handleOpenProject = (project: ProjectSummary) => {
     addToRecent({ id: project.id, title: project.title })
-    navigate(`/projects/${project.id}`)
+    navigate(`/projects/${getProjectUrlId(project)}`)
   }
 
   // Get recent projects that still exist

@@ -33,18 +33,63 @@ from app.schemas.project import (
     PendingProjectInvitationList,
     PendingProjectInvitation,
 )
+from app.utils.slugify import slugify, generate_short_id
 
 
 router = APIRouter()
 
 
-def _get_project(db: Session, project_id: UUID) -> Project:
-    project = (
-        db.query(Project)
-        .options(joinedload(Project.members).joinedload(ProjectMember.user))
-        .filter(Project.id == project_id)
-        .first()
-    )
+def _is_valid_uuid(val: str) -> bool:
+    """Check if a string is a valid UUID."""
+    try:
+        UUID(str(val))
+        return True
+    except (ValueError, AttributeError):
+        return False
+
+
+def _parse_short_id(url_id: str) -> str | None:
+    """Extract short_id from a URL identifier (slug-shortid or just shortid)."""
+    if not url_id or _is_valid_uuid(url_id):
+        return None
+    if len(url_id) == 8 and url_id.isalnum():
+        return url_id
+    last_hyphen = url_id.rfind('-')
+    if last_hyphen > 0:
+        potential = url_id[last_hyphen + 1:]
+        if len(potential) == 8 and potential.isalnum():
+            return potential
+    return None
+
+
+def _get_project(db: Session, project_id: str | UUID) -> Project:
+    """Get project by UUID or slug-shortid format."""
+    project = None
+
+    # Try UUID lookup first
+    if isinstance(project_id, UUID) or _is_valid_uuid(str(project_id)):
+        try:
+            uuid_val = project_id if isinstance(project_id, UUID) else UUID(str(project_id))
+            project = (
+                db.query(Project)
+                .options(joinedload(Project.members).joinedload(ProjectMember.user))
+                .filter(Project.id == uuid_val)
+                .first()
+            )
+        except (ValueError, AttributeError):
+            pass
+
+    # Try short_id lookup
+    if not project:
+        short_id = _parse_short_id(str(project_id))
+        if short_id:
+            project = (
+                db.query(Project)
+                .options(joinedload(Project.members).joinedload(ProjectMember.user))
+                .filter(Project.short_id == short_id)
+                .first()
+            )
+
     if not project:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
     return project
@@ -110,6 +155,8 @@ def create_project(
 
     project = Project(
         title=payload.title,
+        slug=slugify(payload.title) if payload.title else None,
+        short_id=generate_short_id(),
         idea=payload.idea,
         keywords=payload.keywords,
         scope=payload.scope,
