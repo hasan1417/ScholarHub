@@ -256,6 +256,21 @@ api.interceptors.response.use(
     const requestUrl = originalRequest.url || ''
     const isAuthEndpoint = authEndpoints.some(endpoint => requestUrl.endsWith(endpoint))
 
+    // Handle 403 that might be due to expired/invalid auth (race condition with token refresh)
+    // If we get 403 "Project access denied" and we're already refreshing or just failed refresh, redirect to login
+    if (error?.response?.status === 403 && !isAuthEndpoint) {
+      const detail = error?.response?.data?.detail || ''
+      const isAuthRelated = detail.includes('access denied') || detail.includes('Access denied')
+      const noToken = !localStorage.getItem('access_token')
+
+      if (isAuthRelated && (noToken || isRefreshing)) {
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('user')
+        window.location.href = '/login'
+        return Promise.reject(error)
+      }
+    }
+
     if (error?.response?.status === 401 && !originalRequest._retry && !isAuthEndpoint) {
       if (isRefreshing) {
         // If already refreshing, queue this request
