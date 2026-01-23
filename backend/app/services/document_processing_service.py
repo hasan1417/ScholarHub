@@ -196,9 +196,11 @@ class DocumentProcessingService:
             
             # Create new chunks
             for i, chunk in enumerate(chunks):
+                # Sanitize chunk text: remove NUL characters that cause PostgreSQL errors
+                chunk_text = chunk['text'].replace('\x00', '') if chunk['text'] else ''
                 db_chunk = DocumentChunk(
                     document_id=document_id,
-                    chunk_text=chunk['text'],
+                    chunk_text=chunk_text,
                     chunk_index=chunk['index'],
                     chunk_metadata=chunk['metadata']
                 )
@@ -244,7 +246,8 @@ class DocumentProcessingService:
         chunks = self.get_document_chunks(db, document_id)
         if not chunks:
             return 0
-        texts = [c.chunk_text[:8000] if c.chunk_text else "" for c in chunks]
+        # Sanitize text: remove NUL characters that can cause issues
+        texts = [(c.chunk_text or "").replace('\x00', '')[:8000] for c in chunks]
         updated = 0
         for i in range(0, len(texts), batch_size):
             batch = texts[i:i+batch_size]
