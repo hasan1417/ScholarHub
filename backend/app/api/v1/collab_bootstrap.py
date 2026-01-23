@@ -59,7 +59,7 @@ def _extract_latex_payload(paper: ResearchPaper) -> Dict[str, Any]:
 
 @router.get("/collab/bootstrap/{paper_id}")
 def get_collab_bootstrap_payload(
-    paper_id: UUID,
+    paper_id: str,
     collab_secret: str | None = Header(default=None, alias="X-Collab-Secret"),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:

@@ -237,7 +237,7 @@ class DiscoveryClearResponse(BaseModel):
 
 @router.get("/projects/{project_id}/discovery/settings", response_model=ProjectDiscoveryPreferences)
 def get_discovery_settings(
-    project_id: UUID,
+    project_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -252,7 +252,7 @@ def get_discovery_settings(
 
 @router.put("/projects/{project_id}/discovery/settings", response_model=ProjectDiscoveryPreferences)
 def update_discovery_settings(
-    project_id: UUID,
+    project_id: str,
     payload: ProjectDiscoveryPreferencesUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -276,7 +276,7 @@ def update_discovery_settings(
 
 @router.post("/projects/{project_id}/discovery/run", response_model=DiscoveryRunResponse)
 def run_project_discovery(
-    project_id: UUID,
+    project_id: str,
     payload: DiscoveryRunRequest = DiscoveryRunRequest(),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -385,7 +385,7 @@ def run_project_discovery(
 
 @router.get("/projects/{project_id}/discovery/results", response_model=DiscoveryResultsResponse)
 def list_discovery_results(  # pylint: disable=too-many-arguments,too-many-locals,too-many-positional-arguments
-    project_id: UUID,
+    project_id: str,
     status_filter: ProjectDiscoveryResultStatus | None = Query(None, alias="status"),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
@@ -430,7 +430,7 @@ def list_discovery_results(  # pylint: disable=too-many-arguments,too-many-local
 
 @router.delete("/projects/{project_id}/discovery/results/clear")
 def clear_discovery_results(
-    project_id: UUID,
+    project_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -458,7 +458,7 @@ def clear_discovery_results(
     response_model=DiscoveryCountResponse,
 )
 def get_pending_discovery_count(
-    project_id: UUID,
+    project_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -485,7 +485,7 @@ def get_pending_discovery_count(
     response_model=DiscoveryResultItem,
 )
 def promote_discovery_result(
-    project_id: UUID,
+    project_id: str,
     result_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -607,7 +607,7 @@ def promote_discovery_result(
     response_model=DiscoveryResultItem,
 )
 def dismiss_discovery_result(
-    project_id: UUID,
+    project_id: str,
     result_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -680,7 +680,7 @@ def dismiss_discovery_result(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 def delete_discovery_result(
-    project_id: UUID,
+    project_id: str,
     result_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -733,7 +733,7 @@ def delete_discovery_result(
     response_model=DiscoveryClearResponse,
 )
 def clear_dismissed_discovery_results(
-    project_id: UUID,
+    project_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

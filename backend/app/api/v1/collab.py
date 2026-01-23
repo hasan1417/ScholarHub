@@ -70,7 +70,7 @@ def _ensure_latex_authoring(paper: ResearchPaper) -> None:
 
 @router.post("/token")
 def mint_collab_token(
-    paper_id: UUID,
+    paper_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

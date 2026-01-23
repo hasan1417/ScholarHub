@@ -81,7 +81,7 @@ def mark_notification_as_read(
 
 @router.get("/projects/{project_id}/notifications")
 def list_project_notifications(
-    project_id: UUID,
+    project_id: str,
     unread_only: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),

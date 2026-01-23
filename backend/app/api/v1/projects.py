@@ -288,7 +288,7 @@ def list_projects(
 
 @router.get("/{project_id}", response_model=ProjectDetail)
 def get_project(
-    project_id: UUID,
+    project_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -305,7 +305,7 @@ def get_project(
 
 @router.put("/{project_id}", response_model=ProjectSummary)
 def update_project(
-    project_id: UUID,
+    project_id: str,
     payload: ProjectUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -351,7 +351,7 @@ def update_project(
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_project(
-    project_id: UUID,
+    project_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -364,7 +364,7 @@ def delete_project(
 
 @router.post("/{project_id}/members", response_model=ProjectMemberResponse, status_code=status.HTTP_201_CREATED)
 def add_project_member(
-    project_id: UUID,
+    project_id: str,
     payload: ProjectMemberCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -432,7 +432,7 @@ def add_project_member(
 
 @router.post("/{project_id}/invite", response_model=ProjectInviteResponse, status_code=status.HTTP_201_CREATED)
 def invite_user_to_project(
-    project_id: UUID,
+    project_id: str,
     payload: ProjectInviteRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -611,7 +611,7 @@ def invite_user_to_project(
 
 @router.get("/{project_id}/pending-invitations", response_model=List[PendingInvitationResponse])
 def get_pending_invitations(
-    project_id: UUID,
+    project_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -630,7 +630,7 @@ def get_pending_invitations(
 
 @router.delete("/{project_id}/pending-invitations/{invitation_id}", status_code=status.HTTP_204_NO_CONTENT)
 def cancel_pending_invitation(
-    project_id: UUID,
+    project_id: str,
     invitation_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -657,7 +657,7 @@ def cancel_pending_invitation(
 
 @router.patch("/{project_id}/members/{member_id}", response_model=ProjectMemberResponse)
 def update_project_member(
-    project_id: UUID,
+    project_id: str,
     member_id: UUID,
     payload: ProjectMemberUpdate,
     db: Session = Depends(get_db),
@@ -682,7 +682,7 @@ def update_project_member(
 
 @router.delete("/{project_id}/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_project_member(
-    project_id: UUID,
+    project_id: str,
     member_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -763,7 +763,7 @@ def list_pending_project_invitations(
 
 @router.post("/{project_id}/members/{member_id}/accept")
 def accept_project_invitation(
-    project_id: UUID,
+    project_id: str,
     member_id: UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -806,7 +806,7 @@ def accept_project_invitation(
 
 @router.post("/{project_id}/members/{member_id}/decline")
 def decline_project_invitation(
-    project_id: UUID,
+    project_id: str,
     member_id: UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),

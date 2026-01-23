@@ -149,7 +149,7 @@ def _serialize_project_reference(pr: ProjectReference) -> ProjectReferenceRespon
 
 @router.get("/projects/{project_id}/references/suggestions")
 def list_reference_suggestions(
-    project_id: UUID,
+    project_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -183,7 +183,7 @@ def list_reference_suggestions(
 
 @router.get("/projects/{project_id}/references")
 def list_project_references(
-    project_id: UUID,
+    project_id: str,
     status_filter: ProjectReferenceStatus | None = Query(None, alias="status"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -214,7 +214,7 @@ def list_project_references(
 
 @router.post("/projects/{project_id}/references/suggestions/refresh")
 def refresh_reference_suggestions(
-    project_id: UUID,
+    project_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -251,7 +251,7 @@ def refresh_reference_suggestions(
 
 @router.post("/projects/{project_id}/references/suggestions", status_code=status.HTTP_201_CREATED)
 def create_reference_suggestion(
-    project_id: UUID,
+    project_id: str,
     reference_id: UUID,
     confidence: Optional[float] = None,
     db: Session = Depends(get_db),
@@ -296,7 +296,7 @@ def create_reference_suggestion(
 
 
 def _update_reference_status(
-    project_id: UUID,
+    project_id: str,
     project_reference_id: UUID,
     new_status: ProjectReferenceStatus,
     *,
@@ -381,7 +381,7 @@ def _update_reference_status(
 
 @router.post("/projects/{project_id}/references/{project_reference_id}/approve")
 def approve_reference_suggestion(
-    project_id: UUID,
+    project_id: str,
     project_reference_id: UUID,
     paper_id: Optional[UUID] = None,
     db: Session = Depends(get_db),
@@ -401,7 +401,7 @@ def approve_reference_suggestion(
 
 @router.post("/projects/{project_id}/references/{project_reference_id}/reject")
 def reject_reference_suggestion(
-    project_id: UUID,
+    project_id: str,
     project_reference_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -422,7 +422,7 @@ def reject_reference_suggestion(
     status_code=status.HTTP_201_CREATED,
 )
 def attach_reference_to_paper(
-    project_id: UUID,
+    project_id: str,
     project_reference_id: UUID,
     payload: AttachReferencePayload = Body(...),
     db: Session = Depends(get_db),
@@ -507,7 +507,7 @@ def attach_reference_to_paper(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 def detach_reference_from_paper(
-    project_id: UUID,
+    project_id: str,
     project_reference_id: UUID,
     paper_id: UUID,
     db: Session = Depends(get_db),
@@ -575,7 +575,7 @@ def detach_reference_from_paper(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 def delete_project_reference(
-    project_id: UUID,
+    project_id: str,
     project_reference_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -610,7 +610,7 @@ def delete_project_reference(
 
 @router.get("/projects/{project_id}/papers/{paper_id}/references")
 def list_references_for_paper(
-    project_id: UUID,
+    project_id: str,
     paper_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),

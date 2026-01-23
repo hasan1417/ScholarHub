@@ -391,7 +391,7 @@ def _parse_task_status(value: Optional[str]) -> Optional[ProjectDiscussionTaskSt
 
 @router.get("/projects/{project_id}/discussion/messages")
 def list_discussion_messages(
-    project_id: UUID,
+    project_id: str,
     limit: int = 100,
     offset: int = 0,
     parent_id: Optional[UUID] = None,
@@ -453,7 +453,7 @@ def list_discussion_messages(
 
 @router.get("/projects/{project_id}/discussion/threads")
 def list_discussion_threads(
-    project_id: UUID,
+    project_id: str,
     limit: int = 50,
     offset: int = 0,
     channel_id: Optional[UUID] = None,
@@ -513,7 +513,7 @@ def list_discussion_threads(
 
 @router.post("/projects/{project_id}/discussion/messages", status_code=status.HTTP_201_CREATED)
 def create_discussion_message(
-    project_id: UUID,
+    project_id: str,
     message_data: DiscussionMessageCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
@@ -574,7 +574,7 @@ def create_discussion_message(
 
 @router.put("/projects/{project_id}/discussion/messages/{message_id}")
 def update_discussion_message(
-    project_id: UUID,
+    project_id: str,
     message_id: UUID,
     message_data: DiscussionMessageUpdate,
     background_tasks: BackgroundTasks,
@@ -641,7 +641,7 @@ def update_discussion_message(
 
 @router.delete("/projects/{project_id}/discussion/messages/{message_id}")
 def delete_discussion_message(
-    project_id: UUID,
+    project_id: str,
     message_id: UUID,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
@@ -698,7 +698,7 @@ def delete_discussion_message(
 @router.websocket("/projects/{project_id}/discussion/channels/{channel_id}/ws")
 async def discussion_channel_ws(
     websocket: WebSocket,
-    project_id: UUID,
+    project_id: str,
     channel_id: UUID,
     token: str = Query(..., description="Bearer token for authentication"),
 ):
@@ -765,7 +765,7 @@ async def discussion_channel_ws(
 
 @router.get("/projects/{project_id}/discussion/stats")
 def get_discussion_stats(
-    project_id: UUID,
+    project_id: str,
     channel_id: Optional[UUID] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -797,7 +797,7 @@ def get_discussion_stats(
 
 @router.get("/projects/{project_id}/discussion/channels")
 def list_discussion_channels(
-    project_id: UUID,
+    project_id: str,
     include_archived: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -846,7 +846,7 @@ def list_discussion_channels(
 
 @router.post("/projects/{project_id}/discussion/channels", status_code=status.HTTP_201_CREATED)
 def create_discussion_channel(
-    project_id: UUID,
+    project_id: str,
     payload: DiscussionChannelCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -885,7 +885,7 @@ def create_discussion_channel(
 
 @router.put("/projects/{project_id}/discussion/channels/{channel_id}")
 def update_discussion_channel(
-    project_id: UUID,
+    project_id: str,
     channel_id: UUID,
     payload: DiscussionChannelUpdate,
     db: Session = Depends(get_db),
@@ -922,7 +922,7 @@ def update_discussion_channel(
 
 @router.delete("/projects/{project_id}/discussion/channels/{channel_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_discussion_channel(
-    project_id: UUID,
+    project_id: str,
     channel_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -951,7 +951,7 @@ def delete_discussion_channel(
 
 @router.get("/projects/{project_id}/discussion/channels/{channel_id}/resources")
 def list_channel_resources(
-    project_id: UUID,
+    project_id: str,
     channel_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -977,7 +977,7 @@ def list_channel_resources(
 
 @router.post("/projects/{project_id}/discussion/channels/{channel_id}/resources", status_code=status.HTTP_201_CREATED)
 def create_channel_resource(
-    project_id: UUID,
+    project_id: str,
     channel_id: UUID,
     payload: DiscussionChannelResourceCreate,
     db: Session = Depends(get_db),
@@ -1104,7 +1104,7 @@ def create_channel_resource(
 
 @router.delete("/projects/{project_id}/discussion/channels/{channel_id}/resources/{resource_id}")
 def delete_channel_resource(
-    project_id: UUID,
+    project_id: str,
     channel_id: UUID,
     resource_id: UUID,
     db: Session = Depends(get_db),
@@ -1136,7 +1136,7 @@ def delete_channel_resource(
     response_model=DiscussionAssistantResponse,
 )
 def invoke_discussion_assistant(
-    project_id: UUID,
+    project_id: str,
     channel_id: UUID,
     payload: DiscussionAssistantRequest,
     background_tasks: BackgroundTasks,
@@ -1410,7 +1410,7 @@ def invoke_discussion_assistant(
     response_model=List[DiscussionAssistantExchangeResponse],
 )
 def list_discussion_assistant_history(
-    project_id: UUID,
+    project_id: str,
     channel_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -1477,7 +1477,7 @@ def list_discussion_assistant_history(
 
 @router.get("/projects/{project_id}/discussion/tasks")
 def list_discussion_tasks(
-    project_id: UUID,
+    project_id: str,
     channel_id: Optional[UUID] = None,
     status_filter: Optional[str] = None,
     db: Session = Depends(get_db),
@@ -1501,7 +1501,7 @@ def list_discussion_tasks(
 
 @router.post("/projects/{project_id}/discussion/channels/{channel_id}/tasks", status_code=status.HTTP_201_CREATED)
 def create_discussion_task(
-    project_id: UUID,
+    project_id: str,
     channel_id: UUID,
     payload: DiscussionTaskCreate,
     db: Session = Depends(get_db),
@@ -1547,7 +1547,7 @@ def create_discussion_task(
 
 @router.put("/projects/{project_id}/discussion/tasks/{task_id}")
 def update_discussion_task(
-    project_id: UUID,
+    project_id: str,
     task_id: UUID,
     payload: DiscussionTaskUpdate,
     db: Session = Depends(get_db),
@@ -1594,7 +1594,7 @@ def update_discussion_task(
 
 @router.delete("/projects/{project_id}/discussion/tasks/{task_id}")
 def delete_discussion_task(
-    project_id: UUID,
+    project_id: str,
     task_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -1637,7 +1637,7 @@ class PaperActionResponse(BaseModel):
 
 @router.post("/projects/{project_id}/discussion/paper-action")
 def execute_paper_action(
-    project_id: UUID,
+    project_id: str,
     request: PaperActionRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
@@ -2006,7 +2006,7 @@ class SearchReferencesResponse(BaseModel):
 
 @router.post("/projects/{project_id}/discussion/search-references")
 async def search_references(
-    project_id: UUID,
+    project_id: str,
     request: SearchReferencesRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -2111,7 +2111,7 @@ class BatchSearchResponse(BaseModel):
 
 @router.post("/projects/{project_id}/discussion/batch-search-references")
 async def batch_search_references(
-    project_id: UUID,
+    project_id: str,
     request: BatchSearchRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -2236,7 +2236,7 @@ def _build_assistant_author_payload(user: Optional[User]) -> Optional[Dict[str, 
 
 
 async def _broadcast_discussion_event(
-    project_id: UUID,
+    project_id: str,
     channel_id: UUID,
     event: str,
     payload: Dict[str, Any],
@@ -2253,7 +2253,7 @@ async def _broadcast_discussion_event(
 
 
 def _persist_assistant_exchange(
-    project_id: UUID,
+    project_id: str,
     channel_id: UUID,
     author_id: Optional[UUID],
     exchange_id: str,
@@ -2354,7 +2354,7 @@ class DiscussionArtifactDownloadResponse(BaseModel):
     response_model=List[DiscussionArtifactResponse],
 )
 async def list_channel_artifacts(
-    project_id: UUID,
+    project_id: str,
     channel_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -2396,7 +2396,7 @@ async def list_channel_artifacts(
     response_model=DiscussionArtifactDownloadResponse,
 )
 async def get_artifact(
-    project_id: UUID,
+    project_id: str,
     channel_id: UUID,
     artifact_id: UUID,
     db: Session = Depends(get_db),
@@ -2428,7 +2428,7 @@ async def get_artifact(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def delete_artifact(
-    project_id: UUID,
+    project_id: str,
     channel_id: UUID,
     artifact_id: UUID,
     db: Session = Depends(get_db),

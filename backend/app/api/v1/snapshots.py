@@ -154,7 +154,7 @@ def _snapshot_to_response(snapshot: DocumentSnapshot) -> SnapshotResponse:
 
 @router.post("/papers/{paper_id}/snapshots", response_model=SnapshotResponse)
 def create_manual_snapshot(
-    paper_id: UUID,
+    paper_id: str,
     data: SnapshotCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -194,7 +194,7 @@ def create_manual_snapshot(
 
 @router.get("/papers/{paper_id}/snapshots", response_model=SnapshotListResponse)
 def list_snapshots(
-    paper_id: UUID,
+    paper_id: str,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     snapshot_type: Optional[str] = Query(None),
@@ -222,7 +222,7 @@ def list_snapshots(
 
 @router.get("/papers/{paper_id}/snapshots/{snapshot_id}", response_model=SnapshotDetailResponse)
 def get_snapshot(
-    paper_id: UUID,
+    paper_id: str,
     snapshot_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -253,7 +253,7 @@ def get_snapshot(
 
 @router.put("/papers/{paper_id}/snapshots/{snapshot_id}", response_model=SnapshotResponse)
 def update_snapshot_label(
-    paper_id: UUID,
+    paper_id: str,
     snapshot_id: UUID,
     data: SnapshotUpdate,
     db: Session = Depends(get_db),
@@ -281,7 +281,7 @@ def update_snapshot_label(
 
 @router.delete("/papers/{paper_id}/snapshots/{snapshot_id}")
 def delete_snapshot(
-    paper_id: UUID,
+    paper_id: str,
     snapshot_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -308,7 +308,7 @@ def delete_snapshot(
     response_model=SnapshotDiffResponse,
 )
 def get_snapshot_diff(
-    paper_id: UUID,
+    paper_id: str,
     snapshot_id1: UUID,
     snapshot_id2: UUID,
     db: Session = Depends(get_db),
@@ -348,7 +348,7 @@ def get_snapshot_diff(
     response_model=SnapshotRestoreResponse,
 )
 def restore_snapshot(
-    paper_id: UUID,
+    paper_id: str,
     snapshot_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -408,7 +408,7 @@ def restore_snapshot(
 
 @router.post("/papers/{paper_id}/snapshots/auto", response_model=SnapshotResponse)
 def create_auto_snapshot(
-    paper_id: UUID,
+    paper_id: str,
     data: SnapshotAutoCreate,
     collab_secret: str | None = Header(default=None, alias="X-Collab-Secret"),
     db: Session = Depends(get_db),

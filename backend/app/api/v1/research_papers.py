@@ -1200,7 +1200,7 @@ async def restore_paper_version(
 
 @router.post("/{paper_id}/figures")
 async def upload_figure(
-    paper_id: UUID,
+    paper_id: str,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -1267,7 +1267,7 @@ async def upload_figure(
 
 @router.post("/{paper_id}/upload-bib")
 async def upload_bib_file(
-    paper_id: UUID,
+    paper_id: str,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)

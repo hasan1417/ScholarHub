@@ -66,7 +66,7 @@ def _serialize_artifact(artifact: AIArtifact) -> dict:
 
 @router.post("/projects/{project_id}/ai/artifacts", status_code=status.HTTP_201_CREATED)
 def create_ai_artifact(
-    project_id: UUID,
+    project_id: str,
     body: ArtifactCreatePayload,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -106,7 +106,7 @@ def create_ai_artifact(
 
 @router.post("/projects/{project_id}/ai/artifacts/generate", status_code=status.HTTP_201_CREATED)
 def generate_ai_artifact(
-    project_id: UUID,
+    project_id: str,
     body: ArtifactGeneratePayload,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -142,7 +142,7 @@ def generate_ai_artifact(
 
 @router.get("/projects/{project_id}/ai/artifacts")
 def list_ai_artifacts(
-    project_id: UUID,
+    project_id: str,
     status_filter: Optional[AIArtifactStatus] = None,
     paper_id: Optional[UUID] = None,
     db: Session = Depends(get_db),
@@ -167,7 +167,7 @@ def list_ai_artifacts(
 
 @router.post("/projects/{project_id}/ai/artifacts/{artifact_id}/status")
 def update_artifact_status(
-    project_id: UUID,
+    project_id: str,
     artifact_id: UUID,
     body: ArtifactStatusUpdate,
     db: Session = Depends(get_db),

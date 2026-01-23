@@ -734,7 +734,7 @@ def _upsert_session_recording(
 
 @router.post("/projects/{project_id}/meetings", status_code=status.HTTP_201_CREATED)
 def create_meeting(
-    project_id: UUID,
+    project_id: str,
     body: MeetingCreatePayload,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -761,7 +761,7 @@ def create_meeting(
 
 @router.post("/projects/{project_id}/sync-sessions/{session_id}/token", response_model=SyncSessionTokenResponse)
 def generate_sync_session_token(
-    project_id: UUID,
+    project_id: str,
     session_id: UUID,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
@@ -846,7 +846,7 @@ def generate_sync_session_token(
 
 @router.get("/projects/{project_id}/meetings")
 def list_meetings(
-    project_id: UUID,
+    project_id: str,
     status_filter: Optional[MeetingStatus] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -868,7 +868,7 @@ def list_meetings(
 
 @router.patch("/projects/{project_id}/meetings/{meeting_id}")
 def update_meeting(
-    project_id: UUID,
+    project_id: str,
     meeting_id: UUID,
     body: MeetingUpdatePayload,
     db: Session = Depends(get_db),
@@ -899,7 +899,7 @@ def update_meeting(
 
 @router.post("/projects/{project_id}/sync-sessions", status_code=status.HTTP_201_CREATED)
 def create_sync_session(
-    project_id: UUID,
+    project_id: str,
     body: SyncSessionCreatePayload,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
@@ -990,7 +990,7 @@ def create_sync_session(
 
 @router.get("/projects/{project_id}/sync-sessions")
 def list_sync_sessions(
-    project_id: UUID,
+    project_id: str,
     status_filter: Optional[SyncSessionStatus] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -1015,7 +1015,7 @@ def list_sync_sessions(
 
 @router.post("/projects/{project_id}/sync-sessions/{session_id}/end")
 def end_sync_session(
-    project_id: UUID,
+    project_id: str,
     session_id: UUID,
     body: SyncSessionEndPayload,
     background_tasks: BackgroundTasks,
@@ -1096,7 +1096,7 @@ def end_sync_session(
 
 @router.delete("/projects/{project_id}/sync-sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_sync_session(
-    project_id: UUID,
+    project_id: str,
     session_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -1161,7 +1161,7 @@ async def handle_daily_webhook(
 
 def _get_session_for_project(
     db: Session,
-    project_id: UUID,
+    project_id: str,
     session_id: UUID,
 ) -> ProjectSyncSession:
     session = (
@@ -1207,7 +1207,7 @@ def _flatten_transcript(transcript: Any) -> str:
 
 @router.get("/projects/{project_id}/sync-sessions/{session_id}/messages")
 def list_sync_messages(
-    project_id: UUID,
+    project_id: str,
     session_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -1232,7 +1232,7 @@ def list_sync_messages(
 
 @router.post("/projects/{project_id}/sync-sessions/{session_id}/messages", status_code=status.HTTP_201_CREATED)
 def create_sync_message(
-    project_id: UUID,
+    project_id: str,
     session_id: UUID,
     body: SyncMessageCreatePayload,
     db: Session = Depends(get_db),
@@ -1271,7 +1271,7 @@ def create_sync_message(
 
 @router.post("/projects/{project_id}/sync-sessions/{session_id}/recording", status_code=status.HTTP_201_CREATED)
 def attach_recording(
-    project_id: UUID,
+    project_id: str,
     session_id: UUID,
     body: MeetingEndPayload,
     background_tasks: BackgroundTasks,
@@ -1298,7 +1298,7 @@ def attach_recording(
 
 @router.post("/projects/{project_id}/sync-sessions/{session_id}/recording/upload", status_code=status.HTTP_201_CREATED)
 async def upload_recording(
-    project_id: UUID,
+    project_id: str,
     session_id: UUID,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
@@ -1357,7 +1357,7 @@ async def upload_recording(
     include_in_schema=False,
 )
 def ingest_recording_callback(
-    project_id: UUID,
+    project_id: str,
     session_id: UUID,
     body: RecordingCallbackPayload,
     background_tasks: BackgroundTasks,
@@ -1413,7 +1413,7 @@ def get_sync_session_by_room(
     include_in_schema=False,
 )
 async def upload_recording_callback(
-    project_id: UUID,
+    project_id: str,
     session_id: UUID,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
