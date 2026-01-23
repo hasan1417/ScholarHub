@@ -383,9 +383,10 @@ const ProjectReferences = () => {
               const hasPdfStored = Boolean(hasDocument || documentDownloadPath)
               const isPdfProcessed = Boolean(ref?.pdf_processed)
               const hasPdfUrl = Boolean(ref?.pdf_url)
-              // Show "Analyze PDF" if there's a stored PDF or accessible URL, but not yet processed
-              const showIngestButton = Boolean(canManageReferences && referenceId && (hasPdfStored || hasPdfUrl) && !isPdfProcessed)
-              // Show "Upload PDF" if no PDF is stored (even if there's a pdf_url that might be inaccessible)
+              const isOpenAccess = Boolean(ref?.is_open_access)
+              // Show "Analyze PDF" only if there's a stored PDF, OR if there's a pdf_url AND it's open access (likely downloadable)
+              const showIngestButton = Boolean(canManageReferences && referenceId && (hasPdfStored || (hasPdfUrl && isOpenAccess)) && !isPdfProcessed)
+              // Show "Upload PDF" if no PDF is stored (user can always manually upload)
               const showUploadButton = Boolean(canManageReferences && referenceId && !hasPdfStored && !isPdfProcessed)
 
               return (
