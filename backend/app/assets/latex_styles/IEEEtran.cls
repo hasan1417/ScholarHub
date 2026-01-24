@@ -42,17 +42,19 @@
 % Page style
 \pagestyle{plain}
 
-% IEEE author block commands
+% IEEE author block commands - redefine \\ to \par for proper line breaks
 \newcounter{IEEE@author@count}
 \newcommand{\IEEEauthorblockN}[1]{%
   \stepcounter{IEEE@author@count}%
-  \par\noindent{\large\bfseries #1}\par%
+  {\large\bfseries #1}\par\vskip 0.2em%
 }
 \newcommand{\IEEEauthorblockA}[1]{%
-  \par\noindent{\normalsize\itshape #1}\par\vskip 0.5em%
+  \def\and{\unskip, }%
+  \def\\{\unskip\par}%
+  {\normalsize\itshape #1}\par\vskip 0.5em%
 }
 % \and command for multiple author columns
-\renewcommand{\and}{\hspace{2em}}
+\renewcommand{\and}{\hspace{2em}\ignorespaces}
 
 % Simple author and affiliation storage
 \def\@IEEEauthors{}
