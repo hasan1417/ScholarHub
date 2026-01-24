@@ -1532,7 +1532,40 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         const actionKey = `${exchange.id}:${idx}`
         if (exchange.appliedActions.includes(actionKey)) continue
 
-        // Handle single search_references
+        // Handle search_results - papers already fetched by backend, just display them
+        if (action.action_type === 'search_results') {
+          const payload = action.payload as { query?: string; papers?: DiscoveredPaper[]; total_found?: number } | undefined
+          const papers = payload?.papers || []
+          const query = payload?.query || ''
+          if (papers.length === 0) continue
+          markActionApplied(exchange.id, actionKey)
+
+          // Display results as cards
+          setReferenceSearchResults(prev => {
+            const existingTitles = new Set((prev?.papers || []).map((p: DiscoveredPaper) => p.title?.toLowerCase()))
+            const newPapers = papers.filter((p: DiscoveredPaper) => !existingTitles.has(p.title?.toLowerCase()))
+            return {
+              exchangeId: exchange.id,
+              papers: [...(prev?.papers || []), ...newPapers],
+              query: query,
+              isSearching: false,
+            }
+          })
+          setDiscoveryQueue(prev => {
+            const existingTitles = new Set(prev.papers.map((p: DiscoveredPaper) => p.title?.toLowerCase()))
+            const deduped = papers.filter((p: DiscoveredPaper) => !existingTitles.has(p.title?.toLowerCase()))
+            const totalPapers = [...prev.papers, ...deduped]
+            return {
+              papers: totalPapers,
+              query: query,
+              isSearching: false,
+              notification: `Found ${deduped.length} new papers`,
+            }
+          })
+          return
+        }
+
+        // Handle single search_references (legacy - triggers frontend search)
         // ONLY auto-trigger if user's message looks like a search request
         // This prevents triggering on conversational responses like "yes", "i want", "one page"
         if (action.action_type === 'search_references') {

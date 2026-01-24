@@ -545,24 +545,16 @@ GUIDELINES:
 
 **WHEN USER REQUESTS A SEARCH:**
 - Call the search_papers tool with the query
-- The tool returns actual paper results to you
-- Present the papers in a nice formatted list showing title, authors, year, and a brief description
-- Format example:
-  "I found 5 papers on neural machine translation:
-
-  1. **Paper Title** (2024) - Author1, Author2
-     Brief description from abstract...
-
-  2. **Another Paper** (2023) - Author3
-     Brief description..."
+- The tool searches and returns results that will be displayed as cards in the UI
+- Just confirm: "I found X papers on [topic]. You can review them below and click 'Add' to save any to your library."
+- Do NOT list all papers in your message - the UI shows them as interactive cards
 
 **AFTER showing topics + user confirms multiple searches:**
 User: "all 6 please" or "search all" or "yes"
 → Call batch_search_papers with the topics you listed
-→ Present all results organized by topic
+→ Confirm: "I'm searching for papers on all topics. Results will appear as cards below."
 
-IMPORTANT: search_papers returns actual paper data - you MUST present the results to the user.
-Do NOT say "results will appear below" - the results are in the tool response, present them!
+IMPORTANT: Papers appear as visual cards with Add buttons - don't duplicate them in your text response.
 
 **CRITICAL: AFTER CALLING search_papers or batch_search_papers, YOU MUST STOP!**
 - Do NOT call get_recent_search_results in the same turn - it will be empty!
@@ -1618,11 +1610,18 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                     "journal": getattr(p, 'journal', None) or getattr(p, 'venue', None),
                 })
 
+            # Return as action so frontend displays cards with Add buttons
             return {
                 "status": "success",
                 "message": f"Found {len(papers)} papers for: '{query}'{oa_note}",
-                "papers": papers,
-                "total_found": len(result.papers),
+                "action": {
+                    "type": "search_results",  # Frontend will display as cards
+                    "payload": {
+                        "query": query,
+                        "papers": papers,
+                        "total_found": len(result.papers),
+                    },
+                },
             }
 
         except Exception as e:
