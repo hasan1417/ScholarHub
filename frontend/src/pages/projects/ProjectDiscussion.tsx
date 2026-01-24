@@ -38,6 +38,7 @@ import { getProjectUrlId } from '../../utils/urlId'
 
 type AssistantExchange = {
   id: string
+  channelId: string // Channel this exchange belongs to
   question: string
   response: DiscussionAssistantResponse
   createdAt: Date
@@ -162,36 +163,76 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     suggestedKeywords: string[]
   } | null>(null)
 
-  // Reference search results state - only shown inline with the exchange that triggered them
-  const [referenceSearchResults, setReferenceSearchResults] = useState<{
+  // Reference search results state - stored per channel to preserve when switching
+  const [searchResultsByChannel, setSearchResultsByChannel] = useState<Record<string, {
     exchangeId: string
-    channelId: string  // Track which channel these results belong to
     papers: DiscoveredPaper[]
     query: string
     isSearching: boolean
-  } | null>(null)
+  }>>({})
 
-  // DEBUG: Log when referenceSearchResults changes
-  useEffect(() => {
-    console.log('[DEBUG] referenceSearchResults:', referenceSearchResults ? {
-      exchangeId: referenceSearchResults.exchangeId,
-      channelId: referenceSearchResults.channelId,
-      papersCount: referenceSearchResults.papers?.length,
-    } : null)
-  }, [referenceSearchResults])
+  // Get current channel's search results
+  const referenceSearchResults = activeChannelId ? searchResultsByChannel[activeChannelId] || null : null
 
-  // DEBUG: Log assistantHistory exchange IDs
-  useEffect(() => {
-    console.log('[DEBUG] assistantHistory exchanges:', assistantHistory.map(e => ({ id: e.id, status: e.status })))
-  }, [assistantHistory])
+  // Helper to set search results for a specific channel
+  const setReferenceSearchResults = useCallback((
+    value: { exchangeId: string; channelId: string; papers: DiscoveredPaper[]; query: string; isSearching: boolean } | null
+  ) => {
+    if (!value) {
+      // Clear results for current channel
+      if (activeChannelId) {
+        setSearchResultsByChannel(prev => {
+          const next = { ...prev }
+          delete next[activeChannelId]
+          return next
+        })
+      }
+      return
+    }
+    // Set results for the specified channel
+    setSearchResultsByChannel(prev => ({
+      ...prev,
+      [value.channelId]: {
+        exchangeId: value.exchangeId,
+        papers: value.papers,
+        query: value.query,
+        isSearching: value.isSearching,
+      }
+    }))
+  }, [activeChannelId])
 
-  // Discovery queue - session-based, auto-clears on new search
-  const [discoveryQueue, setDiscoveryQueue] = useState<{
+  // Discovery queue - stored per channel to preserve when switching
+  const [discoveryQueueByChannel, setDiscoveryQueueByChannel] = useState<Record<string, {
     papers: DiscoveredPaper[]
     query: string
     isSearching: boolean
     notification: string | null
-  }>({ papers: [], query: '', isSearching: false, notification: null })
+  }>>({})
+
+  // Get current channel's discovery queue
+  const discoveryQueue = activeChannelId
+    ? discoveryQueueByChannel[activeChannelId] || { papers: [], query: '', isSearching: false, notification: null }
+    : { papers: [], query: '', isSearching: false, notification: null }
+
+  // Helper to set discovery queue for current channel
+  const setDiscoveryQueue = useCallback((
+    value: React.SetStateAction<{
+      papers: DiscoveredPaper[]
+      query: string
+      isSearching: boolean
+      notification: string | null
+    }>
+  ) => {
+    if (!activeChannelId) return
+    setDiscoveryQueueByChannel(prev => {
+      const currentQueue = prev[activeChannelId] || { papers: [], query: '', isSearching: false, notification: null }
+      const newQueue = typeof value === 'function' ? value(currentQueue) : value
+      return {
+        ...prev,
+        [activeChannelId]: newQueue
+      }
+    })
+  }, [activeChannelId])
   const [paperFormData, setPaperFormData] = useState({
     title: '',
     paperType: 'research',
@@ -376,7 +417,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
   const artifactsCount = artifactsQuery.data?.length ?? 0
 
   const serverAssistantHistory = useMemo<AssistantExchange[]>(() => {
-    if (!assistantHistoryQuery.data) return []
+    if (!assistantHistoryQuery.data || !activeChannelId) return []
 
     return assistantHistoryQuery.data.map((item) => {
       const createdAt = item.created_at ? new Date(item.created_at) : new Date()
@@ -389,6 +430,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
 
       return {
         id: item.id,
+        channelId: activeChannelId, // Server history is filtered by channel
         question: item.question,
         response,
         createdAt,
@@ -401,14 +443,12 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         fromHistory: true, // Loaded from server, don't auto-trigger actions
       }
     })
-  }, [assistantHistoryQuery.data])
+  }, [assistantHistoryQuery.data, activeChannelId])
 
-  // Clear history and search results when channel changes - this effect must run first
+  // Clear history when channel changes - search results and discovery queue are preserved per channel
   useEffect(() => {
-    // Clear history on channel change to prevent showing stale data
     setAssistantHistory([])
-    setReferenceSearchResults(null)
-    setDiscoveryQueue({ papers: [], query: '', isSearching: false, notification: null })
+    // Don't clear referenceSearchResults or discoveryQueue - they're stored per channel now
     historyChannelRef.current = activeChannelId
   }, [activeChannelId])
 
@@ -451,14 +491,18 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       })
 
       // Update referenceSearchResults if its exchangeId was a local ID that's now replaced
-      if (localIdsToServerIds.size > 0) {
-        setReferenceSearchResults((prevResults) => {
-          if (!prevResults) return null
-          const newServerId = localIdsToServerIds.get(prevResults.exchangeId)
+      if (localIdsToServerIds.size > 0 && activeChannelId) {
+        setSearchResultsByChannel(prevByChannel => {
+          const currentResults = prevByChannel[activeChannelId]
+          if (!currentResults) return prevByChannel
+          const newServerId = localIdsToServerIds.get(currentResults.exchangeId)
           if (newServerId) {
-            return { ...prevResults, exchangeId: newServerId }
+            return {
+              ...prevByChannel,
+              [activeChannelId]: { ...currentResults, exchangeId: newServerId }
+            }
           }
-          return prevResults
+          return prevByChannel
         })
       }
 
@@ -586,6 +630,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
             if (prev.some((entry) => entry.id === exchange.id)) return prev
             const entry: AssistantExchange = {
               id: exchange.id,
+              channelId: activeChannelId, // Track which channel this belongs to
               question: exchange.question || '',
               response: { message: '', citations: [], reasoning_used: false, model: '', usage: undefined, suggested_actions: [] },
               createdAt: exchange.created_at ? new Date(exchange.created_at) : new Date(),
@@ -677,6 +722,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           const formatted = formatAssistantMessage(response.message || '', lookup)
           const entry: AssistantExchange = {
             id: exchangeId,
+            channelId: activeChannelId, // Track which channel this belongs to
             question: exchange.question || '',
             response,
             createdAt,
@@ -945,14 +991,17 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       return { ...response.data, exchangeId: params.exchangeId }
     },
     onMutate: (params) => {
-      // Set searching state - keep existing papers if same exchange (accumulate mode)
-      setReferenceSearchResults((prev) => ({
+      // Capture the channel ID at mutation start - use this in onSuccess/onError
+      const originalChannelId = activeChannelId || ''
+      // Set searching state
+      const currentResults = originalChannelId ? searchResultsByChannel[originalChannelId] : null
+      setReferenceSearchResults({
         exchangeId: params.exchangeId,
-        channelId: activeChannelId || '',
-        papers: prev?.exchangeId === params.exchangeId ? prev.papers : [],
+        channelId: originalChannelId,
+        papers: currentResults?.exchangeId === params.exchangeId ? currentResults.papers : [],
         query: params.query,
         isSearching: true,
-      }))
+      })
       // Also update discovery queue - auto-clear with notification
       setDiscoveryQueue((prev) => {
         const previousCount = prev.papers.length
@@ -965,47 +1014,54 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
             : null,
         }
       })
+      // Return context with original channel ID
+      return { originalChannelId }
     },
-    onSuccess: (data) => {
-      // ACCUMULATE papers instead of replacing - combine with existing results
-      setReferenceSearchResults((prev) => {
-        const existingPapers = prev?.exchangeId === data.exchangeId ? (prev.papers || []) : []
-        // Dedupe by title to avoid duplicates
-        const existingTitles = new Set(existingPapers.map((p: DiscoveredPaper) => p.title?.toLowerCase()))
-        const newPapers = (data.papers || []).filter((p: DiscoveredPaper) => !existingTitles.has(p.title?.toLowerCase()))
-        return {
-          exchangeId: data.exchangeId,
-          channelId: prev?.channelId || activeChannelId || '',
-          papers: [...existingPapers, ...newPapers],
+    onSuccess: (data, _params, context) => {
+      // Use the original channel ID from when the mutation started
+      const channelId = context?.originalChannelId || activeChannelId || ''
+      // Replace papers (not accumulate) - new search replaces old results
+      const papers = data.papers || []
+      setReferenceSearchResults({
+        exchangeId: data.exchangeId,
+        channelId: channelId,
+        papers: papers,
+        query: data.query,
+        isSearching: false,
+      })
+      // Also replace discovery queue for the original channel
+      // Only update discovery queue if still in the same channel
+      if (channelId === activeChannelId) {
+        setDiscoveryQueue({
+          papers: papers,
           query: data.query,
           isSearching: false,
-        }
-      })
-      // Also update discovery queue with new papers
-      setDiscoveryQueue((prev) => {
-        const newPapers = data.papers || []
-        const existingTitles = new Set(prev.papers.map((p: DiscoveredPaper) => p.title?.toLowerCase()))
-        const deduped = newPapers.filter((p: DiscoveredPaper) => !existingTitles.has(p.title?.toLowerCase()))
-        const allPapers = [...prev.papers, ...deduped]
-        return {
-          papers: allPapers,
-          query: data.query,
-          isSearching: false,
-          notification: prev.notification
-            ? prev.notification.replace('Searching...', `Found ${allPapers.length} paper${allPapers.length !== 1 ? 's' : ''}`)
-            : `Found ${allPapers.length} paper${allPapers.length !== 1 ? 's' : ''} for "${data.query}"`,
-        }
-      })
+          notification: `Found ${papers.length} paper${papers.length !== 1 ? 's' : ''} for "${data.query}"`,
+        })
+      } else {
+        // Store in the original channel's discovery queue
+        setDiscoveryQueueByChannel(prev => ({
+          ...prev,
+          [channelId]: {
+            papers: papers,
+            query: data.query,
+            isSearching: false,
+            notification: `Found ${papers.length} paper${papers.length !== 1 ? 's' : ''} for "${data.query}"`,
+          }
+        }))
+      }
     },
-    onError: (error, params) => {
+    onError: (error, params, context) => {
       console.error('Reference search failed:', error)
-      setReferenceSearchResults((prev) => ({
+      const channelId = context?.originalChannelId || activeChannelId || ''
+      const currentResults = channelId ? searchResultsByChannel[channelId] : null
+      setReferenceSearchResults({
         exchangeId: params.exchangeId,
-        channelId: prev?.channelId || activeChannelId || '',
-        papers: prev?.exchangeId === params.exchangeId ? (prev.papers || []) : [],
+        channelId: channelId,
+        papers: currentResults?.exchangeId === params.exchangeId ? (currentResults.papers || []) : [],
         query: params.query,
         isSearching: false,
-      }))
+      })
       // Also update discovery queue on error
       setDiscoveryQueue((prev) => ({
         ...prev,
@@ -1425,6 +1481,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       const entryId = variables.id || createAssistantEntryId()
       const placeholder: AssistantExchange = {
         id: entryId,
+        channelId: activeChannelId, // Track which channel this exchange belongs to
         question: variables.question,
         response: {
           message: '',
@@ -1449,11 +1506,50 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         fromHistory: false, // Created in current session, can auto-trigger
       }
       setAssistantHistory((prev) => [...prev, placeholder])
-      return { entryId }
+      return { entryId, channelId: activeChannelId }
     },
     onSuccess: (data, variables, context) => {
       const entryId = context?.entryId || createAssistantEntryId()
+      const originalChannelId = context?.channelId
       const finishedAt = new Date()
+
+      // CRITICAL: If user switched channels while request was processing, don't add to wrong channel
+      // BUT we still need to store search results for the original channel
+      if (originalChannelId && originalChannelId !== activeChannelId) {
+        // Store any search_results in the original channel before returning
+        const searchResultsAction = data.suggested_actions?.find(
+          (action: DiscussionAssistantSuggestedAction) => action.action_type === 'search_results'
+        )
+        if (searchResultsAction) {
+          const payload = searchResultsAction.payload as { query?: string; papers?: DiscoveredPaper[] } | undefined
+          const papers = payload?.papers || []
+          const query = payload?.query || ''
+          if (papers.length > 0) {
+            // Store results for the ORIGINAL channel
+            setSearchResultsByChannel(prev => ({
+              ...prev,
+              [originalChannelId]: {
+                exchangeId: entryId,
+                papers: papers,
+                query: query,
+                isSearching: false,
+              }
+            }))
+            // Also store in discovery queue for original channel
+            setDiscoveryQueueByChannel(prev => ({
+              ...prev,
+              [originalChannelId]: {
+                papers: papers,
+                query: query,
+                isSearching: false,
+                notification: `Found ${papers.length} paper${papers.length !== 1 ? 's' : ''} for "${query}"`,
+              }
+            }))
+          }
+        }
+        return
+      }
+
       setAssistantHistory((prev) => {
       const exists = prev.some((entry) => entry.id === entryId)
       if (!exists) {
@@ -1461,6 +1557,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           ...prev,
           {
             id: entryId,
+            channelId: originalChannelId || activeChannelId || '', // Track which channel this exchange belongs to
             question: variables.question,
             response: data,
             createdAt: finishedAt,
@@ -1626,19 +1723,24 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         if (exchange.appliedActions.includes(actionKey)) continue
 
         // Handle search_results - papers already fetched by backend, just display them
-        // Process even for history entries since data is already embedded (no API call needed)
         if (action.action_type === 'search_results') {
           const payload = action.payload as { query?: string; papers?: DiscoveredPaper[]; total_found?: number } | undefined
           const papers = payload?.papers || []
           const query = payload?.query || ''
-          console.log('[search_results] Found action with', papers.length, 'papers for exchange', exchange.id)
           if (papers.length === 0) continue
-          markActionApplied(exchange.id, actionKey)
 
-          // Display results as cards - only if we're still on the same channel
+          // Only process if exchange belongs to current channel
           if (!activeChannelId) continue
-          // Replace results (not accumulate) - each search_results action is a fresh search
-          console.log('[search_results] Setting referenceSearchResults with exchangeId:', exchange.id)
+          if (exchange.channelId && exchange.channelId !== activeChannelId) continue
+
+          // For history entries with existing stored results, skip processing
+          // The render logic will find the correct exchange to display results on
+          const existingResults = searchResultsByChannel[activeChannelId]
+          if (exchange.fromHistory && existingResults && existingResults.papers.length > 0) {
+            continue
+          }
+
+          markActionApplied(exchange.id, actionKey)
           setReferenceSearchResults({
             exchangeId: exchange.id,
             channelId: activeChannelId,
@@ -1646,16 +1748,11 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
             query: query,
             isSearching: false,
           })
-          setDiscoveryQueue(prev => {
-            const existingTitles = new Set(prev.papers.map((p: DiscoveredPaper) => p.title?.toLowerCase()))
-            const deduped = papers.filter((p: DiscoveredPaper) => !existingTitles.has(p.title?.toLowerCase()))
-            const totalPapers = [...prev.papers, ...deduped]
-            return {
-              papers: totalPapers,
-              query: query,
-              isSearching: false,
-              notification: `Found ${deduped.length} new papers`,
-            }
+          setDiscoveryQueue({
+            papers: papers,
+            query: query,
+            isSearching: false,
+            notification: `Found ${papers.length} papers`,
           })
           return
         }
@@ -1720,38 +1817,34 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                   _topic: result.topic, // Tag with topic for display
                 }))
               )
-              // Update reference search results
-              setReferenceSearchResults(prev => {
-                const existingTitles = new Set((prev?.papers || []).map((p: DiscoveredPaper) => p.title?.toLowerCase()))
-                const newPapers = allPapers.filter((p: DiscoveredPaper) => !existingTitles.has(p.title?.toLowerCase()))
-                return {
-                  exchangeId: exchange.id,
-                  channelId: prev?.channelId || activeChannelId || '',
-                  papers: [...(prev?.papers || []), ...newPapers],
-                  query: batchQuery,
-                  isSearching: false,
-                }
+              // Update reference search results - replace, not accumulate
+              setReferenceSearchResults({
+                exchangeId: exchange.id,
+                channelId: activeChannelId || '',
+                papers: allPapers,
+                query: batchQuery,
+                isSearching: false,
               })
-              // Update discovery queue
-              setDiscoveryQueue(prev => {
-                const existingTitles = new Set(prev.papers.map((p: DiscoveredPaper) => p.title?.toLowerCase()))
-                const deduped = allPapers.filter((p: DiscoveredPaper) => !existingTitles.has(p.title?.toLowerCase()))
-                const totalPapers = [...prev.papers, ...deduped]
-                return {
-                  papers: totalPapers,
-                  query: batchQuery,
-                  isSearching: false,
-                  notification: `Found ${totalPapers.length} paper${totalPapers.length !== 1 ? 's' : ''} across ${queries.length} topics`,
-                }
+              // Update discovery queue - replace, not accumulate
+              setDiscoveryQueue({
+                papers: allPapers,
+                query: batchQuery,
+                isSearching: false,
+                notification: `Found ${allPapers.length} paper${allPapers.length !== 1 ? 's' : ''} across ${queries.length} topics`,
               })
             })
             .catch((error) => {
               console.error('Auto batch search failed:', error)
-              setReferenceSearchResults(prev => prev ? {
-                ...prev,
-                exchangeId: exchange.id,
-                isSearching: false,
-              } : null)
+              const currentResults = activeChannelId ? searchResultsByChannel[activeChannelId] : null
+              if (currentResults) {
+                setReferenceSearchResults({
+                  exchangeId: exchange.id,
+                  channelId: activeChannelId || '',
+                  papers: currentResults.papers,
+                  query: currentResults.query,
+                  isSearching: false,
+                })
+              }
               setDiscoveryQueue(prev => ({
                 papers: prev?.papers ?? [],
                 query: prev?.query ?? '',
@@ -1772,7 +1865,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         }
       }
     }
-  }, [assistantHistory, markActionApplied, searchReferencesMutation, project.id, queryClient, activeChannelId])
+  }, [assistantHistory, markActionApplied, searchReferencesMutation, project.id, queryClient, activeChannelId, searchResultsByChannel, setReferenceSearchResults])
 
   const handleSuggestedAction = (
     exchange: AssistantExchange,
@@ -1931,38 +2024,34 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
               _topic: result.topic, // Tag with topic for display
             }))
           )
-          // Update reference search results
-          setReferenceSearchResults(prev => {
-            const existingTitles = new Set((prev?.papers || []).map((p: DiscoveredPaper) => p.title?.toLowerCase()))
-            const newPapers = allPapers.filter((p: DiscoveredPaper) => !existingTitles.has(p.title?.toLowerCase()))
-            return {
-              exchangeId: exchange.id,
-              channelId: prev?.channelId || activeChannelId || '',
-              papers: [...(prev?.papers || []), ...newPapers],
-              query: batchQuery,
-              isSearching: false,
-            }
+          // Update reference search results - replace, not accumulate
+          setReferenceSearchResults({
+            exchangeId: exchange.id,
+            channelId: activeChannelId || '',
+            papers: allPapers,
+            query: batchQuery,
+            isSearching: false,
           })
-          // Update discovery queue
-          setDiscoveryQueue(prev => {
-            const existingTitles = new Set(prev.papers.map((p: DiscoveredPaper) => p.title?.toLowerCase()))
-            const deduped = allPapers.filter((p: DiscoveredPaper) => !existingTitles.has(p.title?.toLowerCase()))
-            const totalPapers = [...prev.papers, ...deduped]
-            return {
-              papers: totalPapers,
-              query: batchQuery,
-              isSearching: false,
-              notification: `Found ${totalPapers.length} paper${totalPapers.length !== 1 ? 's' : ''} across ${queries.length} topics`,
-            }
+          // Update discovery queue - replace, not accumulate
+          setDiscoveryQueue({
+            papers: allPapers,
+            query: batchQuery,
+            isSearching: false,
+            notification: `Found ${allPapers.length} paper${allPapers.length !== 1 ? 's' : ''} across ${queries.length} topics`,
           })
         })
         .catch((error) => {
           console.error('Batch search failed:', error)
-          setReferenceSearchResults(prev => prev ? {
-            ...prev,
-            exchangeId: exchange.id,
-            isSearching: false,
-          } : null)
+          const currentResults = activeChannelId ? searchResultsByChannel[activeChannelId] : null
+          if (currentResults) {
+            setReferenceSearchResults({
+              exchangeId: exchange.id,
+              channelId: activeChannelId || '',
+              papers: currentResults.papers,
+              query: currentResults.query,
+              isSearching: false,
+            })
+          }
           setDiscoveryQueue(prev => ({
             papers: prev?.papers ?? [],
             query: prev?.query ?? '',
@@ -1989,29 +2078,22 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       const query = payload?.query || ''
       markActionApplied(exchange.id, actionKey)
 
-      // Display results as cards
-      if (papers.length > 0) {
-        setReferenceSearchResults(prev => {
-          const existingTitles = new Set((prev?.papers || []).map((p: DiscoveredPaper) => p.title?.toLowerCase()))
-          const newPapers = papers.filter((p: DiscoveredPaper) => !existingTitles.has(p.title?.toLowerCase()))
-          return {
-            exchangeId: exchange.id,
-            channelId: activeChannelId || '',
-            papers: [...(prev?.papers || []), ...newPapers],
-            query: query,
-            isSearching: false,
-          }
+      // Display results as cards - replace, not accumulate
+      // Only show if exchange belongs to current channel
+      if (papers.length > 0 && (!exchange.channelId || exchange.channelId === activeChannelId)) {
+        setReferenceSearchResults({
+          exchangeId: exchange.id,
+          channelId: activeChannelId || '',
+          papers: papers,  // Replace with new papers
+          query: query,
+          isSearching: false,
         })
-        setDiscoveryQueue(prev => {
-          const existingTitles = new Set(prev.papers.map((p: DiscoveredPaper) => p.title?.toLowerCase()))
-          const deduped = papers.filter((p: DiscoveredPaper) => !existingTitles.has(p.title?.toLowerCase()))
-          const totalPapers = [...prev.papers, ...deduped]
-          return {
-            papers: totalPapers,
-            query: query,
-            isSearching: false,
-            notification: `Found ${deduped.length} papers`,
-          }
+        // Also replace discoveryQueue (not accumulate)
+        setDiscoveryQueue({
+          papers: papers,
+          query: query,
+          isSearching: false,
+          notification: `Found ${papers.length} papers`,
         })
       }
       return
@@ -2255,6 +2337,8 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         }
       }
       assistantMutation.mutate({ id: entryId, question, reasoning, scope: assistantScope, recentSearchResults, conversationHistory })
+      // Don't clear search results here - they will be replaced when new search results arrive
+      // This keeps previous search results visible until a new paper search completes
       return
     }
 
@@ -2573,16 +2657,25 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                         </div>
                       </div>
                     )}
-                    {/* Reference search results inline */}
-                    {referenceSearchResults?.exchangeId === exchange.id && (
-                      <ReferenceSearchResults
-                        papers={referenceSearchResults.papers}
-                        query={referenceSearchResults.query}
-                        projectId={project.id}
-                        isSearching={referenceSearchResults.isSearching}
-                        onClose={() => setReferenceSearchResults(null)}
-                      />
-                    )}
+                    {/* Reference search results inline - show on exchange that has matching search_results action */}
+                    {referenceSearchResults && referenceSearchResults.papers.length > 0 && (() => {
+                      // Check if this exchange has a search_results action matching our stored query
+                      const hasMatchingSearchAction = exchange.response.suggested_actions?.some(
+                        (action: DiscussionAssistantSuggestedAction) => action.action_type === 'search_results' &&
+                          (action.payload as { query?: string } | undefined)?.query === referenceSearchResults.query
+                      )
+                      // Also match by exchangeId for fresh searches
+                      const matchesById = referenceSearchResults.exchangeId === exchange.id
+                      return (hasMatchingSearchAction || matchesById) ? (
+                        <ReferenceSearchResults
+                          papers={referenceSearchResults.papers}
+                          query={referenceSearchResults.query}
+                          projectId={project.id}
+                          isSearching={referenceSearchResults.isSearching}
+                          onClose={() => setReferenceSearchResults(null)}
+                        />
+                      ) : null
+                    })()}
                     {!showTyping && (
                       <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-gray-400 dark:text-slate-500">
                         {exchange.response.model && <span>Model: {exchange.response.model}</span>}
