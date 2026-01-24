@@ -1567,8 +1567,12 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 
         oa_note = " (Open Access only)" if open_access_only else ""
 
+        # Create event loop FIRST before any async objects
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
         try:
-            # Create discovery service and search
+            # Create discovery service (needs event loop to exist)
             discovery_service = PaperDiscoveryService()
             sources = ["arxiv", "semantic_scholar", "openalex", "crossref"]
             max_results = min(count, 20)  # Cap at 20 results
@@ -1576,18 +1580,13 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             # Request more if filtering for open access
             search_max = max_results * 3 if open_access_only else max_results
 
-            # Run async search in sync context - create new event loop for thread
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                result = loop.run_until_complete(discovery_service.discover_papers(
-                    query=query,
-                    max_results=search_max,
-                    sources=sources,
-                    fast_mode=True,
-                ))
-            finally:
-                loop.close()
+            # Run async search
+            result = loop.run_until_complete(discovery_service.discover_papers(
+                query=query,
+                max_results=search_max,
+                sources=sources,
+                fast_mode=True,
+            ))
 
             # Filter for open access if requested
             source_papers = result.papers
@@ -1632,6 +1631,8 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 "message": f"Search failed: {str(e)}",
                 "papers": [],
             }
+        finally:
+            loop.close()
 
     def _tool_get_project_papers(self, ctx: Dict[str, Any], include_content: bool = False) -> Dict:
         """Get user's draft papers in the project."""
