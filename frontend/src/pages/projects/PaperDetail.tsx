@@ -42,6 +42,7 @@ import TeamMembersList from '../../components/team/TeamMembersList'
 import { useAuth } from '../../contexts/AuthContext'
 import { useProjectContext } from './ProjectLayout'
 import { parseObjectives } from '../../utils/objectives'
+import { getPaperUrlId } from '../../utils/urlId'
 
 const PaperDetail: React.FC = () => {
   const { projectId, paperId } = useParams<{ projectId?: string; paperId: string }>()
@@ -93,7 +94,7 @@ const PaperDetail: React.FC = () => {
   const canManageReferences = ['admin', 'editor'].includes(projectRole)
   const handleViewPaper = () => {
     if (!paper) return
-    navigate(resolveProjectPath(`/papers/${paper.id}/view`))
+    navigate(resolveProjectPath(`/papers/${getPaperUrlId(paper)}/view`))
   }
 
   const resolveProjectPath = (suffix = '') => {
@@ -239,8 +240,8 @@ const PaperDetail: React.FC = () => {
       return
     }
     const targetProjectId = projectId || paper?.project_id
-    if (!targetProjectId) return
-    navigate(`/projects/${targetProjectId}/papers/${paperId}/editor`)
+    if (!targetProjectId || !paper) return
+    navigate(`/projects/${targetProjectId}/papers/${getPaperUrlId(paper)}/editor`)
   }
 
   const handleDeletePaper = () => {

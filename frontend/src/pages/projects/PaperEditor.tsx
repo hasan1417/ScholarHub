@@ -6,6 +6,7 @@ import DocumentShell from '../../components/editor/DocumentShell'
 import OOAdapter from '../../components/editor/adapters/OOAdapter'
 import LatexAdapter from '../../components/editor/adapters/LatexAdapter'
 import { useProjectContext } from './ProjectLayout'
+import { getPaperUrlId } from '../../utils/urlId'
 
 const PaperEditor: React.FC = () => {
   const { projectId, paperId } = useParams<{ projectId?: string; paperId: string }>()
@@ -35,16 +36,16 @@ const PaperEditor: React.FC = () => {
   }, [paperId])
 
   useEffect(() => {
-    if (currentRole === 'viewer' && paperId) {
-      const targetProjectId = projectId || paper?.project_id
+    if (currentRole === 'viewer' && paperId && paper) {
+      const targetProjectId = projectId || paper.project_id
       if (targetProjectId) {
-        navigate(`/projects/${targetProjectId}/papers/${paperId}/view`, { replace: true })
+        navigate(`/projects/${targetProjectId}/papers/${getPaperUrlId(paper)}/view`, { replace: true })
       } else {
         navigateBackToProject()
       }
     }
-    // we intentionally include paper?.project_id so viewers coming from non-project routes still redirect once data loads
-  }, [currentRole, paperId, projectId, paper?.project_id])
+    // we intentionally include paper so viewers coming from non-project routes still redirect once data loads
+  }, [currentRole, paperId, projectId, paper])
 
   // Cleanup timeout on unmount
   useEffect(() => {

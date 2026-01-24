@@ -5,6 +5,7 @@ import { researchPapersAPI } from '../../services/api'
 import { ResearchPaper } from '../../types'
 import OOAdapter from '../../components/editor/adapters/OOAdapter'
 import LatexPdfViewer from '../../components/editor/LatexPdfViewer'
+import { getPaperUrlId } from '../../utils/urlId'
 
 interface LatexPaperViewProps {
   paper: ResearchPaper
@@ -167,7 +168,7 @@ const ViewPaper: React.FC = () => {
       <LatexPaperView
         paper={paper}
         latexSource={latexSource}
-        onBack={() => navigate(resolveProjectPath(`/papers/${paper.id}`))}
+        onBack={() => navigate(resolveProjectPath(`/papers/${getPaperUrlId(paper)}`))}
       />
     )
   }
