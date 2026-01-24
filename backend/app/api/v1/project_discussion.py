@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 import json
 import logging
 import threading
+import queue
 
 from fastapi import (
     APIRouter,
@@ -1228,13 +1229,10 @@ def invoke_discussion_assistant(
 
     # Use streaming if requested
     if stream:
-        # Track accumulated message and tool status for persistence on disconnect
-        accumulated_message = []
-        current_tool_status = {"tool": None, "message": None}
         exchange_id = str(uuid4())
         exchange_created_at = datetime.utcnow().isoformat() + "Z"
 
-        # Save exchange immediately with status="processing" so it persists even if user leaves
+        # Save exchange immediately with status="processing"
         initial_response = DiscussionAssistantResponse(
             message="",
             citations=[],
@@ -1255,7 +1253,6 @@ def invoke_discussion_assistant(
             status="processing",
             status_message="Processing your request...",
         )
-        # Broadcast that processing started
         _broadcast_discussion_event(
             project.id,
             channel.id,
@@ -1270,11 +1267,14 @@ def invoke_discussion_assistant(
             }},
         )
 
-        def tool_event_iterator():
-            nonlocal accumulated_message, current_tool_status
-            final_result = None
-            stream_completed = False
+        # Use a queue to pass events from background thread to streaming response
+        event_queue: queue.Queue = queue.Queue()
+        processing_done = threading.Event()
+
+        def run_ai_processing():
+            """Background thread that runs AI and puts events in queue."""
             try:
+                final_result = None
                 for event in tool_orchestrator.handle_message_streaming(
                     project,
                     channel,
@@ -1285,18 +1285,11 @@ def invoke_discussion_assistant(
                     reasoning_mode=payload.reasoning or False,
                     current_user=current_user,
                 ):
-                    if event.get("type") == "token":
-                        token_content = event.get("content", "")
-                        accumulated_message.append(token_content)
-                        current_tool_status = {"tool": None, "message": None}  # Clear tool status when tokens start
-                        yield "data: " + json.dumps({"type": "token", "content": token_content}) + "\n\n"
-                    elif event.get("type") == "status":
-                        current_tool_status = {"tool": event.get("tool", ""), "message": event.get("message", "Processing")}
-                        yield "data: " + json.dumps({"type": "status", "tool": event.get("tool", ""), "message": event.get("message", "Processing")}) + "\n\n"
-                    elif event.get("type") == "result":
+                    event_queue.put(event)
+                    if event.get("type") == "result":
                         final_result = event.get("data", {})
 
-                # Build final response from result
+                # Processing complete - save result
                 if final_result:
                     citations = [
                         DiscussionAssistantCitation(
@@ -1324,17 +1317,9 @@ def invoke_discussion_assistant(
                         suggested_actions=suggested_actions,
                     )
                     payload_dict = response_model.model_dump(mode="json")
-
-                    # Persist exchange
-                    exchange_payload = {
-                        "id": exchange_id,
-                        "question": payload.question,
-                        "response": payload_dict,
-                        "created_at": exchange_created_at,
-                        "author": author_info,
-                    }
                     conversation_state = final_result.get("conversation_state", {})
-                    # Persist directly instead of background task (more reliable)
+
+                    # Persist completed result
                     _persist_assistant_exchange(
                         project.id,
                         channel.id,
@@ -1346,64 +1331,119 @@ def invoke_discussion_assistant(
                         conversation_state,
                         status="completed",
                     )
+
+                    # Broadcast completion
                     _broadcast_discussion_event(
                         project.id,
                         channel.id,
                         "assistant_reply",
-                        {"exchange": exchange_payload},
+                        {"exchange": {
+                            "id": exchange_id,
+                            "question": payload.question,
+                            "response": payload_dict,
+                            "created_at": exchange_created_at,
+                            "author": author_info,
+                            "status": "completed",
+                        }},
                     )
-                    stream_completed = True
 
-                    yield "data: " + json.dumps({"type": "result", "payload": payload_dict}) + "\n\n"
-
-                    # Increment usage counter after successful AI call (streaming)
+                    # Increment usage
                     try:
-                        streaming_db = SessionLocal()
-                        SubscriptionService.increment_usage(streaming_db, current_user.id, "discussion_ai_calls")
-                        streaming_db.close()
+                        bg_db = SessionLocal()
+                        SubscriptionService.increment_usage(bg_db, current_user.id, "discussion_ai_calls")
+                        bg_db.close()
                     except Exception:
-                        pass  # Don't fail the stream if usage tracking fails
+                        pass
+
+            except Exception as exc:
+                logger.exception("Background AI processing failed", exc_info=exc)
+                # Save error state
+                _persist_assistant_exchange(
+                    project.id,
+                    channel.id,
+                    current_user.id,
+                    exchange_id,
+                    payload.question,
+                    {"message": "An error occurred while processing your request.", "citations": [], "suggested_actions": []},
+                    exchange_created_at,
+                    {},
+                    status="failed",
+                    status_message="Processing failed. Please try again.",
+                )
+                _broadcast_discussion_event(
+                    project.id,
+                    channel.id,
+                    "assistant_failed",
+                    {"exchange_id": exchange_id, "error": "Processing failed"},
+                )
+                event_queue.put({"type": "error", "message": "Processing failed"})
+            finally:
+                event_queue.put(None)  # Signal end
+                processing_done.set()
+
+        # Start AI processing in background thread
+        ai_thread = threading.Thread(target=run_ai_processing, daemon=True)
+        ai_thread.start()
+
+        def tool_event_iterator():
+            """Stream events from the queue to the client."""
+            try:
+                while True:
+                    try:
+                        # Wait for events with timeout to allow checking if we should stop
+                        event = event_queue.get(timeout=0.5)
+                    except queue.Empty:
+                        # No event yet, check if processing is done
+                        if processing_done.is_set():
+                            break
+                        continue
+
+                    if event is None:
+                        # End signal
+                        break
+
+                    if event.get("type") == "token":
+                        yield "data: " + json.dumps({"type": "token", "content": event.get("content", "")}) + "\n\n"
+                    elif event.get("type") == "status":
+                        yield "data: " + json.dumps({"type": "status", "tool": event.get("tool", ""), "message": event.get("message", "Processing")}) + "\n\n"
+                    elif event.get("type") == "result":
+                        # Final result - the background thread handles persistence
+                        final_data = event.get("data", {})
+                        citations = [
+                            DiscussionAssistantCitation(
+                                origin=c.get("origin"),
+                                origin_id=c.get("origin_id"),
+                                label=c.get("label", ""),
+                                resource_type=c.get("resource_type"),
+                            )
+                            for c in final_data.get("citations", [])
+                        ]
+                        suggested_actions = [
+                            {
+                                "action_type": a.get("type", a.get("action_type", "")),
+                                "summary": a.get("summary", ""),
+                                "payload": a.get("payload", {}),
+                            }
+                            for a in final_data.get("actions", [])
+                        ]
+                        response_model = DiscussionAssistantResponse(
+                            message=final_data.get("message", ""),
+                            citations=citations,
+                            reasoning_used=final_data.get("reasoning_used", False),
+                            model=final_data.get("model_used", "gpt-5.2"),
+                            usage=None,
+                            suggested_actions=suggested_actions,
+                        )
+                        yield "data: " + json.dumps({"type": "result", "payload": response_model.model_dump(mode="json")}) + "\n\n"
+                    elif event.get("type") == "error":
+                        yield "data: " + json.dumps({"type": "error", "message": event.get("message", "Error")}) + "\n\n"
 
             except GeneratorExit:
-                # Client disconnected - save partial message or tool status
-                if not stream_completed:
-                    partial_message = ""
-                    if accumulated_message:
-                        partial_message = "".join(accumulated_message)
-                        partial_message += "\n\n[Response interrupted - user left the page]"
-                    elif current_tool_status.get("tool"):
-                        # User left during tool execution (e.g., searching)
-                        tool_name = current_tool_status.get("tool", "unknown")
-                        tool_msg = current_tool_status.get("message", "Processing")
-                        partial_message = f"[{tool_msg}]\n\n[Request interrupted - user left the page while {tool_name} was in progress]"
-
-                    if partial_message:
-                        partial_response = DiscussionAssistantResponse(
-                            message=partial_message,
-                            citations=[],
-                            reasoning_used=False,
-                            model="gpt-5.2",
-                            usage=None,
-                            suggested_actions=[],
-                        )
-                        payload_dict = partial_response.model_dump(mode="json")
-                        try:
-                            _persist_assistant_exchange(
-                                project.id,
-                                channel.id,
-                                current_user.id,
-                                exchange_id,
-                                payload.question,
-                                payload_dict,
-                                exchange_created_at,
-                                {},
-                            )
-                        except Exception:
-                            pass  # Best effort save on disconnect
-                raise  # Re-raise GeneratorExit
+                # Client disconnected - AI thread continues in background
+                logger.info(f"Client disconnected, AI processing continues in background for exchange {exchange_id}")
             except Exception as exc:
-                logger.exception("Tool-based assistant stream failed", exc_info=exc)
-                yield "data: " + json.dumps({"type": "error", "message": "Assistant stream failed"}) + "\n\n"
+                logger.exception("Streaming error", exc_info=exc)
+                yield "data: " + json.dumps({"type": "error", "message": "Stream error"}) + "\n\n"
 
         return StreamingResponse(tool_event_iterator(), media_type="text/event-stream")
 
