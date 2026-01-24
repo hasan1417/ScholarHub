@@ -1561,12 +1561,10 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
   }
 
   // Auto-trigger search_references and batch_search_references actions when AI suggests them
-  // Only for exchanges created in the current session (not loaded from history)
+  // search_results actions are processed even for history entries (papers already in payload)
   useEffect(() => {
     // Find exchanges with search actions that haven't been applied yet
     for (const exchange of assistantHistory) {
-      // Skip exchanges loaded from history or other sessions
-      if (exchange.fromHistory) continue
       if (exchange.status !== 'complete') continue
 
       const actions = exchange.response?.suggested_actions || []
@@ -1576,6 +1574,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         if (exchange.appliedActions.includes(actionKey)) continue
 
         // Handle search_results - papers already fetched by backend, just display them
+        // Process even for history entries since data is already embedded (no API call needed)
         if (action.action_type === 'search_results') {
           const payload = action.payload as { query?: string; papers?: DiscoveredPaper[]; total_found?: number } | undefined
           const papers = payload?.papers || []
@@ -1611,7 +1610,9 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         // Handle single search_references (legacy - triggers frontend search)
         // ONLY auto-trigger if user's message looks like a search request
         // This prevents triggering on conversational responses like "yes", "i want", "one page"
+        // Skip for history entries - don't re-trigger API calls when returning to page
         if (action.action_type === 'search_references') {
+          if (exchange.fromHistory) continue  // Don't re-trigger for history
           // Skip if user's message wasn't a search request
           if (!isSearchRequest(exchange.question)) continue
           // Extract topic from user's original question (AI tends to over-expand)
@@ -1631,7 +1632,9 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         }
 
         // Handle batch_search_references (multi-topic search)
+        // Skip for history entries - don't re-trigger API calls when returning to page
         if (action.action_type === 'batch_search_references') {
+          if (exchange.fromHistory) continue  // Don't re-trigger for history
           const queries = action.payload?.queries as Array<{ topic: string; query: string; max_results?: number }> | undefined
           if (!queries || queries.length === 0) continue
           const openAccessOnly = Boolean(action.payload?.open_access_only)
