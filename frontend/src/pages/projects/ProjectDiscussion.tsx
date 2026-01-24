@@ -406,7 +406,45 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     // Merge server data with local unsynced entries (entries created during streaming)
     setAssistantHistory((prev) => {
       const idsFromServer = new Set(serverAssistantHistory.map((entry) => entry.id))
-      const unsynced = prev.filter((entry) => !idsFromServer.has(entry.id))
+      // Map questions from server to their IDs (for replacing local entry IDs)
+      const questionToServerIdMap = new Map<string, string>()
+      serverAssistantHistory.forEach((entry) => {
+        questionToServerIdMap.set(entry.question.toLowerCase().trim(), entry.id)
+      })
+
+      // Find local entries that have duplicates in server (same question, different ID)
+      // We need to update referenceSearchResults if its exchangeId matches a removed local entry
+      const localIdsToServerIds = new Map<string, string>()
+      prev.forEach((entry) => {
+        if (!idsFromServer.has(entry.id)) {
+          const serverId = questionToServerIdMap.get(entry.question.toLowerCase().trim())
+          if (serverId) {
+            localIdsToServerIds.set(entry.id, serverId)
+          }
+        }
+      })
+
+      // Filter local entries: keep only if not in server by ID AND not duplicate by question
+      const unsynced = prev.filter((entry) => {
+        // Already in server by ID - skip
+        if (idsFromServer.has(entry.id)) return false
+        // Same question exists in server - this is a duplicate with different ID
+        if (questionToServerIdMap.has(entry.question.toLowerCase().trim())) return false
+        return true
+      })
+
+      // Update referenceSearchResults if its exchangeId was a local ID that's now replaced
+      if (localIdsToServerIds.size > 0) {
+        setReferenceSearchResults((prevResults) => {
+          if (!prevResults) return null
+          const newServerId = localIdsToServerIds.get(prevResults.exchangeId)
+          if (newServerId) {
+            return { ...prevResults, exchangeId: newServerId }
+          }
+          return prevResults
+        })
+      }
+
       const merged = [...serverAssistantHistory, ...unsynced].sort(
         (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
       )
