@@ -505,10 +505,11 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         // Skip if this is from the current user - they already have a local streaming entry
         // The WebSocket broadcast is mainly for other users or when returning to the page
         if (exchange.author?.id && user?.id && exchange.author.id === user.id) {
-          // Check if there's already ANY streaming entry (local ID won't match server ID)
+          // Check if there's already ANY streaming/pending entry (local ID won't match server ID)
           setAssistantHistory((prev) => {
-            // If any entry is currently streaming, skip adding duplicate
-            if (prev.some((entry) => entry.status === 'streaming')) return prev
+            // If any entry is currently streaming or pending, skip adding duplicate
+            // (local entries start as 'pending' before tokens arrive, then become 'streaming')
+            if (prev.some((entry) => entry.status === 'streaming' || entry.status === 'pending')) return prev
             // Also skip if this exact server ID already exists
             if (prev.some((entry) => entry.id === exchange.id)) return prev
             const entry: AssistantExchange = {
@@ -1878,6 +1879,40 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       return
     }
 
+    // Handle search_results - papers already fetched, just display them
+    if (action.action_type === 'search_results') {
+      const payload = action.payload as { query?: string; papers?: DiscoveredPaper[]; total_found?: number } | undefined
+      const papers = payload?.papers || []
+      const query = payload?.query || ''
+      markActionApplied(exchange.id, actionKey)
+
+      // Display results as cards
+      if (papers.length > 0) {
+        setReferenceSearchResults(prev => {
+          const existingTitles = new Set((prev?.papers || []).map((p: DiscoveredPaper) => p.title?.toLowerCase()))
+          const newPapers = papers.filter((p: DiscoveredPaper) => !existingTitles.has(p.title?.toLowerCase()))
+          return {
+            exchangeId: exchange.id,
+            papers: [...(prev?.papers || []), ...newPapers],
+            query: query,
+            isSearching: false,
+          }
+        })
+        setDiscoveryQueue(prev => {
+          const existingTitles = new Set(prev.papers.map((p: DiscoveredPaper) => p.title?.toLowerCase()))
+          const deduped = papers.filter((p: DiscoveredPaper) => !existingTitles.has(p.title?.toLowerCase()))
+          const totalPapers = [...prev.papers, ...deduped]
+          return {
+            papers: totalPapers,
+            query: query,
+            isSearching: false,
+            notification: `Found ${deduped.length} papers`,
+          }
+        })
+      }
+      return
+    }
+
     if (action.action_type === 'artifact_created') {
       const title = String(action.payload?.title || 'download').trim()
       const filename = String(action.payload?.filename || `${title}.md`).trim()
@@ -2056,6 +2091,10 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     if (trimmed.startsWith('/')) {
       if (!activeChannelId) {
         alert('Select a channel before asking Scholar AI.')
+        return
+      }
+      // Prevent double-submit while AI is processing
+      if (assistantMutation.isPending) {
         return
       }
       const commandBody = trimmed.slice(1).trim()

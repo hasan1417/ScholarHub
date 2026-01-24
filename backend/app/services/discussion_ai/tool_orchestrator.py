@@ -3584,6 +3584,20 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             "paper_created",
             "paper_updated",
             "artifact_created",
+            "search_results",  # Search already executed, results included
+        }
+
+        # Default summaries for action types
+        ACTION_SUMMARIES = {
+            "search_results": "View search results",
+            "search_references": "Search for papers",
+            "batch_search_references": "Search multiple topics",
+            "paper_created": "View created paper",
+            "paper_updated": "View updated paper",
+            "artifact_created": "Download artifact",
+            "create_task": "Create task",
+            "create_paper": "Create paper",
+            "edit_paper": "Apply edit",
         }
 
         actions = []
@@ -3591,14 +3605,21 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         for tr in tool_results:
             result = tr.get("result", {})
             if isinstance(result, dict) and result.get("action"):
-                action = result["action"]
-                action_type = action.get("type", "")
+                raw_action = result["action"]
+                action_type = raw_action.get("type", "")
+
+                # Transform to frontend format: action_type instead of type
+                transformed_action = {
+                    "action_type": action_type,
+                    "summary": raw_action.get("summary") or ACTION_SUMMARIES.get(action_type, action_type),
+                    "payload": raw_action.get("payload", {}),
+                }
 
                 # Mark completed actions so frontend can display them appropriately
                 if action_type in COMPLETED_ACTION_TYPES:
-                    action["completed"] = True
+                    transformed_action["completed"] = True
 
-                actions.append(action)
+                actions.append(transformed_action)
 
         return actions
 
