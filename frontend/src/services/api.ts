@@ -779,7 +779,7 @@ export const projectDiscussionAPI = {
     actionType: string,
     payload: Record<string, unknown>
   ) =>
-    api.post<{ success: boolean; paper_id?: string; reference_id?: string; message: string }>(
+    api.post<{ success: boolean; paper_id?: string; url_id?: string; reference_id?: string; message: string }>(
       `/projects/${projectId}/discussion/paper-action`,
       { action_type: actionType, payload }
     ),
