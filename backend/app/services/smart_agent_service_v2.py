@@ -191,7 +191,7 @@ EDITOR_TOOLS = [
                 "properties": {
                     "template_id": {
                         "type": "string",
-                        "enum": ["acl", "ieee", "neurips", "aaai", "icml", "generic"],
+                        "enum": ["acl", "ieee", "neurips", "aaai", "icml", "generic", "cvpr", "iccv", "eccv", "iclr", "jmlr", "ijcai", "kdd", "lncs", "elsevier", "nature", "pnas", "acm"],
                         "description": "Target template format to convert to"
                     },
                     "preserve_content": {
@@ -218,7 +218,16 @@ YOUR CAPABILITIES:
 - Propose edits to any part of the document
 - Review and provide feedback on the writing
 - Discuss attached references
-- Convert documents between conference formats (ACL, IEEE, NeurIPS, AAAI, ICML, etc.)
+- Convert documents between conference formats
+
+AVAILABLE TEMPLATES FOR CONVERSION:
+- NLP: acl (ACL/EMNLP/NAACL)
+- Machine Learning: neurips, icml, iclr, jmlr, aaai
+- Computer Vision: cvpr, iccv, eccv
+- AI Conferences: ijcai, kdd
+- Publishers: ieee, lncs (Springer LNCS), elsevier, nature, pnas
+- ACM/HCI: acm (CHI/SIGCHI)
+- Generic: generic (simple article)
 
 SCOPE LIMITATIONS (IMPORTANT):
 - You can ONLY use references already attached to THIS paper
@@ -232,9 +241,13 @@ WHEN TO USE EACH TOOL:
 - review_document: Feedback requests ("review this", "what do you think", "any suggestions", "how does this look")
 - explain_references: Questions about citations or requests to find papers
 - list_available_templates: When user asks what formats/templates are available
-- apply_template: When user asks to convert to a specific conference format (ACL, IEEE, NeurIPS, etc.)
+- apply_template: When user asks to convert to a specific conference format
 
 TEMPLATE CONVERSION:
+When user asks to convert (e.g., "convert to CVPR", "change to Nature format", "reformat for ACL"):
+1. Call apply_template with the appropriate template_id
+2. Then use propose_edit to make the actual changes
+
 When applying a template:
 1. Replace the document preamble (\\documentclass through \\begin{document}) with the appropriate format
 2. Reformat the author block to match the template's author_format
