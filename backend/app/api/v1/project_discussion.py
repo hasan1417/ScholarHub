@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
 
+import asyncio
 import json
 import logging
 import threading
@@ -1254,7 +1255,7 @@ def invoke_discussion_assistant(
             status="processing",
             status_message="Processing your request...",
         )
-        _broadcast_discussion_event(
+        asyncio.run(_broadcast_discussion_event(
             project.id,
             channel.id,
             "assistant_processing",
@@ -1266,7 +1267,7 @@ def invoke_discussion_assistant(
                 "created_at": exchange_created_at,
                 "author": author_info,
             }},
-        )
+        ))
 
         # Use a queue to pass events from background thread to streaming response
         event_queue: queue.Queue = queue.Queue()
@@ -1354,7 +1355,7 @@ def invoke_discussion_assistant(
                     )
 
                     # Broadcast completion
-                    _broadcast_discussion_event(
+                    asyncio.run(_broadcast_discussion_event(
                         project_id,
                         channel_id,
                         "assistant_reply",
@@ -1366,7 +1367,7 @@ def invoke_discussion_assistant(
                             "author": author_info,
                             "status": "completed",
                         }},
-                    )
+                    ))
 
                     # Increment usage
                     try:
@@ -1389,12 +1390,12 @@ def invoke_discussion_assistant(
                     status="failed",
                     status_message="Processing failed. Please try again.",
                 )
-                _broadcast_discussion_event(
+                asyncio.run(_broadcast_discussion_event(
                     project_id,
                     channel_id,
                     "assistant_failed",
                     {"exchange_id": exchange_id, "error": "Processing failed"},
-                )
+                ))
                 event_queue.put({"type": "error", "message": "Processing failed"})
             finally:
                 event_queue.put(None)  # Signal end
