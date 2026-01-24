@@ -445,7 +445,24 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         })
       }
 
-      const merged = [...serverAssistantHistory, ...unsynced].sort(
+      // Build map of existing appliedActions to preserve them during merge
+      const existingAppliedActions = new Map<string, string[]>()
+      prev.forEach((entry) => {
+        if (entry.appliedActions.length > 0) {
+          existingAppliedActions.set(entry.id, entry.appliedActions)
+        }
+      })
+
+      // Merge server entries (preserving appliedActions from local state) with unsynced local entries
+      const mergedServerEntries = serverAssistantHistory.map((entry) => {
+        const existingActions = existingAppliedActions.get(entry.id)
+        if (existingActions && existingActions.length > 0) {
+          return { ...entry, appliedActions: existingActions }
+        }
+        return entry
+      })
+
+      const merged = [...mergedServerEntries, ...unsynced].sort(
         (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
       )
       return merged
