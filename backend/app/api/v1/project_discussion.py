@@ -32,6 +32,7 @@ from app.database import SessionLocal, get_db
 from app.models import (
     Meeting,
     PaperMember,
+    Project,
     ProjectDiscussionChannel,
     ProjectDiscussionChannelResource,
     ProjectDiscussionMessage,
@@ -1271,19 +1272,39 @@ def invoke_discussion_assistant(
         event_queue: queue.Queue = queue.Queue()
         processing_done = threading.Event()
 
+        # Capture IDs before starting thread to avoid detached instance errors
+        project_id = project.id
+        channel_id = channel.id
+        user_id = current_user.id
+        question_text = payload.question
+        reasoning_enabled = payload.reasoning or False
+
         def run_ai_processing():
             """Background thread that runs AI and puts events in queue."""
+            # Create own database session for thread safety
+            thread_db = SessionLocal()
             try:
+                # Re-fetch objects in this thread's session
+                thread_project = thread_db.query(Project).filter_by(id=project_id).first()
+                thread_channel = thread_db.query(ProjectDiscussionChannel).filter_by(id=channel_id).first()
+                thread_user = thread_db.query(User).filter_by(id=user_id).first()
+
+                if not thread_project or not thread_channel:
+                    raise ValueError("Project or channel not found")
+
+                # Create a new ToolOrchestrator with thread's db session
+                thread_orchestrator = ToolOrchestrator(_discussion_ai_core, thread_db)
+
                 final_result = None
-                for event in tool_orchestrator.handle_message_streaming(
-                    project,
-                    channel,
-                    payload.question,
+                for event in thread_orchestrator.handle_message_streaming(
+                    thread_project,
+                    thread_channel,
+                    question_text,
                     recent_search_results=search_results_list,
                     previous_state_dict=previous_state_dict,
                     conversation_history=conversation_history,
-                    reasoning_mode=payload.reasoning or False,
-                    current_user=current_user,
+                    reasoning_mode=reasoning_enabled,
+                    current_user=thread_user,
                 ):
                     event_queue.put(event)
                     if event.get("type") == "result":
@@ -1321,11 +1342,11 @@ def invoke_discussion_assistant(
 
                     # Persist completed result
                     _persist_assistant_exchange(
-                        project.id,
-                        channel.id,
-                        current_user.id,
+                        project_id,
+                        channel_id,
+                        user_id,
                         exchange_id,
-                        payload.question,
+                        question_text,
                         payload_dict,
                         exchange_created_at,
                         conversation_state,
@@ -1334,12 +1355,12 @@ def invoke_discussion_assistant(
 
                     # Broadcast completion
                     _broadcast_discussion_event(
-                        project.id,
-                        channel.id,
+                        project_id,
+                        channel_id,
                         "assistant_reply",
                         {"exchange": {
                             "id": exchange_id,
-                            "question": payload.question,
+                            "question": question_text,
                             "response": payload_dict,
                             "created_at": exchange_created_at,
                             "author": author_info,
@@ -1349,9 +1370,7 @@ def invoke_discussion_assistant(
 
                     # Increment usage
                     try:
-                        bg_db = SessionLocal()
-                        SubscriptionService.increment_usage(bg_db, current_user.id, "discussion_ai_calls")
-                        bg_db.close()
+                        SubscriptionService.increment_usage(thread_db, user_id, "discussion_ai_calls")
                     except Exception:
                         pass
 
@@ -1359,11 +1378,11 @@ def invoke_discussion_assistant(
                 logger.exception("Background AI processing failed", exc_info=exc)
                 # Save error state
                 _persist_assistant_exchange(
-                    project.id,
-                    channel.id,
-                    current_user.id,
+                    project_id,
+                    channel_id,
+                    user_id,
                     exchange_id,
-                    payload.question,
+                    question_text,
                     {"message": "An error occurred while processing your request.", "citations": [], "suggested_actions": []},
                     exchange_created_at,
                     {},
@@ -1371,8 +1390,8 @@ def invoke_discussion_assistant(
                     status_message="Processing failed. Please try again.",
                 )
                 _broadcast_discussion_event(
-                    project.id,
-                    channel.id,
+                    project_id,
+                    channel_id,
                     "assistant_failed",
                     {"exchange_id": exchange_id, "error": "Processing failed"},
                 )
@@ -1380,6 +1399,7 @@ def invoke_discussion_assistant(
             finally:
                 event_queue.put(None)  # Signal end
                 processing_done.set()
+                thread_db.close()  # Close thread's database session
 
         # Start AI processing in background thread
         ai_thread = threading.Thread(target=run_ai_processing, daemon=True)
