@@ -1989,6 +1989,9 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         ref_result = self._link_cited_references(ctx, str(new_paper.id), latex_source)
         ref_message = f" {ref_result['message']}" if ref_result.get("linked", 0) > 0 else ""
 
+        # Build url_id for frontend navigation
+        url_id = f"{new_paper.slug}-{new_paper.short_id}" if new_paper.slug and new_paper.short_id else str(new_paper.id)
+
         return {
             "status": "success",
             "message": f"Created paper '{title}' in the project.{ref_message}",
@@ -1998,6 +2001,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 "type": "paper_created",
                 "payload": {
                     "paper_id": str(new_paper.id),
+                    "url_id": url_id,
                     "title": title,
                 }
             }
@@ -2305,6 +2309,10 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         ref_message = f" {ref_result['message']}" if ref_result.get("linked", 0) > 0 else ""
 
         section_msg = f" (replaced section '{section_name}')" if section_name else ""
+
+        # Build url_id for frontend navigation
+        url_id = f"{paper.slug}-{paper.short_id}" if paper.slug and paper.short_id else str(paper.id)
+
         return {
             "status": "success",
             "message": f"Updated paper '{paper.title}'{section_msg}.{ref_message}",
@@ -2314,6 +2322,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 "type": "paper_updated",
                 "payload": {
                     "paper_id": paper_id,
+                    "url_id": url_id,
                     "title": paper.title,
                 }
             }
@@ -3508,7 +3517,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         tool_results: List[Dict],
     ) -> List[Dict]:
         """Extract actions that should be sent to the frontend."""
-        # Action types that are notifications (already executed), not suggestions
+        # Action types that are completed (already executed) - mark them for frontend display
         COMPLETED_ACTION_TYPES = {
             "paper_created",
             "paper_updated",
@@ -3523,10 +3532,9 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 action = result["action"]
                 action_type = action.get("type", "")
 
-                # Skip completed/notification actions
+                # Mark completed actions so frontend can display them appropriately
                 if action_type in COMPLETED_ACTION_TYPES:
-                    logger.debug(f"Skipping completed action: {action_type}")
-                    continue
+                    action["completed"] = True
 
                 actions.append(action)
 

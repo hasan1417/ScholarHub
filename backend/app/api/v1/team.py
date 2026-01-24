@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List
 import uuid
+from uuid import UUID
 from datetime import datetime, timedelta
+import re
 
 from app.database import get_db
 from app.api.deps import get_current_user
@@ -21,31 +23,74 @@ from app.schemas.team import (
 router = APIRouter()
 
 
+def _is_valid_uuid(val: str) -> bool:
+    """Check if string is a valid UUID."""
+    try:
+        UUID(val)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+def _parse_short_id(url_id: str) -> str | None:
+    """Extract short_id from url_id (e.g., 'slug-abc123' -> 'abc123')."""
+    if not url_id:
+        return None
+    parts = url_id.rsplit("-", 1)
+    if len(parts) == 2 and re.match(r"^[a-z0-9]{6,12}$", parts[1]):
+        return parts[1]
+    if re.match(r"^[a-z0-9]{6,12}$", url_id):
+        return url_id
+    return None
+
+
+def _get_paper_or_404(db: Session, paper_id: str) -> ResearchPaper:
+    """Get paper by UUID or slug-shortid format."""
+    paper = None
+
+    # Try UUID lookup first
+    if _is_valid_uuid(paper_id):
+        try:
+            paper = db.query(ResearchPaper).filter(ResearchPaper.id == UUID(paper_id)).first()
+        except (ValueError, AttributeError):
+            pass
+
+    # Try short_id lookup
+    if not paper:
+        short_id = _parse_short_id(paper_id)
+        if short_id:
+            paper = db.query(ResearchPaper).filter(ResearchPaper.short_id == short_id).first()
+
+    if not paper:
+        raise HTTPException(status_code=404, detail="Research paper not found")
+    return paper
+
+
 @router.post("/papers/{paper_id}/invite", response_model=TeamInviteResponse)
 async def invite_team_member(
-    paper_id: uuid.UUID,
+    paper_id: str,
     invite_data: TeamInviteRequest,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Invite a user to join the paper team"""
-    
-    # Check if paper exists
-    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
+
+    # Check if paper exists (supports UUID or slug)
+    paper = _get_paper_or_404(db, paper_id)
     if not paper:
         raise HTTPException(status_code=404, detail="Research paper not found")
     
     # Check if current user can invite (owner or admin member)
     if paper.owner_id != current_user.id:
         member = db.query(PaperMember).filter(
-            PaperMember.paper_id == paper_id,
+            PaperMember.paper_id == paper.id,
             PaperMember.user_id == current_user.id,
             PaperMember.role == PaperRole.ADMIN
         ).first()
         if not member:
             raise HTTPException(status_code=403, detail="Not authorized to invite team members")
-    
+
     # Find the user to invite
     invitee = db.query(User).filter(User.email == invite_data.email).first()
     if not invitee:
@@ -54,7 +99,7 @@ async def invite_team_member(
 
     # Check if already a team member
     existing_member = db.query(PaperMember).filter(
-        PaperMember.paper_id == paper_id,
+        PaperMember.paper_id == paper.id,
         PaperMember.user_id == invitee.id
     ).first()
     
@@ -87,7 +132,7 @@ async def invite_team_member(
 
     # Create team member invitation for the paper
     team_member = PaperMember(
-        paper_id=paper_id,
+        paper_id=paper.id,
         user_id=invitee.id,
         role=desired_role,
         status="invited",  # invited, accepted, declined
@@ -111,20 +156,18 @@ async def invite_team_member(
 
 @router.get("/papers/{paper_id}/members", response_model=List[TeamMemberResponse])
 async def get_team_members(
-    paper_id: uuid.UUID,
+    paper_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get all team members for a paper"""
-    
-    # Check if user has access to this paper
-    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Research paper not found")
-    
+
+    # Check if paper exists (supports UUID or slug)
+    paper = _get_paper_or_404(db, paper_id)
+
     if paper.owner_id != current_user.id:
         member = db.query(PaperMember).filter(
-            PaperMember.paper_id == paper_id,
+            PaperMember.paper_id == paper.id,
             PaperMember.user_id == current_user.id
         ).first()
         if not member:
@@ -133,7 +176,7 @@ async def get_team_members(
     # Return ONLY DB-backed team members (including owner record if present)
     members: list[TeamMemberResponse] = []
     team_members = db.query(PaperMember).filter(
-        PaperMember.paper_id == paper_id,
+        PaperMember.paper_id == paper.id,
         PaperMember.status.in_(["accepted", "invited", "declined"])
     ).all()
 
@@ -164,45 +207,47 @@ async def get_team_members(
 
 @router.post("/papers/{paper_id}/members/{member_id}/accept")
 async def accept_team_invitation(
-    paper_id: uuid.UUID,
+    paper_id: str,
     member_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Accept a team invitation"""
+    paper = _get_paper_or_404(db, paper_id)
     
     # Check if invitation exists and belongs to current user
     member = db.query(PaperMember).filter(
         PaperMember.id == member_id,
-        PaperMember.paper_id == paper_id,
+        PaperMember.paper_id == paper.id,
         PaperMember.user_id == current_user.id,
         PaperMember.status == "invited"
     ).first()
-    
+
     if not member:
         raise HTTPException(status_code=404, detail="Invitation not found")
-    
+
     # Accept invitation
     member.status = "accepted"
     member.joined_at = datetime.utcnow()
     db.commit()
-    
+
     return {"message": "Invitation accepted successfully"}
 
 
 @router.post("/papers/{paper_id}/members/{member_id}/decline")
 async def decline_team_invitation(
-    paper_id: uuid.UUID,
+    paper_id: str,
     member_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Decline a team invitation"""
-    
+    paper = _get_paper_or_404(db, paper_id)
+
     # Check if invitation exists and belongs to current user
     member = db.query(PaperMember).filter(
         PaperMember.id == member_id,
-        PaperMember.paper_id == paper_id,
+        PaperMember.paper_id == paper.id,
         PaperMember.user_id == current_user.id,
         PaperMember.status == "invited"
     ).first()
@@ -219,31 +264,29 @@ async def decline_team_invitation(
 
 @router.delete("/papers/{paper_id}/members/{member_id}")
 async def remove_team_member(
-    paper_id: uuid.UUID,
+    paper_id: str,
     member_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Remove a team member (owner or admin only)"""
-    
-    # Check if current user can remove members
-    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Research paper not found")
-    
+
+    # Check if paper exists (supports UUID or slug)
+    paper = _get_paper_or_404(db, paper_id)
+
     if paper.owner_id != current_user.id:
         member = db.query(PaperMember).filter(
-            PaperMember.paper_id == paper_id,
+            PaperMember.paper_id == paper.id,
             PaperMember.user_id == current_user.id,
             PaperMember.role == PaperRole.ADMIN
         ).first()
         if not member:
             raise HTTPException(status_code=403, detail="Not authorized to remove team members")
-    
+
     # Remove team member
     member_to_remove = db.query(PaperMember).filter(
         PaperMember.id == member_id,
-        PaperMember.paper_id == paper_id
+        PaperMember.paper_id == paper.id
     ).first()
     
     if not member_to_remove:
@@ -257,7 +300,7 @@ async def remove_team_member(
 
 @router.patch("/papers/{paper_id}/members/{member_id}", response_model=TeamMemberResponse)
 async def update_team_member_role(
-    paper_id: uuid.UUID,
+    paper_id: str,
     member_id: uuid.UUID,
     payload: TeamMemberUpdate,
     current_user: User = Depends(get_current_user),
@@ -265,13 +308,12 @@ async def update_team_member_role(
 ):
     """Update an existing team member's role (owner or admin only)."""
 
-    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Research paper not found")
+    # Check if paper exists (supports UUID or slug)
+    paper = _get_paper_or_404(db, paper_id)
 
     if paper.owner_id != current_user.id:
         manager = db.query(PaperMember).filter(
-            PaperMember.paper_id == paper_id,
+            PaperMember.paper_id == paper.id,
             PaperMember.user_id == current_user.id,
             PaperMember.role == PaperRole.ADMIN,
             PaperMember.status == "accepted"
@@ -281,7 +323,7 @@ async def update_team_member_role(
 
     member = db.query(PaperMember).filter(
         PaperMember.id == member_id,
-        PaperMember.paper_id == paper_id
+        PaperMember.paper_id == paper.id
     ).first()
     if not member:
         raise HTTPException(status_code=404, detail="Team member not found")
