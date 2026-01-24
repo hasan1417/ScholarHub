@@ -46,11 +46,13 @@
 \newcounter{IEEE@author@count}
 \newcommand{\IEEEauthorblockN}[1]{%
   \stepcounter{IEEE@author@count}%
-  {\large\bfseries #1}\\%
+  \par\noindent{\large\bfseries #1}\par%
 }
 \newcommand{\IEEEauthorblockA}[1]{%
-  {\normalsize\itshape #1}\\[0.5em]%
+  \par\noindent{\normalsize\itshape #1}\par\vskip 0.5em%
 }
+% \and command for multiple author columns
+\renewcommand{\and}{\hspace{2em}}
 
 % Simple author and affiliation storage
 \def\@IEEEauthors{}
