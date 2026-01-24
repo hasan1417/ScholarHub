@@ -122,6 +122,41 @@ EDITOR_TOOLS = [
                 "required": ["explanation"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_available_templates",
+            "description": "List available conference/journal templates for formatting papers. Use when user asks about available formats, templates, or wants to know what conference styles are supported.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "apply_template",
+            "description": "Convert the document to a specific conference format. This will reformat the preamble, author block, sections, and citations to match the target template requirements. Use when user asks to convert, reformat, or change their paper to a specific conference format like ACL, IEEE, NeurIPS, etc.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "template_id": {
+                        "type": "string",
+                        "enum": ["acl", "ieee", "neurips", "aaai", "icml", "generic"],
+                        "description": "Target template format to convert to"
+                    },
+                    "preserve_content": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Keep all content while changing formatting (default: true)"
+                    }
+                },
+                "required": ["template_id"]
+            }
+        }
     }
 ]
 
@@ -137,6 +172,7 @@ YOUR CAPABILITIES:
 - Propose edits to any part of the document
 - Review and provide feedback on the writing
 - Discuss attached references
+- Convert documents between conference formats (ACL, IEEE, NeurIPS, AAAI, ICML, etc.)
 
 SCOPE LIMITATIONS (IMPORTANT):
 - You can ONLY use references already attached to THIS paper
@@ -149,6 +185,17 @@ WHEN TO USE EACH TOOL:
 - propose_edit: Any request to change the document ("extend", "shorten", "rewrite", "fix", "improve", "add", "remove", "modify", etc.)
 - review_document: Feedback requests ("review this", "what do you think", "any suggestions", "how does this look")
 - explain_references: Questions about citations or requests to find papers
+- list_available_templates: When user asks what formats/templates are available
+- apply_template: When user asks to convert to a specific conference format (ACL, IEEE, NeurIPS, etc.)
+
+TEMPLATE CONVERSION:
+When applying a template:
+1. Replace the document preamble (\\documentclass through \\begin{document}) with the appropriate format
+2. Reformat the author block to match the template's author_format
+3. Ensure section names match the template conventions
+4. Note any bibliography style changes needed
+5. Preserve ALL user content while reformatting structure
+6. Use propose_edit to make the actual changes after calling apply_template
 
 FOR EDITS - CRITICAL LATEX REQUIREMENTS:
 - Your proposed text MUST be valid LaTeX that compiles without errors
@@ -182,6 +229,8 @@ class SmartAgentServiceV2:
             self.client = None
         else:
             self.client = OpenAI(api_key=api_key)
+        # Store current document for template conversion
+        self._current_document: Optional[str] = None
 
     def stream_query(
         self,
@@ -196,6 +245,9 @@ class SmartAgentServiceV2:
         if not self.client:
             yield "AI service not configured."
             return
+
+        # Store document for template conversion use
+        self._current_document = document_excerpt
 
         # Get reference context
         ref_context = self._get_reference_context(db, user_id, paper_id, query)
@@ -306,6 +358,13 @@ class SmartAgentServiceV2:
             if suggest_discovery:
                 yield "\n\nTo discover new papers, use the **Discussion AI** in your project sidebar or the **Discovery page** in your project."
 
+        elif tool_name == "list_available_templates":
+            yield from self._handle_list_templates()
+
+        elif tool_name == "apply_template":
+            template_id = args.get("template_id", "")
+            yield from self._handle_apply_template(template_id)
+
         else:
             yield f"Unknown tool: {tool_name}"
 
@@ -346,3 +405,117 @@ class SmartAgentServiceV2:
         except Exception as e:
             logger.error(f"Error getting references: {e}")
             return ""
+
+    def _handle_list_templates(self) -> Generator[str, None, None]:
+        """Return formatted list of available conference templates."""
+        from app.constants.paper_templates import CONFERENCE_TEMPLATES
+
+        yield "## Available Conference Templates\n\n"
+        yield "You can convert your paper to any of these formats:\n\n"
+
+        for tid, template in CONFERENCE_TEMPLATES.items():
+            yield f"**{template['name']}** (`{tid}`)\n"
+            yield f"- {template['description']}\n"
+            yield f"- {template['notes']}\n\n"
+
+        yield "---\n\n"
+        yield "To convert your document, say something like:\n"
+        yield '- "Convert this to ACL format"\n'
+        yield '- "Reformat for IEEE conference"\n'
+        yield '- "Change to NeurIPS style"\n'
+
+    def _handle_apply_template(self, template_id: str) -> Generator[str, None, None]:
+        """Generate edit proposals for template conversion."""
+        import re
+        from app.constants.paper_templates import CONFERENCE_TEMPLATES
+
+        if template_id not in CONFERENCE_TEMPLATES:
+            yield f"Unknown template: `{template_id}`. "
+            yield "Use `list_available_templates` to see available formats."
+            return
+
+        template = CONFERENCE_TEMPLATES[template_id]
+        doc = self._current_document or ""
+
+        yield f"## Converting to {template['name']}\n\n"
+        yield f"{template['description']}\n\n"
+        yield f"**Notes:** {template['notes']}\n\n"
+
+        # If we have a document, generate actual edit proposals
+        if doc:
+            yield "Here are the edits to convert your document:\n\n"
+
+            # Extract preamble (from start through \maketitle if present, otherwise just \begin{document})
+            # This ensures we replace \maketitle too, avoiding duplicates
+            preamble_match = re.search(
+                r'^(.*?\\begin\{document\}\s*\\maketitle)',
+                doc,
+                re.DOTALL
+            )
+            if not preamble_match:
+                # Fallback: just to \begin{document}
+                preamble_match = re.search(
+                    r'^(.*?\\begin\{document\})',
+                    doc,
+                    re.DOTALL
+                )
+
+            if preamble_match:
+                original_preamble = preamble_match.group(1).strip()
+
+                # Extract title from original document
+                title_match = re.search(r'\\title\{([^}]*)\}', doc)
+                title = title_match.group(1) if title_match else "Your Paper Title"
+
+                # Extract authors from original document
+                author_match = re.search(r'\\author\{([^}]*(?:\{[^}]*\}[^}]*)*)\}', doc, re.DOTALL)
+                original_authors = author_match.group(1) if author_match else ""
+
+                # Build new preamble with extracted title
+                new_preamble = template['preamble_example'].replace(
+                    "Your Paper Title", title
+                ).replace(
+                    "Your Full Paper Title", title
+                )
+
+                yield "<<<EDIT>>>\n"
+                yield "Replace preamble with conference format\n"
+                yield "<<<ORIGINAL>>>\n"
+                yield f"{original_preamble}\n"
+                yield "<<<PROPOSED>>>\n"
+                yield f"{new_preamble}\n"
+                yield "<<<END>>>\n\n"
+
+            # Check if bibliography style needs updating
+            bib_match = re.search(r'\\bibliographystyle\{([^}]*)\}', doc)
+            if bib_match:
+                old_style = bib_match.group(0)
+                new_style = f"\\bibliographystyle{{{template['bib_style']}}}"
+                if old_style != new_style:
+                    yield "<<<EDIT>>>\n"
+                    yield f"Update bibliography style to {template['bib_style']}\n"
+                    yield "<<<ORIGINAL>>>\n"
+                    yield f"{old_style}\n"
+                    yield "<<<PROPOSED>>>\n"
+                    yield f"{new_style}\n"
+                    yield "<<<END>>>\n\n"
+
+            yield "---\n\n"
+            yield "### Recommended Sections\n\n"
+            yield "For this format, consider organizing with these sections:\n"
+            for section in template['sections']:
+                yield f"- {section}\n"
+            yield "\n"
+
+        else:
+            # No document provided, just show template info
+            yield "### Required Preamble\n\n"
+            yield "Replace your document preamble with:\n\n"
+            yield f"```latex\n{template['preamble_example']}\n```\n\n"
+            yield "### Author Format\n\n"
+            yield f"Use this author block format:\n`{template['author_format']}`\n\n"
+            yield "### Recommended Sections\n\n"
+            for section in template['sections']:
+                yield f"- {section}\n"
+            yield f"\n### Bibliography Style\n\n"
+            yield f"Use `{template['bib_style']}` for your bibliography.\n"

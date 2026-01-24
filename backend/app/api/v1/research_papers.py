@@ -436,15 +436,24 @@ async def delete_research_paper(
     db: Session = Depends(get_db)
 ):
     """Delete a research paper."""
+    from app.models.document_snapshot import DocumentSnapshot
+    from app.models.paper_reference import PaperReference
+    from app.models.paper_member import PaperMember
+
     paper = _get_paper_or_404(db, paper_id)
-    
+
     # Only owner can delete
     if paper.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="Only the owner can delete this paper")
-    
+
+    # Delete related records first to avoid FK constraint violations
+    db.query(DocumentSnapshot).filter(DocumentSnapshot.paper_id == paper.id).delete()
+    db.query(PaperReference).filter(PaperReference.paper_id == paper.id).delete()
+    db.query(PaperMember).filter(PaperMember.paper_id == paper.id).delete()
+
     db.delete(paper)
     db.commit()
-    
+
     return {"message": "Research paper deleted successfully"}
 
 @router.put("/{paper_id}/content")

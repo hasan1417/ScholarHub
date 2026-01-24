@@ -274,12 +274,17 @@ const PaperDetail: React.FC = () => {
     const mapping: Record<string, string> = {
       research: 'Research',
       review: 'Literature Review',
+      literature_review: 'Literature Review',
       case_study: 'Case Study',
       methodology: 'Methodology',
       theoretical: 'Theoretical',
       experimental: 'Experimental',
+      survey: 'Survey',
+      tutorial: 'Tutorial',
+      position: 'Position Paper',
     }
-    return mapping[type] || type
+    // Format unknown types nicely: some_type -> Some Type
+    return mapping[type] || type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
   }
 
   const getPaperTypeColor = (type: string) => {

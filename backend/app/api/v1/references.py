@@ -1,9 +1,12 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import ProgrammingError, OperationalError
 from typing import Optional, List
 from app.database import get_db
+
+logger = logging.getLogger(__name__)
 from app.api.deps import get_current_user
 from app.models.user import User
 from app.models.reference import Reference
@@ -302,32 +305,40 @@ async def upload_reference_pdf(
     db.add(document)
     db.commit()
     db.refresh(document)
+    # Store document ID before processing (in case session gets rolled back)
+    document_id = document.id
+
     # process + embed using existing system (best-effort)
     try:
         await ds.process_document(db, document, content, None)
-        DocumentProcessingService().embed_document_chunks(db, str(document.id))
-        
+        DocumentProcessingService().embed_document_chunks(db, str(document_id))
+
         # Link document chunks to this reference for reference-based RAG
         try:
             from app.models.document_chunk import DocumentChunk
-            chunks = db.query(DocumentChunk).filter(DocumentChunk.document_id == document.id).all()
+            chunks = db.query(DocumentChunk).filter(DocumentChunk.document_id == document_id).all()
             for chunk in chunks:
                 chunk.reference_id = str(ref.id)
             db.commit()
             logger.info(f"Linked {len(chunks)} chunks to reference {ref.id}")
         except Exception as e:
+            db.rollback()
             logger.error(f"Failed to link chunks to reference {ref.id}: {e}")
-        
+
         # Mark document processed
         document.status = DocumentStatus.PROCESSED
         # update reference status to analyzed when processing completes
         ref.status = 'analyzed'
-    except Exception:
-        # Leave status as PROCESSING on failure
+    except Exception as e:
+        # Rollback any failed transaction and leave status as ingested
+        db.rollback()
+        logger.warning(f"Document processing failed for reference {ref.id}: {e}")
         ref.status = 'ingested'
-        
+        # Re-fetch document after rollback
+        document = db.query(Document).filter(Document.id == document_id).first()
+
     # update reference
-    ref.document_id = document.id
+    ref.document_id = document_id
     # Provide a direct API download link for the uploaded PDF
     ref.pdf_url = f"/api/v1/documents/{document.id}/download"
     ref.is_open_access = True

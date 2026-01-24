@@ -162,7 +162,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     suggestedKeywords: string[]
   } | null>(null)
 
-  // Reference search results state
+  // Reference search results state - only shown inline with the exchange that triggered them
   const [referenceSearchResults, setReferenceSearchResults] = useState<{
     exchangeId: string
     papers: DiscoveredPaper[]
@@ -1414,12 +1414,19 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       'search', 'find', 'look for', 'looking for', 'papers', 'references',
       'articles', 'literature', 'publications', 'research on', 'about'
     ]
+    // Research question patterns that trigger deep search
+    const researchQuestionKeywords = [
+      'what are the', 'what is the', 'how do', 'how does', 'how are',
+      'main approaches', 'approaches to', 'methods for', 'techniques for',
+      'state of the art', 'state-of-the-art', 'overview', 'comprehensive',
+      'survey', 'review of', 'summary of', 'explain', 'describe'
+    ]
     // Short messages or confirmations are NOT search requests
     if (q.length < 10) return false
     // Skip pure conversational responses (but NOT "please search...", "please find..." which are valid)
     if (/^(yes|no|ok|okay|sure|thanks|thank you|i want|i need|option|a|b|c|\d+)(\s|$)/i.test(q)) return false
-    // Must have at least one search keyword
-    return searchKeywords.some(kw => q.includes(kw))
+    // Must have at least one search keyword OR be a research question
+    return searchKeywords.some(kw => q.includes(kw)) || researchQuestionKeywords.some(kw => q.includes(kw))
   }
 
   // Extract search topic from user's original question ONLY if it's clearly a search request

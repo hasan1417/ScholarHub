@@ -13,7 +13,7 @@ from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
-    from app.models import Project, ProjectDiscussionChannel
+    from app.models import Project, ProjectDiscussionChannel, User
     from app.services.ai_service import AIService
 
 logger = logging.getLogger(__name__)
@@ -193,7 +193,7 @@ DISCUSSION_TOOLS = [
                     },
                     "content": {
                         "type": "string",
-                        "description": "Content in LATEX FORMAT ONLY. Use \\section{}, \\subsection{}, \\textbf{}, \\textit{}, \\begin{itemize}, \\cite{}, etc. Do NOT use Markdown (#, ##, **bold**, *italic*). IMPORTANT: Do NOT add a References or Bibliography section - it is created AUTOMATICALLY from \\cite{} commands. Example: \\section{Introduction}\\nThis paper explores..."
+                        "description": "Content in LATEX FORMAT ONLY. Use \\section{}, \\subsection{}, \\textbf{}, \\textit{}, \\begin{itemize}, \\cite{}, etc. Do NOT use Markdown. CITATION FORMAT: Use \\cite{authorYYYYword} where author=first author's last name (lowercase), YYYY=year, word=first significant word from title (lowercase). Example: For 'Self-Attention as Distributional Projection' by Mehta (2025) use \\cite{mehta2025self}. Do NOT add References section - it's auto-generated."
                     },
                     "paper_type": {
                         "type": "string",
@@ -353,6 +353,94 @@ DISCUSSION_TOOLS = [
                 "required": ["paper_indices"]
             }
         }
+    },
+    # ========== DEEP SEARCH & PAPER FOCUS TOOLS ==========
+    {
+        "type": "function",
+        "function": {
+            "name": "deep_search_papers",
+            "description": "Search papers and synthesize an answer to a complex research question. Returns synthesized answer with supporting papers. Use this for questions like 'What are the main approaches to X?', 'How do researchers typically handle Y?', 'What's the state of the art in Z?'",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "research_question": {
+                        "type": "string",
+                        "description": "The research question to answer (e.g., 'What are the main approaches to attention in transformers?')"
+                    },
+                    "max_papers": {
+                        "type": "integer",
+                        "description": "Maximum number of papers to analyze",
+                        "default": 10
+                    }
+                },
+                "required": ["research_question"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "focus_on_papers",
+            "description": "Load specific papers into focus for detailed discussion. For SEARCH RESULTS use paper_indices (0-based). For LIBRARY papers, you MUST first call get_project_references to get real UUIDs, then pass those UUIDs to reference_ids. NEVER invent or guess IDs.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "paper_indices": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": "Indices from recent search results (0-based). 'paper 1' = index 0, 'paper 2' = index 1, etc."
+                    },
+                    "reference_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "REAL UUID reference IDs from get_project_references. NEVER make up IDs like 'ref1' or 'paper1' - always get real UUIDs first!"
+                    }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_across_papers",
+            "description": "Analyze a topic across all focused papers, finding patterns, agreements, and disagreements. Use when user asks to compare papers, find commonalities, or synthesize findings across multiple papers. Requires papers to be focused first.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "analysis_question": {
+                        "type": "string",
+                        "description": "The analysis question (e.g., 'How do their methodologies compare?', 'What are the common findings?', 'Where do they disagree?')"
+                    }
+                },
+                "required": ["analysis_question"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_section_from_discussion",
+            "description": "Generate a paper section based on the discussion insights and focused papers. Use when user asks to 'write a methodology section', 'create related work', 'draft an introduction based on our discussion'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "section_type": {
+                        "type": "string",
+                        "enum": ["methodology", "related_work", "introduction", "results", "discussion", "conclusion", "abstract"],
+                        "description": "Type of section to generate"
+                    },
+                    "target_paper_id": {
+                        "type": "string",
+                        "description": "Optional: ID of paper to add section to. If not provided, creates an artifact."
+                    },
+                    "custom_instructions": {
+                        "type": "string",
+                        "description": "Optional: Custom instructions for the section (e.g., 'focus on transformer methods', 'emphasize practical applications')"
+                    }
+                },
+                "required": ["section_type"]
+            }
+        }
     }
 ]
 
@@ -360,62 +448,80 @@ DISCUSSION_TOOLS = [
 BASE_SYSTEM_PROMPT = """You are a research assistant helping with academic papers.
 
 TOOLS:
+**Discovery & Search:**
 - discover_topics: Find what specific topics exist in a broad area (use for vague requests like "recent algorithms")
 - search_papers: Search for academic papers on a SPECIFIC topic
 - batch_search_papers: Search multiple specific topics at once (grouped results)
+- deep_search_papers: Search and synthesize an answer to complex research questions
+
+**Paper Management:**
 - get_recent_search_results: Get papers from last search (for "these papers", "use them")
 - add_to_library: Add search results to library AND ingest PDFs (USE BEFORE create_paper!)
 - get_project_references: Get user's saved papers (for "my library")
 - get_reference_details: Get full content of an ingested reference
+
+**Paper Focus & Analysis:**
+- focus_on_papers: Load specific papers into focus for detailed discussion
+- analyze_across_papers: Compare and analyze across focused papers
+
+**Content Creation:**
 - get_project_papers: Get user's draft papers in this project
 - create_paper: Create a new paper IN THE PROJECT (LaTeX editor)
 - create_artifact: Create downloadable content (doesn't save to project)
 - get_created_artifacts: Get previously created artifacts (PDFs, documents) in this channel
 - update_paper: Add content to an existing paper
-- update_project_info: Update project description and/or objectives (use for "add objective", "update description", "change goals")
+- generate_section_from_discussion: Create paper sections from discussion insights
+- update_project_info: Update project description and/or objectives
 
-WORKFLOW - Choose based on request clarity:
+## CORE PRINCIPLE: BE CONTEXT-AWARE
 
-**CLEAR REQUEST** (user mentions specific topic):
-  Examples: "papers about BERT", "diffusion models 2025", "federated learning"
-  → Call search_papers directly with proper academic terms
-  → Show results → ask to create paper → create with found references
+You are a smart research assistant. Use common sense and conversation context.
 
-**DISCOVERY NEEDED** (user mentions broad/vague area):
-  Examples: "recent algorithms in 2025", "latest AI trends", "new methods in NLP"
-  → Call discover_topics to find specific topics
-  → Show discovered topics: "Found: [Topic1, Topic2, ...]. Search all or pick specific ones?"
-  → User confirms → call batch_search_papers for selected topics
-  → Show grouped results → create paper using those references
+**THE GOLDEN RULE**: Use what you already have before searching for new things.
+- If you just searched/discussed/analyzed papers → those ARE the context
+- If user says "create a paper" or "write a review" → use papers already in context
+- If user says "use these" or "based on this" → use current context
+- ONLY search when user explicitly asks for NEW/DIFFERENT papers, or when there's nothing in context
 
-**AMBIGUOUS REQUEST** (missing key info):
-  Examples: "write a literature review", "find me some papers"
-  → Ask ONE brief question: "On what topic?" or "What area?"
-  → After user answers → proceed to CLEAR or DISCOVERY workflow
+**THINK LIKE A HUMAN ASSISTANT**:
+- User searches for papers → you show results
+- User says "create a paper with these" → you use THOSE results (don't search again!)
+- User discusses papers with you → you remember them
+- User says "write a literature review" → you use what you were discussing (don't search again!)
 
-CRITICAL RULES:
-1. NEVER create a paper before having FULL PDF CONTEXT - search → add_to_library → read content → THEN create
-2. NEVER ask more than ONE clarifying question
-3. NEVER use user's literal words as search query - use proper academic terms
-4. NEVER list papers from your training data - you don't have access to real papers!
-5. Use discover_topics when you don't know what specific things to search for
-6. When displaying paper content in chat, output it as plain markdown (NOT in code blocks) so it renders naturally with proper headings, bold text, etc.
-7. NEVER add \\section*{{References}} or \\begin{{thebibliography}} - the References section is created AUTOMATICALLY from \\cite{{}} commands. Just use \\cite{{author2023keyword}} in your text.
-8. For LONG content (literature reviews, full papers, multi-section documents):
-   - Do NOT write the full content in chat - it's too slow
-   - Instead ASK: "Would you like me to create this as a paper in your project? That way you can edit it in the LaTeX editor."
-   - If user confirms, use create_paper tool with the content
-   - Only provide SHORT summaries (1-2 paragraphs) directly in chat
-9. NEVER show IDs (UUIDs, paper_id, artifact_id, etc.) to users - they are meaningless to humans. Just show titles and relevant info.
-10. ALWAYS confirm what you created by NAME after using create_paper or create_artifact. Example: "I created a paper titled 'Literature Review: AI in Healthcare' in your project." or "I generated a PDF: 'Drug Discovery Summary.pdf'"
-11. To see artifacts you previously created (PDFs, documents), use get_created_artifacts. To see papers you created, use get_project_papers.
-12. PAPER CREATION WORKFLOW (REQUIRED for quality papers):
-    a) Search for papers (search_papers or batch_search_papers)
-    b) Add to library with PDF ingestion: add_to_library(paper_indices=[0,1,2...], ingest_pdfs=True)
-    c) Read full content: get_reference_details for each ingested reference
-    d) THEN create paper with deep understanding from full PDF content
-    This ensures your paper is based on actual paper content, not just abstracts!
-13. PROJECT OBJECTIVES: Each objective should be concise (max ~150 chars). Use update_project_info with:
+**WHEN TO SEARCH**:
+- User explicitly says "find papers about X", "search for Y", "I need new references"
+- There are NO papers in context and user wants content
+- User asks about a DIFFERENT topic than what's in context
+
+**WHEN NOT TO SEARCH**:
+- You just showed search results and user wants to use them
+- You were just discussing specific papers
+- User says "create", "write", "summarize" without mentioning a new topic
+
+GUIDELINES:
+1. Be dynamic and contextual - don't follow rigid scripts
+2. Never ask more than ONE clarifying question
+3. Use proper academic terms in searches (not user's literal words)
+4. Don't invent papers from your training data - only use search results
+5. For general knowledge questions, answer from knowledge first, then offer to search
+6. Output markdown naturally (not in code blocks)
+7. References section is auto-generated from \\cite{{}} - never add it manually
+8. For long content, offer to create as a paper instead of dumping in chat
+9. Never show UUIDs to users - just titles and relevant info
+10. Always confirm what you created by name
+11. **DEPTH AWARENESS & AUTO-INGESTION**:
+    - Search results = ABSTRACTS ONLY (no full text)
+    - Library papers with ingested PDFs = FULL TEXT available
+
+    **FOR CONTENT-HEAVY REQUESTS (literature reviews, methodology comparisons, detailed analysis):**
+    1. FIRST: Call add_to_library with ingest_pdfs=True to add papers and ingest their PDFs
+    2. WAIT for ingestion results - note which papers were successfully ingested
+    3. THEN: Write the content based on full-text access
+    4. If some papers couldn't be ingested (not open access), mention this limitation
+
+    **DON'T write literature reviews from abstracts alone** - always try to ingest first!
+12. PROJECT OBJECTIVES: Each objective should be concise (max ~150 chars). Use update_project_info with:
     - objectives_mode="append" to ADD new objectives to existing ones (KEEP existing + add new)
     - objectives_mode="remove" to REMOVE specific objectives (by index like "1", "2" or text match)
     - objectives_mode="replace" to REPLACE all objectives (DELETE existing, set new ones)
@@ -496,7 +602,9 @@ HISTORY_REMINDER = (
     "- NEVER list papers from memory - results come from API only\n"
     "- For vague topics → use discover_topics first\n"
     "- After user confirms → CALL THE TOOL, don't just respond with text\n"
-    "- If user asks to 'create', 'generate', 'write' AFTER a search was done → call get_recent_search_results FIRST, do NOT search again!"
+    "- If user asks to 'create', 'generate', 'write' AFTER a search was done → call get_recent_search_results FIRST, do NOT search again!\n"
+    "- For research questions ('What are the approaches to X?', 'overview of Y') → answer from knowledge, then OFFER to search for papers\n"
+    "- Only call deep_search_papers when user explicitly asks for papers, references, citations, or recent/2024/2025 literature"
 )
 
 
@@ -528,12 +636,13 @@ class ToolOrchestrator:
         previous_state_dict: Optional[Dict[str, Any]] = None,
         conversation_history: Optional[List[Dict[str, str]]] = None,
         reasoning_mode: bool = False,
+        current_user: Optional["User"] = None,
     ) -> Dict[str, Any]:
         """Handle a user message (non-streaming)."""
         try:
             # Build request context (thread-safe - local variable)
             ctx = self._build_request_context(
-                project, channel, message, recent_search_results, reasoning_mode, conversation_history
+                project, channel, message, recent_search_results, reasoning_mode, conversation_history, current_user
             )
 
             # Build messages for LLM
@@ -555,6 +664,7 @@ class ToolOrchestrator:
         previous_state_dict: Optional[Dict[str, Any]] = None,
         conversation_history: Optional[List[Dict[str, str]]] = None,
         reasoning_mode: bool = False,
+        current_user: Optional["User"] = None,
     ) -> Generator[Dict[str, Any], None, None]:
         """
         Handle a user message with streaming response.
@@ -566,7 +676,7 @@ class ToolOrchestrator:
         try:
             # Build request context (thread-safe - local variable)
             ctx = self._build_request_context(
-                project, channel, message, recent_search_results, reasoning_mode, conversation_history
+                project, channel, message, recent_search_results, reasoning_mode, conversation_history, current_user
             )
 
             # Build messages for LLM
@@ -587,6 +697,7 @@ class ToolOrchestrator:
         recent_search_results: Optional[List[Dict]],
         reasoning_mode: bool,
         conversation_history: Optional[List[Dict[str, str]]] = None,
+        current_user: Optional["User"] = None,
     ) -> Dict[str, Any]:
         """Build thread-safe request context."""
         import re
@@ -598,6 +709,7 @@ class ToolOrchestrator:
         return {
             "project": project,
             "channel": channel,
+            "current_user": current_user,  # User who sent the prompt
             "recent_search_results": recent_search_results or [],
             "reasoning_mode": reasoning_mode,
             "max_papers": extracted_count if extracted_count else 999,
@@ -676,6 +788,11 @@ class ToolOrchestrator:
             "batch_search_papers": "Searching multiple topics",
             "add_to_library": "Adding papers to library & ingesting PDFs",
             "update_project_info": "Updating project info",
+            # Deep search & paper focus tools
+            "deep_search_papers": "Searching and synthesizing papers",
+            "focus_on_papers": "Loading papers into focus",
+            "analyze_across_papers": "Analyzing across focused papers",
+            "generate_section_from_discussion": "Generating section from discussion",
         }
         return tool_messages.get(tool_name, "Processing")
 
@@ -685,7 +802,7 @@ class ToolOrchestrator:
         ctx: Dict[str, Any],
     ) -> Generator[Dict[str, Any], None, None]:
         """Execute with tool calling and streaming."""
-        max_iterations = 5
+        max_iterations = 8
         iteration = 0
         all_tool_results = []
         accumulated_content = []
@@ -793,7 +910,7 @@ class ToolOrchestrator:
     ) -> Dict[str, Any]:
         """Execute with tool calling (non-streaming)."""
         try:
-            max_iterations = 5
+            max_iterations = 8
             iteration = 0
             all_tool_results = []
             response = {"content": "", "tool_calls": []}
@@ -1139,6 +1256,15 @@ class ToolOrchestrator:
                     result = self._tool_add_to_library(ctx, **args)
                 elif name == "update_project_info":
                     result = self._tool_update_project_info(ctx, **args)
+                # Deep search & paper focus tools
+                elif name == "deep_search_papers":
+                    result = self._tool_deep_search_papers(ctx, **args)
+                elif name == "focus_on_papers":
+                    result = self._tool_focus_on_papers(ctx, **args)
+                elif name == "analyze_across_papers":
+                    result = self._tool_analyze_across_papers(ctx, **args)
+                elif name == "generate_section_from_discussion":
+                    result = self._tool_generate_section_from_discussion(ctx, **args)
                 else:
                     result = {"error": f"Unknown tool: {name}"}
 
@@ -1165,21 +1291,50 @@ class ToolOrchestrator:
                 "message": "No recent search results available. The user may need to search for papers first."
             }
 
+        # Count papers with available PDFs
+        papers_with_pdf = sum(1 for p in recent if p.get("pdf_url") or p.get("is_open_access"))
+
+        papers_list = []
+        for i, p in enumerate(recent):
+            paper_info = {
+                "index": i,
+                "title": p.get("title", "Untitled"),
+                "authors": p.get("authors", "Unknown"),
+                "year": p.get("year"),
+                "source": p.get("source", ""),
+                "abstract": p.get("abstract", "")[:500] if p.get("abstract") else "",
+                "doi": p.get("doi"),
+                "url": p.get("url"),
+                "has_pdf_available": bool(p.get("pdf_url") or p.get("is_open_access")),
+            }
+            papers_list.append(paper_info)
+
+        # Build depth info
+        depth_info = {
+            "total_papers": len(recent),
+            "papers_with_pdf_available": papers_with_pdf,
+            "content_available": "abstracts_only",
+            "limitation": (
+                f"These {len(recent)} papers are search results with ONLY abstracts available. "
+                "You can provide high-level summaries and identify themes, but cannot access "
+                "detailed methodology, specific results, or in-depth findings."
+            ),
+        }
+
+        if len(recent) > 5:
+            depth_info["recommendation"] = (
+                f"For detailed analysis of {len(recent)} papers, recommend the user to: "
+                "1) Focus on the most relevant 3-5 papers using focus_on_papers, "
+                "2) Add them to library using add_to_library to ingest PDFs, "
+                "3) Then ask detailed questions. "
+                "For now, you can only provide abstract-based overview."
+            )
+
         return {
             "count": len(recent),
-            "papers": [
-                {
-                    "title": p.get("title", "Untitled"),
-                    "authors": p.get("authors", "Unknown"),
-                    "year": p.get("year"),
-                    "source": p.get("source", ""),
-                    "abstract": p.get("abstract", "")[:500] if p.get("abstract") else "",
-                    "doi": p.get("doi"),
-                    "url": p.get("url"),
-                }
-                for p in recent
-            ],
-            "message": f"Found {len(recent)} papers from the recent search."
+            "papers": papers_list,
+            "depth_info": depth_info,
+            "message": f"Found {len(recent)} papers from the recent search (abstracts only)."
         }
 
     def _tool_get_project_references(
@@ -1776,15 +1931,32 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         abstract: str = None,
     ) -> Dict:
         """Create a new paper in the project (always in LaTeX mode)."""
-        from app.models import ResearchPaper
+        from app.models import ResearchPaper, PaperMember, PaperRole
+        from datetime import datetime, timezone
+        import re
 
         project = ctx["project"]
-        owner_id = project.created_by
+        # Use the current user (who prompted the AI) as owner, not project creator
+        current_user = ctx.get("current_user")
+        owner_id = current_user.id if current_user else project.created_by
 
-        latex_source = self._ensure_latex_document(content, title, abstract)
+        # Generate bibliography entries BEFORE creating the document
+        bibliography_entries = self._generate_bibliography_entries(ctx, content)
+
+        latex_source = self._ensure_latex_document(content, title, abstract, bibliography_entries)
+
+        # Auto-generate keywords from title, abstract, and content
+        keywords = self._generate_keywords(title, abstract, content)
+
+        # Generate slug and short_id for URL-friendly paper links
+        from app.utils.slugify import slugify, generate_short_id
+        paper_slug = slugify(title) if title else None
+        paper_short_id = generate_short_id()
 
         new_paper = ResearchPaper(
             title=title,
+            slug=paper_slug,
+            short_id=paper_short_id,
             content=None,
             content_json={
                 "authoring_mode": "latex",
@@ -1795,11 +1967,23 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             status="draft",
             project_id=project.id,
             owner_id=owner_id,
+            keywords=keywords,
         )
 
         self.db.add(new_paper)
         self.db.commit()
         self.db.refresh(new_paper)
+
+        # Add owner as a paper member with OWNER role
+        owner_member = PaperMember(
+            paper_id=new_paper.id,
+            user_id=owner_id,
+            role=PaperRole.OWNER,
+            status="accepted",
+            joined_at=datetime.now(timezone.utc),
+        )
+        self.db.add(owner_member)
+        self.db.commit()
 
         # Link cited references to paper and project library
         ref_result = self._link_cited_references(ctx, str(new_paper.id), latex_source)
@@ -1808,7 +1992,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         return {
             "status": "success",
             "message": f"Created paper '{title}' in the project.{ref_message}",
-            "paper_id": str(new_paper.id),
+            # Note: paper_id is in action.payload for frontend use - don't show UUIDs to users
             "references_linked": ref_result.get("linked", 0),
             "action": {
                 "type": "paper_created",
@@ -1819,8 +2003,186 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             }
         }
 
-    def _ensure_latex_document(self, content: str, title: str, abstract: str = None) -> str:
+    def _generate_keywords(self, title: str, abstract: str = None, content: str = None) -> list:
+        """Generate keywords from title, abstract, and content."""
+        import re
+
+        # Common academic stopwords to filter out
+        stopwords = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'can', 'this', 'that',
+            'these', 'those', 'which', 'who', 'whom', 'what', 'when', 'where',
+            'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more', 'most',
+            'other', 'some', 'such', 'no', 'not', 'only', 'own', 'same', 'so',
+            'than', 'too', 'very', 'just', 'also', 'now', 'here', 'there', 'then',
+            'once', 'any', 'many', 'much', 'before', 'after', 'above', 'below',
+            'between', 'through', 'during', 'about', 'into', 'over', 'under',
+            'again', 'further', 'while', 'because', 'although', 'since', 'until',
+            'unless', 'if', 'use', 'used', 'using', 'based', 'paper', 'study',
+            'research', 'results', 'show', 'shows', 'shown', 'found', 'work',
+            'approach', 'method', 'methods', 'new', 'novel', 'propose', 'proposed',
+            'present', 'presented', 'section', 'introduction', 'conclusion',
+            'abstract', 'textit', 'textbf', 'cite', 'ref', 'label', 'begin', 'end',
+        }
+
+        # Combine text sources (title weighted more heavily)
+        combined_text = f"{title} {title} {title}"  # Weight title 3x
+        if abstract:
+            combined_text += f" {abstract} {abstract}"  # Weight abstract 2x
+        if content:
+            # Extract text from LaTeX, skip commands
+            clean_content = re.sub(r'\\[a-zA-Z]+\{[^}]*\}', ' ', content)
+            clean_content = re.sub(r'\\[a-zA-Z]+', ' ', clean_content)
+            combined_text += f" {clean_content}"
+
+        # Extract meaningful words (3+ chars, alphabetic only)
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', combined_text.lower())
+
+        # Count word frequency, excluding stopwords
+        word_counts = {}
+        for word in words:
+            if word not in stopwords and len(word) >= 4:
+                word_counts[word] = word_counts.get(word, 0) + 1
+
+        # Get top keywords by frequency
+        sorted_words = sorted(word_counts.items(), key=lambda x: x[1], reverse=True)
+
+        # Return top 5-8 keywords, capitalized nicely
+        keywords = []
+        for word, _ in sorted_words[:8]:
+            # Capitalize properly
+            keywords.append(word.capitalize())
+            if len(keywords) >= 5:
+                break
+
+        return keywords
+
+    def _generate_citation_key(self, paper: Dict) -> str:
+        """Generate a citation key from paper info (authorYYYYword format)."""
+        import re
+        authors = paper.get("authors", "unknown")
+        if isinstance(authors, list):
+            first_author = authors[0] if authors else "unknown"
+        else:
+            first_author = authors.split(",")[0].strip() if authors else "unknown"
+
+        # Extract last name
+        if "," in first_author:
+            last_name = first_author.split(",")[0].strip()
+        else:
+            last_name = first_author.split()[-1] if first_author.split() else "unknown"
+
+        # Clean last name - only lowercase letters
+        last_name = re.sub(r'[^a-zA-Z]', '', last_name).lower()
+
+        year = str(paper.get("year", ""))
+
+        # Get first significant word from title
+        title = paper.get("title", "")
+        title_words = [w for w in re.findall(r'[a-zA-Z]+', title) if len(w) > 3]
+        title_word = title_words[0].lower() if title_words else ""
+
+        return f"{last_name}{year}{title_word}"
+
+    def _generate_bibliography_entries(self, ctx: Dict[str, Any], content: str) -> list:
+        """Generate \\bibitem entries for all citations in content."""
+        import re
+        from app.models import Reference, ProjectReference
+
+        project = ctx["project"]
+        recent_search_results = ctx.get("recent_search_results", [])
+
+        # Get project library references
+        project_refs = (
+            self.db.query(Reference)
+            .join(ProjectReference, ProjectReference.reference_id == Reference.id)
+            .filter(ProjectReference.project_id == project.id)
+            .all()
+        )
+
+        # Build lookup of all available papers by citation key
+        all_papers = []
+        for paper in recent_search_results:
+            all_papers.append(paper)
+        for ref in project_refs:
+            all_papers.append({
+                "title": ref.title,
+                "authors": ref.authors if isinstance(ref.authors, str) else ", ".join(ref.authors or []),
+                "year": ref.year,
+                "doi": ref.doi,
+                "url": ref.url,
+                "journal": ref.journal,
+            })
+
+        # Create lookup by citation key
+        paper_by_key = {}
+        for paper in all_papers:
+            key = self._generate_citation_key(paper)
+            paper_by_key[key] = paper
+
+        # Extract citation keys from content
+        cite_pattern = r'\\cite\{([^}]+)\}'
+        cite_matches = re.findall(cite_pattern, content)
+        citation_keys = set()
+        for match in cite_matches:
+            for key in match.split(','):
+                citation_keys.add(key.strip())
+
+        # Generate bibitem entries
+        bibliography_entries = []
+        for cite_key in sorted(citation_keys):
+            # Try exact match first
+            paper = paper_by_key.get(cite_key)
+
+            # Try partial match
+            if not paper:
+                normalized_key = re.sub(r'[^a-z0-9]', '', cite_key.lower())
+                for lookup_key, p in paper_by_key.items():
+                    normalized_lookup = re.sub(r'[^a-z0-9]', '', lookup_key.lower())
+                    if normalized_key in normalized_lookup or normalized_lookup in normalized_key:
+                        paper = p
+                        break
+
+            if paper:
+                authors = paper.get("authors", "Unknown")
+                if isinstance(authors, list):
+                    authors = ", ".join(authors)
+                title = paper.get("title", "Untitled")
+                year = paper.get("year", "")
+                journal = paper.get("journal", "")
+
+                # Format: \bibitem{key} Author(s). \textit{Title}. Journal, Year.
+                entry = f"\\bibitem{{{cite_key}}} {authors}. \\textit{{{title}}}."
+                if journal:
+                    entry += f" {journal},"
+                if year:
+                    entry += f" {year}."
+                bibliography_entries.append(entry)
+
+        return bibliography_entries
+
+    def _sanitize_latex_content(self, content: str) -> str:
+        """Remove characters that break LaTeX compilation."""
+        import re
+        # Remove null characters
+        content = content.replace('\x00', '')
+        # Remove other control characters except newlines and tabs
+        content = re.sub(r'[\x01-\x08\x0b\x0c\x0e-\x1f\x7f]', '', content)
+        # Remove smart quotes and replace with regular quotes
+        content = content.replace('"', '"').replace('"', '"')
+        content = content.replace(''', "'").replace(''', "'")
+        # Remove other unicode that might cause issues
+        content = content.replace('–', '--').replace('—', '---')
+        content = content.replace('…', '...')
+        return content
+
+    def _ensure_latex_document(self, content: str, title: str, abstract: str = None, bibliography_entries: list = None) -> str:
         """Ensure content is wrapped in a proper LaTeX document structure."""
+        # Sanitize content first
+        content = self._sanitize_latex_content(content)
+
         if '\\documentclass' in content:
             return content
 
@@ -1835,13 +2197,15 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         # Check if content has citations
         has_citations = '\\cite{' in content
 
-        # Bibliography section - only include if citations are used
+        # Bibliography section - generate inline bibitem entries
         bibliography_section = ""
-        if has_citations:
-            bibliography_section = """
+        if has_citations and bibliography_entries:
+            bib_items = "\n".join(bibliography_entries)
+            bibliography_section = f"""
 
-\\bibliographystyle{plain}
-\\bibliography{references}
+\\begin{{thebibliography}}{{99}}
+{bib_items}
+\\end{{thebibliography}}
 """
 
         latex_template = f"""\\documentclass{{article}}
@@ -1849,7 +2213,6 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 \\usepackage{{amsmath}}
 \\usepackage{{graphicx}}
 \\usepackage{{hyperref}}
-\\usepackage{{natbib}}
 
 \\title{{{title}}}
 \\date{{\\today}}
@@ -1945,7 +2308,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         return {
             "status": "success",
             "message": f"Updated paper '{paper.title}'{section_msg}.{ref_message}",
-            "paper_id": paper_id,
+            # Note: paper_id is in action.payload for frontend use - don't show UUIDs to users
             "references_linked": ref_result.get("linked", 0),
             "action": {
                 "type": "paper_updated",
@@ -2371,29 +2734,36 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                     self.db.add(existing_ref)
                     self.db.flush()
 
-                # Add to project library if not already there
+                # Check if already in project library
                 existing_project_ref = self.db.query(ProjectReference).filter(
                     ProjectReference.project_id == project.id,
                     ProjectReference.reference_id == existing_ref.id
                 ).first()
 
+                already_in_library = existing_project_ref is not None
+
                 if not existing_project_ref:
                     project_ref = ProjectReference(
                         project_id=project.id,
                         reference_id=existing_ref.id,
-                        status=ProjectReferenceStatus.ACCEPTED,
-                        origin=ProjectReferenceOrigin.AI_SUGGESTED,
+                        status=ProjectReferenceStatus.APPROVED,
+                        origin=ProjectReferenceOrigin.AUTO_DISCOVERY,
                     )
                     self.db.add(project_ref)
 
                 # Commit changes before attempting PDF ingestion
                 self.db.commit()
 
+                # Generate citation key for this paper
+                cite_key = self._generate_citation_key(paper)
+
                 added_info = {
                     "index": idx,
                     "title": title,
                     "reference_id": str(existing_ref.id),
                     "has_pdf": bool(existing_ref.pdf_url),
+                    "cite_key": cite_key,  # Use this in \cite{} commands
+                    "already_in_library": already_in_library,  # Was it already there?
                 }
 
                 # Attempt PDF ingestion if requested and PDF is available
@@ -2433,14 +2803,22 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         # Summary
         ingested_count = sum(1 for p in added_papers if p.get("ingestion_status") == "success")
         no_pdf_count = sum(1 for p in added_papers if p.get("ingestion_status") == "no_pdf_available")
+        already_existed_count = sum(1 for p in added_papers if p.get("already_in_library"))
+        newly_added_count = len(added_papers) - already_existed_count
 
-        message_parts = [f"Added {len(added_papers)} papers to your library."]
+        message_parts = []
+        if newly_added_count > 0:
+            message_parts.append(f"Added {newly_added_count} new papers to your library.")
+        if already_existed_count > 0:
+            message_parts.append(f"{already_existed_count} papers were already in your library.")
         if ingested_count > 0:
             message_parts.append(f"{ingested_count} PDFs ingested for full-text analysis.")
         if no_pdf_count > 0:
             message_parts.append(f"{no_pdf_count} papers have no PDF available (abstract only).")
         if failed_papers:
             message_parts.append(f"{len(failed_papers)} papers failed to add.")
+        if not message_parts:
+            message_parts.append("No papers to add.")
 
         return {
             "status": "success" if added_papers else "error",
@@ -2448,12 +2826,15 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             "added_papers": added_papers,
             "failed_papers": failed_papers,
             "summary": {
-                "total_added": len(added_papers),
+                "total_processed": len(added_papers),
+                "newly_added": newly_added_count,
+                "already_in_library": already_existed_count,
                 "pdfs_ingested": ingested_count,
                 "no_pdf_available": no_pdf_count,
                 "failed": len(failed_papers),
             },
             "next_step": "Use get_reference_details(reference_id) to read the full content of ingested papers before creating your paper." if ingested_count > 0 else "Papers added with abstract only. You can create a paper based on abstracts, but full PDF analysis is not available.",
+            "citation_instructions": "When creating the paper, use \\cite{cite_key} with the cite_key values provided for each paper above. This ensures references are properly linked.",
         }
 
     def _tool_update_project_info(
@@ -2599,6 +2980,527 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 "status": "error",
                 "message": f"Failed to update project: {str(e)}",
             }
+
+    # -------------------------------------------------------------------------
+    # Deep Search & Paper Focus Tools
+    # -------------------------------------------------------------------------
+
+    def _tool_deep_search_papers(
+        self,
+        ctx: Dict[str, Any],
+        research_question: str,
+        max_papers: int = 10,
+    ) -> Dict:
+        """
+        Deep search with synthesis context.
+        Searches for papers and provides them in a format optimized for AI synthesis.
+        """
+        # Store the research question in memory for context
+        channel = ctx.get("channel")
+        if channel:
+            memory = self._get_ai_memory(channel)
+            memory.setdefault("deep_search", {})["last_question"] = research_question
+            self._save_ai_memory(channel, memory)
+
+        # Trigger the search (frontend will execute it)
+        # Use "search_references" action type which frontend already handles
+        return {
+            "status": "success",
+            "message": f"Deep searching for: '{research_question}'",
+            "research_question": research_question,
+            "action": {
+                "type": "search_references",
+                "payload": {
+                    "query": research_question,
+                    "count": max_papers,
+                },
+            },
+            "next_step": (
+                "The search results will appear below. I'll synthesize an answer "
+                "citing specific papers. You can then focus on specific papers for deeper discussion."
+            ),
+        }
+
+    def _tool_focus_on_papers(
+        self,
+        ctx: Dict[str, Any],
+        paper_indices: Optional[List[int]] = None,
+        reference_ids: Optional[List[str]] = None,
+    ) -> Dict:
+        """
+        Load papers into focus context for detailed discussion.
+        Papers can come from search results (by index) or library (by reference ID).
+        """
+        from app.models import Reference, ProjectReference
+
+        project = ctx["project"]
+        channel = ctx.get("channel")
+        recent_search_results = ctx.get("recent_search_results", [])
+
+        focused_papers = []
+        errors = []
+
+        # Get papers from search results by index
+        if paper_indices:
+            for idx in paper_indices:
+                if idx < 0 or idx >= len(recent_search_results):
+                    errors.append(f"Index {idx} out of range (have {len(recent_search_results)} results)")
+                    continue
+
+                paper = recent_search_results[idx]
+                focused_papers.append({
+                    "source": "search_result",
+                    "index": idx,
+                    "title": paper.get("title", "Untitled"),
+                    "authors": paper.get("authors", "Unknown"),
+                    "year": paper.get("year"),
+                    "abstract": paper.get("abstract", ""),
+                    "doi": paper.get("doi"),
+                    "url": paper.get("url"),
+                    "pdf_url": paper.get("pdf_url"),
+                    "is_open_access": paper.get("is_open_access", False),
+                    "has_full_text": False,  # Search results only have abstracts
+                })
+
+        # Get papers from library by reference ID
+        if reference_ids:
+            import uuid as uuid_module
+            for ref_id in reference_ids:
+                try:
+                    # Validate UUID format
+                    try:
+                        uuid_module.UUID(str(ref_id))
+                    except (ValueError, AttributeError):
+                        errors.append(f"Invalid reference ID format: '{ref_id}'. Use get_project_references to see valid IDs.")
+                        continue
+
+                    ref = self.db.query(Reference).join(
+                        ProjectReference,
+                        ProjectReference.reference_id == Reference.id
+                    ).filter(
+                        ProjectReference.project_id == project.id,
+                        Reference.id == ref_id
+                    ).first()
+
+                    if ref:
+                        paper_info = {
+                            "source": "library",
+                            "reference_id": str(ref.id),
+                            "title": ref.title,
+                            "authors": ref.authors if isinstance(ref.authors, str) else ", ".join(ref.authors or []),
+                            "year": ref.year,
+                            "abstract": ref.abstract or "",
+                            "doi": ref.doi,
+                            "url": ref.url,
+                        }
+
+                        # Include analysis if PDF was ingested
+                        if ref.status in ("ingested", "analyzed"):
+                            paper_info["summary"] = ref.summary
+                            paper_info["key_findings"] = ref.key_findings
+                            paper_info["methodology"] = ref.methodology
+                            paper_info["limitations"] = ref.limitations
+                            paper_info["has_full_text"] = True
+                        else:
+                            paper_info["has_full_text"] = False
+
+                        focused_papers.append(paper_info)
+                    else:
+                        errors.append(f"Reference {ref_id} not found in project library")
+                except Exception as e:
+                    errors.append(f"Error loading reference {ref_id}: {str(e)}")
+
+        if not focused_papers:
+            return {
+                "status": "error",
+                "message": "No papers could be focused. " + " ".join(errors),
+                "errors": errors,
+            }
+
+        # Store focused papers in channel memory
+        if channel:
+            memory = self._get_ai_memory(channel)
+            memory["focused_papers"] = focused_papers
+            self._save_ai_memory(channel, memory)
+
+        # Build summary for response and count full-text papers
+        paper_summaries = []
+        full_text_count = 0
+        abstract_only_count = 0
+        papers_with_pdf_url = []
+
+        for i, p in enumerate(focused_papers, 1):
+            has_full = p.get("has_full_text", False)
+            if has_full:
+                full_text_count += 1
+                status = "📄"  # Full PDF analyzed
+                depth = "(full text available)"
+            else:
+                abstract_only_count += 1
+                status = "📋"  # Abstract only
+                depth = "(abstract only)"
+                # Track papers that have PDF URLs but aren't ingested yet
+                if p.get("pdf_url") or p.get("is_open_access"):
+                    papers_with_pdf_url.append(i)
+
+            paper_summaries.append(f"{i}. {status} **{p['title']}** ({p.get('year', 'N/A')}) {depth}")
+            if p.get("authors"):
+                authors = p["authors"]
+                if isinstance(authors, list):
+                    authors = ", ".join(authors[:3]) + ("..." if len(authors) > 3 else "")
+                paper_summaries.append(f"   Authors: {authors}")
+
+        # Build depth analysis message
+        depth_info = {}
+        if abstract_only_count > 0:
+            depth_info["abstract_only_papers"] = abstract_only_count
+            depth_info["full_text_papers"] = full_text_count
+
+            if abstract_only_count == len(focused_papers):
+                depth_info["analysis_depth"] = "shallow"
+                depth_info["limitation"] = (
+                    "All focused papers have only abstracts available. "
+                    "Analysis will be limited to high-level information. "
+                    "For deeper discussion (methodology details, specific findings, limitations), "
+                    "you'll need to add papers to your library and ingest their PDFs."
+                )
+            else:
+                depth_info["analysis_depth"] = "mixed"
+                depth_info["limitation"] = (
+                    f"{abstract_only_count} paper(s) have only abstracts. "
+                    f"{full_text_count} paper(s) have full PDF analysis available. "
+                    "Detailed questions will be better answered for papers with full text."
+                )
+
+            # Suggest how to get full text
+            if papers_with_pdf_url:
+                depth_info["suggestion"] = (
+                    f"Papers {', '.join(map(str, papers_with_pdf_url))} have PDFs available. "
+                    "To enable deeper analysis: add them to your library using add_to_library, "
+                    "or upload the PDFs manually through the Library page."
+                )
+            else:
+                depth_info["suggestion"] = (
+                    "To enable deeper analysis, upload PDFs for these papers through the Library page, "
+                    "or search for open-access versions."
+                )
+        else:
+            depth_info["analysis_depth"] = "deep"
+            depth_info["full_text_papers"] = full_text_count
+
+        result = {
+            "status": "success",
+            "message": f"Focused on {len(focused_papers)} paper(s)",
+            "focused_count": len(focused_papers),
+            "papers": paper_summaries,
+            "depth_info": depth_info,
+            "errors": errors if errors else None,
+            "capabilities": [
+                "Ask detailed questions about these papers",
+                "Use analyze_across_papers to compare them",
+                "Use generate_section_from_discussion to create content",
+            ] if full_text_count > 0 else [
+                "Ask high-level questions about these papers (based on abstracts)",
+                "Use analyze_across_papers for broad comparisons",
+                "For detailed methodology/findings discussion, add papers to library first",
+            ],
+        }
+
+        # If there are OA papers without full text, suggest adding them to library
+        # and return indices so AI can offer to ingest them
+        if papers_with_pdf_url:
+            result["oa_papers_available"] = papers_with_pdf_url
+            result["auto_ingest_suggestion"] = (
+                f"Papers {', '.join(map(str, papers_with_pdf_url))} have PDFs available (Open Access). "
+                "Would you like me to add them to your library and ingest the PDFs for deeper analysis? "
+                "This will give me access to full methodology, results, and detailed findings."
+            )
+
+        return result
+
+    def _tool_analyze_across_papers(
+        self,
+        ctx: Dict[str, Any],
+        analysis_question: str,
+    ) -> Dict:
+        """
+        Cross-paper analysis across focused papers.
+        Synthesizes findings, notes agreements and disagreements.
+        """
+        channel = ctx.get("channel")
+        if not channel:
+            return {
+                "status": "error",
+                "message": "Channel context not available.",
+            }
+
+        memory = self._get_ai_memory(channel)
+        focused_papers = memory.get("focused_papers", [])
+
+        if not focused_papers:
+            return {
+                "status": "error",
+                "message": "No papers in focus. Use focus_on_papers first to load papers for analysis.",
+                "suggestion": "Try: 'Focus on papers 1 and 2' or 'Focus on the first three papers from the search'",
+            }
+
+        # Build context from focused papers and track depth
+        paper_contexts = []
+        full_text_count = 0
+        abstract_only_count = 0
+
+        for i, paper in enumerate(focused_papers, 1):
+            has_full = paper.get("has_full_text", False)
+            if has_full:
+                full_text_count += 1
+                depth_marker = "[Full Text]"
+            else:
+                abstract_only_count += 1
+                depth_marker = "[Abstract Only]"
+
+            context_parts = [f"### Paper {i}: {paper.get('title', 'Untitled')} {depth_marker}"]
+            context_parts.append(f"**Authors:** {paper.get('authors', 'Unknown')}")
+            context_parts.append(f"**Year:** {paper.get('year', 'N/A')}")
+
+            # Include abstract
+            if paper.get("abstract"):
+                context_parts.append(f"**Abstract:** {paper['abstract'][:500]}{'...' if len(paper.get('abstract', '')) > 500 else ''}")
+
+            # Include analysis if available
+            if has_full:
+                if paper.get("summary"):
+                    context_parts.append(f"**Summary:** {paper['summary']}")
+                if paper.get("key_findings"):
+                    findings = paper["key_findings"]
+                    if isinstance(findings, list):
+                        context_parts.append("**Key Findings:**")
+                        for f in findings[:5]:
+                            context_parts.append(f"- {f}")
+                if paper.get("methodology"):
+                    context_parts.append(f"**Methodology:** {paper['methodology'][:300]}")
+                if paper.get("limitations"):
+                    limitations = paper["limitations"]
+                    if isinstance(limitations, list) and limitations:
+                        context_parts.append(f"**Limitations:** {limitations[0]}")
+
+            paper_contexts.append("\n".join(context_parts))
+
+        full_context = "\n\n---\n\n".join(paper_contexts)
+
+        # Build depth warning
+        depth_warning = None
+        if abstract_only_count > 0:
+            if abstract_only_count == len(focused_papers):
+                depth_warning = (
+                    "⚠️ **Limited Analysis Depth:** All papers have only abstracts available. "
+                    "This analysis will be based on high-level information only. "
+                    "For detailed methodology comparisons, specific findings, or limitation analysis, "
+                    "please add these papers to your library and ingest their PDFs first."
+                )
+            else:
+                depth_warning = (
+                    f"⚠️ **Mixed Analysis Depth:** {abstract_only_count} paper(s) have only abstracts, "
+                    f"while {full_text_count} have full PDF analysis. "
+                    "Deeper insights are available for papers marked [Full Text]."
+                )
+
+        # Store the analysis question in memory
+        memory.setdefault("cross_paper_analysis", {})["last_question"] = analysis_question
+        memory["cross_paper_analysis"]["paper_count"] = len(focused_papers)
+        memory["cross_paper_analysis"]["full_text_count"] = full_text_count
+        memory["cross_paper_analysis"]["abstract_only_count"] = abstract_only_count
+        self._save_ai_memory(channel, memory)
+
+        # Build instruction based on depth
+        if abstract_only_count == len(focused_papers):
+            instruction = (
+                f"Analyze the following question across all {len(focused_papers)} papers:\n\n"
+                f"**Question:** {analysis_question}\n\n"
+                "**Note:** Only abstracts are available, so focus on:\n"
+                "1. High-level themes and approaches mentioned in abstracts\n"
+                "2. Broad similarities and differences in stated objectives\n"
+                "3. General contributions as described by authors\n"
+                "4. Acknowledge that detailed methodology/findings comparison requires full PDFs\n"
+                "5. Cite papers by number (e.g., [Paper 1], [Paper 2])\n"
+            )
+        else:
+            instruction = (
+                f"Analyze the following question across all {len(focused_papers)} papers:\n\n"
+                f"**Question:** {analysis_question}\n\n"
+                "In your analysis:\n"
+                "1. Identify common themes and findings\n"
+                "2. Note any disagreements or contradictions\n"
+                "3. Highlight unique contributions from each paper\n"
+                "4. For [Full Text] papers, leverage detailed methodology and findings\n"
+                "5. For [Abstract Only] papers, note that analysis is limited to high-level info\n"
+                "6. Cite papers by number (e.g., [Paper 1], [Paper 2])\n"
+            )
+
+        return {
+            "status": "success",
+            "message": f"Analyzing across {len(focused_papers)} focused papers",
+            "analysis_question": analysis_question,
+            "paper_count": len(focused_papers),
+            "full_text_count": full_text_count,
+            "abstract_only_count": abstract_only_count,
+            "depth_warning": depth_warning,
+            "papers_context": full_context,
+            "instruction": instruction,
+        }
+
+    def _tool_generate_section_from_discussion(
+        self,
+        ctx: Dict[str, Any],
+        section_type: str,
+        target_paper_id: Optional[str] = None,
+        custom_instructions: Optional[str] = None,
+    ) -> Dict:
+        """
+        Generate a paper section based on discussion insights and focused papers.
+        Can either add to an existing paper or create a standalone artifact.
+        """
+        channel = ctx.get("channel")
+        if not channel:
+            return {
+                "status": "error",
+                "message": "Channel context not available.",
+            }
+
+        memory = self._get_ai_memory(channel)
+        focused_papers = memory.get("focused_papers", [])
+        session_summary = memory.get("summary", "")
+        facts = memory.get("facts", {})
+        deep_search = memory.get("deep_search", {})
+        cross_analysis = memory.get("cross_paper_analysis", {})
+
+        # Build context from all available sources
+        context_parts = []
+
+        # Add focused papers context
+        if focused_papers:
+            context_parts.append(f"**Focused Papers ({len(focused_papers)}):**")
+            for i, p in enumerate(focused_papers, 1):
+                paper_info = f"- [{i}] {p.get('title', 'Untitled')} ({p.get('year', 'N/A')})"
+                if p.get("key_findings"):
+                    findings = p["key_findings"]
+                    if isinstance(findings, list) and findings:
+                        paper_info += f"\n  Key finding: {findings[0]}"
+                context_parts.append(paper_info)
+
+        # Add session context
+        if session_summary:
+            context_parts.append(f"\n**Discussion Summary:**\n{session_summary[:500]}")
+
+        # Add research topic
+        if facts.get("research_topic"):
+            context_parts.append(f"\n**Research Topic:** {facts['research_topic']}")
+
+        # Add decisions made
+        if facts.get("decisions_made"):
+            context_parts.append(f"\n**Decisions Made:**")
+            for d in facts["decisions_made"][-5:]:
+                context_parts.append(f"- {d}")
+
+        # Add deep search question if available
+        if deep_search.get("last_question"):
+            context_parts.append(f"\n**Research Question:** {deep_search['last_question']}")
+
+        # Add cross-analysis context
+        if cross_analysis.get("last_question"):
+            context_parts.append(f"\n**Cross-paper Analysis:** {cross_analysis['last_question']}")
+
+        full_context = "\n".join(context_parts) if context_parts else "No prior context available."
+
+        # Section-specific instructions
+        section_instructions = {
+            "methodology": (
+                "Generate a Methodology section that:\n"
+                "- Describes the research approach\n"
+                "- References methods from the discussed papers\n"
+                "- Uses proper academic language\n"
+                "- Cites sources appropriately"
+            ),
+            "related_work": (
+                "Generate a Related Work section that:\n"
+                "- Reviews the key papers discussed\n"
+                "- Groups them by theme or approach\n"
+                "- Identifies gaps and opportunities\n"
+                "- Uses proper citation format"
+            ),
+            "introduction": (
+                "Generate an Introduction section that:\n"
+                "- Motivates the research problem\n"
+                "- Provides background context\n"
+                "- States the research objectives\n"
+                "- Outlines the paper structure"
+            ),
+            "results": (
+                "Generate a Results section that:\n"
+                "- Summarizes key findings from the discussion\n"
+                "- Presents comparisons across papers\n"
+                "- Uses clear, objective language"
+            ),
+            "discussion": (
+                "Generate a Discussion section that:\n"
+                "- Interprets the findings\n"
+                "- Compares with existing literature\n"
+                "- Addresses limitations\n"
+                "- Suggests future directions"
+            ),
+            "conclusion": (
+                "Generate a Conclusion section that:\n"
+                "- Summarizes the main contributions\n"
+                "- Restates key findings\n"
+                "- Provides final thoughts"
+            ),
+            "abstract": (
+                "Generate an Abstract that:\n"
+                "- Summarizes the research in 150-250 words\n"
+                "- States the problem, approach, and findings\n"
+                "- Is self-contained and informative"
+            ),
+        }
+
+        section_prompt = section_instructions.get(
+            section_type,
+            f"Generate a {section_type} section based on the discussion context."
+        )
+
+        if custom_instructions:
+            section_prompt += f"\n\n**Additional Instructions:** {custom_instructions}"
+
+        # If target paper specified, update it
+        if target_paper_id:
+            return {
+                "status": "success",
+                "message": f"Ready to generate {section_type} section for existing paper",
+                "section_type": section_type,
+                "target_paper_id": target_paper_id,
+                "context": full_context,
+                "generation_prompt": section_prompt,
+                "instruction": (
+                    f"Generate a {section_type.replace('_', ' ')} section in LaTeX format based on the context provided. "
+                    f"Use \\section{{{section_type.replace('_', ' ').title()}}} for the heading. "
+                    "Include \\cite{} commands for references. "
+                    "After generating, use update_paper to add it to the target paper."
+                ),
+            }
+
+        # Otherwise, return context for creating an artifact
+        return {
+            "status": "success",
+            "message": f"Ready to generate {section_type} section",
+            "section_type": section_type,
+            "context": full_context,
+            "generation_prompt": section_prompt,
+            "focused_paper_count": len(focused_papers),
+            "instruction": (
+                f"Generate a {section_type.replace('_', ' ')} section in LaTeX format based on the context provided. "
+                f"Use \\section{{{section_type.replace('_', ' ').title()}}} for the heading. "
+                "Include \\cite{} commands for references to the focused papers. "
+                "After generating the content, use create_artifact or create_paper to save it."
+            ),
+        }
 
     def _extract_actions(
         self,

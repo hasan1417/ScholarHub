@@ -1237,6 +1237,7 @@ def invoke_discussion_assistant(
                     previous_state_dict=previous_state_dict,
                     conversation_history=conversation_history,
                     reasoning_mode=payload.reasoning or False,
+                    current_user=current_user,
                 ):
                     if event.get("type") == "token":
                         yield "data: " + json.dumps({"type": "token", "content": event.get("content", "")}) + "\n\n"
@@ -1327,6 +1328,7 @@ def invoke_discussion_assistant(
         previous_state_dict=previous_state_dict,
         conversation_history=conversation_history,
         reasoning_mode=payload.reasoning or False,
+        current_user=current_user,
     )
 
     # Convert orchestrator result to API response format
@@ -1996,6 +1998,7 @@ class DiscoveredPaperResponse(BaseModel):
     relevance_score: Optional[float] = None
     pdf_url: Optional[str] = None
     is_open_access: bool = False
+    journal: Optional[str] = None
 
 
 class SearchReferencesResponse(BaseModel):
@@ -2066,11 +2069,15 @@ async def search_references(
                 source=p.source,
                 relevance_score=p.relevance_score,
                 pdf_url=p.pdf_url or p.open_access_url,
-                is_open_access=p.is_open_access
+                is_open_access=p.is_open_access,
+                journal=p.journal,
             ))
 
+        # Ensure we never return more than requested (defensive limit)
+        final_papers = papers[:max_results]
+
         return SearchReferencesResponse(
-            papers=papers,
+            papers=final_papers,
             total_found=len(result.papers),
             query=request.query
         )
@@ -2185,7 +2192,8 @@ async def batch_search_references(
                     source=p.source,
                     relevance_score=p.relevance_score,
                     pdf_url=p.pdf_url or p.open_access_url,
-                    is_open_access=p.is_open_access
+                    is_open_access=p.is_open_access,
+                    journal=p.journal,
                 ))
 
             results.append(TopicResult(

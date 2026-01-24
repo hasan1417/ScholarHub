@@ -73,19 +73,23 @@ class DocumentProcessingService:
         """
         try:
             if document.extracted_text:
-                return document.extracted_text
-            
+                # Sanitize: remove NUL characters that cause PostgreSQL errors
+                return (document.extracted_text or '').replace('\x00', '')
+
             # If no extracted text, try to extract from file
             if document.document_type.value == 'pdf':
-                return self._extract_text_from_pdf(document.file_path)
+                text = self._extract_text_from_pdf(document.file_path)
             elif document.document_type.value == 'docx':
-                return self._extract_text_from_docx(document.file_path)
+                text = self._extract_text_from_docx(document.file_path)
             elif document.document_type.value == 'txt':
-                return self._extract_text_from_txt(document.file_path)
+                text = self._extract_text_from_txt(document.file_path)
             else:
                 logger.warning(f"Unsupported document type: {document.document_type}")
                 return ""
-                
+
+            # Sanitize: remove NUL characters that cause PostgreSQL errors
+            return (text or '').replace('\x00', '')
+
         except Exception as e:
             logger.error(f"Error extracting text from document {document.id}: {str(e)}")
             return ""

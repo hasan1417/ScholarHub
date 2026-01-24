@@ -159,6 +159,16 @@ async def get_available_routes():
                 "name": "explain_references",
                 "description": "Discuss attached references",
                 "when": "User asks about citations or wants to find papers"
+            },
+            {
+                "name": "list_available_templates",
+                "description": "List available conference/journal templates",
+                "when": "User asks what formats or templates are available"
+            },
+            {
+                "name": "apply_template",
+                "description": "Convert document to a conference format (ACL, IEEE, NeurIPS, AAAI, ICML)",
+                "when": "User asks to convert, reformat, or change to a specific conference style"
             }
         ],
         "capabilities": [
@@ -167,6 +177,7 @@ async def get_available_routes():
             "Use attached references for context",
             "Propose edits with <<<EDIT>>> format",
             "Review and provide structured feedback",
+            "Convert between conference formats (ACL, IEEE, NeurIPS, AAAI, ICML, generic)",
             "Reasoning mode for complex analysis"
         ],
         "limitations": [

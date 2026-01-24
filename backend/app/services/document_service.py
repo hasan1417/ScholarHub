@@ -137,13 +137,15 @@ class DocumentService:
     def extract_text(self, file_path: str, document_type: DocumentType) -> str:
         """Extract text content based on document type"""
         if document_type == DocumentType.PDF:
-            return self.extract_text_from_pdf(file_path)
+            text = self.extract_text_from_pdf(file_path)
         elif document_type == DocumentType.DOCX:
-            return self.extract_text_from_docx(file_path)
+            text = self.extract_text_from_docx(file_path)
         elif document_type == DocumentType.TXT:
-            return self.extract_text_from_txt(file_path)
+            text = self.extract_text_from_txt(file_path)
         else:
             raise ValueError(f"Unsupported document type: {document_type}")
+        # Sanitize: remove NUL characters that cause PostgreSQL errors
+        return text.replace('\x00', '') if text else ''
     
     def chunk_text(self, text: str, chunk_size: int = 1000, overlap: int = 200) -> List[Dict[str, Any]]:
         """Split text into overlapping chunks for AI processing"""
@@ -203,9 +205,11 @@ class DocumentService:
             
             # Create document chunks in database
             for i, chunk_data in enumerate(chunks):
+                # Sanitize chunk text to remove NUL characters
+                chunk_text = (chunk_data['text'] or '').replace('\x00', '')
                 chunk = DocumentChunk(
                     document_id=document.id,
-                    chunk_text=chunk_data['text'],
+                    chunk_text=chunk_text,
                     chunk_index=i,
                     chunk_metadata=chunk_data['chunk_metadata']
                 )

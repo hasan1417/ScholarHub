@@ -30,6 +30,9 @@ class ReferenceResponse(BaseModel):
     abstract: Optional[str] = None
     status: str
     document_id: Optional[uuid.UUID] = None
+    # Computed fields for frontend
+    pdf_processed: Optional[bool] = False
+    document_download_url: Optional[str] = None
     summary: Optional[str] = None
     key_findings: Optional[List[str]] = None
     methodology: Optional[str] = None
