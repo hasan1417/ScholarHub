@@ -279,6 +279,12 @@ class ProjectDiscussionMessage(Base):
         )
 
 
+class ExchangeStatus(str, enum.Enum):
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class ProjectDiscussionAssistantExchange(Base):
     __tablename__ = "project_discussion_assistant_exchanges"
 
@@ -289,6 +295,8 @@ class ProjectDiscussionAssistantExchange(Base):
     question = Column(Text, nullable=False)
     response = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     conversation_state = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    status = Column(String(20), nullable=False, server_default="completed")  # processing, completed, failed
+    status_message = Column(String(255), nullable=True)  # e.g., "Searching papers..."
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     project = relationship("Project")

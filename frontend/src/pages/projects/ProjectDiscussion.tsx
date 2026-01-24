@@ -367,15 +367,21 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       const createdAt = item.created_at ? new Date(item.created_at) : new Date()
       const response = item.response
       const lookup = buildCitationLookup(response.citations)
+
+      // Handle processing status from server
+      const isProcessing = item.status === 'processing'
+      const isFailed = item.status === 'failed'
+
       return {
         id: item.id,
         question: item.question,
         response,
         createdAt,
-        completedAt: createdAt,
+        completedAt: isProcessing ? undefined : createdAt,
         appliedActions: [],
-        status: 'complete',
-        displayMessage: formatAssistantMessage(response.message, lookup),
+        status: isProcessing ? 'streaming' : 'complete',
+        statusMessage: isProcessing ? (item.status_message || 'Processing...') : (isFailed ? (item.status_message || 'Processing failed') : undefined),
+        displayMessage: isProcessing ? '' : formatAssistantMessage(response.message, lookup),
         author: item.author ?? undefined,
         fromHistory: true, // Loaded from server, don't auto-trigger actions
       }
@@ -492,44 +498,104 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         return
       }
 
+      // Handle assistant processing started (background mode)
+      if (payload.event === 'assistant_processing') {
+        const exchange = payload.exchange
+        if (!exchange) return
+        // Skip if this is from the current user AND they're actively streaming
+        // (they'll see updates via the streaming response)
+        if (exchange.author?.id && user?.id && exchange.author.id === user.id) {
+          // But still add it if they might have missed it (e.g., returned to page)
+          setAssistantHistory((prev) => {
+            if (prev.some((entry) => entry.id === exchange.id)) return prev
+            const entry: AssistantExchange = {
+              id: exchange.id,
+              question: exchange.question || '',
+              response: { message: '', citations: [], reasoning_used: false, model: '', usage: undefined, suggested_actions: [] },
+              createdAt: exchange.created_at ? new Date(exchange.created_at) : new Date(),
+              appliedActions: [],
+              status: 'streaming',
+              statusMessage: exchange.status_message || 'Processing...',
+              displayMessage: '',
+              author: exchange.author,
+              fromHistory: true,
+            }
+            return [...prev, entry]
+          })
+        }
+        return
+      }
+
       if (payload.event === 'assistant_reply') {
         const exchange = payload.exchange
         if (!exchange) {
           return
         }
-        if (exchange.author?.id && user?.id && exchange.author.id === user.id) {
-          return
-        }
         const exchangeId: string = exchange.id || createAssistantEntryId()
-       setAssistantHistory((prev) => {
-         if (prev.some((entry) => entry.id === exchangeId)) {
-           return prev
-         }
-         const response: DiscussionAssistantResponse = exchange.response || {
-           message: '',
-           citations: [],
-           reasoning_used: false,
-           model: '',
-           usage: undefined,
-           suggested_actions: [],
-         }
-         const createdAt = exchange.created_at ? new Date(exchange.created_at) : new Date()
-         const lookup = buildCitationLookup(response.citations || [])
-         const formatted = formatAssistantMessage(response.message || '', lookup)
-         const entry: AssistantExchange = {
-           id: exchangeId,
-           question: exchange.question || '',
-           response,
-           createdAt,
-           completedAt: createdAt,
-           appliedActions: [],
-           status: 'complete',
-           displayMessage: formatted,
-           author: exchange.author,
-           fromHistory: true, // From another user's session, don't auto-trigger
-         }
-         return [...prev, entry]
-       })
+
+        // Check if this exchange was in processing state (user returned to page)
+        setAssistantHistory((prev) => {
+          const existingIndex = prev.findIndex((entry) => entry.id === exchangeId)
+
+          // If exists and was processing, update it with the completed response
+          if (existingIndex >= 0 && (prev[existingIndex].status === 'streaming' || prev[existingIndex].statusMessage)) {
+            const response: DiscussionAssistantResponse = exchange.response || {
+              message: '',
+              citations: [],
+              reasoning_used: false,
+              model: '',
+              usage: undefined,
+              suggested_actions: [],
+            }
+            const lookup = buildCitationLookup(response.citations || [])
+            const formatted = formatAssistantMessage(response.message || '', lookup)
+            const updated = [...prev]
+            updated[existingIndex] = {
+              ...updated[existingIndex],
+              response,
+              status: 'complete',
+              statusMessage: undefined,
+              displayMessage: formatted,
+              completedAt: new Date(),
+            }
+            return updated
+          }
+
+          // Skip if from same user and not a processing update
+          if (exchange.author?.id && user?.id && exchange.author.id === user.id) {
+            return prev
+          }
+
+          // New exchange from another user
+          if (prev.some((entry) => entry.id === exchangeId)) {
+            return prev
+          }
+          const response: DiscussionAssistantResponse = exchange.response || {
+            message: '',
+            citations: [],
+            reasoning_used: false,
+            model: '',
+            usage: undefined,
+            suggested_actions: [],
+          }
+          const createdAt = exchange.created_at ? new Date(exchange.created_at) : new Date()
+          const lookup = buildCitationLookup(response.citations || [])
+          const formatted = formatAssistantMessage(response.message || '', lookup)
+          const entry: AssistantExchange = {
+            id: exchangeId,
+            question: exchange.question || '',
+            response,
+            createdAt,
+            completedAt: createdAt,
+            appliedActions: [],
+            status: 'complete',
+            displayMessage: formatted,
+            author: exchange.author,
+            fromHistory: true,
+          }
+          return [...prev, entry]
+        })
+
         queryClient.invalidateQueries({
           queryKey: ['projectDiscussionAssistantHistory', project.id, activeChannelId],
           exact: false,

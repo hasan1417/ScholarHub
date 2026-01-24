@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 
 import json
 import logging
+import threading
 
 from fastapi import (
     APIRouter,
@@ -1141,6 +1142,7 @@ def invoke_discussion_assistant(
     payload: DiscussionAssistantRequest,
     background_tasks: BackgroundTasks,
     stream: bool = Query(False),
+    background: bool = Query(False, description="Run AI in background, return immediately"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -1232,6 +1234,42 @@ def invoke_discussion_assistant(
         exchange_id = str(uuid4())
         exchange_created_at = datetime.utcnow().isoformat() + "Z"
 
+        # Save exchange immediately with status="processing" so it persists even if user leaves
+        initial_response = DiscussionAssistantResponse(
+            message="",
+            citations=[],
+            reasoning_used=False,
+            model="gpt-5.2",
+            usage=None,
+            suggested_actions=[],
+        )
+        _persist_assistant_exchange(
+            project.id,
+            channel.id,
+            current_user.id,
+            exchange_id,
+            payload.question,
+            initial_response.model_dump(mode="json"),
+            exchange_created_at,
+            {},
+            status="processing",
+            status_message="Processing your request...",
+        )
+        # Broadcast that processing started
+        _broadcast_discussion_event(
+            project.id,
+            channel.id,
+            "assistant_processing",
+            {"exchange": {
+                "id": exchange_id,
+                "question": payload.question,
+                "status": "processing",
+                "status_message": "Processing your request...",
+                "created_at": exchange_created_at,
+                "author": author_info,
+            }},
+        )
+
         def tool_event_iterator():
             nonlocal accumulated_message, current_tool_status
             final_result = None
@@ -1306,6 +1344,7 @@ def invoke_discussion_assistant(
                         payload_dict,
                         exchange_created_at,
                         conversation_state,
+                        status="completed",
                     )
                     _broadcast_discussion_event(
                         project.id,
@@ -1367,6 +1406,169 @@ def invoke_discussion_assistant(
                 yield "data: " + json.dumps({"type": "error", "message": "Assistant stream failed"}) + "\n\n"
 
         return StreamingResponse(tool_event_iterator(), media_type="text/event-stream")
+
+    # Background mode: Start processing in background thread, return immediately
+    if background:
+        exchange_id = str(uuid4())
+        exchange_created_at = datetime.utcnow().isoformat() + "Z"
+
+        # Create exchange record with status="processing"
+        processing_response = DiscussionAssistantResponse(
+            message="",
+            citations=[],
+            reasoning_used=False,
+            model="gpt-5.2",
+            usage=None,
+            suggested_actions=[],
+        )
+        payload_dict = processing_response.model_dump(mode="json")
+
+        # Save initial processing record
+        _persist_assistant_exchange(
+            project.id,
+            channel.id,
+            current_user.id,
+            exchange_id,
+            payload.question,
+            payload_dict,
+            exchange_created_at,
+            {},
+            status="processing",
+            status_message="Processing your request...",
+        )
+
+        # Broadcast that processing has started
+        exchange_payload = {
+            "id": exchange_id,
+            "question": payload.question,
+            "response": payload_dict,
+            "created_at": exchange_created_at,
+            "author": author_info,
+            "status": "processing",
+            "status_message": "Processing your request...",
+        }
+        _broadcast_discussion_event(
+            project.id,
+            channel.id,
+            "assistant_processing",
+            {"exchange": exchange_payload},
+        )
+
+        # Define background processing function
+        def run_ai_in_background():
+            try:
+                bg_db = SessionLocal()
+                try:
+                    # Run the AI processing
+                    result = tool_orchestrator.handle_message(
+                        project,
+                        channel,
+                        payload.question,
+                        recent_search_results=search_results_list,
+                        previous_state_dict=previous_state_dict,
+                        conversation_history=conversation_history,
+                        reasoning_mode=payload.reasoning or False,
+                        current_user=current_user,
+                    )
+
+                    # Build response
+                    citations = [
+                        DiscussionAssistantCitation(
+                            origin=c.get("origin"),
+                            origin_id=c.get("origin_id"),
+                            label=c.get("label", ""),
+                            resource_type=c.get("resource_type"),
+                        )
+                        for c in result.get("citations", [])
+                    ]
+                    suggested_actions = [
+                        {
+                            "action_type": a.get("type", a.get("action_type", "")),
+                            "summary": a.get("summary", ""),
+                            "payload": a.get("payload", {}),
+                        }
+                        for a in result.get("actions", [])
+                    ]
+                    response_model = DiscussionAssistantResponse(
+                        message=result.get("message", ""),
+                        citations=citations,
+                        reasoning_used=result.get("reasoning_used", False),
+                        model=result.get("model_used", "gpt-5.2"),
+                        usage=None,
+                        suggested_actions=suggested_actions,
+                    )
+                    completed_payload = response_model.model_dump(mode="json")
+
+                    # Update the exchange with completed result
+                    exchange = bg_db.query(ProjectDiscussionAssistantExchange).filter_by(
+                        id=UUID(exchange_id)
+                    ).first()
+                    if exchange:
+                        exchange.response = completed_payload
+                        exchange.status = "completed"
+                        exchange.status_message = None
+                        exchange.conversation_state = result.get("conversation_state", {})
+                        bg_db.commit()
+
+                    # Broadcast completion
+                    completed_exchange = {
+                        "id": exchange_id,
+                        "question": payload.question,
+                        "response": completed_payload,
+                        "created_at": exchange_created_at,
+                        "author": author_info,
+                        "status": "completed",
+                    }
+                    _broadcast_discussion_event(
+                        project.id,
+                        channel.id,
+                        "assistant_reply",
+                        {"exchange": completed_exchange},
+                    )
+
+                    # Increment usage
+                    try:
+                        SubscriptionService.increment_usage(bg_db, current_user.id, "discussion_ai_calls")
+                    except Exception:
+                        pass
+
+                except Exception as exc:
+                    logger.exception("Background AI processing failed", exc_info=exc)
+                    # Update exchange with error
+                    exchange = bg_db.query(ProjectDiscussionAssistantExchange).filter_by(
+                        id=UUID(exchange_id)
+                    ).first()
+                    if exchange:
+                        exchange.status = "failed"
+                        exchange.status_message = "Processing failed. Please try again."
+                        exchange.response = {"message": "An error occurred while processing your request.", "citations": [], "suggested_actions": []}
+                        bg_db.commit()
+
+                    # Broadcast failure
+                    _broadcast_discussion_event(
+                        project.id,
+                        channel.id,
+                        "assistant_failed",
+                        {"exchange_id": exchange_id, "error": "Processing failed"},
+                    )
+                finally:
+                    bg_db.close()
+            except Exception as exc:
+                logger.exception("Background thread error", exc_info=exc)
+
+        # Start background thread
+        thread = threading.Thread(target=run_ai_in_background, daemon=True)
+        thread.start()
+
+        # Return immediately with processing status
+        return DiscussionAssistantResponse(
+            message="",
+            citations=[],
+            reasoning_used=False,
+            model="gpt-5.2",
+            usage=None,
+            suggested_actions=[],
+        )
 
     # Non-streaming: Call the tool-based orchestrator with state tracking
     result = tool_orchestrator.handle_message(
@@ -1520,6 +1722,8 @@ def list_discussion_assistant_history(
                 response=response_payload,
                 created_at=exchange.created_at or datetime.utcnow(),
                 author=author_payload,
+                status=getattr(exchange, 'status', 'completed') or 'completed',
+                status_message=getattr(exchange, 'status_message', None),
             )
         )
 
@@ -2318,6 +2522,8 @@ def _persist_assistant_exchange(
     response_payload: Dict[str, Any],
     created_at_iso: Optional[str] = None,
     conversation_state: Optional[Dict[str, Any]] = None,
+    status: str = "completed",
+    status_message: Optional[str] = None,
 ):
     """
     Persist an assistant exchange to the database.
@@ -2326,6 +2532,8 @@ def _persist_assistant_exchange(
         conversation_state: State machine state to persist for next turn.
             This tracks whether clarification has been asked, enabling
             the "one clarification max" rule.
+        status: Exchange status (processing, completed, failed)
+        status_message: Optional status message for processing state
     """
     db = SessionLocal()
     try:
@@ -2349,6 +2557,8 @@ def _persist_assistant_exchange(
             exchange.project_id = project_id
             exchange.channel_id = channel_id
             exchange.author_id = author_id
+            exchange.status = status
+            exchange.status_message = status_message
             if conversation_state is not None:
                 exchange.conversation_state = conversation_state
             if timestamp:
@@ -2363,6 +2573,8 @@ def _persist_assistant_exchange(
                 response=response_payload,
                 conversation_state=conversation_state or {},
                 created_at=timestamp,
+                status=status,
+                status_message=status_message,
             )
             db.add(exchange)
 

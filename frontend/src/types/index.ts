@@ -786,6 +786,8 @@ export interface DiscussionAssistantHistoryItem {
     id?: string
     name?: { display?: string; first?: string; last?: string } | string
   } | null
+  status?: 'processing' | 'completed' | 'failed'
+  status_message?: string | null
 }
 
 export interface DiscussionAssistantSuggestedAction {

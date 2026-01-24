@@ -289,6 +289,8 @@ class DiscussionAssistantExchangeResponse(BaseModel):
     response: DiscussionAssistantResponse
     created_at: datetime
     author: Optional[Dict[str, Any]] = None
+    status: str = "completed"  # processing, completed, failed
+    status_message: Optional[str] = None
 
 
 DiscussionAssistantExchangeResponse.model_rebuild(_types_namespace=globals())
