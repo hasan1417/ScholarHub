@@ -1576,13 +1576,18 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             # Request more if filtering for open access
             search_max = max_results * 3 if open_access_only else max_results
 
-            # Run async search in sync context
-            result = asyncio.run(discovery_service.discover_papers(
-                query=query,
-                max_results=search_max,
-                sources=sources,
-                fast_mode=True,
-            ))
+            # Run async search in sync context - create new event loop for thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result = loop.run_until_complete(discovery_service.discover_papers(
+                    query=query,
+                    max_results=search_max,
+                    sources=sources,
+                    fast_mode=True,
+                ))
+            finally:
+                loop.close()
 
             # Filter for open access if requested
             source_papers = result.papers
