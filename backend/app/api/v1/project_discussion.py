@@ -1226,9 +1226,16 @@ def invoke_discussion_assistant(
 
     # Use streaming if requested
     if stream:
+        # Track accumulated message for persistence on disconnect
+        accumulated_message = []
+        exchange_id = str(uuid4())
+        exchange_created_at = datetime.utcnow().isoformat() + "Z"
+
         def tool_event_iterator():
+            nonlocal accumulated_message
+            final_result = None
+            stream_completed = False
             try:
-                final_result = None
                 for event in tool_orchestrator.handle_message_streaming(
                     project,
                     channel,
@@ -1240,7 +1247,9 @@ def invoke_discussion_assistant(
                     current_user=current_user,
                 ):
                     if event.get("type") == "token":
-                        yield "data: " + json.dumps({"type": "token", "content": event.get("content", "")}) + "\n\n"
+                        token_content = event.get("content", "")
+                        accumulated_message.append(token_content)
+                        yield "data: " + json.dumps({"type": "token", "content": token_content}) + "\n\n"
                     elif event.get("type") == "status":
                         yield "data: " + json.dumps({"type": "status", "tool": event.get("tool", ""), "message": event.get("message", "Processing")}) + "\n\n"
                     elif event.get("type") == "result":
@@ -1277,31 +1286,31 @@ def invoke_discussion_assistant(
 
                     # Persist exchange
                     exchange_payload = {
-                        "id": str(uuid4()),
+                        "id": exchange_id,
                         "question": payload.question,
                         "response": payload_dict,
-                        "created_at": datetime.utcnow().isoformat() + "Z",
+                        "created_at": exchange_created_at,
                         "author": author_info,
                     }
                     conversation_state = final_result.get("conversation_state", {})
-                    background_tasks.add_task(
-                        _persist_assistant_exchange,
+                    # Persist directly instead of background task (more reliable)
+                    _persist_assistant_exchange(
                         project.id,
                         channel.id,
                         current_user.id,
-                        exchange_payload["id"],
+                        exchange_id,
                         payload.question,
                         payload_dict,
-                        exchange_payload["created_at"],
+                        exchange_created_at,
                         conversation_state,
                     )
-                    background_tasks.add_task(
-                        _broadcast_discussion_event,
+                    _broadcast_discussion_event(
                         project.id,
                         channel.id,
                         "assistant_reply",
                         {"exchange": exchange_payload},
                     )
+                    stream_completed = True
 
                     yield "data: " + json.dumps({"type": "result", "payload": payload_dict}) + "\n\n"
 
@@ -1313,6 +1322,34 @@ def invoke_discussion_assistant(
                     except Exception:
                         pass  # Don't fail the stream if usage tracking fails
 
+            except GeneratorExit:
+                # Client disconnected - save partial message if we have content
+                if accumulated_message and not stream_completed:
+                    partial_message = "".join(accumulated_message)
+                    if partial_message.strip():
+                        partial_response = DiscussionAssistantResponse(
+                            message=partial_message + "\n\n[Response interrupted - user left the page]",
+                            citations=[],
+                            reasoning_used=False,
+                            model="gpt-5.2",
+                            usage=None,
+                            suggested_actions=[],
+                        )
+                        payload_dict = partial_response.model_dump(mode="json")
+                        try:
+                            _persist_assistant_exchange(
+                                project.id,
+                                channel.id,
+                                current_user.id,
+                                exchange_id,
+                                payload.question,
+                                payload_dict,
+                                exchange_created_at,
+                                {},
+                            )
+                        except Exception:
+                            pass  # Best effort save on disconnect
+                raise  # Re-raise GeneratorExit
             except Exception as exc:
                 logger.exception("Tool-based assistant stream failed", exc_info=exc)
                 yield "data: " + json.dumps({"type": "error", "message": "Assistant stream failed"}) + "\n\n"
