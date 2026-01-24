@@ -388,10 +388,12 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     })
   }, [assistantHistoryQuery.data])
 
-  // Clear history immediately when channel changes - this effect must run first
+  // Clear history and search results when channel changes - this effect must run first
   useEffect(() => {
     // Clear history on channel change to prevent showing stale data
     setAssistantHistory([])
+    setReferenceSearchResults(null)
+    setDiscoveryQueue({ papers: [], query: '', isSearching: false, notification: null })
     historyChannelRef.current = activeChannelId
   }, [activeChannelId])
 
