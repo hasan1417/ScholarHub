@@ -28,6 +28,14 @@
 \ExecuteOptions{hyperref} % default is to use hyperref
 \ProcessOptions\relax
 
+% Legacy command for final copy (sets same flags as 'final' option)
+\newcommand{\aclfinalcopy}{%
+  \acl@finalcopytrue%
+  \acl@anonymizefalse%
+  \acl@linenumbersfalse%
+  \acl@pagenumbersfalse%
+}
+
 \typeout{Conference Style for ACL}
 
 \usepackage{xcolor}
