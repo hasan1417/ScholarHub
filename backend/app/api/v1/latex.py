@@ -171,6 +171,11 @@ async def compile_latex(request: CompileRequest, current_user: User = Depends(ge
         paths["dir"].mkdir(parents=True, exist_ok=True)
         # Copy bundled conference style files (.sty, .bst) for template support
         _copy_style_files(paths["dir"])
+        # Clear cached aux/bbl files to force fresh bibliography build
+        for ext in [".aux", ".bbl", ".blg"]:
+            cached_file = paths["dir"] / f"main{ext}"
+            if cached_file.exists():
+                cached_file.unlink()
         paths["tex"].write_text(effective_source, encoding="utf-8")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to prepare source: {e}")
@@ -251,6 +256,12 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
         paths["dir"].mkdir(parents=True, exist_ok=True)
         # Copy bundled conference style files (.sty, .bst) for template support
         _copy_style_files(paths["dir"])
+        # Clear cached aux/bbl files to force fresh bibliography build
+        # This prevents conflicts when switching templates/bib styles
+        for ext in [".aux", ".bbl", ".blg"]:
+            cached_file = paths["dir"] / f"main{ext}"
+            if cached_file.exists():
+                cached_file.unlink()
         paths["tex"].write_text(effective_source, encoding="utf-8")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to prepare source: {e}")
