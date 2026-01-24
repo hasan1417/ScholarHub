@@ -1,0 +1,60 @@
+% icml2024.sty - Compatible ICML style for ScholarHub
+% Based on ICML formatting guidelines
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{icml2024}[2024/01/01 ICML 2024 Compatible Style]
+
+\DeclareOption*{\PackageWarning{icml2024}{Unknown option '\CurrentOption'}}
+\ProcessOptions\relax
+
+% Page layout - two column
+\RequirePackage[twocolumn,margin=0.75in]{geometry}
+\RequirePackage{times}
+\RequirePackage{microtype}
+\RequirePackage{fancyhdr}
+
+% Running title
+\def\icmltitlerunning#1{\def\@icmltitlerunning{#1}}
+\def\@icmltitlerunning{}
+
+% Headers
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\@icmltitlerunning}
+\fancyhead[R]{\small ICML 2024}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ICML title command
+\def\icmltitle#1{\title{#1}}
+
+% Author list environment
+\newenvironment{icmlauthorlist}{}{}
+\def\icmlauthor#1#2{#1\textsuperscript{#2}}
+\def\icmlaffiliation#1#2{\textsuperscript{#1}#2}
+\def\icmlcorrespondingauthor#1#2{Correspondence: #1 <#2>}
+\def\icmlkeywords#1{\def\@icmlkeywords{#1}}
+\def\icmlsetsymbol#1#2{}
+\def\printAffiliationsAndNotice#1{}
+
+% Section formatting
+\renewcommand\section{\@startsection {section}{1}{\z@}%
+  {-3.5ex \@plus -1ex \@minus -.2ex}%
+  {2.3ex \@plus.2ex}%
+  {\normalfont\large\bfseries}}
+
+\renewcommand\subsection{\@startsection{subsection}{2}{\z@}%
+  {-3.25ex\@plus -1ex \@minus -.2ex}%
+  {1.5ex \@plus .2ex}%
+  {\normalfont\normalsize\bfseries}}
+
+% Abstract
+\renewenvironment{abstract}{%
+  \small
+  \begin{center}%
+    {\bfseries Abstract\vspace{-.5em}\vspace{\z@}}%
+  \end{center}%
+  \quotation
+}{\endquotation}
+
+\endinput

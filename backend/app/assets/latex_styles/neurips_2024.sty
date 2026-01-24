@@ -1,0 +1,60 @@
+% neurips_2024.sty - Compatible NeurIPS style for ScholarHub
+% Based on NeurIPS formatting guidelines
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{neurips_2024}[2024/01/01 NeurIPS 2024 Compatible Style]
+
+\DeclareOption{final}{\def\neurips@final{}}
+\DeclareOption{preprint}{\def\neurips@preprint{}}
+\DeclareOption*{\PackageWarning{neurips_2024}{Unknown option '\CurrentOption'}}
+\ProcessOptions\relax
+
+% Page layout
+\RequirePackage[margin=1in]{geometry}
+\RequirePackage{times}
+\RequirePackage{microtype}
+\RequirePackage{fancyhdr}
+
+% Set up headers
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[C]{\small NeurIPS 2024}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0pt}
+
+% Title formatting
+\def\@maketitle{%
+  \newpage
+  \null
+  \vskip 2em%
+  \begin{center}%
+  \let \footnote \thanks
+    {\LARGE \@title \par}%
+    \vskip 1.5em%
+    {\large
+      \lineskip .5em%
+      \begin{tabular}[t]{c}%
+        \@author
+      \end{tabular}\par}%
+    \vskip 1em%
+    {\large \@date}%
+  \end{center}%
+  \par
+  \vskip 1.5em}
+
+% Section formatting
+\renewcommand\section{\@startsection {section}{1}{\z@}%
+  {-3.5ex \@plus -1ex \@minus -.2ex}%
+  {2.3ex \@plus.2ex}%
+  {\normalfont\large\bfseries}}
+
+% Abstract environment
+\renewenvironment{abstract}{%
+  \centerline{\large\bfseries Abstract}
+  \vspace{0.5ex}
+  \begin{quote}
+}{%
+  \end{quote}
+}
+
+\endinput

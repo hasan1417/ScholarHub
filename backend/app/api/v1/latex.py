@@ -25,6 +25,21 @@ router = APIRouter()
 ARTIFACT_ROOT = Path(os.getenv("LATEX_ARTIFACT_ROOT", Path("uploads") / "latex_cache")).resolve()
 ARTIFACT_ROOT.mkdir(parents=True, exist_ok=True)
 
+# Directory containing bundled LaTeX style files for conference templates
+LATEX_STYLES_DIR = Path(__file__).parent.parent.parent / "assets" / "latex_styles"
+
+
+def _copy_style_files(target_dir: Path) -> None:
+    """Copy bundled LaTeX style files to the compilation directory."""
+    if not LATEX_STYLES_DIR.exists():
+        return
+    try:
+        for style_file in LATEX_STYLES_DIR.glob("*"):
+            if style_file.suffix in (".sty", ".bst", ".cls"):
+                shutil.copy2(style_file, target_dir / style_file.name)
+    except Exception:
+        pass  # Silently continue if style file copy fails
+
 
 class CompileRequest(BaseModel):
     latex_source: str
@@ -154,6 +169,8 @@ async def compile_latex(request: CompileRequest, current_user: User = Depends(ge
     # Write source to cache dir (always refresh the tex file for transparency)
     try:
         paths["dir"].mkdir(parents=True, exist_ok=True)
+        # Copy bundled conference style files (.sty, .bst) for template support
+        _copy_style_files(paths["dir"])
         paths["tex"].write_text(effective_source, encoding="utf-8")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to prepare source: {e}")
@@ -232,6 +249,8 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
     # Always write the .tex
     try:
         paths["dir"].mkdir(parents=True, exist_ok=True)
+        # Copy bundled conference style files (.sty, .bst) for template support
+        _copy_style_files(paths["dir"])
         paths["tex"].write_text(effective_source, encoding="utf-8")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to prepare source: {e}")
