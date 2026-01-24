@@ -1561,16 +1561,72 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             return {"error": f"Analysis failed: {str(e)}"}
 
     def _tool_search_papers(self, query: str, count: int = 5, open_access_only: bool = False) -> Dict:
-        """Search for papers online - returns action for frontend to execute."""
+        """Search for papers online and return results directly."""
+        import asyncio
+        from app.services.paper_discovery_service import PaperDiscoveryService
+
         oa_note = " (Open Access only)" if open_access_only else ""
-        return {
-            "status": "success",
-            "message": f"Searching for papers: '{query}'{oa_note}",
-            "action": {
-                "type": "search_references",
-                "payload": {"query": query, "max_results": count, "open_access_only": open_access_only},
-            },
-        }
+
+        try:
+            # Create discovery service and search
+            discovery_service = PaperDiscoveryService()
+            sources = ["arxiv", "semantic_scholar", "openalex", "crossref"]
+            max_results = min(count, 20)  # Cap at 20 results
+
+            # Request more if filtering for open access
+            search_max = max_results * 3 if open_access_only else max_results
+
+            # Run async search in sync context
+            result = asyncio.run(discovery_service.discover_papers(
+                query=query,
+                max_results=search_max,
+                sources=sources,
+                fast_mode=True,
+            ))
+
+            # Filter for open access if requested
+            source_papers = result.papers
+            if open_access_only:
+                source_papers = [p for p in source_papers if p.pdf_url or p.open_access_url]
+
+            # Format results for AI
+            papers = []
+            for idx, p in enumerate(source_papers[:max_results]):
+                # Parse authors
+                authors_str = ""
+                if p.authors:
+                    if isinstance(p.authors, list):
+                        authors_str = ", ".join(str(a) for a in p.authors[:3])
+                        if len(p.authors) > 3:
+                            authors_str += " et al."
+                    else:
+                        authors_str = str(p.authors)
+
+                papers.append({
+                    "title": p.title,
+                    "authors": authors_str,
+                    "year": p.year,
+                    "abstract": p.abstract[:300] + "..." if p.abstract and len(p.abstract) > 300 else p.abstract,
+                    "doi": p.doi,
+                    "url": p.url or p.pdf_url,
+                    "source": p.source,
+                    "journal": getattr(p, 'journal', None) or getattr(p, 'venue', None),
+                })
+
+            return {
+                "status": "success",
+                "message": f"Found {len(papers)} papers for: '{query}'{oa_note}",
+                "papers": papers,
+                "total_found": len(result.papers),
+            }
+
+        except Exception as e:
+            logger.exception(f"Error searching papers: {e}")
+            return {
+                "status": "error",
+                "message": f"Search failed: {str(e)}",
+                "papers": [],
+            }
 
     def _tool_get_project_papers(self, ctx: Dict[str, Any], include_content: bool = False) -> Dict:
         """Get user's draft papers in the project."""
