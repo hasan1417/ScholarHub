@@ -53,15 +53,23 @@
 
 % Author and affiliation
 \newcounter{els@author}
-\def\author[#1]#2{%
+\renewcommand{\author}[2][]{%
   \stepcounter{els@author}%
-  \g@addto@macro\@author{#2\textsuperscript{#1}\quad}%
+  \ifx\\#1\\%
+    \g@addto@macro\@author{#2\quad}%
+  \else%
+    \g@addto@macro\@author{#2\textsuperscript{#1}\quad}%
+  \fi%
 }
-\def\ead#1{\def\@ead{#1}}
+\newcommand{\ead}[1]{\def\@ead{#1}}
 \def\@ead{}
 
-\def\address[#1]#2{%
-  \g@addto@macro\@address{\textsuperscript{#1}#2\\}%
+\newcommand{\address}[2][]{%
+  \ifx\\#1\\%
+    \g@addto@macro\@address{#2\\}%
+  \else%
+    \g@addto@macro\@address{\textsuperscript{#1}#2\\}%
+  \fi%
 }
 \def\@address{}
 
