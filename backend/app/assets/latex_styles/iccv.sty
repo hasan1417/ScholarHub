@@ -1,0 +1,70 @@
+% iccv.sty - Compatible ICCV style for ScholarHub
+% ICCV uses similar formatting to CVPR
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{iccv}[2024/01/01 ICCV 2024 Compatible Style]
+
+\DeclareOption{review}{\def\iccv@review{}}
+\DeclareOption{final}{\def\iccv@final{}}
+\DeclareOption*{\PackageWarning{iccv}{Unknown option '\CurrentOption'}}
+\ProcessOptions\relax
+
+% Page layout - two column
+\RequirePackage[twocolumn,margin=0.75in,top=0.75in,bottom=1in]{geometry}
+\RequirePackage{times}
+\RequirePackage{graphicx}
+\RequirePackage{amsmath}
+\RequirePackage{amssymb}
+\RequirePackage{fancyhdr}
+
+% Headers
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[C]{\small ICCV 2024}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0pt}
+
+% ICCV Paper ID
+\def\iccvPaperID#1{\def\@iccvPaperID{#1}}
+\def\@iccvPaperID{}
+
+% Title formatting
+\def\@maketitle{%
+  \newpage
+  \null
+  \vskip 0.5em%
+  \begin{center}%
+  \let \footnote \thanks
+    {\LARGE\bfseries \@title \par}%
+    \vskip 1.5em%
+    {\large
+      \lineskip .5em%
+      \begin{tabular}[t]{c}%
+        \@author
+      \end{tabular}\par}%
+    \vskip 1em%
+  \end{center}%
+  \par
+  \vskip 1.5em}
+
+% Section formatting
+\renewcommand\section{\@startsection {section}{1}{\z@}%
+  {-3.5ex \@plus -1ex \@minus -.2ex}%
+  {2.3ex \@plus.2ex}%
+  {\normalfont\large\bfseries}}
+
+\renewcommand\subsection{\@startsection{subsection}{2}{\z@}%
+  {-3.25ex\@plus -1ex \@minus -.2ex}%
+  {1.5ex \@plus .2ex}%
+  {\normalfont\normalsize\bfseries}}
+
+% Abstract
+\renewenvironment{abstract}{%
+  \small
+  \begin{center}%
+    {\bfseries Abstract\vspace{-.5em}\vspace{\z@}}%
+  \end{center}%
+  \quotation
+}{\endquotation}
+
+\endinput

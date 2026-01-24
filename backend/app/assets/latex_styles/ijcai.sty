@@ -1,0 +1,65 @@
+% ijcai.sty - Compatible IJCAI style for ScholarHub
+% International Joint Conference on Artificial Intelligence
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{ijcai}[2024/01/01 IJCAI 2024 Compatible Style]
+
+\DeclareOption*{\PackageWarning{ijcai}{Unknown option '\CurrentOption'}}
+\ProcessOptions\relax
+
+% Page layout - two column
+\RequirePackage[twocolumn,margin=0.75in,top=0.75in,bottom=1in]{geometry}
+\RequirePackage{times}
+\RequirePackage{microtype}
+\RequirePackage{fancyhdr}
+\RequirePackage{graphicx}
+\RequirePackage{amsmath}
+\RequirePackage{amssymb}
+
+% Headers
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[C]{\small IJCAI-24}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0pt}
+
+% Title formatting
+\def\@maketitle{%
+  \newpage
+  \null
+  \vskip 0.5em%
+  \begin{center}%
+  \let \footnote \thanks
+    {\LARGE\bfseries \@title \par}%
+    \vskip 1.5em%
+    {\large
+      \lineskip .5em%
+      \begin{tabular}[t]{c}%
+        \@author
+      \end{tabular}\par}%
+    \vskip 1em%
+  \end{center}%
+  \par
+  \vskip 1.5em}
+
+% Section formatting
+\renewcommand\section{\@startsection {section}{1}{\z@}%
+  {-3.5ex \@plus -1ex \@minus -.2ex}%
+  {2.3ex \@plus.2ex}%
+  {\normalfont\large\bfseries}}
+
+\renewcommand\subsection{\@startsection{subsection}{2}{\z@}%
+  {-3.25ex\@plus -1ex \@minus -.2ex}%
+  {1.5ex \@plus .2ex}%
+  {\normalfont\normalsize\bfseries}}
+
+% Abstract
+\renewenvironment{abstract}{%
+  \small
+  \begin{center}%
+    {\bfseries Abstract\vspace{-.5em}\vspace{\z@}}%
+  \end{center}%
+  \quotation
+}{\endquotation}
+
+\endinput

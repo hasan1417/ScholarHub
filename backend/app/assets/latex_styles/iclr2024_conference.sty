@@ -1,0 +1,71 @@
+% iclr2024_conference.sty - Compatible ICLR style for ScholarHub
+% Based on ICLR formatting guidelines
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{iclr2024_conference}[2024/01/01 ICLR 2024 Compatible Style]
+
+\DeclareOption{accepted}{\def\iclr@accepted{}}
+\DeclareOption{submitted}{\def\iclr@submitted{}}
+\DeclareOption*{\PackageWarning{iclr2024_conference}{Unknown option '\CurrentOption'}}
+\ProcessOptions\relax
+
+% Page layout
+\RequirePackage[margin=1in]{geometry}
+\RequirePackage{times}
+\RequirePackage{microtype}
+\RequirePackage{fancyhdr}
+\RequirePackage{natbib}
+\RequirePackage{graphicx}
+\RequirePackage{amsmath}
+\RequirePackage{amssymb}
+
+% Headers
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[C]{\small ICLR 2024}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0pt}
+
+% ICLR title command
+\def\iclrtitle#1{\title{#1}}
+
+% Title formatting
+\def\@maketitle{%
+  \newpage
+  \null
+  \vskip 2em%
+  \begin{center}%
+  \let \footnote \thanks
+    {\LARGE\bfseries \@title \par}%
+    \vskip 1.5em%
+    {\large
+      \lineskip .5em%
+      \begin{tabular}[t]{c}%
+        \@author
+      \end{tabular}\par}%
+    \vskip 1em%
+  \end{center}%
+  \par
+  \vskip 1.5em}
+
+% Section formatting
+\renewcommand\section{\@startsection {section}{1}{\z@}%
+  {-3.5ex \@plus -1ex \@minus -.2ex}%
+  {2.3ex \@plus.2ex}%
+  {\normalfont\large\bfseries}}
+
+\renewcommand\subsection{\@startsection{subsection}{2}{\z@}%
+  {-3.25ex\@plus -1ex \@minus -.2ex}%
+  {1.5ex \@plus .2ex}%
+  {\normalfont\normalsize\bfseries}}
+
+% Abstract
+\renewenvironment{abstract}{%
+  \centerline{\large\bfseries Abstract}
+  \vspace{0.5ex}
+  \begin{quote}
+}{%
+  \end{quote}
+}
+
+\endinput

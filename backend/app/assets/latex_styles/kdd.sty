@@ -1,0 +1,77 @@
+% kdd.sty - Compatible KDD style for ScholarHub
+% ACM SIGKDD Conference on Knowledge Discovery and Data Mining
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{kdd}[2024/01/01 KDD 2024 Compatible Style]
+
+\DeclareOption*{\PackageWarning{kdd}{Unknown option '\CurrentOption'}}
+\ProcessOptions\relax
+
+% Page layout - two column ACM style
+\RequirePackage[twocolumn,margin=0.75in]{geometry}
+\RequirePackage{times}
+\RequirePackage{microtype}
+\RequirePackage{fancyhdr}
+\RequirePackage{graphicx}
+\RequirePackage{amsmath}
+\RequirePackage{amssymb}
+\RequirePackage{xcolor}
+
+% Headers
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small KDD '24}
+\fancyhead[R]{\small \thepage}
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ACM-style copyright
+\def\copyrightinfo#1{\def\@copyrightinfo{#1}}
+\def\@copyrightinfo{}
+
+% Title formatting
+\def\@maketitle{%
+  \newpage
+  \null
+  \vskip 1em%
+  \begin{center}%
+  \let \footnote \thanks
+    {\LARGE\bfseries \@title \par}%
+    \vskip 1.5em%
+    {\large
+      \lineskip .5em%
+      \begin{tabular}[t]{c}%
+        \@author
+      \end{tabular}\par}%
+    \vskip 1em%
+  \end{center}%
+  \par
+  \vskip 1.5em}
+
+% Section formatting
+\renewcommand\section{\@startsection {section}{1}{\z@}%
+  {-3.5ex \@plus -1ex \@minus -.2ex}%
+  {2.3ex \@plus.2ex}%
+  {\normalfont\large\bfseries}}
+
+\renewcommand\subsection{\@startsection{subsection}{2}{\z@}%
+  {-3.25ex\@plus -1ex \@minus -.2ex}%
+  {1.5ex \@plus .2ex}%
+  {\normalfont\normalsize\bfseries}}
+
+% Abstract - ACM CCS style
+\renewenvironment{abstract}{%
+  \small
+  \begin{center}%
+    {\bfseries ABSTRACT\vspace{-.5em}\vspace{\z@}}%
+  \end{center}%
+  \quotation
+}{\endquotation}
+
+% CCS Concepts
+\newcommand{\ccsdesc}[2][]{\par\noindent\textbf{CCS Concepts:} #2}
+
+% Keywords
+\newcommand{\keywords}[1]{\par\vskip 0.5em\noindent\textbf{Keywords:} #1\par\vskip 1em}
+
+\endinput

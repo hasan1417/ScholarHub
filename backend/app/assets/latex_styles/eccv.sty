@@ -1,0 +1,80 @@
+% eccv.sty - Compatible ECCV style for ScholarHub
+% ECCV uses LNCS-like formatting
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{eccv}[2024/01/01 ECCV 2024 Compatible Style]
+
+\DeclareOption{review}{\def\eccv@review{}}
+\DeclareOption{final}{\def\eccv@final{}}
+\DeclareOption*{\PackageWarning{eccv}{Unknown option '\CurrentOption'}}
+\ProcessOptions\relax
+
+% Page layout - single column like LNCS
+\RequirePackage[margin=1in]{geometry}
+\RequirePackage{times}
+\RequirePackage{graphicx}
+\RequirePackage{amsmath}
+\RequirePackage{amssymb}
+\RequirePackage{fancyhdr}
+
+% Headers
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[C]{\small ECCV 2024}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0pt}
+
+% ECCV Paper ID
+\def\eccvPaperID#1{\def\@eccvPaperID{#1}}
+\def\@eccvPaperID{}
+
+% Institute command for LNCS compatibility
+\def\institute#1{\def\@institute{#1}}
+\def\@institute{}
+\def\inst#1{\textsuperscript{#1}}
+
+% Title formatting
+\def\@maketitle{%
+  \newpage
+  \null
+  \vskip 2em%
+  \begin{center}%
+  \let \footnote \thanks
+    {\LARGE\bfseries \@title \par}%
+    \vskip 1.5em%
+    {\large
+      \lineskip .5em%
+      \begin{tabular}[t]{c}%
+        \@author
+      \end{tabular}\par}%
+    \vskip 0.5em%
+    {\normalsize \@institute \par}%
+    \vskip 1em%
+  \end{center}%
+  \par
+  \vskip 1.5em}
+
+% Section formatting
+\renewcommand\section{\@startsection {section}{1}{\z@}%
+  {-3.5ex \@plus -1ex \@minus -.2ex}%
+  {2.3ex \@plus.2ex}%
+  {\normalfont\large\bfseries}}
+
+\renewcommand\subsection{\@startsection{subsection}{2}{\z@}%
+  {-3.25ex\@plus -1ex \@minus -.2ex}%
+  {1.5ex \@plus .2ex}%
+  {\normalfont\normalsize\bfseries}}
+
+% Abstract
+\renewenvironment{abstract}{%
+  \small
+  \begin{center}%
+    {\bfseries Abstract.\space}%
+  \end{center}%
+  \quotation
+}{\endquotation}
+
+% Keywords
+\newcommand{\keywords}[1]{\par\vskip 0.5em\noindent\textbf{Keywords:} #1}
+
+\endinput

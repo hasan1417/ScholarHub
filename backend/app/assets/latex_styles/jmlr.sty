@@ -1,0 +1,86 @@
+% jmlr.sty - Compatible JMLR style for ScholarHub
+% Journal of Machine Learning Research
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{jmlr}[2024/01/01 JMLR Compatible Style]
+
+\DeclareOption{accepted}{\def\jmlr@accepted{}}
+\DeclareOption{submitted}{\def\jmlr@submitted{}}
+\DeclareOption*{\PackageWarning{jmlr}{Unknown option '\CurrentOption'}}
+\ProcessOptions\relax
+
+% Page layout
+\RequirePackage[margin=1in]{geometry}
+\RequirePackage{times}
+\RequirePackage{microtype}
+\RequirePackage{fancyhdr}
+\RequirePackage{natbib}
+\RequirePackage{graphicx}
+\RequirePackage{amsmath}
+\RequirePackage{amssymb}
+\RequirePackage{xcolor}
+
+% Define JMLR blue
+\definecolor{jmlrblue}{rgb}{0.0,0.0,0.5}
+
+% Headers
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textcolor{jmlrblue}{Journal of Machine Learning Research}}
+\fancyhead[R]{\small\thepage}
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% JMLR specific commands
+\def\editor#1{\def\@editor{#1}}
+\def\@editor{}
+\def\jmlrvolume#1{\def\@jmlrvolume{#1}}
+\def\@jmlrvolume{}
+\def\jmlryear#1{\def\@jmlryear{#1}}
+\def\@jmlryear{}
+
+% Title formatting
+\def\@maketitle{%
+  \newpage
+  \null
+  \vskip 2em%
+  \begin{center}%
+  \let \footnote \thanks
+    {\LARGE\bfseries \@title \par}%
+    \vskip 1.5em%
+    {\large
+      \lineskip .5em%
+      \begin{tabular}[t]{c}%
+        \@author
+      \end{tabular}\par}%
+    \vskip 1em%
+  \end{center}%
+  \par
+  \vskip 1.5em}
+
+% Section formatting
+\renewcommand\section{\@startsection {section}{1}{\z@}%
+  {-3.5ex \@plus -1ex \@minus -.2ex}%
+  {2.3ex \@plus.2ex}%
+  {\normalfont\large\bfseries}}
+
+\renewcommand\subsection{\@startsection{subsection}{2}{\z@}%
+  {-3.25ex\@plus -1ex \@minus -.2ex}%
+  {1.5ex \@plus .2ex}%
+  {\normalfont\normalsize\bfseries}}
+
+% Abstract
+\renewenvironment{abstract}{%
+  \small
+  \begin{center}%
+    {\bfseries Abstract}%
+  \end{center}%
+  \begin{quotation}
+}{%
+  \end{quotation}
+}
+
+% Keywords
+\newcommand{\keywords}[1]{\par\vskip 0.5em\noindent\textbf{Keywords:} #1\par\vskip 1em}
+
+\endinput

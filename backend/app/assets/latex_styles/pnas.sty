@@ -1,0 +1,105 @@
+% pnas.sty - Compatible PNAS style for ScholarHub
+% Proceedings of the National Academy of Sciences
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{pnas}[2024/01/01 PNAS Compatible Style]
+
+\DeclareOption*{\PackageWarning{pnas}{Unknown option '\CurrentOption'}}
+\ProcessOptions\relax
+
+% Page layout - two column
+\RequirePackage[twocolumn,margin=0.75in]{geometry}
+\RequirePackage{times}
+\RequirePackage{microtype}
+\RequirePackage{fancyhdr}
+\RequirePackage{graphicx}
+\RequirePackage{amsmath}
+\RequirePackage{amssymb}
+\RequirePackage{natbib}
+\RequirePackage{xcolor}
+
+% PNAS colors
+\definecolor{pnasblue}{RGB}{0,51,102}
+
+% Headers
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textcolor{pnasblue}{\textbf{PNAS}}}
+\fancyhead[R]{\small\thepage}
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% Affiliations
+\newcounter{pnas@affil}
+\def\affil#1{%
+  \stepcounter{pnas@affil}%
+  \textsuperscript{\thepnas@affil}#1\\
+}
+
+% Corresponding author
+\def\correspondingauthor#1{\def\@correspondingauthor{#1}}
+\def\@correspondingauthor{}
+
+% Title formatting
+\def\@maketitle{%
+  \newpage
+  \null
+  \vskip 0.5em%
+  \begin{center}%
+  \let \footnote \thanks
+    {\LARGE\bfseries \@title \par}%
+    \vskip 1.5em%
+    {\large
+      \lineskip .5em%
+      \begin{tabular}[t]{c}%
+        \@author
+      \end{tabular}\par}%
+    \vskip 1em%
+  \end{center}%
+  \par
+  \vskip 1.5em}
+
+% Section formatting
+\renewcommand\section{\@startsection {section}{1}{\z@}%
+  {-3.5ex \@plus -1ex \@minus -.2ex}%
+  {2.3ex \@plus.2ex}%
+  {\normalfont\normalsize\bfseries}}
+
+\renewcommand\subsection{\@startsection{subsection}{2}{\z@}%
+  {-3.25ex\@plus -1ex \@minus -.2ex}%
+  {1.5ex \@plus .2ex}%
+  {\normalfont\normalsize\bfseries}}
+
+% Abstract
+\renewenvironment{abstract}{%
+  \small
+  \begin{center}%
+    {\bfseries Abstract}%
+  \end{center}%
+  \quotation
+}{\endquotation}
+
+% Significance statement
+\newenvironment{significance}{%
+  \small
+  \par\vskip 1em
+  \noindent\textbf{Significance}%
+  \par\noindent
+}{\par\vskip 1em}
+
+% Keywords
+\newcommand{\keywords}[1]{\par\noindent\textbf{Keywords:} #1\par\vskip 1em}
+
+% Author contributions
+\newcommand{\authorcontributions}[1]{\par\vskip 0.5em\noindent\textbf{Author contributions:} #1}
+
+% Materials and Methods
+\newcommand{\materialsandmethods}{\section*{Materials and Methods}}
+
+% Supporting Information
+\newenvironment{supportinginformation}{\section*{Supporting Information}}{}
+
+% Drop cap for first letter (PNAS style)
+\newcommand{\dropcap}[1]{\noindent{\Huge\bfseries #1}}
+
+\endinput
