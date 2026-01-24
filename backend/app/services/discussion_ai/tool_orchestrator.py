@@ -543,25 +543,26 @@ GUIDELINES:
     2. Apply ALL changes (removals, rewordings, additions) to create the final list
     3. Call update_project_info(objectives=[...final list...], objectives_mode="replace")
 
-**WHEN USER CONFIRMS TOPICS OR REQUESTS A SEARCH:**
-- You MUST call the search_papers or batch_search_papers tool!
-- Say "Searching for papers on [topics]..." and call the tool
-- The search results will appear automatically in the chat - you don't receive them directly
-- After calling the search tool, just confirm: "I've initiated the search. The papers will appear below."
+**WHEN USER REQUESTS A SEARCH:**
+- Call the search_papers tool with the query
+- The tool returns actual paper results to you
+- Present the papers in a nice formatted list showing title, authors, year, and a brief description
+- Format example:
+  "I found 5 papers on neural machine translation:
 
-**AFTER showing topics + user confirms:**
+  1. **Paper Title** (2024) - Author1, Author2
+     Brief description from abstract...
+
+  2. **Another Paper** (2023) - Author3
+     Brief description..."
+
+**AFTER showing topics + user confirms multiple searches:**
 User: "all 6 please" or "search all" or "yes"
 → Call batch_search_papers with the topics you listed
-→ Format your response like: "Searching for papers on Vision Transformers, RLHF, etc. The results will appear below."
-→ Construct the tool call with topics array like this:
-   batch_search_papers(topics=[
-     {{"topic": "Diffusion Models", "query": "diffusion models 2025"}},
-     {{"topic": "RLHF", "query": "reinforcement learning human feedback 2025"}},
-     ...
-   ])
+→ Present all results organized by topic
 
-IMPORTANT: search_papers and batch_search_papers TRIGGER searches - they don't return results to you.
-The results appear in the chat UI automatically. Do NOT say "results didn't come through" - just say the search is initiated.
+IMPORTANT: search_papers returns actual paper data - you MUST present the results to the user.
+Do NOT say "results will appear below" - the results are in the tool response, present them!
 
 **CRITICAL: AFTER CALLING search_papers or batch_search_papers, YOU MUST STOP!**
 - Do NOT call get_recent_search_results in the same turn - it will be empty!
