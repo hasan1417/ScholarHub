@@ -1310,6 +1310,25 @@ def invoke_discussion_assistant(
                     event_queue.put(event)
                     if event.get("type") == "result":
                         final_result = event.get("data", {})
+                    elif event.get("type") == "status":
+                        # Update status in database so returning users see current progress
+                        status_msg = event.get("message", "Processing...")
+                        try:
+                            exchange_record = thread_db.query(ProjectDiscussionAssistantExchange).filter_by(
+                                id=UUID(exchange_id)
+                            ).first()
+                            if exchange_record:
+                                exchange_record.status_message = status_msg
+                                thread_db.commit()
+                                # Broadcast status update via WebSocket
+                                asyncio.run(_broadcast_discussion_event(
+                                    project_id,
+                                    channel_id,
+                                    "assistant_status",
+                                    {"exchange_id": exchange_id, "status_message": status_msg},
+                                ))
+                        except Exception as e:
+                            logger.warning(f"Failed to update status message: {e}")
 
                 # Processing complete - save result
                 if final_result:

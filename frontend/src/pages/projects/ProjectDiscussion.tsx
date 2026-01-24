@@ -170,16 +170,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     isSearching: boolean
   } | null>(null)
 
-  // Debug: log referenceSearchResults changes
-  useEffect(() => {
-    console.log('[Debug] referenceSearchResults changed:', referenceSearchResults ? {
-      exchangeId: referenceSearchResults.exchangeId,
-      papersCount: referenceSearchResults.papers.length,
-      query: referenceSearchResults.query,
-      isSearching: referenceSearchResults.isSearching,
-    } : null)
-  }, [referenceSearchResults])
-
   // Discovery queue - session-based, auto-clears on new search
   const [discoveryQueue, setDiscoveryQueue] = useState<{
     papers: DiscoveredPaper[]
@@ -462,7 +452,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           existingAppliedActions.set(entry.id, entry.appliedActions)
         }
       })
-      console.log('[Merge] prev has', prev.length, 'entries, preserving appliedActions for', existingAppliedActions.size, 'entries')
 
       // Merge server entries (preserving appliedActions from local state) with unsynced local entries
       const mergedServerEntries = serverAssistantHistory.map((entry) => {
@@ -593,6 +582,21 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
             return [...prev, entry]
           })
         }
+        return
+      }
+
+      // Handle assistant status updates (live progress updates)
+      if (payload.event === 'assistant_status') {
+        const exchangeId = payload.exchange_id
+        const statusMessage = payload.status_message
+        if (!exchangeId || !statusMessage) return
+        setAssistantHistory((prev) =>
+          prev.map((entry) =>
+            entry.id === exchangeId && entry.status === 'streaming'
+              ? { ...entry, statusMessage }
+              : entry
+          )
+        )
         return
       }
 
@@ -1592,19 +1596,14 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
   // search_results actions are processed even for history entries (papers already in payload)
   useEffect(() => {
     // Find exchanges with search actions that haven't been applied yet
-    console.log('[Auto-trigger] Running with', assistantHistory.length, 'exchanges')
     for (const exchange of assistantHistory) {
       if (exchange.status !== 'complete') continue
 
       const actions = exchange.response?.suggested_actions || []
-      console.log('[Auto-trigger] Exchange', exchange.id, 'has', actions.length, 'actions, appliedActions:', exchange.appliedActions)
       for (let idx = 0; idx < actions.length; idx++) {
         const action = actions[idx]
         const actionKey = `${exchange.id}:${idx}`
-        if (exchange.appliedActions.includes(actionKey)) {
-          console.log('[Auto-trigger] Skipping already applied action:', actionKey)
-          continue
-        }
+        if (exchange.appliedActions.includes(actionKey)) continue
 
         // Handle search_results - papers already fetched by backend, just display them
         // Process even for history entries since data is already embedded (no API call needed)
@@ -1612,9 +1611,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           const payload = action.payload as { query?: string; papers?: DiscoveredPaper[]; total_found?: number } | undefined
           const papers = payload?.papers || []
           const query = payload?.query || ''
-          console.log('[Auto-trigger] Found search_results action with', papers.length, 'papers')
           if (papers.length === 0) continue
-          console.log('[Auto-trigger] Processing search_results, setting referenceSearchResults')
           markActionApplied(exchange.id, actionKey)
 
           // Display results as cards
