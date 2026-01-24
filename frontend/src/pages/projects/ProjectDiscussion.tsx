@@ -165,6 +165,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
   // Reference search results state - only shown inline with the exchange that triggered them
   const [referenceSearchResults, setReferenceSearchResults] = useState<{
     exchangeId: string
+    channelId: string  // Track which channel these results belong to
     papers: DiscoveredPaper[]
     query: string
     isSearching: boolean
@@ -933,6 +934,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       // Set searching state - keep existing papers if same exchange (accumulate mode)
       setReferenceSearchResults((prev) => ({
         exchangeId: params.exchangeId,
+        channelId: activeChannelId || '',
         papers: prev?.exchangeId === params.exchangeId ? prev.papers : [],
         query: params.query,
         isSearching: true,
@@ -959,6 +961,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         const newPapers = (data.papers || []).filter((p: DiscoveredPaper) => !existingTitles.has(p.title?.toLowerCase()))
         return {
           exchangeId: data.exchangeId,
+          channelId: prev?.channelId || activeChannelId || '',
           papers: [...existingPapers, ...newPapers],
           query: data.query,
           isSearching: false,
@@ -984,6 +987,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       console.error('Reference search failed:', error)
       setReferenceSearchResults((prev) => ({
         exchangeId: params.exchangeId,
+        channelId: prev?.channelId || activeChannelId || '',
         papers: prev?.exchangeId === params.exchangeId ? (prev.papers || []) : [],
         query: params.query,
         isSearching: false,
@@ -1616,12 +1620,14 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           if (papers.length === 0) continue
           markActionApplied(exchange.id, actionKey)
 
-          // Display results as cards
+          // Display results as cards - only if we're still on the same channel
+          if (!activeChannelId) continue
           setReferenceSearchResults(prev => {
             const existingTitles = new Set((prev?.papers || []).map((p: DiscoveredPaper) => p.title?.toLowerCase()))
             const newPapers = papers.filter((p: DiscoveredPaper) => !existingTitles.has(p.title?.toLowerCase()))
             return {
               exchangeId: exchange.id,
+              channelId: activeChannelId,
               papers: [...(prev?.papers || []), ...newPapers],
               query: query,
               isSearching: false,
@@ -1676,8 +1682,10 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
 
           // Set searching state
           const batchQuery = queries.map(q => q.topic).join(', ')
+          if (!activeChannelId) continue
           setReferenceSearchResults({
             exchangeId: exchange.id,
+            channelId: activeChannelId,
             papers: [],
             query: batchQuery,
             isSearching: true,
@@ -1705,6 +1713,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                 const newPapers = allPapers.filter((p: DiscoveredPaper) => !existingTitles.has(p.title?.toLowerCase()))
                 return {
                   exchangeId: exchange.id,
+                  channelId: prev?.channelId || activeChannelId || '',
                   papers: [...(prev?.papers || []), ...newPapers],
                   query: batchQuery,
                   isSearching: false,
@@ -1750,7 +1759,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         }
       }
     }
-  }, [assistantHistory, markActionApplied, searchReferencesMutation, project.id, queryClient])
+  }, [assistantHistory, markActionApplied, searchReferencesMutation, project.id, queryClient, activeChannelId])
 
   const handleSuggestedAction = (
     exchange: AssistantExchange,
@@ -1887,6 +1896,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       const batchQuery = queries.map(q => q.topic).join(', ')
       setReferenceSearchResults({
         exchangeId: exchange.id,
+        channelId: activeChannelId || '',
         papers: [],
         query: batchQuery,
         isSearching: true,
@@ -1914,6 +1924,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
             const newPapers = allPapers.filter((p: DiscoveredPaper) => !existingTitles.has(p.title?.toLowerCase()))
             return {
               exchangeId: exchange.id,
+              channelId: prev?.channelId || activeChannelId || '',
               papers: [...(prev?.papers || []), ...newPapers],
               query: batchQuery,
               isSearching: false,
@@ -1972,6 +1983,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           const newPapers = papers.filter((p: DiscoveredPaper) => !existingTitles.has(p.title?.toLowerCase()))
           return {
             exchangeId: exchange.id,
+            channelId: activeChannelId || '',
             papers: [...(prev?.papers || []), ...newPapers],
             query: query,
             isSearching: false,
@@ -2549,7 +2561,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                       </div>
                     )}
                     {/* Reference search results inline */}
-                    {referenceSearchResults?.exchangeId === exchange.id && (
+                    {referenceSearchResults?.exchangeId === exchange.id && referenceSearchResults?.channelId === activeChannelId && (
                       <ReferenceSearchResults
                         papers={referenceSearchResults.papers}
                         query={referenceSearchResults.query}
