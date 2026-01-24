@@ -119,8 +119,8 @@
 }
 
 % IEEE itemize/enumerate adjustments
-\setlength{\IEEElabelindent}{0pt}
 \newlength{\IEEElabelindent}
+\setlength{\IEEElabelindent}{0pt}
 
 % IEEE biography - simplified
 \newenvironment{IEEEbiography}[2][]{%
