@@ -1589,24 +1589,28 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             # Format results for AI
             papers = []
             for idx, p in enumerate(source_papers[:max_results]):
-                # Parse authors
-                authors_str = ""
+                # Convert authors to array format (frontend expects string[])
+                authors_list = []
                 if p.authors:
                     if isinstance(p.authors, list):
-                        authors_str = ", ".join(str(a) for a in p.authors[:3])
-                        if len(p.authors) > 3:
-                            authors_str += " et al."
+                        authors_list = [str(a) for a in p.authors]
+                    elif isinstance(p.authors, str):
+                        # Split string by comma or "and"
+                        authors_list = [a.strip() for a in p.authors.replace(" and ", ", ").split(",") if a.strip()]
                     else:
-                        authors_str = str(p.authors)
+                        authors_list = [str(p.authors)]
 
                 papers.append({
+                    "id": p.doi or p.url or f"paper-{idx}",  # Frontend needs an id
                     "title": p.title,
-                    "authors": authors_str,
+                    "authors": authors_list,  # Array, not string
                     "year": p.year,
                     "abstract": p.abstract[:300] + "..." if p.abstract and len(p.abstract) > 300 else p.abstract,
                     "doi": p.doi,
                     "url": p.url or p.pdf_url,
+                    "pdf_url": p.pdf_url,
                     "source": p.source,
+                    "is_open_access": getattr(p, 'is_open_access', False),
                     "journal": getattr(p, 'journal', None) or getattr(p, 'venue', None),
                 })
 
