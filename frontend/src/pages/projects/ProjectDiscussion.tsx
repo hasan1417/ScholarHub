@@ -2561,7 +2561,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                       </div>
                     )}
                     {/* Reference search results inline */}
-                    {referenceSearchResults?.exchangeId === exchange.id && referenceSearchResults?.channelId === activeChannelId && (
+                    {referenceSearchResults?.exchangeId === exchange.id && (
                       <ReferenceSearchResults
                         papers={referenceSearchResults.papers}
                         query={referenceSearchResults.query}
