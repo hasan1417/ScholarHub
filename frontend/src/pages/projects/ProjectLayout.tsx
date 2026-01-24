@@ -140,7 +140,7 @@ const ProjectLayout = () => {
 
   const project = data
 
-  const memberCount = useMemo(() => project?.members?.length ?? 0, [project])
+  const memberCount = useMemo(() => project?.members?.filter(m => m.status === 'accepted').length ?? 0, [project])
   const currentUserId = user?.id
   const membership = project?.members?.find((member) => member.user_id === currentUserId)
   const membershipStatus = membership?.status?.toLowerCase()

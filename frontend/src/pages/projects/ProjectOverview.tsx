@@ -578,7 +578,7 @@ const ProjectOverview = () => {
                 <div className="text-xs text-gray-500 dark:text-slate-400 mt-1">References</div>
               </div>
               <div className="text-center p-3 rounded-xl bg-gray-50 dark:bg-slate-700/50">
-                <div className="text-2xl font-bold text-gray-900 dark:text-slate-100">{project.members?.length ?? 1}</div>
+                <div className="text-2xl font-bold text-gray-900 dark:text-slate-100">{project.members?.filter(m => m.status === 'accepted').length ?? 1}</div>
                 <div className="text-xs text-gray-500 dark:text-slate-400 mt-1">Members</div>
               </div>
             </div>
