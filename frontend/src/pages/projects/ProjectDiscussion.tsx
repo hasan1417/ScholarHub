@@ -502,11 +502,14 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       if (payload.event === 'assistant_processing') {
         const exchange = payload.exchange
         if (!exchange) return
-        // Skip if this is from the current user AND they're actively streaming
-        // (they'll see updates via the streaming response)
+        // Skip if this is from the current user - they already have a local streaming entry
+        // The WebSocket broadcast is mainly for other users or when returning to the page
         if (exchange.author?.id && user?.id && exchange.author.id === user.id) {
-          // But still add it if they might have missed it (e.g., returned to page)
+          // Check if there's already ANY streaming entry (local ID won't match server ID)
           setAssistantHistory((prev) => {
+            // If any entry is currently streaming, skip adding duplicate
+            if (prev.some((entry) => entry.status === 'streaming')) return prev
+            // Also skip if this exact server ID already exists
             if (prev.some((entry) => entry.id === exchange.id)) return prev
             const entry: AssistantExchange = {
               id: exchange.id,
