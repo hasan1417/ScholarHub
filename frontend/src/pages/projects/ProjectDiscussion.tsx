@@ -171,6 +171,20 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     isSearching: boolean
   } | null>(null)
 
+  // DEBUG: Log when referenceSearchResults changes
+  useEffect(() => {
+    console.log('[DEBUG] referenceSearchResults:', referenceSearchResults ? {
+      exchangeId: referenceSearchResults.exchangeId,
+      channelId: referenceSearchResults.channelId,
+      papersCount: referenceSearchResults.papers?.length,
+    } : null)
+  }, [referenceSearchResults])
+
+  // DEBUG: Log assistantHistory exchange IDs
+  useEffect(() => {
+    console.log('[DEBUG] assistantHistory exchanges:', assistantHistory.map(e => ({ id: e.id, status: e.status })))
+  }, [assistantHistory])
+
   // Discovery queue - session-based, auto-clears on new search
   const [discoveryQueue, setDiscoveryQueue] = useState<{
     papers: DiscoveredPaper[]
@@ -1617,21 +1631,20 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           const payload = action.payload as { query?: string; papers?: DiscoveredPaper[]; total_found?: number } | undefined
           const papers = payload?.papers || []
           const query = payload?.query || ''
+          console.log('[search_results] Found action with', papers.length, 'papers for exchange', exchange.id)
           if (papers.length === 0) continue
           markActionApplied(exchange.id, actionKey)
 
           // Display results as cards - only if we're still on the same channel
           if (!activeChannelId) continue
-          setReferenceSearchResults(prev => {
-            const existingTitles = new Set((prev?.papers || []).map((p: DiscoveredPaper) => p.title?.toLowerCase()))
-            const newPapers = papers.filter((p: DiscoveredPaper) => !existingTitles.has(p.title?.toLowerCase()))
-            return {
-              exchangeId: exchange.id,
-              channelId: activeChannelId,
-              papers: [...(prev?.papers || []), ...newPapers],
-              query: query,
-              isSearching: false,
-            }
+          // Replace results (not accumulate) - each search_results action is a fresh search
+          console.log('[search_results] Setting referenceSearchResults with exchangeId:', exchange.id)
+          setReferenceSearchResults({
+            exchangeId: exchange.id,
+            channelId: activeChannelId,
+            papers: papers,
+            query: query,
+            isSearching: false,
           })
           setDiscoveryQueue(prev => {
             const existingTitles = new Set(prev.papers.map((p: DiscoveredPaper) => p.title?.toLowerCase()))
