@@ -6,11 +6,57 @@ Instead of keyword matching, we let the AI decide what action to take using func
 import os
 import json
 import logging
+import re
 from typing import Optional, Dict, Any, Generator
+from uuid import UUID
 from sqlalchemy.orm import Session
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
+
+
+def _is_valid_uuid(val: str) -> bool:
+    """Check if string is a valid UUID."""
+    try:
+        UUID(val)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+def _parse_short_id(url_id: str) -> str | None:
+    """Extract short_id from url_id (e.g., 'slug-abc123' -> 'abc123')."""
+    if not url_id:
+        return None
+    parts = url_id.rsplit("-", 1)
+    if len(parts) == 2 and re.match(r"^[a-z0-9]{6,12}$", parts[1]):
+        return parts[1]
+    if re.match(r"^[a-z0-9]{6,12}$", url_id):
+        return url_id
+    return None
+
+
+def _resolve_paper_id(db: Session, paper_id: str) -> Optional[UUID]:
+    """Resolve paper_id (UUID or slug) to actual UUID."""
+    from app.models.research_paper import ResearchPaper
+
+    # Try UUID lookup first
+    if _is_valid_uuid(paper_id):
+        try:
+            paper = db.query(ResearchPaper).filter(ResearchPaper.id == UUID(paper_id)).first()
+            if paper:
+                return paper.id
+        except (ValueError, AttributeError):
+            pass
+
+    # Try short_id lookup
+    short_id = _parse_short_id(paper_id)
+    if short_id:
+        paper = db.query(ResearchPaper).filter(ResearchPaper.short_id == short_id).first()
+        if paper:
+            return paper.id
+
+    return None
 
 
 # Tools available to the LaTeX Editor AI
@@ -382,10 +428,15 @@ class SmartAgentServiceV2:
             from app.models.paper_reference import PaperReference
 
             if paper_id:
+                # Resolve paper_id (could be UUID or slug)
+                resolved_id = _resolve_paper_id(db, paper_id)
+                if not resolved_id:
+                    return "Paper not found."
+
                 refs = db.query(Reference).join(
                     PaperReference, PaperReference.reference_id == Reference.id
                 ).filter(
-                    PaperReference.paper_id == paper_id
+                    PaperReference.paper_id == resolved_id
                 ).limit(max_refs).all()
             else:
                 return ""
