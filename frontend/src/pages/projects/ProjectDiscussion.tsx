@@ -537,40 +537,43 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         }
         const exchangeId: string = exchange.id || createAssistantEntryId()
 
-        // Check if this exchange was in processing state (user returned to page)
-        setAssistantHistory((prev) => {
-          const existingIndex = prev.findIndex((entry) => entry.id === exchangeId)
-
-          // If exists and was processing, update it with the completed response
-          if (existingIndex >= 0 && (prev[existingIndex].status === 'streaming' || prev[existingIndex].statusMessage)) {
-            const response: DiscussionAssistantResponse = exchange.response || {
-              message: '',
-              citations: [],
-              reasoning_used: false,
-              model: '',
-              usage: undefined,
-              suggested_actions: [],
+        // Skip if from same user - they already have the response via SSE stream
+        // Only process replies from other users or when user returned to page mid-processing
+        if (exchange.author?.id && user?.id && exchange.author.id === user.id) {
+          // Check if we have a processing entry that needs to be updated
+          setAssistantHistory((prev) => {
+            const existingIndex = prev.findIndex((entry) => entry.id === exchangeId)
+            if (existingIndex >= 0 && prev[existingIndex].statusMessage) {
+              // Update processing entry with completed response
+              const response: DiscussionAssistantResponse = exchange.response || {
+                message: '',
+                citations: [],
+                reasoning_used: false,
+                model: '',
+                usage: undefined,
+                suggested_actions: [],
+              }
+              const lookup = buildCitationLookup(response.citations || [])
+              const formatted = formatAssistantMessage(response.message || '', lookup)
+              const updated = [...prev]
+              updated[existingIndex] = {
+                ...updated[existingIndex],
+                response,
+                status: 'complete',
+                statusMessage: undefined,
+                displayMessage: formatted,
+                completedAt: new Date(),
+              }
+              return updated
             }
-            const lookup = buildCitationLookup(response.citations || [])
-            const formatted = formatAssistantMessage(response.message || '', lookup)
-            const updated = [...prev]
-            updated[existingIndex] = {
-              ...updated[existingIndex],
-              response,
-              status: 'complete',
-              statusMessage: undefined,
-              displayMessage: formatted,
-              completedAt: new Date(),
-            }
-            return updated
-          }
-
-          // Skip if from same user and not a processing update
-          if (exchange.author?.id && user?.id && exchange.author.id === user.id) {
+            // Same user, not processing - skip (they already have it via SSE)
             return prev
-          }
+          })
+          return
+        }
 
-          // New exchange from another user
+        // New exchange from another user
+        setAssistantHistory((prev) => {
           if (prev.some((entry) => entry.id === exchangeId)) {
             return prev
           }
@@ -600,6 +603,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           return [...prev, entry]
         })
 
+        // Only invalidate history for other users' replies
         queryClient.invalidateQueries({
           queryKey: ['projectDiscussionAssistantHistory', project.id, activeChannelId],
           exact: false,
