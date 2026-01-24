@@ -1226,13 +1226,14 @@ def invoke_discussion_assistant(
 
     # Use streaming if requested
     if stream:
-        # Track accumulated message for persistence on disconnect
+        # Track accumulated message and tool status for persistence on disconnect
         accumulated_message = []
+        current_tool_status = {"tool": None, "message": None}
         exchange_id = str(uuid4())
         exchange_created_at = datetime.utcnow().isoformat() + "Z"
 
         def tool_event_iterator():
-            nonlocal accumulated_message
+            nonlocal accumulated_message, current_tool_status
             final_result = None
             stream_completed = False
             try:
@@ -1249,8 +1250,10 @@ def invoke_discussion_assistant(
                     if event.get("type") == "token":
                         token_content = event.get("content", "")
                         accumulated_message.append(token_content)
+                        current_tool_status = {"tool": None, "message": None}  # Clear tool status when tokens start
                         yield "data: " + json.dumps({"type": "token", "content": token_content}) + "\n\n"
                     elif event.get("type") == "status":
+                        current_tool_status = {"tool": event.get("tool", ""), "message": event.get("message", "Processing")}
                         yield "data: " + json.dumps({"type": "status", "tool": event.get("tool", ""), "message": event.get("message", "Processing")}) + "\n\n"
                     elif event.get("type") == "result":
                         final_result = event.get("data", {})
@@ -1323,12 +1326,21 @@ def invoke_discussion_assistant(
                         pass  # Don't fail the stream if usage tracking fails
 
             except GeneratorExit:
-                # Client disconnected - save partial message if we have content
-                if accumulated_message and not stream_completed:
-                    partial_message = "".join(accumulated_message)
-                    if partial_message.strip():
+                # Client disconnected - save partial message or tool status
+                if not stream_completed:
+                    partial_message = ""
+                    if accumulated_message:
+                        partial_message = "".join(accumulated_message)
+                        partial_message += "\n\n[Response interrupted - user left the page]"
+                    elif current_tool_status.get("tool"):
+                        # User left during tool execution (e.g., searching)
+                        tool_name = current_tool_status.get("tool", "unknown")
+                        tool_msg = current_tool_status.get("message", "Processing")
+                        partial_message = f"[{tool_msg}]\n\n[Request interrupted - user left the page while {tool_name} was in progress]"
+
+                    if partial_message:
                         partial_response = DiscussionAssistantResponse(
-                            message=partial_message + "\n\n[Response interrupted - user left the page]",
+                            message=partial_message,
                             citations=[],
                             reasoning_used=False,
                             model="gpt-5.2",
