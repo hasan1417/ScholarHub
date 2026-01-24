@@ -191,18 +191,17 @@
 \DeclareCaptionFont{10pt}{\fontsize{10pt}{12pt}\selectfont}
 \captionsetup{font=10pt}
 
-\RequirePackage[authoryear]{natbib}
-% for citation commands in the .tex, authors can use:
-% \citep, \citet, and \citeyearpar for compatibility with natbib, or
-% \cite, \newcite, and \shortcite for compatibility with older ACL .sty files
-\renewcommand\cite{\citep}  % to get "(Author Year)" with natbib
-\newcommand\shortcite{\citeyearpar}% to get "(Year)" with natbib
-\newcommand\newcite{\citet} % to get "Author (Year)" with natbib
-\newcommand{\citeposs}[1]{\citeauthor{#1}'s (\citeyear{#1})} % to get "Author's (Year)"
+% Use natbib with numbers mode for maximum compatibility
+\RequirePackage[numbers,sort&compress]{natbib}
+% Simple numeric citations - compatible with any bst
+\renewcommand\cite{\citep}
+% Provide dummy commands for author-year style documents
+\providecommand\shortcite[1]{\cite{#1}}
+\providecommand\newcite[1]{\cite{#1}}
+\providecommand\citeposs[1]{\cite{#1}}
 
-\bibliographystyle{acl_natbib}
-% Lock the bibliography style - ignore any \bibliographystyle in document body
-\let\bibliographystyle\@gobble
+% Use plainnat which works with numbers mode
+\bibliographystyle{plainnat}
 
 % Bibliography
 
