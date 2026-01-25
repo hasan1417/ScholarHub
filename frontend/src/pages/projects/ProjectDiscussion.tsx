@@ -2738,16 +2738,20 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                         </div>
                       </div>
                     )}
-                    {/* Reference search results inline - show on exchange that has matching search_results action */}
+                    {/* Reference search results inline - show on exchange that has matching search_results or library_update action */}
                     {referenceSearchResults && referenceSearchResults.papers.length > 0 && (() => {
                       // Check if this exchange has a search_results action matching our stored query
                       const hasMatchingSearchAction = exchange.response.suggested_actions?.some(
                         (action: DiscussionAssistantSuggestedAction) => action.action_type === 'search_results' &&
                           (action.payload as { query?: string } | undefined)?.query === referenceSearchResults.query
                       )
+                      // Also show on exchanges with library_update action (add to library)
+                      const hasLibraryUpdateAction = exchange.response.suggested_actions?.some(
+                        (action: DiscussionAssistantSuggestedAction) => action.action_type === 'library_update'
+                      )
                       // Also match by exchangeId for fresh searches
                       const matchesById = referenceSearchResults.exchangeId === exchange.id
-                      return (hasMatchingSearchAction || matchesById) ? (
+                      return (hasMatchingSearchAction || hasLibraryUpdateAction || matchesById) ? (
                         <ReferenceSearchResults
                           papers={referenceSearchResults.papers}
                           query={referenceSearchResults.query}
