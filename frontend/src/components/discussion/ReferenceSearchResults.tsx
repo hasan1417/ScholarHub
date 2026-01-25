@@ -40,6 +40,15 @@ export function ReferenceSearchResults({
   const [addingPapers, setAddingPapers] = useState<Set<string>>(new Set())
   // Track ingestion status per paper
   const [ingestionStates, setIngestionStates] = useState<Record<string, PaperIngestionState>>({})
+  // Track dismissed papers
+  const [dismissedPapers, setDismissedPapers] = useState<Set<string>>(new Set())
+
+  const handleDismiss = (paperId: string) => {
+    setDismissedPapers(prev => new Set([...prev, paperId]))
+  }
+
+  // Filter out dismissed papers
+  const visiblePapers = papers.filter(p => !dismissedPapers.has(p.id))
 
   // Apply external updates from AI's add_to_library action
   useEffect(() => {
@@ -253,6 +262,11 @@ export function ReferenceSearchResults({
     )
   }
 
+  // If all papers are dismissed, close the card
+  if (visiblePapers.length === 0) {
+    return null
+  }
+
   // Count statuses for summary
   const addedCount = addedPapers.size
   const successCount = Object.values(ingestionStates).filter(s => s.status === 'success').length
@@ -263,7 +277,7 @@ export function ReferenceSearchResults({
       <div className="flex items-center justify-between mb-3">
         <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
           <Search className="h-4 w-4" />
-          Found {papers.length} papers for "{query}"
+          Found {visiblePapers.length} papers for "{query}"
           {addedCount > 0 && (
             <span className="text-xs font-normal text-gray-500 dark:text-gray-400">
               ({successCount} with full text{failedCount > 0 && `, ${failedCount} need PDF`})
@@ -280,7 +294,7 @@ export function ReferenceSearchResults({
         </button>
       </div>
       <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
-        {papers.map((paper) => (
+        {visiblePapers.map((paper) => (
           <DiscoveredPaperCard
             key={paper.id}
             paper={paper}
@@ -291,6 +305,7 @@ export function ReferenceSearchResults({
             referenceId={ingestionStates[paper.id]?.referenceId}
             onUploadPdf={(file) => handleUploadPdf(paper.id, file)}
             onContinueWithAbstract={() => handleContinueWithAbstract(paper.id)}
+            onDismiss={() => handleDismiss(paper.id)}
           />
         ))}
       </div>

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Check, Loader2, Plus, ExternalLink, Unlock, AlertTriangle, Upload, FileText } from 'lucide-react'
+import { Check, Loader2, Plus, ExternalLink, Unlock, AlertTriangle, Upload, FileText, X } from 'lucide-react'
 
 export interface DiscoveredPaper {
   id: string
@@ -28,6 +28,7 @@ interface DiscoveredPaperCardProps {
   referenceId?: string
   onUploadPdf?: (file: File) => void
   onContinueWithAbstract?: () => void
+  onDismiss?: () => void
 }
 
 export function DiscoveredPaperCard({
@@ -39,6 +40,7 @@ export function DiscoveredPaperCard({
   referenceId: _referenceId,
   onUploadPdf,
   onContinueWithAbstract,
+  onDismiss,
 }: DiscoveredPaperCardProps) {
   // referenceId is passed for potential future use (e.g., linking to reference details)
   void _referenceId
@@ -261,7 +263,19 @@ export function DiscoveredPaperCard({
             )}
           </div>
         </div>
-        {renderActionButton()}
+        <div className="shrink-0 flex items-center gap-2">
+          {renderActionButton()}
+          {onDismiss && (
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:text-gray-300 dark:hover:bg-slate-700 transition"
+              title="Dismiss"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )
