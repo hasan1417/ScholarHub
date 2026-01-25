@@ -1788,6 +1788,30 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           return
         }
 
+        // Handle library_update - auto-apply ingestion status from AI's add_to_library
+        if (action.action_type === 'library_update') {
+          const payload = action.payload as { updates?: { index: number; reference_id: string; ingestion_status: string }[] } | undefined
+          const updates = payload?.updates || []
+
+          // Only process if exchange belongs to current channel
+          if (!activeChannelId) continue
+          if (exchange.channelId && exchange.channelId !== activeChannelId) continue
+
+          markActionApplied(exchange.id, actionKey)
+
+          if (updates.length > 0) {
+            setLibraryUpdatesByChannel(prev => ({
+              ...prev,
+              [activeChannelId]: updates.map(u => ({
+                index: u.index,
+                reference_id: u.reference_id,
+                ingestion_status: u.ingestion_status as 'success' | 'failed' | 'no_pdf' | 'pending',
+              })),
+            }))
+          }
+          return
+        }
+
         // Handle single search_references (legacy - triggers frontend search)
         // ONLY auto-trigger if user's message looks like a search request
         // This prevents triggering on conversational responses like "yes", "i want", "one page"
