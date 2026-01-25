@@ -1790,14 +1790,22 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
 
         // Handle library_update - auto-apply ingestion status from AI's add_to_library
         if (action.action_type === 'library_update') {
+          console.log('[ProjectDiscussion] Found library_update action:', action)
           const payload = action.payload as { updates?: { index: number; reference_id: string; ingestion_status: string }[] } | undefined
           const updates = payload?.updates || []
 
           // Only process if exchange belongs to current channel
-          if (!activeChannelId) continue
-          if (exchange.channelId && exchange.channelId !== activeChannelId) continue
+          if (!activeChannelId) {
+            console.log('[ProjectDiscussion] Skipping - no activeChannelId')
+            continue
+          }
+          if (exchange.channelId && exchange.channelId !== activeChannelId) {
+            console.log('[ProjectDiscussion] Skipping - channel mismatch:', exchange.channelId, 'vs', activeChannelId)
+            continue
+          }
 
           markActionApplied(exchange.id, actionKey)
+          console.log('[ProjectDiscussion] Processing', updates.length, 'library updates for channel', activeChannelId)
 
           if (updates.length > 0) {
             setLibraryUpdatesByChannel(prev => ({

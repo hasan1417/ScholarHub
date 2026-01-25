@@ -3819,6 +3819,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             "paper_updated",
             "artifact_created",
             "search_results",  # Search already executed, results included
+            "library_update",  # Library updates already applied
         }
 
         # Default summaries for action types
@@ -3832,6 +3833,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             "create_task": "Create task",
             "create_paper": "Create paper",
             "edit_paper": "Apply edit",
+            "library_update": "Library updated",
         }
 
         actions = []

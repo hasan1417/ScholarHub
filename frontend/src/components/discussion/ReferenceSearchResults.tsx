@@ -43,13 +43,17 @@ export function ReferenceSearchResults({
 
   // Apply external updates from AI's add_to_library action
   useEffect(() => {
+    console.log('[ReferenceSearchResults] externalUpdates received:', externalUpdates)
     if (!externalUpdates || externalUpdates.length === 0) return
+
+    console.log('[ReferenceSearchResults] Processing', externalUpdates.length, 'updates')
 
     // Use functional updates to avoid stale closure issues
     setAddedPapers(prev => {
       const next = new Set(prev)
       for (const update of externalUpdates) {
         const paper = papers[update.index]
+        console.log('[ReferenceSearchResults] Update for index', update.index, '-> paper:', paper?.title)
         if (paper) next.add(paper.id)
       }
       return next
@@ -60,6 +64,7 @@ export function ReferenceSearchResults({
       for (const update of externalUpdates) {
         const paper = papers[update.index]
         if (paper) {
+          console.log('[ReferenceSearchResults] Setting status for', paper.title, '->', update.ingestion_status)
           next[paper.id] = {
             referenceId: update.reference_id,
             status: update.ingestion_status,
