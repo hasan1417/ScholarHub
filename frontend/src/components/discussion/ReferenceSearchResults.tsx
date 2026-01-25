@@ -239,7 +239,8 @@ export function ReferenceSearchResults({
           <button
             type="button"
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 dark:hover:text-gray-300 dark:hover:bg-slate-700 transition"
+            title="Dismiss"
           >
             <X className="h-4 w-4" />
           </button>
@@ -272,7 +273,8 @@ export function ReferenceSearchResults({
         <button
           type="button"
           onClick={onClose}
-          className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+          className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 dark:hover:text-gray-300 dark:hover:bg-slate-700 transition"
+          title="Dismiss"
         >
           <X className="h-4 w-4" />
         </button>
