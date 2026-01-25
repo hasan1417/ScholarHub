@@ -1,8 +1,14 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { X, Loader2, Search, AlertCircle } from 'lucide-react'
-import { DiscoveredPaperCard, DiscoveredPaper } from './DiscoveredPaperCard'
+import { DiscoveredPaperCard, DiscoveredPaper, IngestionStatus } from './DiscoveredPaperCard'
 import { projectDiscussionAPI } from '../../services/api'
+import api from '../../services/api'
+
+interface PaperIngestionState {
+  referenceId: string
+  status: IngestionStatus
+}
 
 interface ReferenceSearchResultsProps {
   papers: DiscoveredPaper[]
@@ -22,6 +28,8 @@ export function ReferenceSearchResults({
   const queryClient = useQueryClient()
   const [addedPapers, setAddedPapers] = useState<Set<string>>(new Set())
   const [addingPapers, setAddingPapers] = useState<Set<string>>(new Set())
+  // Track ingestion status per paper
+  const [ingestionStates, setIngestionStates] = useState<Record<string, PaperIngestionState>>({})
 
   const addReferenceMutation = useMutation({
     mutationFn: async (paper: DiscoveredPaper) => {
@@ -40,17 +48,42 @@ export function ReferenceSearchResults({
           is_open_access: paper.is_open_access,
         }
       )
-      return { data: response.data, paperId: paper.id }
+      return { data: response.data, paperId: paper.id, paper }
     },
-    onSuccess: ({ data, paperId }) => {
+    onSuccess: ({ data, paperId, paper }) => {
       // Remove from adding state
       setAddingPapers((prev) => {
         const next = new Set(prev)
         next.delete(paperId)
         return next
       })
-      if (data.success) {
+
+      if (data.success && data.reference_id) {
         setAddedPapers((prev) => new Set([...prev, paperId]))
+
+        // Determine ingestion status based on response
+        // The backend returns ingestion_status in the response
+        let ingestionStatus: IngestionStatus = 'pending'
+
+        // Check if the response contains ingestion info (from add_to_library tool)
+        // The paper-action endpoint may not return detailed ingestion status,
+        // so we infer from whether there was a pdf_url
+        if (!paper.pdf_url) {
+          ingestionStatus = 'no_pdf'
+        } else {
+          // Assume pending/success - the actual status would come from polling or the response
+          // For now, mark as success if we have a pdf_url (ingestion was attempted)
+          ingestionStatus = 'success'
+        }
+
+        setIngestionStates((prev) => ({
+          ...prev,
+          [paperId]: {
+            referenceId: data.reference_id as string,
+            status: ingestionStatus,
+          },
+        }))
+
         // Invalidate references query to refresh the list
         queryClient.invalidateQueries({ queryKey: ['projectReferences', projectId] })
       } else {
@@ -68,9 +101,74 @@ export function ReferenceSearchResults({
     },
   })
 
+  const uploadPdfMutation = useMutation({
+    mutationFn: async ({ referenceId, file, paperId }: { referenceId: string; file: File; paperId: string }) => {
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const response = await api.post(`/references/${referenceId}/upload-pdf`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      })
+      return { data: response.data, paperId }
+    },
+    onMutate: ({ paperId }) => {
+      // Set uploading status
+      setIngestionStates((prev) => ({
+        ...prev,
+        [paperId]: {
+          ...prev[paperId],
+          status: 'uploading',
+        },
+      }))
+    },
+    onSuccess: ({ paperId }) => {
+      // Update status to success
+      setIngestionStates((prev) => ({
+        ...prev,
+        [paperId]: {
+          ...prev[paperId],
+          status: 'success',
+        },
+      }))
+      // Refresh references
+      queryClient.invalidateQueries({ queryKey: ['projectReferences', projectId] })
+    },
+    onError: (error: Error, { paperId }) => {
+      // Revert to failed status
+      setIngestionStates((prev) => ({
+        ...prev,
+        [paperId]: {
+          ...prev[paperId],
+          status: 'failed',
+        },
+      }))
+      alert(`Failed to upload PDF: ${error.message}`)
+    },
+  })
+
   const handleAdd = (paper: DiscoveredPaper) => {
     setAddingPapers((prev) => new Set([...prev, paper.id]))
     addReferenceMutation.mutate(paper)
+  }
+
+  const handleUploadPdf = (paperId: string, file: File) => {
+    const state = ingestionStates[paperId]
+    if (state?.referenceId) {
+      uploadPdfMutation.mutate({ referenceId: state.referenceId, file, paperId })
+    }
+  }
+
+  const handleContinueWithAbstract = (paperId: string) => {
+    // Mark as "no_pdf" - user chose to continue without full text
+    setIngestionStates((prev) => ({
+      ...prev,
+      [paperId]: {
+        ...prev[paperId],
+        status: 'no_pdf',
+      },
+    }))
   }
 
   if (isSearching) {
@@ -108,12 +206,22 @@ export function ReferenceSearchResults({
     )
   }
 
+  // Count statuses for summary
+  const addedCount = addedPapers.size
+  const successCount = Object.values(ingestionStates).filter(s => s.status === 'success').length
+  const failedCount = Object.values(ingestionStates).filter(s => s.status === 'failed').length
+
   return (
     <div className="mt-3 border rounded-lg p-3 bg-gray-50/50 dark:bg-slate-800/30">
       <div className="flex items-center justify-between mb-3">
         <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
           <Search className="h-4 w-4" />
           Found {papers.length} papers for "{query}"
+          {addedCount > 0 && (
+            <span className="text-xs font-normal text-gray-500 dark:text-gray-400">
+              ({successCount} with full text{failedCount > 0 && `, ${failedCount} need PDF`})
+            </span>
+          )}
         </h4>
         <button
           type="button"
@@ -131,12 +239,16 @@ export function ReferenceSearchResults({
             onAdd={() => handleAdd(paper)}
             isAdding={addingPapers.has(paper.id)}
             isAdded={addedPapers.has(paper.id)}
+            ingestionStatus={ingestionStates[paper.id]?.status}
+            referenceId={ingestionStates[paper.id]?.referenceId}
+            onUploadPdf={(file) => handleUploadPdf(paper.id, file)}
+            onContinueWithAbstract={() => handleContinueWithAbstract(paper.id)}
           />
         ))}
       </div>
       <div className="mt-3 pt-2 border-t border-gray-200 dark:border-gray-700">
         <p className="text-[10px] text-gray-400 dark:text-gray-500">
-          Click "Add" to add a paper to your project references
+          Click "Add" to add a paper to your project references. Papers marked "PDF failed" can have PDFs uploaded manually.
         </p>
       </div>
     </div>

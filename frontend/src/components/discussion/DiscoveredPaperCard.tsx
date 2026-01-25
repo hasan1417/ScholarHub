@@ -1,4 +1,5 @@
-import { Check, Loader2, Plus, ExternalLink, Unlock } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { Check, Loader2, Plus, ExternalLink, Unlock, AlertTriangle, Upload, FileText } from 'lucide-react'
 
 export interface DiscoveredPaper {
   id: string
@@ -15,11 +16,18 @@ export interface DiscoveredPaper {
   journal?: string
 }
 
+export type IngestionStatus = 'pending' | 'success' | 'failed' | 'no_pdf' | 'uploading'
+
 interface DiscoveredPaperCardProps {
   paper: DiscoveredPaper
   onAdd: () => void
   isAdding: boolean
   isAdded: boolean
+  // New props for ingestion tracking
+  ingestionStatus?: IngestionStatus
+  referenceId?: string
+  onUploadPdf?: (file: File) => void
+  onContinueWithAbstract?: () => void
 }
 
 export function DiscoveredPaperCard({
@@ -27,7 +35,16 @@ export function DiscoveredPaperCard({
   onAdd,
   isAdding,
   isAdded,
+  ingestionStatus,
+  referenceId: _referenceId,
+  onUploadPdf,
+  onContinueWithAbstract,
 }: DiscoveredPaperCardProps) {
+  // referenceId is passed for potential future use (e.g., linking to reference details)
+  void _referenceId
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [showOptions, setShowOptions] = useState(false)
+
   const formatAuthors = () => {
     if (!paper.authors || paper.authors.length === 0) return 'Unknown authors'
     const displayAuthors = paper.authors.slice(0, 3).join(', ')
@@ -47,8 +64,130 @@ export function DiscoveredPaperCard({
     return colors[source.toLowerCase()] || 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
   }
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file && onUploadPdf) {
+      onUploadPdf(file)
+      setShowOptions(false)
+    }
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
+  const handleContinueWithAbstract = () => {
+    if (onContinueWithAbstract) {
+      onContinueWithAbstract()
+      setShowOptions(false)
+    }
+  }
+
+  // Render the action button based on state
+  const renderActionButton = () => {
+    // Not yet added - show Add button
+    if (!isAdded) {
+      return (
+        <button
+          type="button"
+          onClick={onAdd}
+          disabled={isAdding}
+          className="shrink-0 inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 disabled:bg-indigo-300 dark:disabled:bg-indigo-500/40"
+        >
+          {isAdding ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <>
+              <Plus className="h-3 w-3" />
+              Add
+            </>
+          )}
+        </button>
+      )
+    }
+
+    // Added - show status based on ingestion result
+    switch (ingestionStatus) {
+      case 'uploading':
+        return (
+          <div className="shrink-0 inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Uploading...
+          </div>
+        )
+
+      case 'success':
+        return (
+          <div className="shrink-0 inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300">
+            <Check className="h-3 w-3" />
+            Full text
+          </div>
+        )
+
+      case 'failed':
+        return (
+          <div className="shrink-0 relative">
+            <button
+              type="button"
+              onClick={() => setShowOptions(!showOptions)}
+              className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50 transition"
+            >
+              <AlertTriangle className="h-3 w-3" />
+              PDF failed
+            </button>
+            {showOptions && (
+              <div className="absolute right-0 top-full mt-1 z-10 w-48 rounded-md bg-white dark:bg-slate-800 shadow-lg ring-1 ring-black ring-opacity-5 py-1">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-700"
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  Upload PDF manually
+                </button>
+                <button
+                  type="button"
+                  onClick={handleContinueWithAbstract}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-700"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  Continue with abstract
+                </button>
+              </div>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,application/pdf"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+          </div>
+        )
+
+      case 'no_pdf':
+        return (
+          <div className="shrink-0 inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium bg-gray-50 text-gray-500 dark:bg-gray-800/50 dark:text-gray-400">
+            <FileText className="h-3 w-3" />
+            Abstract only
+          </div>
+        )
+
+      default:
+        // Pending or just added
+        return (
+          <div className="shrink-0 inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300">
+            <Check className="h-3 w-3" />
+            Added
+          </div>
+        )
+    }
+  }
+
   return (
-    <div className="border rounded-lg p-3 bg-white dark:bg-slate-800/60 hover:border-indigo-300 dark:hover:border-indigo-500/50 transition-colors">
+    <div className={`border rounded-lg p-3 bg-white dark:bg-slate-800/60 hover:border-indigo-300 dark:hover:border-indigo-500/50 transition-colors ${
+      ingestionStatus === 'failed' ? 'border-amber-200 dark:border-amber-500/30' : ''
+    }`}>
       <div className="flex justify-between items-start gap-3">
         <div className="flex-1 min-w-0">
           <h4 className="font-medium text-sm leading-tight line-clamp-2 text-gray-900 dark:text-gray-100">
@@ -105,30 +244,7 @@ export function DiscoveredPaperCard({
             )}
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onAdd}
-          disabled={isAdding || isAdded}
-          className={`shrink-0 inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition ${
-            isAdded
-              ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300 cursor-default'
-              : 'bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 disabled:bg-indigo-300 dark:disabled:bg-indigo-500/40'
-          }`}
-        >
-          {isAdded ? (
-            <>
-              <Check className="h-3 w-3" />
-              Added
-            </>
-          ) : isAdding ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : (
-            <>
-              <Plus className="h-3 w-3" />
-              Add
-            </>
-          )}
-        </button>
+        {renderActionButton()}
       </div>
     </div>
   )
