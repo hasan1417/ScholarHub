@@ -167,27 +167,19 @@ export function DiscoveredPaperCard({
 
       case 'no_pdf':
         return (
-          <div className="shrink-0 relative">
-            <button
-              type="button"
-              onClick={() => setShowOptions(!showOptions)}
-              className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium bg-gray-50 text-gray-500 dark:bg-gray-800/50 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition"
-            >
+          <div className="shrink-0 flex items-center gap-2">
+            <span className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium bg-gray-50 text-gray-500 dark:bg-gray-800/50 dark:text-gray-400">
               <FileText className="h-3 w-3" />
               Abstract only
+            </span>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium bg-indigo-50 text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300 dark:hover:bg-indigo-900/50 transition"
+            >
+              <Upload className="h-3 w-3" />
+              Upload PDF
             </button>
-            {showOptions && (
-              <div className="absolute right-0 top-full mt-1 z-10 w-48 rounded-md bg-white dark:bg-slate-800 shadow-lg ring-1 ring-black ring-opacity-5 py-1">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-700"
-                >
-                  <Upload className="h-3.5 w-3.5" />
-                  Upload PDF for full text
-                </button>
-              </div>
-            )}
             <input
               ref={fileInputRef}
               type="file"
