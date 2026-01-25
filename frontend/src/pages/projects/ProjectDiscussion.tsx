@@ -1550,6 +1550,36 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         return
       }
 
+      // Process search_results immediately (don't wait for effect) to avoid delay
+      const searchResultsAction = data.suggested_actions?.find(
+        (action: DiscussionAssistantSuggestedAction) => action.action_type === 'search_results'
+      )
+      if (searchResultsAction && originalChannelId) {
+        const payload = searchResultsAction.payload as { query?: string; papers?: DiscoveredPaper[] } | undefined
+        const papers = payload?.papers || []
+        const query = payload?.query || ''
+        if (papers.length > 0) {
+          setSearchResultsByChannel(prev => ({
+            ...prev,
+            [originalChannelId]: {
+              exchangeId: entryId,
+              papers: papers,
+              query: query,
+              isSearching: false,
+            }
+          }))
+          setDiscoveryQueueByChannel(prev => ({
+            ...prev,
+            [originalChannelId]: {
+              papers: papers,
+              query: query,
+              isSearching: false,
+              notification: `Found ${papers.length} paper${papers.length !== 1 ? 's' : ''} for "${query}"`,
+            }
+          }))
+        }
+      }
+
       setAssistantHistory((prev) => {
       const exists = prev.some((entry) => entry.id === entryId)
       if (!exists) {

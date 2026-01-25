@@ -462,7 +462,16 @@ TOOLS:
 
 **Paper Focus & Analysis:**
 - focus_on_papers: Load specific papers into focus for detailed discussion
-- analyze_across_papers: Compare and analyze across focused papers
+- analyze_across_papers: Compare and analyze across focused papers - USE THIS when papers are focused!
+
+**CRITICAL - FOCUSED PAPERS RULE:**
+When you see "FOCUSED PAPERS" in the context above, you MUST use analyze_across_papers for:
+- "Compare the methodologies" → analyze_across_papers
+- "What are the key findings?" → analyze_across_papers
+- "How do they differ?" → analyze_across_papers
+- "Summarize what we discussed" → analyze_across_papers
+- ANY question about the focused papers → analyze_across_papers
+DO NOT search again when papers are already focused!
 
 **Content Creation:**
 - get_project_papers: Get user's draft papers in this project
@@ -3963,6 +3972,28 @@ Return ONLY valid JSON, no explanation:"""
         if memory.get("summary"):
             lines.append("## Previous Conversation Summary")
             lines.append(memory["summary"])
+            lines.append("")
+
+        # CRITICAL: Include focused papers so AI knows to use analyze_across_papers
+        focused_papers = memory.get("focused_papers", [])
+        if focused_papers:
+            lines.append("## FOCUSED PAPERS (Use analyze_across_papers for questions about these)")
+            for i, p in enumerate(focused_papers, 1):
+                paper_line = f"[{i}] {p.get('title', 'Untitled')}"
+                if p.get('authors'):
+                    authors = p['authors']
+                    if isinstance(authors, list):
+                        authors = ', '.join(authors[:2]) + ('...' if len(authors) > 2 else '')
+                    paper_line += f" - {authors}"
+                if p.get('year'):
+                    paper_line += f" ({p['year']})"
+                if p.get('has_full_text'):
+                    paper_line += " [Full Text]"
+                else:
+                    paper_line += " [Abstract Only]"
+                lines.append(paper_line)
+            lines.append("")
+            lines.append("**IMPORTANT:** For ANY question about these papers (compare, summarize, discuss), use the analyze_across_papers tool!")
             lines.append("")
 
         # Tier 3: Research state (Phase 3)
