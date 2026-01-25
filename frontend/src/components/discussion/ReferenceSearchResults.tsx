@@ -45,29 +45,33 @@ export function ReferenceSearchResults({
   useEffect(() => {
     if (!externalUpdates || externalUpdates.length === 0) return
 
-    const newAddedPapers = new Set(addedPapers)
-    const newIngestionStates = { ...ingestionStates }
-
-    for (const update of externalUpdates) {
-      // Find the paper by index
-      const paper = papers[update.index]
-      if (!paper) continue
-
-      // Mark as added
-      newAddedPapers.add(paper.id)
-
-      // Set ingestion state
-      newIngestionStates[paper.id] = {
-        referenceId: update.reference_id,
-        status: update.ingestion_status,
+    // Use functional updates to avoid stale closure issues
+    setAddedPapers(prev => {
+      const next = new Set(prev)
+      for (const update of externalUpdates) {
+        const paper = papers[update.index]
+        if (paper) next.add(paper.id)
       }
-    }
+      return next
+    })
 
-    setAddedPapers(newAddedPapers)
-    setIngestionStates(newIngestionStates)
+    setIngestionStates(prev => {
+      const next = { ...prev }
+      for (const update of externalUpdates) {
+        const paper = papers[update.index]
+        if (paper) {
+          next[paper.id] = {
+            referenceId: update.reference_id,
+            status: update.ingestion_status,
+          }
+        }
+      }
+      return next
+    })
+
     // Invalidate references to refresh library
     queryClient.invalidateQueries({ queryKey: ['projectReferences', projectId] })
-  }, [externalUpdates]) // Only run when externalUpdates changes
+  }, [externalUpdates, papers, projectId, queryClient])
 
   const addReferenceMutation = useMutation({
     mutationFn: async (paper: DiscoveredPaper) => {
