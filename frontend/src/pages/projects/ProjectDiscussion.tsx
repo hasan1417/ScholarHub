@@ -171,6 +171,13 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     isSearching: boolean
   }>>({})
 
+  // Library update state - ingestion status updates from AI's add_to_library tool
+  const [libraryUpdatesByChannel, setLibraryUpdatesByChannel] = useState<Record<string, {
+    index: number
+    reference_id: string
+    ingestion_status: 'success' | 'failed' | 'no_pdf' | 'pending'
+  }[]>>({})
+
   // Get current channel's search results
   const referenceSearchResults = activeChannelId ? searchResultsByChannel[activeChannelId] || null : null
 
@@ -2123,6 +2130,26 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       return
     }
 
+    // Handle library_update - ingestion status updates from AI's add_to_library tool
+    if (action.action_type === 'library_update') {
+      const payload = action.payload as { updates?: { index: number; reference_id: string; ingestion_status: string }[] } | undefined
+      const updates = payload?.updates || []
+      markActionApplied(exchange.id, actionKey)
+
+      if (updates.length > 0 && activeChannelId) {
+        // Store the updates for the current channel so ReferenceSearchResults can use them
+        setLibraryUpdatesByChannel(prev => ({
+          ...prev,
+          [activeChannelId]: updates.map(u => ({
+            index: u.index,
+            reference_id: u.reference_id,
+            ingestion_status: u.ingestion_status as 'success' | 'failed' | 'no_pdf' | 'pending',
+          })),
+        }))
+      }
+      return
+    }
+
     if (action.action_type === 'artifact_created') {
       const title = String(action.payload?.title || 'download').trim()
       const filename = String(action.payload?.filename || `${title}.md`).trim()
@@ -2695,6 +2722,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                           projectId={project.id}
                           isSearching={referenceSearchResults.isSearching}
                           onClose={() => setReferenceSearchResults(null)}
+                          externalUpdates={activeChannelId ? libraryUpdatesByChannel[activeChannelId] : undefined}
                         />
                       ) : null
                     })()}

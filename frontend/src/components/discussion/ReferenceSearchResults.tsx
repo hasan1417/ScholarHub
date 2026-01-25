@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { X, Loader2, Search, AlertCircle } from 'lucide-react'
 import { DiscoveredPaperCard, DiscoveredPaper, IngestionStatus } from './DiscoveredPaperCard'
@@ -10,12 +10,21 @@ interface PaperIngestionState {
   status: IngestionStatus
 }
 
+// External updates from AI's add_to_library action
+export interface LibraryUpdateItem {
+  index: number
+  reference_id: string
+  ingestion_status: IngestionStatus
+}
+
 interface ReferenceSearchResultsProps {
   papers: DiscoveredPaper[]
   query: string
   projectId: string
   onClose: () => void
   isSearching?: boolean
+  // External ingestion updates from AI's add_to_library tool
+  externalUpdates?: LibraryUpdateItem[]
 }
 
 export function ReferenceSearchResults({
@@ -24,12 +33,41 @@ export function ReferenceSearchResults({
   projectId,
   onClose,
   isSearching = false,
+  externalUpdates,
 }: ReferenceSearchResultsProps) {
   const queryClient = useQueryClient()
   const [addedPapers, setAddedPapers] = useState<Set<string>>(new Set())
   const [addingPapers, setAddingPapers] = useState<Set<string>>(new Set())
   // Track ingestion status per paper
   const [ingestionStates, setIngestionStates] = useState<Record<string, PaperIngestionState>>({})
+
+  // Apply external updates from AI's add_to_library action
+  useEffect(() => {
+    if (!externalUpdates || externalUpdates.length === 0) return
+
+    const newAddedPapers = new Set(addedPapers)
+    const newIngestionStates = { ...ingestionStates }
+
+    for (const update of externalUpdates) {
+      // Find the paper by index
+      const paper = papers[update.index]
+      if (!paper) continue
+
+      // Mark as added
+      newAddedPapers.add(paper.id)
+
+      // Set ingestion state
+      newIngestionStates[paper.id] = {
+        referenceId: update.reference_id,
+        status: update.ingestion_status,
+      }
+    }
+
+    setAddedPapers(newAddedPapers)
+    setIngestionStates(newIngestionStates)
+    // Invalidate references to refresh library
+    queryClient.invalidateQueries({ queryKey: ['projectReferences', projectId] })
+  }, [externalUpdates]) // Only run when externalUpdates changes
 
   const addReferenceMutation = useMutation({
     mutationFn: async (paper: DiscoveredPaper) => {

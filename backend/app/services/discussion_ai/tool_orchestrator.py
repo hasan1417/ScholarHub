@@ -2941,6 +2941,24 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         if not message_parts:
             message_parts.append("No papers to add.")
 
+        # Build library_update action so frontend can update search results UI
+        library_updates = []
+        for paper in added_papers:
+            # Map backend ingestion_status to frontend IngestionStatus type
+            status_map = {
+                "success": "success",
+                "failed": "failed",
+                "error": "failed",
+                "no_pdf_available": "no_pdf",
+                "skipped": "success",  # Already processed
+            }
+            frontend_status = status_map.get(paper.get("ingestion_status", ""), "pending")
+            library_updates.append({
+                "index": paper.get("index"),
+                "reference_id": paper.get("reference_id"),
+                "ingestion_status": frontend_status,
+            })
+
         return {
             "status": "success" if added_papers else "error",
             "message": " ".join(message_parts),
@@ -2956,6 +2974,13 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             },
             "next_step": "Use get_reference_details(reference_id) to read the full content of ingested papers before creating your paper." if ingested_count > 0 else "Papers added with abstract only. You can create a paper based on abstracts, but full PDF analysis is not available.",
             "citation_instructions": "When creating the paper, use \\cite{cite_key} with the cite_key values provided for each paper above. This ensures references are properly linked.",
+            # Action to update frontend search results UI with ingestion status
+            "action": {
+                "type": "library_update",
+                "payload": {
+                    "updates": library_updates,
+                },
+            },
         }
 
     def _tool_update_project_info(
