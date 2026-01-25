@@ -1968,6 +1968,7 @@ class PaperActionResponse(BaseModel):
     paper_id: Optional[str] = None
     reference_id: Optional[str] = None
     message: str
+    ingestion_status: Optional[str] = None  # 'success', 'failed', 'no_pdf', 'pending'
 
 
 @router.post("/projects/{project_id}/discussion/paper-action")
@@ -2273,38 +2274,39 @@ def _handle_add_reference(
     # Truncate title for message
     short_title = title[:50] + "..." if len(title) > 50 else title
     message = f"Added '{short_title}' to references"
+    ingestion_status = None
 
-    # Trigger PDF ingestion in background if available
-    if pdf_url and background_tasks:
-        ref_id = ref.id
-        owner_id = str(user.id)
-
-        def _ingest_pdf_background():
-            """Run PDF ingestion in background thread with new DB session."""
-            try:
-                from app.services.reference_ingestion_service import ingest_reference_pdf
-                with SessionLocal() as bg_db:
-                    bg_ref = bg_db.query(Reference).filter(Reference.id == ref_id).first()
-                    if bg_ref:
-                        ingest_reference_pdf(bg_db, bg_ref, owner_id=owner_id)
-                        logger.info("PDF ingestion completed for reference %s", ref_id)
-            except Exception as e:
-                logger.warning("Background PDF ingestion failed for reference %s: %s", ref_id, e)
-
-        background_tasks.add_task(_ingest_pdf_background)
-        message += " (PDF processing in background)"
-        logger.info("PDF ingestion queued for reference %s", ref.id)
+    # Run PDF ingestion synchronously to return actual status
+    if pdf_url:
+        try:
+            from app.services.reference_ingestion_service import ingest_reference_pdf
+            success = ingest_reference_pdf(db, ref, owner_id=str(user.id))
+            if success:
+                ingestion_status = "success"
+                message += " (PDF ingested for full-text analysis)"
+            else:
+                ingestion_status = "failed"
+                message += " (PDF ingestion failed - you can upload manually)"
+            logger.info("PDF ingestion for reference %s: %s", ref.id, ingestion_status)
+        except Exception as e:
+            logger.warning("PDF ingestion failed for reference %s: %s", ref.id, e)
+            ingestion_status = "failed"
+            message += " (PDF ingestion failed - you can upload manually)"
+    else:
+        ingestion_status = "no_pdf"
+        message += " (no PDF available - abstract only)"
 
     logger.info(
-        "Reference added via discussion AI: ref_id=%s title=%s project_id=%s",
-        ref.id, title[:50], project.id
+        "Reference added via discussion AI: ref_id=%s title=%s project_id=%s ingestion=%s",
+        ref.id, title[:50], project.id, ingestion_status
     )
 
     return PaperActionResponse(
         success=True,
         paper_id=str(ref.id),
         reference_id=str(ref.id),
-        message=message
+        message=message,
+        ingestion_status=ingestion_status
     )
 
 

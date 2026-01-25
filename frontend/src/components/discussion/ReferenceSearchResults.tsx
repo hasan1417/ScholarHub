@@ -61,19 +61,18 @@ export function ReferenceSearchResults({
       if (data.success && data.reference_id) {
         setAddedPapers((prev) => new Set([...prev, paperId]))
 
-        // Determine ingestion status based on response
-        // The backend returns ingestion_status in the response
+        // Use the actual ingestion_status from the backend response
         let ingestionStatus: IngestionStatus = 'pending'
 
-        // Check if the response contains ingestion info (from add_to_library tool)
-        // The paper-action endpoint may not return detailed ingestion status,
-        // so we infer from whether there was a pdf_url
-        if (!paper.pdf_url) {
-          ingestionStatus = 'no_pdf'
-        } else {
-          // Assume pending/success - the actual status would come from polling or the response
-          // For now, mark as success if we have a pdf_url (ingestion was attempted)
+        if (data.ingestion_status === 'success') {
           ingestionStatus = 'success'
+        } else if (data.ingestion_status === 'failed') {
+          ingestionStatus = 'failed'
+        } else if (data.ingestion_status === 'no_pdf') {
+          ingestionStatus = 'no_pdf'
+        } else if (!paper.pdf_url) {
+          // Fallback for older responses without ingestion_status
+          ingestionStatus = 'no_pdf'
         }
 
         setIngestionStates((prev) => ({
