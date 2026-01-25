@@ -252,43 +252,35 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
 
   const resolveAuthorLabel = useCallback(
     (author?: AssistantExchange['author']) => {
-      console.log('🔍 resolveAuthorLabel called with:', JSON.stringify(author, null, 2))
-
       if (!author) return 'Someone'
 
       // If it's the current user, always use consistent name
       const sameUser = Boolean(author.id && user?.id && author.id === user.id)
       if (sameUser) {
-        console.log('✅ Same user, returning:', viewerDisplayName)
         return viewerDisplayName || 'You'
       }
 
       // If author.name is a string, use it directly
       if (typeof author.name === 'string' && author.name.trim()) {
-        console.log('✅ String name, returning:', author.name.trim())
         return author.name.trim()
       }
 
       // If author.name is an object, try display first, then combine first + last
       if (author.name && typeof author.name === 'object') {
         const nameObj = author.name as { display?: string; first?: string; last?: string }
-        console.log('📦 Name object:', nameObj)
 
         if (nameObj.display?.trim()) {
-          console.log('✅ Using display field:', nameObj.display.trim())
           return nameObj.display.trim()
         }
 
         const first = nameObj.first?.trim() || ''
         const last = nameObj.last?.trim() || ''
         const combined = [first, last].filter(Boolean).join(' ')
-        console.log('✅ Combined first+last:', combined, '(first:', first, 'last:', last, ')')
         if (first || last) {
           return combined
         }
       }
 
-      console.log('⚠️ Fallback to Someone')
       return 'Someone'
     },
     [user?.id, viewerDisplayName],
@@ -1550,36 +1542,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         return
       }
 
-      // Process search_results immediately (don't wait for effect) to avoid delay
-      const searchResultsAction = data.suggested_actions?.find(
-        (action: DiscussionAssistantSuggestedAction) => action.action_type === 'search_results'
-      )
-      if (searchResultsAction && originalChannelId) {
-        const payload = searchResultsAction.payload as { query?: string; papers?: DiscoveredPaper[] } | undefined
-        const papers = payload?.papers || []
-        const query = payload?.query || ''
-        if (papers.length > 0) {
-          setSearchResultsByChannel(prev => ({
-            ...prev,
-            [originalChannelId]: {
-              exchangeId: entryId,
-              papers: papers,
-              query: query,
-              isSearching: false,
-            }
-          }))
-          setDiscoveryQueueByChannel(prev => ({
-            ...prev,
-            [originalChannelId]: {
-              papers: papers,
-              query: query,
-              isSearching: false,
-              notification: `Found ${papers.length} paper${papers.length !== 1 ? 's' : ''} for "${query}"`,
-            }
-          }))
-        }
-      }
-
+      // First update the exchange in history so it has the response with suggested_actions
       setAssistantHistory((prev) => {
       const exists = prev.some((entry) => entry.id === entryId)
       if (!exists) {
@@ -1629,6 +1592,37 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
             : entry,
         )
       })
+
+      // Process search_results AFTER history update so exchange has suggested_actions when rendering
+      const searchResultsAction = data.suggested_actions?.find(
+        (action: DiscussionAssistantSuggestedAction) => action.action_type === 'search_results'
+      )
+      if (searchResultsAction && originalChannelId) {
+        const payload = searchResultsAction.payload as { query?: string; papers?: DiscoveredPaper[] } | undefined
+        const papers = payload?.papers || []
+        const query = payload?.query || ''
+        if (papers.length > 0) {
+          setSearchResultsByChannel(prev => ({
+            ...prev,
+            [originalChannelId]: {
+              exchangeId: entryId,
+              papers: papers,
+              query: query,
+              isSearching: false,
+            }
+          }))
+          setDiscoveryQueueByChannel(prev => ({
+            ...prev,
+            [originalChannelId]: {
+              papers: papers,
+              query: query,
+              isSearching: false,
+              notification: `Found ${papers.length} paper${papers.length !== 1 ? 's' : ''} for "${query}"`,
+            }
+          }))
+        }
+      }
+
       const lookup = buildCitationLookup(data.citations)
       const formatted = formatAssistantMessage(data.message, lookup)
       const wasStreamed = streamingFlags.current[entryId]
@@ -2505,7 +2499,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         {conversationItems.map((item) => {
           if (item.kind === 'assistant') {
             const { exchange } = item
-          console.log('Rendering AI exchange:', exchange.id, 'author:', exchange.author)
           const citationLookup = buildCitationLookup(exchange.response.citations)
           const formattedMessage = formatAssistantMessage(exchange.response.message, citationLookup)
           const askedLabel = formatDistanceToNow(exchange.createdAt, { addSuffix: true })
@@ -2515,7 +2508,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           const displayedMessage = exchange.displayMessage || formattedMessage
           const showTyping = !displayedMessage && exchange.status !== 'complete'
           const authorLabel = resolveAuthorLabel(exchange.author)
-          console.log('authorLabel result:', authorLabel)
           const avatarText = authorLabel.trim().charAt(0).toUpperCase() || 'U'
           const promptBubbleClass = 'inline-block max-w-fit rounded-2xl bg-purple-50/70 px-4 py-2 shadow-sm ring-2 ring-purple-200 transition dark:bg-purple-500/15 dark:ring-purple-400/40 dark:shadow-purple-900/30'
           const responseBubbleClass = 'inline-block max-w-fit rounded-2xl bg-white px-4 py-2 transition dark:bg-slate-800/70 dark:ring-1 dark:ring-slate-700'

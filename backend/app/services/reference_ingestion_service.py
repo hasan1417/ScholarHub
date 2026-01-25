@@ -72,8 +72,13 @@ def _resolve_owner_id(db: Session, reference: Reference, fallback_owner: Optiona
 
 
 def _fetch_pdf(url: str) -> Optional[Response]:
+    # Use browser-like headers to avoid bot blocking by publishers
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/pdf,*/*",
+    }
     try:
-        resp = requests.get(url, timeout=20)
+        resp = requests.get(url, timeout=30, headers=headers, allow_redirects=True)
     except Exception as exc:  # pragma: no cover - network variability
         logger.warning("Failed to download PDF from %s: %s", url, exc)
         return None
@@ -83,7 +88,10 @@ def _fetch_pdf(url: str) -> Optional[Response]:
         return None
 
     content_type = (resp.headers.get("content-type") or "").lower()
-    if "pdf" not in content_type and not url.lower().endswith(".pdf"):
+    # Accept PDF content-type, octet-stream (common for downloads), or URLs ending in .pdf
+    is_pdf_content = "pdf" in content_type or "octet-stream" in content_type
+    is_pdf_url = url.lower().endswith(".pdf") or "download" in url.lower()
+    if not is_pdf_content and not is_pdf_url:
         logger.info("Downloaded content from %s is not a PDF (content-type=%s)", url, content_type)
         return None
 

@@ -11,6 +11,8 @@ import json
 import logging
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
+from sqlalchemy.orm.attributes import flag_modified
+
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
     from app.models import Project, ProjectDiscussionChannel, User
@@ -738,6 +740,11 @@ class ToolOrchestrator:
         full_context = context_summary
         if memory_context:
             full_context = f"{context_summary}\n\n{memory_context}"
+            logger.info(f"Memory context added to prompt. Length: {len(memory_context)}")
+            if "FOCUSED PAPERS" in memory_context:
+                logger.info("✅ FOCUSED PAPERS section is in the context!")
+            else:
+                logger.info("❌ FOCUSED PAPERS section NOT in the context")
 
         system_prompt = BASE_SYSTEM_PROMPT.format(
             project_title=project.title,
@@ -1232,7 +1239,7 @@ class ToolOrchestrator:
                 elif name == "analyze_reference":
                     result = self._tool_analyze_reference(ctx, **args)
                 elif name == "search_papers":
-                    result = self._tool_search_papers(**args)
+                    result = self._tool_search_papers(ctx, **args)
                 elif name == "get_project_papers":
                     result = self._tool_get_project_papers(ctx, **args)
                     # Cache the result
@@ -1562,12 +1569,28 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             logger.exception(f"Error analyzing reference {reference_id}")
             return {"error": f"Analysis failed: {str(e)}"}
 
-    def _tool_search_papers(self, query: str, count: int = 5, open_access_only: bool = False) -> Dict:
+    def _tool_search_papers(self, ctx: Dict[str, Any], query: str, count: int = 5, open_access_only: bool = False) -> Dict:
         """Search for papers online and return results directly."""
         import asyncio
         from app.services.paper_discovery_service import PaperDiscoveryService
+        from app.models import Reference, ProjectReference
 
         oa_note = " (Open Access only)" if open_access_only else ""
+        project = ctx.get("project")
+
+        # Build lookup for existing library references
+        library_refs_by_doi = {}
+        library_refs_by_title = {}
+        if project:
+            library_refs = self.db.query(Reference).join(
+                ProjectReference, ProjectReference.reference_id == Reference.id
+            ).filter(ProjectReference.project_id == project.id).all()
+
+            for ref in library_refs:
+                if ref.doi:
+                    library_refs_by_doi[ref.doi.lower().replace("https://doi.org/", "").strip()] = ref
+                if ref.title:
+                    library_refs_by_title[ref.title.lower().strip()] = ref
 
         # Create event loop FIRST before any async objects
         loop = asyncio.new_event_loop()
@@ -1579,8 +1602,8 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             sources = ["arxiv", "semantic_scholar", "openalex", "crossref"]
             max_results = min(count, 20)  # Cap at 20 results
 
-            # Request more if filtering for open access
-            search_max = max_results * 3 if open_access_only else max_results
+            # Request more to account for filtering (open access + library duplicates)
+            search_max = max_results * 3
 
             # Run async search
             result = loop.run_until_complete(discovery_service.discover_papers(
@@ -1595,24 +1618,38 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             if open_access_only:
                 source_papers = [p for p in source_papers if p.pdf_url or p.open_access_url]
 
-            # Format results for AI
+            # Format results - only include papers NOT already in library
             papers = []
-            for idx, p in enumerate(source_papers[:max_results]):
-                # Convert authors to array format (frontend expects string[])
+
+            for p in source_papers:
+                # Check if paper is already in library - skip silently
+                matched_ref = None
+                if p.doi:
+                    matched_ref = library_refs_by_doi.get(p.doi.lower().replace("https://doi.org/", "").strip())
+                if not matched_ref and p.title:
+                    matched_ref = library_refs_by_title.get(p.title.lower().strip())
+
+                if matched_ref is not None:
+                    continue  # Skip - already in library
+
+                # Stop once we have enough new papers
+                if len(papers) >= max_results:
+                    break
+
+                # Convert authors to array format
                 authors_list = []
                 if p.authors:
                     if isinstance(p.authors, list):
                         authors_list = [str(a) for a in p.authors]
                     elif isinstance(p.authors, str):
-                        # Split string by comma or "and"
                         authors_list = [a.strip() for a in p.authors.replace(" and ", ", ").split(",") if a.strip()]
                     else:
                         authors_list = [str(p.authors)]
 
                 papers.append({
-                    "id": p.doi or p.url or f"paper-{idx}",  # Frontend needs an id
+                    "id": p.doi or p.url or f"paper-{len(papers)}",
                     "title": p.title,
-                    "authors": authors_list,  # Array, not string
+                    "authors": authors_list,
                     "year": p.year,
                     "abstract": p.abstract[:300] + "..." if p.abstract and len(p.abstract) > 300 else p.abstract,
                     "doi": p.doi,
@@ -1628,11 +1665,11 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 "status": "success",
                 "message": f"Found {len(papers)} papers for: '{query}'{oa_note}",
                 "action": {
-                    "type": "search_results",  # Frontend will display as cards
+                    "type": "search_results",
                     "payload": {
                         "query": query,
                         "papers": papers,
-                        "total_found": len(result.papers),
+                        "total_found": len(papers),
                     },
                 },
             }
@@ -3124,6 +3161,21 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         focused_papers = []
         errors = []
 
+        # Build lookup for existing library references (to check if search results are already ingested)
+        library_refs_by_doi = {}
+        library_refs_by_title = {}
+        if paper_indices:
+            # Pre-fetch library references for matching
+            library_refs = self.db.query(Reference).join(
+                ProjectReference, ProjectReference.reference_id == Reference.id
+            ).filter(ProjectReference.project_id == project.id).all()
+
+            for ref in library_refs:
+                if ref.doi:
+                    library_refs_by_doi[ref.doi.lower().replace("https://doi.org/", "").strip()] = ref
+                if ref.title:
+                    library_refs_by_title[ref.title.lower().strip()] = ref
+
         # Get papers from search results by index
         if paper_indices:
             for idx in paper_indices:
@@ -3132,19 +3184,51 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                     continue
 
                 paper = recent_search_results[idx]
-                focused_papers.append({
-                    "source": "search_result",
-                    "index": idx,
-                    "title": paper.get("title", "Untitled"),
-                    "authors": paper.get("authors", "Unknown"),
-                    "year": paper.get("year"),
-                    "abstract": paper.get("abstract", ""),
-                    "doi": paper.get("doi"),
-                    "url": paper.get("url"),
-                    "pdf_url": paper.get("pdf_url"),
-                    "is_open_access": paper.get("is_open_access", False),
-                    "has_full_text": False,  # Search results only have abstracts
-                })
+
+                # Check if this paper is already in the library (by DOI or title)
+                matched_ref = None
+                paper_doi = paper.get("doi", "")
+                if paper_doi:
+                    matched_ref = library_refs_by_doi.get(paper_doi.lower().replace("https://doi.org/", "").strip())
+                if not matched_ref and paper.get("title"):
+                    matched_ref = library_refs_by_title.get(paper["title"].lower().strip())
+
+                if matched_ref and matched_ref.status in ("ingested", "analyzed"):
+                    # Paper is already in library with ingested PDF - use that data!
+                    logger.info(f"Focus: Found '{paper.get('title', '')[:50]}' already ingested in library")
+                    focused_papers.append({
+                        "source": "library",  # Mark as library source since we're using library data
+                        "reference_id": str(matched_ref.id),
+                        "index": idx,
+                        "title": matched_ref.title,
+                        "authors": matched_ref.authors if isinstance(matched_ref.authors, str) else ", ".join(matched_ref.authors or []),
+                        "year": matched_ref.year,
+                        "abstract": matched_ref.abstract or paper.get("abstract", ""),
+                        "doi": matched_ref.doi,
+                        "url": matched_ref.url,
+                        "pdf_url": paper.get("pdf_url"),
+                        "is_open_access": paper.get("is_open_access", False),
+                        "summary": matched_ref.summary,
+                        "key_findings": matched_ref.key_findings,
+                        "methodology": matched_ref.methodology,
+                        "limitations": matched_ref.limitations,
+                        "has_full_text": True,  # Already ingested!
+                    })
+                else:
+                    # Paper not in library or not ingested - use search result data
+                    focused_papers.append({
+                        "source": "search_result",
+                        "index": idx,
+                        "title": paper.get("title", "Untitled"),
+                        "authors": paper.get("authors", "Unknown"),
+                        "year": paper.get("year"),
+                        "abstract": paper.get("abstract", ""),
+                        "doi": paper.get("doi"),
+                        "url": paper.get("url"),
+                        "pdf_url": paper.get("pdf_url"),
+                        "is_open_access": paper.get("is_open_access", False),
+                        "has_full_text": False,  # Search results only have abstracts
+                    })
 
         # Get papers from library by reference ID
         if reference_ids:
@@ -3206,6 +3290,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             memory = self._get_ai_memory(channel)
             memory["focused_papers"] = focused_papers
             self._save_ai_memory(channel, memory)
+            logger.info(f"✅ Saved {len(focused_papers)} focused papers to channel memory (channel_id: {channel.id})")
 
         # Build summary for response and count full-text papers
         paper_summaries = []
@@ -3308,10 +3393,15 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         analysis_question: str,
     ) -> Dict:
         """
-        Cross-paper analysis across focused papers.
-        Synthesizes findings, notes agreements and disagreements.
+        Cross-paper analysis using RAG (Retrieval Augmented Generation).
+        Dynamically retrieves relevant chunks based on the analysis question.
         """
+        import math
+        from app.models import Reference, ProjectReference
+        from app.models.document_chunk import DocumentChunk
+
         channel = ctx.get("channel")
+        project = ctx.get("project")
         if not channel:
             return {
                 "status": "error",
@@ -3328,108 +3418,214 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 "suggestion": "Try: 'Focus on papers 1 and 2' or 'Focus on the first three papers from the search'",
             }
 
-        # Build context from focused papers and track depth
+        # Map focused papers to their reference IDs (if they exist in library)
+        paper_to_ref_id = {}
+        papers_with_chunks = []
+        papers_abstract_only = []
+
+        if project:
+            # Get all project references for matching
+            references = self.db.query(Reference).join(
+                ProjectReference, ProjectReference.reference_id == Reference.id
+            ).filter(ProjectReference.project_id == project.id).all()
+
+            # Build lookup maps
+            doi_to_ref = {}
+            title_to_ref = {}
+            url_to_ref = {}
+            for ref in references:
+                if ref.doi:
+                    doi_to_ref[ref.doi.lower().replace("https://doi.org/", "").strip()] = ref
+                if ref.title:
+                    title_to_ref[ref.title.lower().strip()] = ref
+                if ref.url:
+                    url_to_ref[ref.url] = ref
+
+            # Match focused papers to references
+            for i, paper in enumerate(focused_papers):
+                matched_ref = None
+                paper_doi = paper.get("doi", "")
+                if paper_doi:
+                    matched_ref = doi_to_ref.get(paper_doi.lower().replace("https://doi.org/", "").strip())
+                if not matched_ref and paper.get("title"):
+                    matched_ref = title_to_ref.get(paper["title"].lower().strip())
+                if not matched_ref and paper.get("url"):
+                    matched_ref = url_to_ref.get(paper["url"])
+
+                if matched_ref and matched_ref.document_id:
+                    paper_to_ref_id[i] = matched_ref
+                    papers_with_chunks.append((i, paper, matched_ref))
+                else:
+                    papers_abstract_only.append((i, paper))
+
+        # Use RAG to find relevant chunks for papers that have been ingested
+        rag_context_by_paper = {}
+
+        if papers_with_chunks and self.ai_service and self.ai_service.openai_client:
+            try:
+                # Create embedding for the analysis question
+                embedding_response = self.ai_service.openai_client.embeddings.create(
+                    model=self.ai_service.embedding_model,
+                    input=analysis_question
+                )
+                query_embedding = embedding_response.data[0].embedding
+
+                def cosine_similarity(a, b):
+                    try:
+                        dot = sum(x * y for x, y in zip(a, b))
+                        norm_a = math.sqrt(sum(x * x for x in a))
+                        norm_b = math.sqrt(sum(y * y for y in b))
+                        return dot / (norm_a * norm_b) if norm_a and norm_b else 0.0
+                    except:
+                        return 0.0
+
+                # For each paper with chunks, find the most relevant chunks
+                for paper_idx, paper, ref in papers_with_chunks:
+                    chunks = self.db.query(DocumentChunk).filter(
+                        DocumentChunk.document_id == ref.document_id
+                    ).all()
+
+                    if not chunks:
+                        papers_abstract_only.append((paper_idx, paper))
+                        continue
+
+                    # Score chunks by relevance to the question
+                    scored_chunks = []
+                    for chunk in chunks:
+                        if not chunk.chunk_text:
+                            continue
+
+                        emb = chunk.embedding
+                        if emb is not None:
+                            # Handle different embedding formats
+                            if isinstance(emb, str):
+                                try:
+                                    import json as _json
+                                    emb = _json.loads(emb)
+                                except:
+                                    emb = None
+
+                            if emb:
+                                score = cosine_similarity(query_embedding, emb)
+                                scored_chunks.append((chunk, score))
+                        else:
+                            # Fallback: keyword matching
+                            query_terms = [t.lower() for t in analysis_question.split() if len(t) > 2]
+                            text_lower = chunk.chunk_text.lower()
+                            score = sum(text_lower.count(term) for term in query_terms) / 100.0
+                            if score > 0:
+                                scored_chunks.append((chunk, score))
+
+                    # Sort by relevance and take top chunks (up to 4 per paper)
+                    scored_chunks.sort(key=lambda x: x[1], reverse=True)
+                    top_chunks = scored_chunks[:4]
+
+                    if top_chunks:
+                        # Build context from relevant chunks
+                        chunk_texts = []
+                        for chunk, score in top_chunks:
+                            # Truncate very long chunks
+                            text = chunk.chunk_text[:1500] if len(chunk.chunk_text) > 1500 else chunk.chunk_text
+                            chunk_texts.append(text)
+
+                        rag_context_by_paper[paper_idx] = {
+                            "chunks": chunk_texts,
+                            "chunk_count": len(top_chunks),
+                            "top_score": top_chunks[0][1] if top_chunks else 0,
+                        }
+                        logger.info(f"RAG: Found {len(top_chunks)} relevant chunks for paper {paper_idx + 1} (top score: {top_chunks[0][1]:.3f})")
+                    else:
+                        papers_abstract_only.append((paper_idx, paper))
+
+            except Exception as e:
+                logger.error(f"RAG embedding search failed: {e}")
+                # Fall back to treating all as abstract-only
+                for paper_idx, paper, ref in papers_with_chunks:
+                    papers_abstract_only.append((paper_idx, paper))
+
+        # Build the full context for the AI
         paper_contexts = []
         full_text_count = 0
         abstract_only_count = 0
 
-        for i, paper in enumerate(focused_papers, 1):
-            has_full = paper.get("has_full_text", False)
-            if has_full:
+        for i, paper in enumerate(focused_papers):
+            if i in rag_context_by_paper:
+                # Paper has RAG-retrieved content
                 full_text_count += 1
-                depth_marker = "[Full Text]"
+                rag_data = rag_context_by_paper[i]
+
+                context_parts = [f"### Paper {i + 1}: {paper.get('title', 'Untitled')} [Full Text - RAG Retrieved]"]
+                context_parts.append(f"**Authors:** {paper.get('authors', 'Unknown')}")
+                context_parts.append(f"**Year:** {paper.get('year', 'N/A')}")
+
+                # Include abstract for context
+                if paper.get("abstract"):
+                    context_parts.append(f"**Abstract:** {paper['abstract'][:400]}...")
+
+                # Include RAG-retrieved relevant content
+                context_parts.append(f"\n**Relevant Content ({rag_data['chunk_count']} passages retrieved for your question):**")
+                for j, chunk_text in enumerate(rag_data["chunks"], 1):
+                    context_parts.append(f"\n[Passage {j}]\n{chunk_text}")
+
+                paper_contexts.append("\n".join(context_parts))
             else:
+                # Abstract only
                 abstract_only_count += 1
-                depth_marker = "[Abstract Only]"
+                context_parts = [f"### Paper {i + 1}: {paper.get('title', 'Untitled')} [Abstract Only]"]
+                context_parts.append(f"**Authors:** {paper.get('authors', 'Unknown')}")
+                context_parts.append(f"**Year:** {paper.get('year', 'N/A')}")
 
-            context_parts = [f"### Paper {i}: {paper.get('title', 'Untitled')} {depth_marker}"]
-            context_parts.append(f"**Authors:** {paper.get('authors', 'Unknown')}")
-            context_parts.append(f"**Year:** {paper.get('year', 'N/A')}")
+                if paper.get("abstract"):
+                    context_parts.append(f"**Abstract:** {paper['abstract']}")
 
-            # Include abstract
-            if paper.get("abstract"):
-                context_parts.append(f"**Abstract:** {paper['abstract'][:500]}{'...' if len(paper.get('abstract', '')) > 500 else ''}")
+                paper_contexts.append("\n".join(context_parts))
 
-            # Include analysis if available
-            if has_full:
-                if paper.get("summary"):
-                    context_parts.append(f"**Summary:** {paper['summary']}")
-                if paper.get("key_findings"):
-                    findings = paper["key_findings"]
-                    if isinstance(findings, list):
-                        context_parts.append("**Key Findings:**")
-                        for f in findings[:5]:
-                            context_parts.append(f"- {f}")
-                if paper.get("methodology"):
-                    context_parts.append(f"**Methodology:** {paper['methodology'][:300]}")
-                if paper.get("limitations"):
-                    limitations = paper["limitations"]
-                    if isinstance(limitations, list) and limitations:
-                        context_parts.append(f"**Limitations:** {limitations[0]}")
+        full_context = "\n\n" + "=" * 50 + "\n\n".join(paper_contexts)
 
-            paper_contexts.append("\n".join(context_parts))
-
-        full_context = "\n\n---\n\n".join(paper_contexts)
-
-        # Build depth warning
+        # Build depth info
         depth_warning = None
         if abstract_only_count > 0:
             if abstract_only_count == len(focused_papers):
                 depth_warning = (
-                    "⚠️ **Limited Analysis Depth:** All papers have only abstracts available. "
-                    "This analysis will be based on high-level information only. "
-                    "For detailed methodology comparisons, specific findings, or limitation analysis, "
-                    "please add these papers to your library and ingest their PDFs first."
+                    "⚠️ **Limited Analysis:** All papers have only abstracts available. "
+                    "For detailed analysis, add papers to library and ingest PDFs."
                 )
             else:
                 depth_warning = (
-                    f"⚠️ **Mixed Analysis Depth:** {abstract_only_count} paper(s) have only abstracts, "
-                    f"while {full_text_count} have full PDF analysis. "
-                    "Deeper insights are available for papers marked [Full Text]."
+                    f"📊 **Mixed Depth:** {full_text_count} paper(s) have full-text RAG retrieval, "
+                    f"{abstract_only_count} paper(s) have abstracts only."
                 )
 
-        # Store the analysis question in memory
+        # Store analysis info in memory
         memory.setdefault("cross_paper_analysis", {})["last_question"] = analysis_question
         memory["cross_paper_analysis"]["paper_count"] = len(focused_papers)
-        memory["cross_paper_analysis"]["full_text_count"] = full_text_count
-        memory["cross_paper_analysis"]["abstract_only_count"] = abstract_only_count
+        memory["cross_paper_analysis"]["rag_papers"] = full_text_count
+        memory["cross_paper_analysis"]["abstract_only"] = abstract_only_count
         self._save_ai_memory(channel, memory)
 
-        # Build instruction based on depth
-        if abstract_only_count == len(focused_papers):
-            instruction = (
-                f"Analyze the following question across all {len(focused_papers)} papers:\n\n"
-                f"**Question:** {analysis_question}\n\n"
-                "**Note:** Only abstracts are available, so focus on:\n"
-                "1. High-level themes and approaches mentioned in abstracts\n"
-                "2. Broad similarities and differences in stated objectives\n"
-                "3. General contributions as described by authors\n"
-                "4. Acknowledge that detailed methodology/findings comparison requires full PDFs\n"
-                "5. Cite papers by number (e.g., [Paper 1], [Paper 2])\n"
-            )
-        else:
-            instruction = (
-                f"Analyze the following question across all {len(focused_papers)} papers:\n\n"
-                f"**Question:** {analysis_question}\n\n"
-                "In your analysis:\n"
-                "1. Identify common themes and findings\n"
-                "2. Note any disagreements or contradictions\n"
-                "3. Highlight unique contributions from each paper\n"
-                "4. For [Full Text] papers, leverage detailed methodology and findings\n"
-                "5. For [Abstract Only] papers, note that analysis is limited to high-level info\n"
-                "6. Cite papers by number (e.g., [Paper 1], [Paper 2])\n"
-            )
+        # Build instruction
+        instruction = (
+            f"Analyze the following question across all {len(focused_papers)} papers:\n\n"
+            f"**Question:** {analysis_question}\n\n"
+            "**Instructions:**\n"
+            "1. For [Full Text - RAG Retrieved] papers, use the retrieved passages to provide specific, detailed answers\n"
+            "2. Quote or reference specific content from the passages when relevant\n"
+            "3. For [Abstract Only] papers, provide high-level analysis based on the abstract\n"
+            "4. Compare and contrast across papers where applicable\n"
+            "5. Cite papers by number (e.g., [Paper 1], [Paper 2])\n"
+        )
 
         return {
             "status": "success",
-            "message": f"Analyzing across {len(focused_papers)} focused papers",
+            "message": f"Analyzing across {len(focused_papers)} papers using RAG",
             "analysis_question": analysis_question,
             "paper_count": len(focused_papers),
-            "full_text_count": full_text_count,
-            "abstract_only_count": abstract_only_count,
-            "depth_warning": depth_warning,
+            "rag_papers": full_text_count,
+            "abstract_only_papers": abstract_only_count,
+            "depth_info": depth_warning,
             "papers_context": full_context,
             "instruction": instruction,
+            "retrieval_method": "semantic_search" if full_text_count > 0 else "abstracts_only",
         }
 
     def _tool_generate_section_from_discussion(
@@ -3658,6 +3854,108 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         "writing",        # Drafting, synthesizing findings
     ]
 
+    def _refresh_focused_papers_with_library_data(
+        self, focused_papers: List[Dict], project: "Project"
+    ) -> List[Dict]:
+        """
+        Check if any focused papers have been ingested to the library since focusing.
+        If so, enrich them with full-text analysis data.
+
+        This handles the common flow:
+        1. User searches papers (abstract only)
+        2. User focuses on papers
+        3. User asks to ingest them
+        4. User asks analysis question - should now use full-text data
+        """
+        from app.models import Reference
+
+        if not focused_papers or not project:
+            return focused_papers
+
+        # Get all project references for matching
+        try:
+            references = self.db.query(Reference).filter(
+                Reference.project_id == project.id
+            ).all()
+        except Exception as e:
+            logger.error(f"Failed to fetch references for refresh: {e}")
+            return focused_papers
+
+        if not references:
+            return focused_papers
+
+        # Build lookup maps for matching
+        doi_to_ref = {}
+        title_to_ref = {}
+        url_to_ref = {}
+
+        for ref in references:
+            if ref.doi:
+                # Normalize DOI for matching
+                doi_normalized = ref.doi.lower().replace("https://doi.org/", "").strip()
+                doi_to_ref[doi_normalized] = ref
+            if ref.title:
+                title_to_ref[ref.title.lower().strip()] = ref
+            if ref.url:
+                url_to_ref[ref.url] = ref
+
+        refreshed_papers = []
+        refreshed_count = 0
+
+        for paper in focused_papers:
+            # Skip if already has full text
+            if paper.get("has_full_text"):
+                refreshed_papers.append(paper)
+                continue
+
+            # Try to find matching reference
+            matched_ref = None
+
+            # Match by DOI first (most reliable)
+            paper_doi = paper.get("doi", "")
+            if paper_doi:
+                doi_normalized = paper_doi.lower().replace("https://doi.org/", "").strip()
+                matched_ref = doi_to_ref.get(doi_normalized)
+
+            # Match by title if no DOI match
+            if not matched_ref and paper.get("title"):
+                matched_ref = title_to_ref.get(paper["title"].lower().strip())
+
+            # Match by URL if still no match
+            if not matched_ref and paper.get("url"):
+                matched_ref = url_to_ref.get(paper["url"])
+
+            # If found and has AI analysis, enrich the paper
+            if matched_ref and matched_ref.ai_analysis:
+                analysis = matched_ref.ai_analysis
+                enriched_paper = paper.copy()
+                enriched_paper["has_full_text"] = True
+                enriched_paper["reference_id"] = str(matched_ref.id)
+                enriched_paper["cite_key"] = matched_ref.cite_key
+
+                # Add analysis fields
+                if analysis.get("summary"):
+                    enriched_paper["summary"] = analysis["summary"]
+                if analysis.get("key_findings"):
+                    enriched_paper["key_findings"] = analysis["key_findings"]
+                if analysis.get("methodology"):
+                    enriched_paper["methodology"] = analysis["methodology"]
+                if analysis.get("limitations"):
+                    enriched_paper["limitations"] = analysis["limitations"]
+                if analysis.get("contributions"):
+                    enriched_paper["contributions"] = analysis["contributions"]
+
+                refreshed_papers.append(enriched_paper)
+                refreshed_count += 1
+                logger.info(f"Refreshed focused paper with full-text: {paper.get('title', 'Untitled')[:50]}")
+            else:
+                refreshed_papers.append(paper)
+
+        if refreshed_count > 0:
+            logger.info(f"Refreshed {refreshed_count} focused papers with library full-text data")
+
+        return refreshed_papers
+
     def _get_ai_memory(self, channel: "ProjectDiscussionChannel") -> Dict[str, Any]:
         """Get AI memory from channel, with defaults."""
         if channel.ai_memory:
@@ -3707,7 +4005,11 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         """Save AI memory to channel."""
         try:
             channel.ai_memory = memory
+            # CRITICAL: Flag the JSON column as modified so SQLAlchemy detects the change
+            # Without this, mutating a JSON dict in-place won't be persisted
+            flag_modified(channel, "ai_memory")
             self.db.commit()
+            logger.info(f"Saved AI memory for channel {channel.id} - focused_papers: {len(memory.get('focused_papers', []))}")
         except Exception as e:
             logger.error(f"Failed to save AI memory: {e}")
             self.db.rollback()
@@ -3967,6 +4269,10 @@ Return ONLY valid JSON, no explanation:"""
         """
         memory = self._get_ai_memory(channel)
         lines = []
+
+        # DEBUG: Log what's in memory
+        logger.info(f"Building memory context. Memory keys: {list(memory.keys())}")
+        logger.info(f"Focused papers in memory: {len(memory.get('focused_papers', []))}")
 
         # Tier 2: Session summary
         if memory.get("summary"):
