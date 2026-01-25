@@ -2738,20 +2738,42 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                         </div>
                       </div>
                     )}
-                    {/* Reference search results inline - show on exchange that has matching search_results or library_update action */}
+                    {/* Reference search results inline - show only on the MOST RECENT relevant exchange */}
                     {referenceSearchResults && referenceSearchResults.papers.length > 0 && (() => {
-                      // Check if this exchange has a search_results action matching our stored query
+                      // Check if this exchange has a library_update action (takes priority)
+                      const hasLibraryUpdateAction = exchange.response.suggested_actions?.some(
+                        (action: DiscussionAssistantSuggestedAction) => action.action_type === 'library_update'
+                      )
+
+                      // Check if ANY exchange has a library_update action
+                      const anyExchangeHasLibraryUpdate = assistantHistory.some(ex =>
+                        ex.response?.suggested_actions?.some(
+                          (action: DiscussionAssistantSuggestedAction) => action.action_type === 'library_update'
+                        )
+                      )
+
+                      // If library_update exists somewhere, only show on that exchange
+                      if (anyExchangeHasLibraryUpdate) {
+                        return hasLibraryUpdateAction ? (
+                          <ReferenceSearchResults
+                            papers={referenceSearchResults.papers}
+                            query={referenceSearchResults.query}
+                            projectId={project.id}
+                            isSearching={referenceSearchResults.isSearching}
+                            onClose={() => setReferenceSearchResults(null)}
+                            externalUpdates={activeChannelId ? libraryUpdatesByChannel[activeChannelId] : undefined}
+                          />
+                        ) : null
+                      }
+
+                      // Otherwise, show on search_results exchange
                       const hasMatchingSearchAction = exchange.response.suggested_actions?.some(
                         (action: DiscussionAssistantSuggestedAction) => action.action_type === 'search_results' &&
                           (action.payload as { query?: string } | undefined)?.query === referenceSearchResults.query
                       )
-                      // Also show on exchanges with library_update action (add to library)
-                      const hasLibraryUpdateAction = exchange.response.suggested_actions?.some(
-                        (action: DiscussionAssistantSuggestedAction) => action.action_type === 'library_update'
-                      )
-                      // Also match by exchangeId for fresh searches
                       const matchesById = referenceSearchResults.exchangeId === exchange.id
-                      return (hasMatchingSearchAction || hasLibraryUpdateAction || matchesById) ? (
+
+                      return (hasMatchingSearchAction || matchesById) ? (
                         <ReferenceSearchResults
                           papers={referenceSearchResults.papers}
                           query={referenceSearchResults.query}
