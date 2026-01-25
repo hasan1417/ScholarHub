@@ -240,6 +240,38 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       }
     })
   }, [activeChannelId])
+
+  // Handler to dismiss a paper from search results and discovery queue
+  const handleDismissPaper = useCallback((paperId: string) => {
+    if (!activeChannelId) return
+
+    // Remove from search results
+    setSearchResultsByChannel(prev => {
+      const current = prev[activeChannelId]
+      if (!current) return prev
+      return {
+        ...prev,
+        [activeChannelId]: {
+          ...current,
+          papers: current.papers.filter(p => p.id !== paperId)
+        }
+      }
+    })
+
+    // Remove from discovery queue
+    setDiscoveryQueueByChannel(prev => {
+      const current = prev[activeChannelId]
+      if (!current) return prev
+      return {
+        ...prev,
+        [activeChannelId]: {
+          ...current,
+          papers: current.papers.filter(p => p.id !== paperId)
+        }
+      }
+    })
+  }, [activeChannelId])
+
   const [paperFormData, setPaperFormData] = useState({
     title: '',
     paperType: 'research',
@@ -1259,13 +1291,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       queryClient.invalidateQueries({ queryKey: ['projectDiscussionChannelResources', project.id, activeChannelId] })
     }
     queryClient.invalidateQueries({ queryKey: ['projectReferences', project.id] })
-  }
-
-  const handleDismissPaper = (paperId: string) => {
-    setDiscoveryQueue((prev) => ({
-      ...prev,
-      papers: prev.papers.filter((p) => p.id !== paperId),
-    }))
   }
 
   const handleDismissAllPapers = () => {
@@ -2762,6 +2787,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                             isSearching={referenceSearchResults.isSearching}
                             onClose={() => setReferenceSearchResults(null)}
                             externalUpdates={activeChannelId ? libraryUpdatesByChannel[activeChannelId] : undefined}
+                            onDismissPaper={handleDismissPaper}
                           />
                         ) : null
                       }
@@ -2781,6 +2807,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                           isSearching={referenceSearchResults.isSearching}
                           onClose={() => setReferenceSearchResults(null)}
                           externalUpdates={activeChannelId ? libraryUpdatesByChannel[activeChannelId] : undefined}
+                          onDismissPaper={handleDismissPaper}
                         />
                       ) : null
                     })()}

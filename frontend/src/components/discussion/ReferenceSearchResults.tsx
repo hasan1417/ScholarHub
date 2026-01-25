@@ -25,6 +25,8 @@ interface ReferenceSearchResultsProps {
   isSearching?: boolean
   // External ingestion updates from AI's add_to_library tool
   externalUpdates?: LibraryUpdateItem[]
+  // Callback when a paper is dismissed
+  onDismissPaper?: (paperId: string) => void
 }
 
 export function ReferenceSearchResults({
@@ -34,6 +36,7 @@ export function ReferenceSearchResults({
   onClose,
   isSearching = false,
   externalUpdates,
+  onDismissPaper,
 }: ReferenceSearchResultsProps) {
   const queryClient = useQueryClient()
   const [addedPapers, setAddedPapers] = useState<Set<string>>(new Set())
@@ -45,6 +48,8 @@ export function ReferenceSearchResults({
 
   const handleDismiss = (paperId: string) => {
     setDismissedPapers(prev => new Set([...prev, paperId]))
+    // Also notify parent to remove from discovery queue
+    onDismissPaper?.(paperId)
   }
 
   // Filter out dismissed papers
