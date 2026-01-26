@@ -173,8 +173,17 @@ const DiscussionChannelSidebar = ({
               return (
                 <li key={channel.id}>
                   <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => onSelectChannel(channel.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        onSelectChannel(channel.id)
+                      }
+                    }}
                     className={clsx(
-                      'group relative rounded-lg transition-all cursor-pointer border-l-2',
+                      'group relative rounded-lg transition-all cursor-pointer border-l-2 px-2.5 py-2.5',
                       isActive
                         ? 'bg-indigo-50 border-l-indigo-500 dark:bg-indigo-500/10 dark:border-l-indigo-400'
                         : channel.is_default
@@ -182,108 +191,102 @@ const DiscussionChannelSidebar = ({
                           : 'border-l-transparent hover:bg-gray-50 hover:border-l-gray-300 dark:hover:bg-slate-800/50 dark:hover:border-l-slate-500'
                     )}
                   >
-                    <button
-                      type="button"
-                      onClick={() => onSelectChannel(channel.id)}
-                      className="w-full px-2.5 py-2.5 text-left"
-                    >
-                      <div className="flex items-start gap-2">
-                        {/* Hash icon */}
-                        <Hash className={clsx(
-                          'h-4 w-4 flex-shrink-0 mt-0.5',
-                          isActive
-                            ? 'text-indigo-500 dark:text-indigo-400'
-                            : 'text-gray-400 dark:text-slate-500'
-                        )} />
+                    <div className="flex items-start gap-2">
+                      {/* Hash icon */}
+                      <Hash className={clsx(
+                        'h-4 w-4 flex-shrink-0 mt-0.5',
+                        isActive
+                          ? 'text-indigo-500 dark:text-indigo-400'
+                          : 'text-gray-400 dark:text-slate-500'
+                      )} />
 
-                        {/* Channel info */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className={clsx(
-                              'text-sm font-medium truncate',
-                              isActive
-                                ? 'text-indigo-700 dark:text-indigo-200'
-                                : channel.is_default
-                                  ? 'text-gray-800 dark:text-slate-100'
-                                  : 'text-gray-700 dark:text-slate-200'
-                            )}>
-                              {channel.name}
-                            </span>
+                      {/* Channel info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={clsx(
+                            'text-sm font-medium truncate',
+                            isActive
+                              ? 'text-indigo-700 dark:text-indigo-200'
+                              : channel.is_default
+                                ? 'text-gray-800 dark:text-slate-100'
+                                : 'text-gray-700 dark:text-slate-200'
+                          )}>
+                            {channel.name}
+                          </span>
 
-                            {/* Right side: timestamp + actions */}
-                            <div className="flex items-center gap-1.5 flex-shrink-0">
-                              {lastActivity && !channel.is_archived && (
-                                <span className="text-[10px] text-gray-400 dark:text-slate-500">
-                                  {lastActivity}
-                                </span>
-                              )}
-
-                              {/* Action buttons - show on hover or when active */}
-                              {onOpenSettings && !channel.is_default && (
-                                <button
-                                  type="button"
-                                  className={clsx(
-                                    'rounded p-0.5 text-gray-400 transition hover:bg-gray-200 hover:text-gray-600 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-slate-300',
-                                    isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                                  )}
-                                  onClick={(event) => {
-                                    event.stopPropagation()
-                                    onOpenSettings(channel)
-                                  }}
-                                  title="Channel settings"
-                                >
-                                  <Settings className="h-3.5 w-3.5" />
-                                </button>
-                              )}
-                              {onArchiveToggle && !channel.is_default && (
-                                <button
-                                  type="button"
-                                  className={clsx(
-                                    'rounded p-0.5 text-gray-400 transition hover:bg-gray-200 hover:text-gray-600 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-slate-300',
-                                    isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                                  )}
-                                  onClick={(event) => {
-                                    event.stopPropagation()
-                                    onArchiveToggle(channel)
-                                  }}
-                                  title={channel.is_archived ? 'Unarchive' : 'Archive'}
-                                >
-                                  {channel.is_archived ? (
-                                    <RotateCcw className="h-3.5 w-3.5" />
-                                  ) : (
-                                    <Archive className="h-3.5 w-3.5" />
-                                  )}
-                                </button>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Second row: badges and description preview */}
-                          <div className="mt-1 flex items-center gap-2">
-                            {channel.is_default && (
-                              <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
-                                Default
-                              </span>
-                            )}
-                            {channel.is_archived && (
-                              <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:bg-amber-500/20 dark:text-amber-300">
-                                Archived
-                              </span>
-                            )}
-                            {messageCount > 0 && !channel.is_archived && (
+                          {/* Right side: timestamp + actions */}
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            {lastActivity && !channel.is_archived && (
                               <span className="text-[10px] text-gray-400 dark:text-slate-500">
-                                {messageCount} message{messageCount !== 1 ? 's' : ''}
+                                {lastActivity}
                               </span>
                             )}
-                            {channel.description && !channel.is_default && !channel.is_archived && (
-                              <span className="text-[10px] text-gray-400 dark:text-slate-500 truncate">
-                                {channel.description}
-                              </span>
+
+                            {/* Action buttons - show on hover or when active */}
+                            {onOpenSettings && !channel.is_default && (
+                              <button
+                                type="button"
+                                className={clsx(
+                                  'rounded p-0.5 text-gray-400 transition hover:bg-gray-200 hover:text-gray-600 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-slate-300',
+                                  isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                                )}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  onOpenSettings(channel)
+                                }}
+                                title="Channel settings"
+                              >
+                                <Settings className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            {onArchiveToggle && !channel.is_default && (
+                              <button
+                                type="button"
+                                className={clsx(
+                                  'rounded p-0.5 text-gray-400 transition hover:bg-gray-200 hover:text-gray-600 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-slate-300',
+                                  isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                                )}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  onArchiveToggle(channel)
+                                }}
+                                title={channel.is_archived ? 'Unarchive' : 'Archive'}
+                              >
+                                {channel.is_archived ? (
+                                  <RotateCcw className="h-3.5 w-3.5" />
+                                ) : (
+                                  <Archive className="h-3.5 w-3.5" />
+                                )}
+                              </button>
                             )}
                           </div>
                         </div>
+
+                        {/* Second row: badges and description preview */}
+                        <div className="mt-1 flex items-center gap-2">
+                          {channel.is_default && (
+                            <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
+                              Default
+                            </span>
+                          )}
+                          {channel.is_archived && (
+                            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:bg-amber-500/20 dark:text-amber-300">
+                              Archived
+                            </span>
+                          )}
+                          {messageCount > 0 && !channel.is_archived && (
+                            <span className="text-[10px] text-gray-400 dark:text-slate-500">
+                              {messageCount} message{messageCount !== 1 ? 's' : ''}
+                            </span>
+                          )}
+                          {channel.description && !channel.is_default && !channel.is_archived && (
+                            <span className="text-[10px] text-gray-400 dark:text-slate-500 truncate">
+                              {channel.description}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </button>
+                    </div>
                   </div>
                 </li>
               )

@@ -169,8 +169,25 @@ class SearchOrchestrator:
         tasks = [asyncio.create_task(limited_search(s)) for s in active_searchers]
 
         # Flatten and deduplicate results as they arrive
-        all_papers: List[DiscoveredPaper] = []
-        seen_keys: Set[str] = set()
+        # Keep track of papers by key, preferring papers with more complete metadata
+        papers_by_key: Dict[str, DiscoveredPaper] = {}
+
+        def _paper_completeness_score(p: DiscoveredPaper) -> int:
+            """Score paper by metadata completeness. Higher = better."""
+            score = 0
+            if p.doi:
+                score += 10  # DOI is very valuable
+            if p.pdf_url:
+                score += 5   # PDF URL is valuable
+            if p.abstract and len(p.abstract) > 50:
+                score += 3   # Good abstract
+            if p.year:
+                score += 1
+            if p.authors and len(p.authors) > 0:
+                score += 1
+            if p.is_open_access:
+                score += 2
+            return score
 
         try:
             for fut in asyncio.as_completed(tasks):
@@ -190,13 +207,23 @@ class SearchOrchestrator:
                 if isinstance(papers, list):
                     for paper in papers:
                         key = paper.get_unique_key()
-                        if key not in seen_keys:
-                            seen_keys.add(key)
-                            all_papers.append(paper)
+                        if key not in papers_by_key:
+                            papers_by_key[key] = paper
+                        else:
+                            # Keep the paper with more complete metadata
+                            existing = papers_by_key[key]
+                            if _paper_completeness_score(paper) > _paper_completeness_score(existing):
+                                papers_by_key[key] = paper
+                                logger.debug(
+                                    "Replaced duplicate paper '%s' from %s with version from %s (better metadata)",
+                                    paper.title[:50], existing.source, paper.source
+                                )
                 # Note: Early exit removed - all sources should complete or timeout
                 # This ensures users see results from all selected sources
         finally:
             await asyncio.gather(*tasks, return_exceptions=True)
+
+        all_papers = list(papers_by_key.values())
 
         # Phase 2: Enrichment
         enrichment_tasks = [

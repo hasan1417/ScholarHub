@@ -178,8 +178,41 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     ingestion_status: 'success' | 'failed' | 'no_pdf' | 'pending'
   }[]>>({})
 
-  // Get current channel's search results
-  const referenceSearchResults = activeChannelId ? searchResultsByChannel[activeChannelId] || null : null
+  // Dismissed paper IDs - persisted to localStorage per project
+  const dismissedPapersKey = project?.id ? `scholarhub_dismissed_papers_${project.id}` : null
+  const [dismissedPaperIds, setDismissedPaperIds] = useState<Set<string>>(() => {
+    if (!dismissedPapersKey) return new Set()
+    try {
+      const stored = localStorage.getItem(dismissedPapersKey)
+      if (stored) {
+        return new Set(JSON.parse(stored))
+      }
+    } catch {
+      // Ignore localStorage errors
+    }
+    return new Set()
+  })
+
+  // Persist dismissed papers to localStorage when they change
+  useEffect(() => {
+    if (!dismissedPapersKey) return
+    try {
+      localStorage.setItem(dismissedPapersKey, JSON.stringify([...dismissedPaperIds]))
+    } catch {
+      // Ignore localStorage errors
+    }
+  }, [dismissedPaperIds, dismissedPapersKey])
+
+  // Get current channel's search results (filtering out dismissed papers)
+  const referenceSearchResults = useMemo(() => {
+    if (!activeChannelId) return null
+    const raw = searchResultsByChannel[activeChannelId]
+    if (!raw) return null
+    return {
+      ...raw,
+      papers: raw.papers.filter(p => !dismissedPaperIds.has(p.id))
+    }
+  }, [activeChannelId, searchResultsByChannel, dismissedPaperIds])
 
   // Helper to set search results for a specific channel
   const setReferenceSearchResults = useCallback((
@@ -216,10 +249,17 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     notification: string | null
   }>>({})
 
-  // Get current channel's discovery queue
-  const discoveryQueue = activeChannelId
-    ? discoveryQueueByChannel[activeChannelId] || { papers: [], query: '', isSearching: false, notification: null }
-    : { papers: [], query: '', isSearching: false, notification: null }
+  // Get current channel's discovery queue (filtering out dismissed papers)
+  const discoveryQueue = useMemo(() => {
+    if (!activeChannelId) {
+      return { papers: [], query: '', isSearching: false, notification: null }
+    }
+    const raw = discoveryQueueByChannel[activeChannelId] || { papers: [], query: '', isSearching: false, notification: null }
+    return {
+      ...raw,
+      papers: raw.papers.filter(p => !dismissedPaperIds.has(p.id))
+    }
+  }, [activeChannelId, discoveryQueueByChannel, dismissedPaperIds])
 
   // Helper to set discovery queue for current channel
   const setDiscoveryQueue = useCallback((
@@ -244,6 +284,9 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
   // Handler to dismiss a paper from search results and discovery queue
   const handleDismissPaper = useCallback((paperId: string) => {
     if (!activeChannelId) return
+
+    // Persist dismissed paper ID to localStorage
+    setDismissedPaperIds(prev => new Set([...prev, paperId]))
 
     // Remove from search results
     setSearchResultsByChannel(prev => {
@@ -2423,7 +2466,11 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       }
       const entryId = createAssistantEntryId()
       // Pass recent search results for conversational context
-      const recentSearchResults = referenceSearchResults?.papers?.map((p) => ({
+      // Prefer reference search results first, fall back to discovery queue
+      const papersToSend = (referenceSearchResults?.papers?.length ?? 0) > 0
+        ? referenceSearchResults.papers
+        : discoveryQueue.papers
+      const recentSearchResults = papersToSend.map((p) => ({
         title: p.title,
         authors: p.authors?.slice(0, 3).join(', '),
         year: p.year,
@@ -2727,11 +2774,22 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                           })}
                       </div>
                     )}
-                    {!showTyping && exchange.response.suggested_actions && exchange.response.suggested_actions.filter(a => a.action_type !== 'paper_created' && a.action_type !== 'paper_updated').length > 0 && (
+                    {!showTyping && exchange.response.suggested_actions && exchange.response.suggested_actions.filter(a =>
+                      a.action_type !== 'paper_created' &&
+                      a.action_type !== 'paper_updated' &&
+                      a.action_type !== 'library_update' &&
+                      a.action_type !== 'search_results'
+                    ).length > 0 && (
                       <div className="mt-2 space-y-1">
                         <p className="text-[11px] uppercase tracking-wide text-gray-400">Suggested actions</p>
                         <div className="flex flex-wrap gap-2">
-                          {exchange.response.suggested_actions.filter(a => a.action_type !== 'paper_created' && a.action_type !== 'paper_updated').map((action, idx) => {
+                          {exchange.response.suggested_actions.filter(a =>
+                            // Filter out internal actions that update UI but shouldn't show as suggested actions
+                            a.action_type !== 'paper_created' &&
+                            a.action_type !== 'paper_updated' &&
+                            a.action_type !== 'library_update' &&
+                            a.action_type !== 'search_results'
+                          ).map((action, idx) => {
                             const actionKey = `${exchange.id}:${idx}`
                             const applied = exchange.appliedActions.includes(actionKey)
                             const isPending = createTaskMutation.isPending || paperActionMutation.isPending || searchReferencesMutation.isPending
@@ -2763,43 +2821,20 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                         </div>
                       </div>
                     )}
-                    {/* Reference search results inline - show only on the MOST RECENT relevant exchange */}
+                    {/* Reference search results inline - show ONLY on the search_results exchange */}
                     {referenceSearchResults && referenceSearchResults.papers.length > 0 && (() => {
-                      // Check if this exchange has a library_update action (takes priority)
-                      const hasLibraryUpdateAction = exchange.response.suggested_actions?.some(
-                        (action: DiscussionAssistantSuggestedAction) => action.action_type === 'library_update'
-                      )
-
-                      // Check if ANY exchange has a library_update action
-                      const anyExchangeHasLibraryUpdate = assistantHistory.some(ex =>
-                        ex.response?.suggested_actions?.some(
-                          (action: DiscussionAssistantSuggestedAction) => action.action_type === 'library_update'
-                        )
-                      )
-
-                      // If library_update exists somewhere, only show on that exchange
-                      if (anyExchangeHasLibraryUpdate) {
-                        return hasLibraryUpdateAction ? (
-                          <ReferenceSearchResults
-                            papers={referenceSearchResults.papers}
-                            query={referenceSearchResults.query}
-                            projectId={project.id}
-                            isSearching={referenceSearchResults.isSearching}
-                            onClose={() => setReferenceSearchResults(null)}
-                            externalUpdates={activeChannelId ? libraryUpdatesByChannel[activeChannelId] : undefined}
-                            onDismissPaper={handleDismissPaper}
-                          />
-                        ) : null
-                      }
-
-                      // Otherwise, show on search_results exchange
-                      const hasMatchingSearchAction = exchange.response.suggested_actions?.some(
-                        (action: DiscussionAssistantSuggestedAction) => action.action_type === 'search_results' &&
-                          (action.payload as { query?: string } | undefined)?.query === referenceSearchResults.query
+                      // Only show on exchange with search_results action (not library_update)
+                      const hasSearchResultsAction = exchange.response.suggested_actions?.some(
+                        (action: DiscussionAssistantSuggestedAction) => action.action_type === 'search_results'
                       )
                       const matchesById = referenceSearchResults.exchangeId === exchange.id
 
-                      return (hasMatchingSearchAction || matchesById) ? (
+                      // Only render on the exchange that triggered the search
+                      if (!hasSearchResultsAction && !matchesById) {
+                        return null
+                      }
+
+                      return (
                         <ReferenceSearchResults
                           papers={referenceSearchResults.papers}
                           query={referenceSearchResults.query}
@@ -2809,7 +2844,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                           externalUpdates={activeChannelId ? libraryUpdatesByChannel[activeChannelId] : undefined}
                           onDismissPaper={handleDismissPaper}
                         />
-                      ) : null
+                      )
                     })()}
                     {!showTyping && (
                       <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-gray-400 dark:text-slate-500">

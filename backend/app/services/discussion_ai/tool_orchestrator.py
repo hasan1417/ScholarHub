@@ -532,6 +532,17 @@ GUIDELINES:
     4. If some papers couldn't be ingested (not open access), mention this limitation
 
     **DON'T write literature reviews from abstracts alone** - always try to ingest first!
+
+    **WHEN ASKED ABOUT A SPECIFIC PAPER:**
+    STOP! Before answering from the abstract, CHECK THE LIBRARY FIRST!
+
+    Look at the "Papers with FULL TEXT available" list in the context above.
+    If the paper is listed there → You MUST call get_reference_details(reference_id) to get the full analysis!
+
+    WRONG: Answering from abstract then offering "I can add/ingest the PDF..."
+    RIGHT: Calling get_reference_details first, then answering with full-text details
+
+    Only offer to add/ingest if the paper is NOT in the library with full text.
 12. PROJECT OBJECTIVES: Each objective should be concise (max ~150 chars). Use update_project_info with:
     - objectives_mode="append" to ADD new objectives to existing ones (KEEP existing + add new)
     - objectives_mode="remove" to REMOVE specific objectives (by index like "1", "2" or text match)
@@ -1040,12 +1051,28 @@ class ToolOrchestrator:
 
         lines.append("## Available Resources")
 
-        # Count project references
-        ref_count = self.db.query(ProjectReference).filter(
+        # Count project references and show which have full text
+        from app.models import Reference
+        project_refs = self.db.query(ProjectReference).filter(
             ProjectReference.project_id == project.id
-        ).count()
+        ).all()
+        ref_count = len(project_refs)
         if ref_count > 0:
-            lines.append(f"- Project library: {ref_count} saved references")
+            # Count how many have ingested PDFs (status = "ingested" or "analyzed")
+            ingested_count = 0
+            ingested_titles = []  # List of (title, reference_id) tuples
+            for pr in project_refs[:10]:  # Check first 10
+                ref = self.db.query(Reference).filter(Reference.id == pr.reference_id).first()
+                if ref and ref.status in ("ingested", "analyzed"):
+                    ingested_count += 1
+                    title = ref.title[:50] if ref.title else "Untitled"
+                    ingested_titles.append((title, str(ref.id)))
+
+            lines.append(f"- Project library: {ref_count} saved references ({ingested_count} with full text)")
+            if ingested_titles:
+                lines.append("  **Papers with FULL TEXT available** - USE get_reference_details(reference_id) to read:")
+                for title, ref_id in ingested_titles[:5]:
+                    lines.append(f"    • {title}... (reference_id: {ref_id})")
 
         # Count project papers
         paper_count = self.db.query(ResearchPaper).filter(

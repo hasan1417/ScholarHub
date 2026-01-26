@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import re
+import unicodedata
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
@@ -19,6 +21,34 @@ class PaperSource(Enum):
     SCIENCEDIRECT = "sciencedirect"
     CORE = "core"
     EUROPE_PMC = "europe_pmc"
+
+
+def _normalize_doi(doi: Optional[str]) -> Optional[str]:
+    """Normalize DOI to a consistent lowercase format without URL prefix."""
+    if not doi:
+        return None
+    doi = doi.strip().lower()
+    # Remove common URL prefixes
+    for prefix in ['https://doi.org/', 'http://doi.org/', 'doi:', 'doi.org/']:
+        if doi.startswith(prefix):
+            doi = doi[len(prefix):]
+    doi = doi.strip()
+    return doi if doi else None
+
+
+def _normalize_title(title: str) -> str:
+    """Normalize title for fuzzy matching - removes punctuation, normalizes whitespace."""
+    if not title:
+        return ""
+    # Convert to lowercase and normalize unicode (é -> e, etc.)
+    title = title.lower().strip()
+    title = unicodedata.normalize('NFKD', title)
+    title = ''.join(c for c in title if not unicodedata.combining(c))
+    # Remove punctuation and special characters, keep only alphanumeric and spaces
+    title = re.sub(r'[^\w\s]', '', title)
+    # Normalize whitespace to single spaces
+    title = re.sub(r'\s+', ' ', title).strip()
+    return title
 
 
 @dataclass
@@ -42,11 +72,21 @@ class DiscoveredPaper:
     pdf_url: Optional[str] = None
 
     def get_unique_key(self) -> str:
-        """Return a key used to deduplicate entries across sources."""
+        """Return a key used to deduplicate entries across sources.
 
-        if self.doi:
-            return f"doi:{self.doi.lower()}"
+        Uses normalized DOI as primary key, falls back to normalized title hash.
+        """
+        # Try DOI first (normalized)
+        normalized_doi = _normalize_doi(self.doi)
+        if normalized_doi:
+            return f"doi:{normalized_doi}"
 
-        title_normalized = self.title.lower().strip()
-        digest = hashlib.md5(title_normalized.encode()).hexdigest()
+        # Fall back to normalized title hash
+        normalized_title = _normalize_title(self.title)
+        if normalized_title:
+            digest = hashlib.md5(normalized_title.encode()).hexdigest()
+            return f"title:{digest}"
+
+        # Last resort: use original title
+        digest = hashlib.md5(self.title.encode()).hexdigest()
         return f"title:{digest}"
