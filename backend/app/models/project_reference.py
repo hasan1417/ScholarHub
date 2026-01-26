@@ -56,6 +56,12 @@ class ProjectReference(Base):
         ForeignKey("project_discovery_runs.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Track which discussion channel added this reference (for channel context)
+    added_via_channel_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("project_discussion_channels.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     confidence = Column(Float)
     decided_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     decided_at = Column(DateTime(timezone=True))
@@ -66,6 +72,7 @@ class ProjectReference(Base):
     reference = relationship("Reference", back_populates="project_links")
     decider = relationship("User")
     discovery_run = relationship("ProjectDiscoveryRun", back_populates="promoted_references")
+    added_via_channel = relationship("ProjectDiscussionChannel", foreign_keys=[added_via_channel_id])
 
     def __repr__(self) -> str:
         return f"<ProjectReference(project_id={self.project_id}, reference_id={self.reference_id}, status={self.status})>"

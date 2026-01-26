@@ -167,8 +167,10 @@ def ingest_reference_pdf(
             status=DocumentStatus.PROCESSING,
         )
 
+        # Use savepoint to avoid affecting outer transaction on failure
         try:
-            db.add(document)
+            with db.begin_nested():
+                db.add(document)
             db.commit()
             db.refresh(document)
         except Exception as exc:
@@ -192,6 +194,7 @@ def ingest_reference_pdf(
     except Exception as exc:  # pragma: no cover - best effort
         logger.warning("Document processing for reference %s failed: %s", reference.id, exc)
 
+    # Link chunks to reference - use expire_all instead of rollback to preserve outer transaction
     try:
         chunks = db.query(DocumentChunk).filter(DocumentChunk.document_id == document.id).all()
         for chunk in chunks:
@@ -199,15 +202,16 @@ def ingest_reference_pdf(
         if chunks:
             db.commit()
     except Exception as exc:  # pragma: no cover - chunk linking best effort
-        db.rollback()
+        db.expire_all()  # Clear stale state without affecting committed data
         logger.warning("Failed linking chunks to reference %s: %s", reference.id, exc)
 
+    # Update reference status
     reference.document_id = document.id
     reference.status = 'analyzed'
     try:
         db.commit()
     except Exception as exc:
-        db.rollback()
+        db.expire_all()  # Clear stale state without affecting committed data
         logger.warning("Failed to persist reference %s after PDF ingestion: %s", reference.id, exc)
         return False
 

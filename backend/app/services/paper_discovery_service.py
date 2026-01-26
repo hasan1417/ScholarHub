@@ -146,9 +146,9 @@ class SearchOrchestrator:
                 timeout = self.config.search_timeout
                 if fast_mode:
                     if max_results <= 5:
-                        timeout = min(timeout, 25.0)
+                        timeout = min(timeout, 8.0)  # Quick timeout for small searches
                     else:
-                        timeout = min(timeout, 45.0)  # Increased for slower APIs like CORE
+                        timeout = min(timeout, 15.0)  # Moderate timeout for larger searches
                 try:
                     papers = await asyncio.wait_for(
                         searcher.search(query, max_results),
@@ -218,8 +218,11 @@ class SearchOrchestrator:
                                     "Replaced duplicate paper '%s' from %s with version from %s (better metadata)",
                                     paper.title[:50], existing.source, paper.source
                                 )
-                # Note: Early exit removed - all sources should complete or timeout
-                # This ensures users see results from all selected sources
+
+                # Early exit in fast_mode once we have enough results
+                if fast_mode and len(papers_by_key) >= max_results:
+                    logger.info(f"Early exit: got {len(papers_by_key)} papers, needed {max_results}")
+                    break
         finally:
             await asyncio.gather(*tasks, return_exceptions=True)
 

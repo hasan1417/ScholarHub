@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { MessageCircle, Loader2, AlertCircle, Plus, Sparkles, X, Bot, FileText, BookOpen, Calendar, Check, ChevronDown, ChevronRight, FilePlus, Pencil, CheckSquare, Search, Download, MoreHorizontal, FolderOpen, ListTodo, Puzzle, Hash } from 'lucide-react'
+import { MessageCircle, Loader2, AlertCircle, Plus, Sparkles, X, Bot, FileText, BookOpen, Calendar, Check, ChevronDown, ChevronRight, FilePlus, Pencil, CheckSquare, Search, Download, MoreHorizontal, FolderOpen, ListTodo, Puzzle, Hash, CheckCircle, Library } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -177,6 +177,26 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     ingestion_status: 'success' | 'failed' | 'no_pdf' | 'pending' | 'uploading'
   }[]>>({})
 
+  // Track channel switch to prevent notification flash
+  const [isChannelSwitching, setIsChannelSwitching] = useState(false)
+  const prevChannelRef = useRef<string | null>(null)
+
+  // Use useLayoutEffect to synchronously hide notification before paint
+  useLayoutEffect(() => {
+    if (prevChannelRef.current !== null && prevChannelRef.current !== activeChannelId) {
+      setIsChannelSwitching(true)
+    }
+    prevChannelRef.current = activeChannelId
+  }, [activeChannelId])
+
+  // Separate effect to re-enable after a brief delay
+  useEffect(() => {
+    if (isChannelSwitching) {
+      const timer = setTimeout(() => setIsChannelSwitching(false), 150)
+      return () => clearTimeout(timer)
+    }
+  }, [isChannelSwitching])
+
   // Dismissed paper IDs - persisted to localStorage per project
   const dismissedPapersKey = project?.id ? `scholarhub_dismissed_papers_${project.id}` : null
   const [dismissedPaperIds, setDismissedPaperIds] = useState<Set<string>>(() => {
@@ -259,6 +279,52 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       papers: raw.papers.filter(p => !dismissedPaperIds.has(p.id))
     }
   }, [activeChannelId, discoveryQueueByChannel, dismissedPaperIds])
+
+  // Compute ingestion summary for notification bar
+  const ingestionSummary = useMemo(() => {
+    if (!activeChannelId) return null
+    const updates = libraryUpdatesByChannel[activeChannelId]
+    if (!updates || updates.length === 0) return null
+
+    const totalAdded = updates.length
+    const successCount = updates.filter(u => u.ingestion_status === 'success').length
+    const failedCount = updates.filter(u => u.ingestion_status === 'failed').length
+    const noPdfCount = updates.filter(u => u.ingestion_status === 'no_pdf').length
+    const pendingCount = updates.filter(u => u.ingestion_status === 'pending' || u.ingestion_status === 'uploading').length
+    const needsAttention = failedCount + noPdfCount
+
+    return {
+      totalAdded,
+      successCount,
+      failedCount,
+      noPdfCount,
+      pendingCount,
+      needsAttention,
+      isAllSuccess: successCount === totalAdded,
+      isProcessing: pendingCount > 0,
+    }
+  }, [activeChannelId, libraryUpdatesByChannel])
+
+  // Auto-dismiss success notification after 8 seconds
+  useEffect(() => {
+    if (!ingestionSummary?.isAllSuccess || !activeChannelId) return
+
+    const timer = setTimeout(() => {
+      setLibraryUpdatesByChannel(prev => {
+        const next = { ...prev }
+        delete next[activeChannelId]
+        return next
+      })
+      // Also clear the discovery queue papers since they're all added
+      setDiscoveryQueueByChannel(prev => {
+        const next = { ...prev }
+        delete next[activeChannelId]
+        return next
+      })
+    }, 8000)
+
+    return () => clearTimeout(timer)
+  }, [ingestionSummary?.isAllSuccess, activeChannelId])
 
   // Helper to set discovery queue for current channel
   const setDiscoveryQueue = useCallback((
@@ -1103,6 +1169,12 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         isSearching: false,
       })
       // Also replace discovery queue for the original channel
+      // Clear old ingestion status when new search results arrive
+      setLibraryUpdatesByChannel(prev => {
+        const next = { ...prev }
+        delete next[channelId]
+        return next
+      })
       // Only update discovery queue if still in the same channel
       if (channelId === activeChannelId) {
         setDiscoveryQueue({
@@ -1543,6 +1615,12 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           const papers = payload?.papers || []
           const query = payload?.query || ''
           if (papers.length > 0) {
+            // Clear old ingestion status when new search results arrive
+            setLibraryUpdatesByChannel(prev => {
+              const next = { ...prev }
+              delete next[originalChannelId]
+              return next
+            })
             // Store results for the ORIGINAL channel
             setSearchResultsByChannel(prev => ({
               ...prev,
@@ -1628,6 +1706,12 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         const papers = payload?.papers || []
         const query = payload?.query || ''
         if (papers.length > 0) {
+          // Clear old ingestion status when new search results arrive
+          setLibraryUpdatesByChannel(prev => {
+            const next = { ...prev }
+            delete next[originalChannelId]
+            return next
+          })
           setSearchResultsByChannel(prev => ({
             ...prev,
             [originalChannelId]: {
@@ -2972,41 +3056,164 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                 </div>
               </div>
 
-              {/* Floating discovery notification bar */}
-              {discoveryQueue.papers.length > 0 && (
-                <div className="mx-4 mb-2 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 shadow-sm dark:border-amber-500/30 dark:bg-amber-900/20">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-500/20">
-                      <Search className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+              {/* Floating discovery notification bar - evolves based on state */}
+              {!isChannelSwitching && (discoveryQueue.papers.length > 0 || ingestionSummary) && (
+                <>
+                  {/* State 1: Processing papers - blue progress bar (highest priority) */}
+                  {ingestionSummary?.isProcessing ? (
+                    <div className="mx-4 mb-2 flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 shadow-sm dark:border-blue-500/30 dark:bg-blue-900/20">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-500/20">
+                          <Loader2 className="h-4 w-4 animate-spin text-blue-600 dark:text-blue-400" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                            Adding papers to library...
+                          </p>
+                          <p className="text-xs text-blue-600 dark:text-blue-400">
+                            {ingestionSummary.successCount} of {ingestionSummary.totalAdded} processed
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setOpenDialog('discoveries')}
+                        className="rounded-lg border border-blue-300 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100 dark:border-blue-500/40 dark:text-blue-300 dark:hover:bg-blue-500/20"
+                      >
+                        View Progress
+                      </button>
                     </div>
-                    <div>
-                      <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                        {discoveryQueue.papers.length} paper{discoveryQueue.papers.length !== 1 ? 's' : ''} found
-                      </p>
-                      {discoveryQueue.query && (
-                        <p className="text-xs text-amber-600 dark:text-amber-400">
-                          for "{discoveryQueue.query}"
-                        </p>
-                      )}
+                  ) : ingestionSummary?.isAllSuccess ? (
+                    /* State 2: All papers successfully added - green success bar */
+                    <div className="mx-4 mb-2 flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 shadow-sm dark:border-emerald-500/30 dark:bg-emerald-900/20">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-500/20">
+                          <CheckCircle className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200">
+                            {ingestionSummary.totalAdded} paper{ingestionSummary.totalAdded !== 1 ? 's' : ''} added to library
+                          </p>
+                          <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                            All with full text available
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setOpenDialog('discoveries')}
+                          className="rounded-lg border border-emerald-300 px-3 py-1.5 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-500/40 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
+                        >
+                          View Details
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (activeChannelId) {
+                              setLibraryUpdatesByChannel(prev => {
+                                const next = { ...prev }
+                                delete next[activeChannelId]
+                                return next
+                              })
+                              handleDismissAllPapers()
+                            }
+                          }}
+                          className="rounded-lg px-2 py-1.5 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setOpenDialog('discoveries')}
-                      className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600"
-                    >
-                      Review
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleDismissAllPapers}
-                      className="rounded-lg px-2 py-1.5 text-xs font-medium text-amber-700 transition hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-500/20"
-                    >
-                      Dismiss
-                    </button>
-                  </div>
-                </div>
+                  ) : ingestionSummary && ingestionSummary.needsAttention > 0 ? (
+                    /* State 3: Papers added but some need attention - amber warning bar */
+                    <div className="mx-4 mb-2 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 shadow-sm dark:border-amber-500/30 dark:bg-amber-900/20">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-500/20">
+                          <Library className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                            {ingestionSummary.totalAdded} added
+                            {ingestionSummary.successCount > 0 && (
+                              <span className="mx-1.5 text-emerald-600 dark:text-emerald-400">
+                                • {ingestionSummary.successCount} full text
+                              </span>
+                            )}
+                            {ingestionSummary.needsAttention > 0 && (
+                              <span className="mx-1.5 text-amber-600 dark:text-amber-400">
+                                • {ingestionSummary.needsAttention} need PDF
+                              </span>
+                            )}
+                          </p>
+                          <p className="text-xs text-amber-600 dark:text-amber-400">
+                            Some papers need manual PDF upload
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setOpenDialog('discoveries')}
+                          className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600"
+                        >
+                          Review
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (activeChannelId) {
+                              setLibraryUpdatesByChannel(prev => {
+                                const next = { ...prev }
+                                delete next[activeChannelId]
+                                return next
+                              })
+                              handleDismissAllPapers()
+                            }
+                          }}
+                          className="rounded-lg px-2 py-1.5 text-xs font-medium text-amber-700 transition hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-500/20"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </div>
+                  ) : discoveryQueue.papers.length > 0 ? (
+                    /* State 4: Papers found but not yet added - amber discovery bar */
+                    <div className="mx-4 mb-2 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 shadow-sm dark:border-amber-500/30 dark:bg-amber-900/20">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-500/20">
+                          <Search className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                            {discoveryQueue.papers.length} paper{discoveryQueue.papers.length !== 1 ? 's' : ''} found
+                          </p>
+                          {discoveryQueue.query && (
+                            <p className="text-xs text-amber-600 dark:text-amber-400">
+                              for "{discoveryQueue.query}"
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setOpenDialog('discoveries')}
+                          className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600"
+                        >
+                          Review
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDismissAllPapers}
+                          className="rounded-lg px-2 py-1.5 text-xs font-medium text-amber-700 transition hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-500/20"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </>
               )}
 
               <div className="border-t border-gray-100 bg-white px-4 py-2 text-xs text-gray-600 dark:border-slate-800 dark:bg-slate-900/40">

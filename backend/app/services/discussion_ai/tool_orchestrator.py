@@ -494,11 +494,38 @@ You are a smart research assistant. Use common sense and conversation context.
 - If user says "use these" or "based on this" → use current context
 - ONLY search when user explicitly asks for NEW/DIFFERENT papers, or when there's nothing in context
 
+**THREE LAYERS OF PAPER CONTEXT** (in order of priority):
+
+1. **RECENT SEARCH RESULTS** (highest priority for "first paper", "paper 1", etc.):
+   - These are the papers from the MOST RECENT search in this conversation
+   - Numbered list (1., 2., 3...) - "first paper" = paper #1, "second paper" = paper #2
+   - This is what user refers to with "these papers", "them", "the papers you found"
+   - Changes with each new search
+
+2. **CHANNEL PAPER HISTORY** (for "papers we added", "papers from earlier"):
+   - All papers added to library THROUGH THIS SPECIFIC CHANNEL
+   - User may say: "the paper we added earlier", "papers from our discussion", "papers we've been working with"
+   - These persist across searches - they're the channel's discussion history
+   - Marked with bullet points (•) in context under "PAPERS ADDED IN THIS CHANNEL"
+
+3. **PROJECT LIBRARY** (for "my library", "all my papers"):
+   - All papers in the project from ANY source (all channels, manual adds, imports)
+   - User may say: "my library", "all my references", "papers in my project"
+   - Use get_project_references tool to access full library
+
+**INTERPRETING USER REFERENCES**:
+- "first paper", "paper 1", "paper 2" → RECENT SEARCH RESULTS (numbered list)
+- "the paper we added", "papers from earlier" → CHANNEL PAPER HISTORY (bullet list)
+- "my library", "all my papers" → PROJECT LIBRARY (use tool)
+- If ambiguous, prefer recent search results, then channel history
+
 **THINK LIKE A HUMAN ASSISTANT**:
 - User searches for papers → you show results
 - User says "create a paper with these" → you use THOSE results (don't search again!)
 - User discusses papers with you → you remember them
 - User says "write a literature review" → you use what you were discussing (don't search again!)
+- User asks "what is the first paper about" → you answer about paper #1 from the recent search!
+- User asks "what about the paper we added earlier" → check CHANNEL PAPER HISTORY
 
 **WHEN TO SEARCH**:
 - User explicitly says "find papers about X", "search for Y", "I need new references"
@@ -513,7 +540,13 @@ You are a smart research assistant. Use common sense and conversation context.
 GUIDELINES:
 1. Be dynamic and contextual - don't follow rigid scripts
 2. Never ask more than ONE clarifying question
-3. Use proper academic terms in searches (not user's literal words)
+3. **SEARCH QUERY BEST PRACTICES**:
+   - Use proper academic terminology (e.g., "sentiment analysis" not "feelings detection")
+   - DO NOT include years in the query (e.g., "NLP" not "NLP 2024 2025")
+   - Keep queries focused: 2-5 key terms work best
+   - Avoid redundancy (e.g., "natural language processing" not "natural language processing NLP")
+   - Examples of GOOD queries: "transformer attention mechanisms", "large language models evaluation"
+   - Examples of BAD queries: "NLP 2024 2025", "transformers AI recent papers", "machine learning new"
 4. Don't invent papers from your training data - only use search results
 5. For general knowledge questions, answer from knowledge first, then offer to search
 6. Output markdown naturally (not in code blocks)
@@ -1051,28 +1084,21 @@ class ToolOrchestrator:
 
         lines.append("## Available Resources")
 
-        # Count project references and show which have full text
+        # Get project references with full text info using JOIN (optimized - single query)
         from app.models import Reference
-        project_refs = self.db.query(ProjectReference).filter(
-            ProjectReference.project_id == project.id
-        ).all()
-        ref_count = len(project_refs)
-        if ref_count > 0:
-            # Count how many have ingested PDFs (status = "ingested" or "analyzed")
-            ingested_count = 0
-            ingested_titles = []  # List of (title, reference_id) tuples
-            for pr in project_refs[:10]:  # Check first 10
-                ref = self.db.query(Reference).filter(Reference.id == pr.reference_id).first()
-                if ref and ref.status in ("ingested", "analyzed"):
-                    ingested_count += 1
-                    title = ref.title[:50] if ref.title else "Untitled"
-                    ingested_titles.append((title, str(ref.id)))
+        refs_with_status = self.db.query(Reference.id, Reference.title, Reference.status).join(
+            ProjectReference, ProjectReference.reference_id == Reference.id
+        ).filter(ProjectReference.project_id == project.id).limit(50).all()
 
-            lines.append(f"- Project library: {ref_count} saved references ({ingested_count} with full text)")
-            if ingested_titles:
+        ref_count = len(refs_with_status)
+        if ref_count > 0:
+            ingested_refs = [(r.id, r.title) for r in refs_with_status if r.status in ("ingested", "analyzed")]
+            lines.append(f"- Project library: {ref_count} saved references ({len(ingested_refs)} with full text)")
+            if ingested_refs:
                 lines.append("  **Papers with FULL TEXT available** - USE get_reference_details(reference_id) to read:")
-                for title, ref_id in ingested_titles[:5]:
-                    lines.append(f"    • {title}... (reference_id: {ref_id})")
+                for ref_id, title in ingested_refs[:5]:
+                    title_preview = (title[:50] if title else "Untitled")
+                    lines.append(f"    • {title_preview}... (reference_id: {ref_id})")
 
         # Count project papers
         paper_count = self.db.query(ResearchPaper).filter(
@@ -1081,13 +1107,32 @@ class ToolOrchestrator:
         if paper_count > 0:
             lines.append(f"- Project papers: {paper_count} drafts")
 
-        # Recent search results - show what's available
+        # Recent search results - show prominently
         if recent_search_results:
-            lines.append(f"- Recent search results: {len(recent_search_results)} papers available:")
-            for i, p in enumerate(recent_search_results[:5], 1):
-                title = p.get("title", "Untitled")[:60]
+            lines.append(f"\n**RECENT SEARCH RESULTS** (user's 'first paper', 'paper 2', etc. refer to these!):")
+            for i, p in enumerate(recent_search_results, 1):
+                title = p.get("title", "Untitled")[:80]
                 year = p.get("year", "")
-                lines.append(f"    {i}. {title}{'...' if len(p.get('title', '')) > 60 else ''} ({year})")
+                authors = p.get("authors", "")
+                if isinstance(authors, list):
+                    authors = ", ".join(authors[:2]) + ("..." if len(authors) > 2 else "")
+                lines.append(f"  {i}. \"{title}{'...' if len(p.get('title', '')) > 80 else ''}\" ({authors}, {year})")
+
+        # Papers added through this channel (optimized JOIN query)
+        channel_papers = self.db.query(Reference.id, Reference.title, Reference.year, Reference.status).join(
+            ProjectReference, ProjectReference.reference_id == Reference.id
+        ).filter(
+            ProjectReference.project_id == project.id,
+            ProjectReference.added_via_channel_id == channel.id
+        ).limit(20).all()
+
+        if channel_papers:
+            lines.append(f"\n**PAPERS ADDED IN THIS CHANNEL** ({len(channel_papers)} papers discussed/added here):")
+            for ref in channel_papers:
+                title = (ref.title[:60] if ref.title else "Untitled")
+                ft_marker = " [FULL TEXT]" if ref.status in ("ingested", "analyzed") else ""
+                lines.append(f"  • \"{title}...\" ({ref.year or 'n/a'}){ft_marker} - ref_id: {ref.id}")
+            lines.append("  → User can refer to these as 'papers we added', 'papers from earlier'")
 
         # Channel resources
         resource_count = self.db.query(ProjectDiscussionChannelResource).filter(
@@ -1605,19 +1650,18 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         oa_note = " (Open Access only)" if open_access_only else ""
         project = ctx.get("project")
 
-        # Build lookup for existing library references
-        library_refs_by_doi = {}
-        library_refs_by_title = {}
+        # Build lightweight lookup for existing library references (just DOIs and titles)
+        library_dois = set()
+        library_titles = set()
         if project:
-            library_refs = self.db.query(Reference).join(
+            refs = self.db.query(Reference.doi, Reference.title).join(
                 ProjectReference, ProjectReference.reference_id == Reference.id
             ).filter(ProjectReference.project_id == project.id).all()
-
-            for ref in library_refs:
-                if ref.doi:
-                    library_refs_by_doi[ref.doi.lower().replace("https://doi.org/", "").strip()] = ref
-                if ref.title:
-                    library_refs_by_title[ref.title.lower().strip()] = ref
+            for doi, title in refs:
+                if doi:
+                    library_dois.add(doi.lower().replace("https://doi.org/", "").strip())
+                if title:
+                    library_titles.add(title.lower().strip())
 
         # Create event loop FIRST before any async objects
         loop = asyncio.new_event_loop()
@@ -1645,38 +1689,33 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             if open_access_only:
                 source_papers = [p for p in source_papers if p.pdf_url or p.open_access_url]
 
-            # Format results - only include papers NOT already in library
+            # Format results - filter out papers already in library
             papers = []
-
             for p in source_papers:
                 # Check if paper is already in library - skip silently
-                matched_ref = None
-                if p.doi:
-                    matched_ref = library_refs_by_doi.get(p.doi.lower().replace("https://doi.org/", "").strip())
-                if not matched_ref and p.title:
-                    matched_ref = library_refs_by_title.get(p.title.lower().strip())
-
-                if matched_ref is not None:
-                    continue  # Skip - already in library
+                if p.doi and p.doi.lower().replace("https://doi.org/", "").strip() in library_dois:
+                    continue
+                if p.title and p.title.lower().strip() in library_titles:
+                    continue
 
                 # Stop once we have enough new papers
                 if len(papers) >= max_results:
                     break
-
-                # Convert authors to array format
+                # Convert authors to array format (frontend expects string[])
                 authors_list = []
                 if p.authors:
                     if isinstance(p.authors, list):
                         authors_list = [str(a) for a in p.authors]
                     elif isinstance(p.authors, str):
+                        # Split string by comma or "and"
                         authors_list = [a.strip() for a in p.authors.replace(" and ", ", ").split(",") if a.strip()]
                     else:
                         authors_list = [str(p.authors)]
 
                 papers.append({
-                    "id": p.doi or p.url or f"paper-{len(papers)}",
+                    "id": p.doi or p.url or f"paper-{idx}",  # Frontend needs an id
                     "title": p.title,
-                    "authors": authors_list,
+                    "authors": authors_list,  # Array, not string
                     "year": p.year,
                     "abstract": p.abstract[:300] + "..." if p.abstract and len(p.abstract) > 300 else p.abstract,
                     "doi": p.doi,
@@ -1692,11 +1731,11 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 "status": "success",
                 "message": f"Found {len(papers)} papers for: '{query}'{oa_note}",
                 "action": {
-                    "type": "search_results",
+                    "type": "search_results",  # Frontend will display as cards
                     "payload": {
                         "query": query,
                         "papers": papers,
-                        "total_found": len(papers),
+                        "total_found": len(result.papers),
                     },
                 },
             }
@@ -2891,16 +2930,20 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 already_in_library = existing_project_ref is not None
 
                 if not existing_project_ref:
+                    channel = ctx.get("channel")
                     project_ref = ProjectReference(
                         project_id=project.id,
                         reference_id=existing_ref.id,
                         status=ProjectReferenceStatus.APPROVED,
                         origin=ProjectReferenceOrigin.AUTO_DISCOVERY,
+                        added_via_channel_id=channel.id if channel else None,
                     )
                     self.db.add(project_ref)
 
                 # Commit changes before attempting PDF ingestion
                 self.db.commit()
+                # Refresh to ensure the object is attached to the session after commit
+                self.db.refresh(existing_ref)
 
                 # Generate citation key for this paper
                 cite_key = self._generate_citation_key(paper)
@@ -2915,9 +2958,9 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 }
 
                 # Attempt PDF ingestion if requested and PDF is available
+                # Reference is already committed, so PDF ingestion failures won't affect it
                 if ingest_pdfs and existing_ref.pdf_url:
                     try:
-                        # Use a fresh session for ingestion to avoid transaction issues
                         success = ingest_reference_pdf(
                             self.db,
                             existing_ref,
@@ -2934,8 +2977,9 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                         added_info["ingestion_status"] = "error"
                         added_info["ingestion_error"] = str(e)
                         ingestion_results.append({"title": title, "status": "error", "error": str(e)})
-                        # Rollback ingestion failure but keep the reference
-                        self.db.rollback()
+                        # Don't rollback - the Reference was already committed successfully
+                        # Just expire the session to clear any stale state
+                        self.db.expire_all()
                 elif not existing_ref.pdf_url:
                     added_info["ingestion_status"] = "no_pdf_available"
                 else:
@@ -2945,7 +2989,9 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 
             except Exception as e:
                 logger.exception(f"Error adding paper at index {idx}")
-                self.db.rollback()
+                # Only rollback uncommitted changes for THIS paper
+                # Don't use rollback() as it could affect previously committed papers
+                self.db.expire_all()
                 failed_papers.append({"index": idx, "title": title, "error": str(e)})
 
         # Summary
