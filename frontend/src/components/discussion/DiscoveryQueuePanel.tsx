@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import {
   Search,
   Loader2,
@@ -9,8 +9,17 @@ import {
   FileText,
   Trash2,
   Info,
+  Check,
+  AlertTriangle,
+  Upload,
+  Unlock,
 } from 'lucide-react'
-import { DiscoveredPaper } from './DiscoveredPaperCard'
+import { DiscoveredPaper, IngestionStatus } from './DiscoveredPaperCard'
+
+export interface PaperIngestionState {
+  referenceId: string
+  status: IngestionStatus
+}
 
 interface DiscoveryQueuePanelProps {
   papers: DiscoveredPaper[]
@@ -22,6 +31,9 @@ interface DiscoveryQueuePanelProps {
   onDismiss: (paperId: string) => void
   onDismissAll: () => void
   onClearNotification: () => void
+  // Ingestion status tracking
+  ingestionStates?: Record<string, PaperIngestionState>
+  onUploadPdf?: (paperId: string, file: File) => void
 }
 
 export function DiscoveryQueuePanel({
@@ -34,9 +46,12 @@ export function DiscoveryQueuePanel({
   onDismiss,
   onDismissAll,
   onClearNotification,
+  ingestionStates = {},
+  onUploadPdf,
 }: DiscoveryQueuePanelProps) {
   const [processingPapers, setProcessingPapers] = useState<Record<string, 'channel' | 'library'>>({})
   const [addedPapers, setAddedPapers] = useState<Record<string, 'channel' | 'library' | 'both'>>({})
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
   const handleAddToChannel = async (paper: DiscoveredPaper) => {
     setProcessingPapers((prev) => ({ ...prev, [paper.id]: 'channel' }))
@@ -168,11 +183,102 @@ export function DiscoveryQueuePanel({
           const addedState = addedPapers[paper.id]
           const addedToChannel = addedState === 'channel' || addedState === 'both'
           const addedToLibrary = addedState === 'library' || addedState === 'both'
+          const ingestionState = ingestionStates[paper.id]
+          const ingestionStatus = ingestionState?.status
+
+          const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+            const file = e.target.files?.[0]
+            if (file && onUploadPdf) {
+              onUploadPdf(paper.id, file)
+            }
+            // Reset file input
+            const input = fileInputRefs.current[paper.id]
+            if (input) input.value = ''
+          }
+
+          // Render ingestion status badge
+          const renderIngestionStatus = () => {
+            if (!addedToLibrary || !ingestionStatus) return null
+
+            switch (ingestionStatus) {
+              case 'success':
+                return (
+                  <span className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300">
+                    <Check className="h-3 w-3" />
+                    Full text
+                  </span>
+                )
+              case 'uploading':
+                return (
+                  <span className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Uploading...
+                  </span>
+                )
+              case 'failed':
+                return (
+                  <div className="flex items-center gap-1.5">
+                    <span className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300">
+                      <AlertTriangle className="h-3 w-3" />
+                      PDF failed
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRefs.current[paper.id]?.click()}
+                      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium bg-indigo-50 text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300 dark:hover:bg-indigo-900/50 transition"
+                    >
+                      <Upload className="h-3 w-3" />
+                      Upload
+                    </button>
+                    <input
+                      ref={(el) => { fileInputRefs.current[paper.id] = el }}
+                      type="file"
+                      accept=".pdf,application/pdf"
+                      onChange={handleFileChange}
+                      className="hidden"
+                    />
+                  </div>
+                )
+              case 'no_pdf':
+                return (
+                  <div className="flex items-center gap-1.5">
+                    <span className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium bg-gray-50 text-gray-500 dark:bg-gray-800/50 dark:text-gray-400">
+                      <FileText className="h-3 w-3" />
+                      Abstract only
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRefs.current[paper.id]?.click()}
+                      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium bg-indigo-50 text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300 dark:hover:bg-indigo-900/50 transition"
+                    >
+                      <Upload className="h-3 w-3" />
+                      Upload PDF
+                    </button>
+                    <input
+                      ref={(el) => { fileInputRefs.current[paper.id] = el }}
+                      type="file"
+                      accept=".pdf,application/pdf"
+                      onChange={handleFileChange}
+                      className="hidden"
+                    />
+                  </div>
+                )
+              default:
+                return (
+                  <span className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300">
+                    <Check className="h-3 w-3" />
+                    Added
+                  </span>
+                )
+            }
+          }
 
           return (
             <div
               key={paper.id}
-              className="border rounded-lg p-3 bg-white dark:bg-slate-800/60 border-gray-200 dark:border-slate-700"
+              className={`border rounded-lg p-3 bg-white dark:bg-slate-800/60 ${
+                ingestionStatus === 'failed' ? 'border-amber-200 dark:border-amber-500/30' : 'border-gray-200 dark:border-slate-700'
+              }`}
             >
               {/* Paper info */}
               <div className="mb-2">
@@ -196,14 +302,9 @@ export function DiscoveryQueuePanel({
                   >
                     {paper.source.replace('_', ' ')}
                   </span>
-                  {paper.pdf_url && (
-                    <span className="inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[10px] font-medium bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">
-                      <FileText className="h-2.5 w-2.5" />
-                      PDF
-                    </span>
-                  )}
-                  {paper.is_open_access && !paper.pdf_url && (
-                    <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                  {paper.is_open_access && (
+                    <span className="inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[10px] font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                      <Unlock className="h-2.5 w-2.5" />
                       Open Access
                     </span>
                   )}
@@ -221,57 +322,67 @@ export function DiscoveryQueuePanel({
                 </div>
               </div>
 
-              {/* Action buttons */}
-              <div className="flex items-center gap-1.5 pt-2 border-t border-gray-100 dark:border-slate-700">
-                {/* Add to Channel */}
-                <button
-                  onClick={() => handleAddToChannel(paper)}
-                  disabled={isProcessing || addedToChannel}
-                  className={`flex-1 inline-flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium transition ${
-                    addedToChannel
-                      ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300 cursor-default'
-                      : 'bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 disabled:opacity-50'
-                  }`}
-                >
-                  {processingPapers[paper.id] === 'channel' ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : addedToChannel ? (
-                    <>
-                      <FolderPlus className="h-3 w-3" />
-                      In Channel
-                    </>
-                  ) : (
-                    <>
-                      <FolderPlus className="h-3 w-3" />
-                      Channel
-                    </>
-                  )}
-                </button>
+              {/* Action buttons / Ingestion status */}
+              <div className="flex items-center justify-between gap-1.5 pt-2 border-t border-gray-100 dark:border-slate-700">
+                {addedToLibrary ? (
+                  // Show ingestion status when added to library
+                  <div className="flex-1">
+                    {renderIngestionStatus()}
+                  </div>
+                ) : (
+                  // Show add buttons when not yet added
+                  <div className="flex items-center gap-1.5 flex-1">
+                    {/* Add to Channel */}
+                    <button
+                      onClick={() => handleAddToChannel(paper)}
+                      disabled={isProcessing || addedToChannel}
+                      className={`flex-1 inline-flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium transition ${
+                        addedToChannel
+                          ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300 cursor-default'
+                          : 'bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 disabled:opacity-50'
+                      }`}
+                    >
+                      {processingPapers[paper.id] === 'channel' ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : addedToChannel ? (
+                        <>
+                          <FolderPlus className="h-3 w-3" />
+                          In Channel
+                        </>
+                      ) : (
+                        <>
+                          <FolderPlus className="h-3 w-3" />
+                          Channel
+                        </>
+                      )}
+                    </button>
 
-                {/* Add to Library */}
-                <button
-                  onClick={() => handleAddToLibrary(paper)}
-                  disabled={isProcessing || addedToLibrary}
-                  className={`flex-1 inline-flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium transition ${
-                    addedToLibrary
-                      ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300 cursor-default'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-slate-700 dark:text-gray-200 dark:hover:bg-slate-600 disabled:opacity-50'
-                  }`}
-                >
-                  {processingPapers[paper.id] === 'library' ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : addedToLibrary ? (
-                    <>
-                      <BookPlus className="h-3 w-3" />
-                      In Library
-                    </>
-                  ) : (
-                    <>
-                      <BookPlus className="h-3 w-3" />
-                      Library
-                    </>
-                  )}
-                </button>
+                    {/* Add to Library */}
+                    <button
+                      onClick={() => handleAddToLibrary(paper)}
+                      disabled={isProcessing || addedToLibrary}
+                      className={`flex-1 inline-flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium transition ${
+                        addedToLibrary
+                          ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300 cursor-default'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-slate-700 dark:text-gray-200 dark:hover:bg-slate-600 disabled:opacity-50'
+                      }`}
+                    >
+                      {processingPapers[paper.id] === 'library' ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : addedToLibrary ? (
+                        <>
+                          <BookPlus className="h-3 w-3" />
+                          In Library
+                        </>
+                      ) : (
+                        <>
+                          <BookPlus className="h-3 w-3" />
+                          Library
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
 
                 {/* Dismiss */}
                 <button

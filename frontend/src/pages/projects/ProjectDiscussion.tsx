@@ -7,7 +7,7 @@ import remarkGfm from 'remark-gfm'
 import { formatDistanceToNow } from 'date-fns'
 import { useProjectContext } from './ProjectLayout'
 import { useAuth } from '../../contexts/AuthContext'
-import { projectDiscussionAPI, buildApiUrl, refreshAuthToken, researchPapersAPI, projectReferencesAPI, projectMeetingsAPI } from '../../services/api'
+import { projectDiscussionAPI, buildApiUrl, refreshAuthToken, researchPapersAPI, projectReferencesAPI, projectMeetingsAPI, referencesAPI } from '../../services/api'
 import discussionWebsocket from '../../services/discussionWebsocket'
 import {
   DiscussionMessage,
@@ -31,7 +31,6 @@ import DiscussionChannelSidebar from '../../components/discussion/DiscussionChan
 import ChannelResourcePanel from '../../components/discussion/ChannelResourcePanel'
 import ChannelTaskDrawer from '../../components/discussion/ChannelTaskDrawer'
 import ChannelArtifactsPanel from '../../components/discussion/ChannelArtifactsPanel'
-import { ReferenceSearchResults } from '../../components/discussion/ReferenceSearchResults'
 import { DiscoveredPaper } from '../../components/discussion/DiscoveredPaperCard'
 import { DiscoveryQueuePanel } from '../../components/discussion/DiscoveryQueuePanel'
 import { getProjectUrlId } from '../../utils/urlId'
@@ -175,7 +174,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
   const [libraryUpdatesByChannel, setLibraryUpdatesByChannel] = useState<Record<string, {
     index: number
     reference_id: string
-    ingestion_status: 'success' | 'failed' | 'no_pdf' | 'pending'
+    ingestion_status: 'success' | 'failed' | 'no_pdf' | 'pending' | 'uploading'
   }[]>>({})
 
   // Dismissed paper IDs - persisted to localStorage per project
@@ -261,6 +260,27 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     }
   }, [activeChannelId, discoveryQueueByChannel, dismissedPaperIds])
 
+  // Compute ingestion states from library updates - map paper IDs to their ingestion status
+  const ingestionStates = useMemo(() => {
+    if (!activeChannelId) return {}
+    const updates = libraryUpdatesByChannel[activeChannelId] || []
+    const searchResults = searchResultsByChannel[activeChannelId]
+    if (!searchResults || updates.length === 0) return {}
+
+    const states: Record<string, { referenceId: string; status: 'success' | 'failed' | 'no_pdf' | 'uploading' }> = {}
+    for (const update of updates) {
+      // Map the update index to the paper ID in search results
+      const paper = searchResults.papers[update.index]
+      if (paper) {
+        states[paper.id] = {
+          referenceId: update.reference_id,
+          status: update.ingestion_status as 'success' | 'failed' | 'no_pdf' | 'uploading',
+        }
+      }
+    }
+    return states
+  }, [activeChannelId, libraryUpdatesByChannel, searchResultsByChannel])
+
   // Helper to set discovery queue for current channel
   const setDiscoveryQueue = useCallback((
     value: React.SetStateAction<{
@@ -314,6 +334,61 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       }
     })
   }, [activeChannelId])
+
+  // Handler to upload PDF for a paper with failed ingestion
+  const handleUploadPdf = useCallback(async (paperId: string, file: File) => {
+    if (!activeChannelId) return
+    const state = ingestionStates[paperId]
+    if (!state?.referenceId) {
+      console.error('No reference ID found for paper:', paperId)
+      return
+    }
+
+    // Set uploading state
+    setLibraryUpdatesByChannel(prev => {
+      const updates = prev[activeChannelId] || []
+      return {
+        ...prev,
+        [activeChannelId]: updates.map(u =>
+          u.reference_id === state.referenceId
+            ? { ...u, ingestion_status: 'uploading' as const }
+            : u
+        ),
+      }
+    })
+
+    try {
+      await referencesAPI.uploadPdf(state.referenceId, file)
+      // Update to success state
+      setLibraryUpdatesByChannel(prev => {
+        const updates = prev[activeChannelId] || []
+        return {
+          ...prev,
+          [activeChannelId]: updates.map(u =>
+            u.reference_id === state.referenceId
+              ? { ...u, ingestion_status: 'success' as const }
+              : u
+          ),
+        }
+      })
+      // Refresh references
+      queryClient.invalidateQueries({ queryKey: ['project-references', project.id] })
+    } catch (error) {
+      console.error('Failed to upload PDF:', error)
+      // Revert to failed state
+      setLibraryUpdatesByChannel(prev => {
+        const updates = prev[activeChannelId] || []
+        return {
+          ...prev,
+          [activeChannelId]: updates.map(u =>
+            u.reference_id === state.referenceId
+              ? { ...u, ingestion_status: 'failed' as const }
+              : u
+          ),
+        }
+      })
+    }
+  }, [activeChannelId, ingestionStates, queryClient, project.id])
 
   const [paperFormData, setPaperFormData] = useState({
     title: '',
@@ -1112,6 +1187,10 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           isSearching: false,
           notification: `Found ${papers.length} paper${papers.length !== 1 ? 's' : ''} for "${data.query}"`,
         })
+        // Auto-open the Discovery Queue panel when papers arrive
+        if (papers.length > 0) {
+          setOpenDialog('discoveries')
+        }
       } else {
         // Store in the original channel's discovery queue
         setDiscoveryQueueByChannel(prev => ({
@@ -2209,7 +2288,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       const query = payload?.query || ''
       markActionApplied(exchange.id, actionKey)
 
-      // Display results as cards - replace, not accumulate
+      // Display results in Discovery Queue panel - replace, not accumulate
       // Only show if exchange belongs to current channel
       if (papers.length > 0 && (!exchange.channelId || exchange.channelId === activeChannelId)) {
         setReferenceSearchResults({
@@ -2226,6 +2305,8 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           isSearching: false,
           notification: `Found ${papers.length} papers`,
         })
+        // Auto-open the Discovery Queue panel when papers arrive
+        setOpenDialog('discoveries')
       }
       return
     }
@@ -2468,7 +2549,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       // Pass recent search results for conversational context
       // Prefer reference search results first, fall back to discovery queue
       const papersToSend = (referenceSearchResults?.papers?.length ?? 0) > 0
-        ? referenceSearchResults.papers
+        ? referenceSearchResults?.papers ?? []
         : discoveryQueue.papers
       const recentSearchResults = papersToSend.map((p) => ({
         title: p.title,
@@ -2821,31 +2902,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                         </div>
                       </div>
                     )}
-                    {/* Reference search results inline - show ONLY on the search_results exchange */}
-                    {referenceSearchResults && referenceSearchResults.papers.length > 0 && (() => {
-                      // Only show on exchange with search_results action (not library_update)
-                      const hasSearchResultsAction = exchange.response.suggested_actions?.some(
-                        (action: DiscussionAssistantSuggestedAction) => action.action_type === 'search_results'
-                      )
-                      const matchesById = referenceSearchResults.exchangeId === exchange.id
-
-                      // Only render on the exchange that triggered the search
-                      if (!hasSearchResultsAction && !matchesById) {
-                        return null
-                      }
-
-                      return (
-                        <ReferenceSearchResults
-                          papers={referenceSearchResults.papers}
-                          query={referenceSearchResults.query}
-                          projectId={project.id}
-                          isSearching={referenceSearchResults.isSearching}
-                          onClose={() => setReferenceSearchResults(null)}
-                          externalUpdates={activeChannelId ? libraryUpdatesByChannel[activeChannelId] : undefined}
-                          onDismissPaper={handleDismissPaper}
-                        />
-                      )
-                    })()}
                     {!showTyping && (
                       <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-gray-400 dark:text-slate-500">
                         {exchange.response.model && <span>Model: {exchange.response.model}</span>}
@@ -3198,6 +3254,8 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                   onDismiss={handleDismissPaper}
                   onDismissAll={handleDismissAllPapers}
                   onClearNotification={() => setDiscoveryQueue((prev) => ({ ...prev, notification: null }))}
+                  ingestionStates={ingestionStates}
+                  onUploadPdf={handleUploadPdf}
                 />
               ) : (
                 <ChannelTaskDrawer
