@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { X, Loader2, Search, Sparkles } from 'lucide-react'
+import { X, Loader2, Search } from 'lucide-react'
 import { DiscoveredPaperCard, DiscoveredPaper, IngestionStatus } from './DiscoveredPaperCard'
 import { projectDiscussionAPI } from '../../services/api'
 import api from '../../services/api'
@@ -26,7 +26,6 @@ interface DiscoveryQueuePanelProps {
   onDismiss: (paperId: string) => void
   onDismissAll: () => void
   onClearNotification: () => void
-  onClose: () => void
   // External ingestion updates from AI's add_to_library tool
   externalUpdates?: LibraryUpdateItem[]
 }
@@ -40,7 +39,6 @@ export function DiscoveryQueuePanel({
   onDismiss,
   onDismissAll,
   onClearNotification,
-  onClose,
   externalUpdates,
 }: DiscoveryQueuePanelProps) {
   const queryClient = useQueryClient()
@@ -197,29 +195,7 @@ export function DiscoveryQueuePanel({
   const failedCount = Object.values(ingestionStates).filter(s => s.status === 'failed').length
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-slate-900 border-l border-gray-200 dark:border-slate-700">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-slate-700">
-        <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-indigo-500" />
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-            Paper Discoveries
-          </h3>
-          {papers.length > 0 && (
-            <span className="inline-flex items-center justify-center h-5 min-w-5 px-1.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-300">
-              {papers.length}
-            </span>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:text-gray-300 dark:hover:bg-slate-700 transition"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
+    <div className="flex flex-col">
       {/* Notification banner */}
       {notification && (
         <div className="flex items-center justify-between px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800">
@@ -300,7 +276,7 @@ export function DiscoveryQueuePanel({
 
       {/* Footer hint */}
       {papers.length > 0 && (
-        <div className="px-4 py-2 border-t border-gray-100 dark:border-slate-800">
+        <div className="mt-3 pt-2 border-t border-gray-200 dark:border-gray-700">
           <p className="text-[10px] text-gray-400 dark:text-gray-500">
             Click "Add" to add to your library. Papers marked "PDF failed" can have PDFs uploaded manually.
           </p>

@@ -145,8 +145,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       return [...prev, value]
     })
   }, [])
-  const [openDialog, setOpenDialog] = useState<'resources' | 'tasks' | 'artifacts' | null>(null)
-  const [showDiscoveryPanel, setShowDiscoveryPanel] = useState(false)
+  const [openDialog, setOpenDialog] = useState<'resources' | 'tasks' | 'artifacts' | 'discoveries' | null>(null)
   const [channelMenuOpen, setChannelMenuOpen] = useState(false)
   const [aiContextExpanded, setAiContextExpanded] = useState(false)
   const channelMenuRef = useRef<HTMLDivElement>(null)
@@ -1114,7 +1113,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         })
         // Auto-open the Discovery Queue panel when papers arrive
         if (papers.length > 0) {
-          setShowDiscoveryPanel(true)
+          setOpenDialog('discoveries')
         }
       } else {
         // Store in the original channel's discovery queue
@@ -2183,7 +2182,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           notification: `Found ${papers.length} papers`,
         })
         // Auto-open the Discovery Queue panel when papers arrive
-        setShowDiscoveryPanel(true)
+        setOpenDialog('discoveries')
       }
       return
     }
@@ -2949,7 +2948,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                       <button
                         type="button"
                         onClick={() => {
-                          setShowDiscoveryPanel(true)
+                          setOpenDialog('discoveries')
                           setChannelMenuOpen(false)
                         }}
                         className="flex w-full items-center justify-between gap-2 px-3 py-2 text-sm text-gray-700 transition hover:bg-gray-50 dark:text-slate-200 dark:hover:bg-slate-700"
@@ -3069,24 +3068,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
             </div>
           )}
     </div>
-
-        {/* Discovery Queue Side Panel */}
-        {showDiscoveryPanel && activeChannel && (
-          <div className="w-80 flex-shrink-0">
-            <DiscoveryQueuePanel
-              papers={discoveryQueue.papers}
-              query={discoveryQueue.query}
-              projectId={project.id}
-              isSearching={discoveryQueue.isSearching}
-              notification={discoveryQueue.notification}
-              onDismiss={handleDismissPaper}
-              onDismissAll={handleDismissAllPapers}
-              onClearNotification={() => setDiscoveryQueue((prev) => ({ ...prev, notification: null }))}
-              onClose={() => setShowDiscoveryPanel(false)}
-              externalUpdates={activeChannelId ? libraryUpdatesByChannel[activeChannelId] : undefined}
-            />
-          </div>
-        )}
   </div>
 
       {openDialog && activeChannel && (
@@ -3101,13 +3082,15 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
             <div className="flex items-start justify-between border-b border-gray-200 px-5 py-4 dark:border-slate-700">
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
-                  {openDialog === 'resources' ? 'Channel resources' : openDialog === 'artifacts' ? 'Channel artifacts' : 'Channel tasks'}
+                  {openDialog === 'resources' ? 'Channel resources' : openDialog === 'artifacts' ? 'Channel artifacts' : openDialog === 'discoveries' ? 'Paper Discoveries' : 'Channel tasks'}
                 </h3>
                 <p className="text-xs text-gray-500 dark:text-slate-400">
                   {openDialog === 'resources'
                     ? `Manage linked resources for ${activeChannel.name}`
                     : openDialog === 'artifacts'
                     ? `Generated files for ${activeChannel.name}`
+                    : openDialog === 'discoveries'
+                    ? `Papers found via AI search - add to your library`
                     : `Track action items for ${activeChannel.name}`}
                 </p>
               </div>
@@ -3135,6 +3118,18 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                 <ChannelArtifactsPanel
                   projectId={project.id}
                   channelId={activeChannel.id}
+                />
+              ) : openDialog === 'discoveries' ? (
+                <DiscoveryQueuePanel
+                  papers={discoveryQueue.papers}
+                  query={discoveryQueue.query}
+                  projectId={project.id}
+                  isSearching={discoveryQueue.isSearching}
+                  notification={discoveryQueue.notification}
+                  onDismiss={handleDismissPaper}
+                  onDismissAll={handleDismissAllPapers}
+                  onClearNotification={() => setDiscoveryQueue((prev) => ({ ...prev, notification: null }))}
+                  externalUpdates={activeChannelId ? libraryUpdatesByChannel[activeChannelId] : undefined}
                 />
               ) : (
                 <ChannelTaskDrawer
