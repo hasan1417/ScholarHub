@@ -7,7 +7,7 @@ import remarkGfm from 'remark-gfm'
 import { formatDistanceToNow } from 'date-fns'
 import { useProjectContext } from './ProjectLayout'
 import { useAuth } from '../../contexts/AuthContext'
-import { projectDiscussionAPI, buildApiUrl, refreshAuthToken, researchPapersAPI, projectReferencesAPI, projectMeetingsAPI, referencesAPI } from '../../services/api'
+import { projectDiscussionAPI, buildApiUrl, refreshAuthToken, researchPapersAPI, projectReferencesAPI, projectMeetingsAPI } from '../../services/api'
 import discussionWebsocket from '../../services/discussionWebsocket'
 import {
   DiscussionMessage,
@@ -145,7 +145,8 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       return [...prev, value]
     })
   }, [])
-  const [openDialog, setOpenDialog] = useState<'resources' | 'tasks' | 'artifacts' | 'discoveries' | null>(null)
+  const [openDialog, setOpenDialog] = useState<'resources' | 'tasks' | 'artifacts' | null>(null)
+  const [showDiscoveryPanel, setShowDiscoveryPanel] = useState(false)
   const [channelMenuOpen, setChannelMenuOpen] = useState(false)
   const [aiContextExpanded, setAiContextExpanded] = useState(false)
   const channelMenuRef = useRef<HTMLDivElement>(null)
@@ -260,27 +261,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     }
   }, [activeChannelId, discoveryQueueByChannel, dismissedPaperIds])
 
-  // Compute ingestion states from library updates - map paper IDs to their ingestion status
-  const ingestionStates = useMemo(() => {
-    if (!activeChannelId) return {}
-    const updates = libraryUpdatesByChannel[activeChannelId] || []
-    const searchResults = searchResultsByChannel[activeChannelId]
-    if (!searchResults || updates.length === 0) return {}
-
-    const states: Record<string, { referenceId: string; status: 'success' | 'failed' | 'no_pdf' | 'uploading' }> = {}
-    for (const update of updates) {
-      // Map the update index to the paper ID in search results
-      const paper = searchResults.papers[update.index]
-      if (paper) {
-        states[paper.id] = {
-          referenceId: update.reference_id,
-          status: update.ingestion_status as 'success' | 'failed' | 'no_pdf' | 'uploading',
-        }
-      }
-    }
-    return states
-  }, [activeChannelId, libraryUpdatesByChannel, searchResultsByChannel])
-
   // Helper to set discovery queue for current channel
   const setDiscoveryQueue = useCallback((
     value: React.SetStateAction<{
@@ -334,61 +314,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       }
     })
   }, [activeChannelId])
-
-  // Handler to upload PDF for a paper with failed ingestion
-  const handleUploadPdf = useCallback(async (paperId: string, file: File) => {
-    if (!activeChannelId) return
-    const state = ingestionStates[paperId]
-    if (!state?.referenceId) {
-      console.error('No reference ID found for paper:', paperId)
-      return
-    }
-
-    // Set uploading state
-    setLibraryUpdatesByChannel(prev => {
-      const updates = prev[activeChannelId] || []
-      return {
-        ...prev,
-        [activeChannelId]: updates.map(u =>
-          u.reference_id === state.referenceId
-            ? { ...u, ingestion_status: 'uploading' as const }
-            : u
-        ),
-      }
-    })
-
-    try {
-      await referencesAPI.uploadPdf(state.referenceId, file)
-      // Update to success state
-      setLibraryUpdatesByChannel(prev => {
-        const updates = prev[activeChannelId] || []
-        return {
-          ...prev,
-          [activeChannelId]: updates.map(u =>
-            u.reference_id === state.referenceId
-              ? { ...u, ingestion_status: 'success' as const }
-              : u
-          ),
-        }
-      })
-      // Refresh references
-      queryClient.invalidateQueries({ queryKey: ['project-references', project.id] })
-    } catch (error) {
-      console.error('Failed to upload PDF:', error)
-      // Revert to failed state
-      setLibraryUpdatesByChannel(prev => {
-        const updates = prev[activeChannelId] || []
-        return {
-          ...prev,
-          [activeChannelId]: updates.map(u =>
-            u.reference_id === state.referenceId
-              ? { ...u, ingestion_status: 'failed' as const }
-              : u
-          ),
-        }
-      })
-    }
-  }, [activeChannelId, ingestionStates, queryClient, project.id])
 
   const [paperFormData, setPaperFormData] = useState({
     title: '',
@@ -1189,7 +1114,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         })
         // Auto-open the Discovery Queue panel when papers arrive
         if (papers.length > 0) {
-          setOpenDialog('discoveries')
+          setShowDiscoveryPanel(true)
         }
       } else {
         // Store in the original channel's discovery queue
@@ -1366,54 +1291,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       alert('Unable to unlink this resource right now.')
     },
   })
-
-  // Discovery queue action handlers
-  const handleAddPaperToLibrary = async (paper: DiscoveredPaper) => {
-    const response = await projectDiscussionAPI.executePaperAction(project.id, 'add_reference', {
-      title: paper.title,
-      authors: paper.authors,
-      year: paper.year,
-      doi: paper.doi,
-      url: paper.url,
-      abstract: paper.abstract,
-      source: paper.source,
-      pdf_url: paper.pdf_url,
-      is_open_access: paper.is_open_access,
-    })
-    if (response.data.success) {
-      queryClient.invalidateQueries({ queryKey: ['projectReferences', project.id] })
-    } else {
-      throw new Error(response.data.message || 'Failed to add reference')
-    }
-  }
-
-  const handleAddPaperToChannel = async (paper: DiscoveredPaper) => {
-    if (!activeChannelId) throw new Error('No channel selected')
-    // Step 1: Add paper to library
-    const response = await projectDiscussionAPI.executePaperAction(project.id, 'add_reference', {
-      title: paper.title,
-      authors: paper.authors,
-      year: paper.year,
-      doi: paper.doi,
-      url: paper.url,
-      abstract: paper.abstract,
-      source: paper.source,
-      pdf_url: paper.pdf_url,
-      is_open_access: paper.is_open_access,
-    })
-    if (!response.data.success) {
-      throw new Error(response.data.message || 'Failed to add reference')
-    }
-    // Step 2: Link to channel as resource
-    if (response.data.reference_id) {
-      await projectDiscussionAPI.createChannelResource(project.id, activeChannelId, {
-        resource_type: 'reference',
-        reference_id: response.data.reference_id,
-      })
-      queryClient.invalidateQueries({ queryKey: ['projectDiscussionChannelResources', project.id, activeChannelId] })
-    }
-    queryClient.invalidateQueries({ queryKey: ['projectReferences', project.id] })
-  }
 
   const handleDismissAllPapers = () => {
     setDiscoveryQueue((prev) => ({
@@ -2306,7 +2183,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           notification: `Found ${papers.length} papers`,
         })
         // Auto-open the Discovery Queue panel when papers arrive
-        setOpenDialog('discoveries')
+        setShowDiscoveryPanel(true)
       }
       return
     }
@@ -3072,7 +2949,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                       <button
                         type="button"
                         onClick={() => {
-                          setOpenDialog('discoveries')
+                          setShowDiscoveryPanel(true)
                           setChannelMenuOpen(false)
                         }}
                         className="flex w-full items-center justify-between gap-2 px-3 py-2 text-sm text-gray-700 transition hover:bg-gray-50 dark:text-slate-200 dark:hover:bg-slate-700"
@@ -3192,6 +3069,24 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
             </div>
           )}
     </div>
+
+        {/* Discovery Queue Side Panel */}
+        {showDiscoveryPanel && activeChannel && (
+          <div className="w-80 flex-shrink-0">
+            <DiscoveryQueuePanel
+              papers={discoveryQueue.papers}
+              query={discoveryQueue.query}
+              projectId={project.id}
+              isSearching={discoveryQueue.isSearching}
+              notification={discoveryQueue.notification}
+              onDismiss={handleDismissPaper}
+              onDismissAll={handleDismissAllPapers}
+              onClearNotification={() => setDiscoveryQueue((prev) => ({ ...prev, notification: null }))}
+              onClose={() => setShowDiscoveryPanel(false)}
+              externalUpdates={activeChannelId ? libraryUpdatesByChannel[activeChannelId] : undefined}
+            />
+          </div>
+        )}
   </div>
 
       {openDialog && activeChannel && (
@@ -3206,15 +3101,13 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
             <div className="flex items-start justify-between border-b border-gray-200 px-5 py-4 dark:border-slate-700">
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
-                  {openDialog === 'resources' ? 'Channel resources' : openDialog === 'artifacts' ? 'Channel artifacts' : openDialog === 'discoveries' ? 'Paper discoveries' : 'Channel tasks'}
+                  {openDialog === 'resources' ? 'Channel resources' : openDialog === 'artifacts' ? 'Channel artifacts' : 'Channel tasks'}
                 </h3>
                 <p className="text-xs text-gray-500 dark:text-slate-400">
                   {openDialog === 'resources'
                     ? `Manage linked resources for ${activeChannel.name}`
                     : openDialog === 'artifacts'
                     ? `Generated files for ${activeChannel.name}`
-                    : openDialog === 'discoveries'
-                    ? `Papers found via AI search - add to channel or library`
                     : `Track action items for ${activeChannel.name}`}
                 </p>
               </div>
@@ -3242,20 +3135,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                 <ChannelArtifactsPanel
                   projectId={project.id}
                   channelId={activeChannel.id}
-                />
-              ) : openDialog === 'discoveries' ? (
-                <DiscoveryQueuePanel
-                  papers={discoveryQueue.papers}
-                  query={discoveryQueue.query}
-                  isSearching={discoveryQueue.isSearching}
-                  notification={discoveryQueue.notification}
-                  onAddToChannel={handleAddPaperToChannel}
-                  onAddToLibrary={handleAddPaperToLibrary}
-                  onDismiss={handleDismissPaper}
-                  onDismissAll={handleDismissAllPapers}
-                  onClearNotification={() => setDiscoveryQueue((prev) => ({ ...prev, notification: null }))}
-                  ingestionStates={ingestionStates}
-                  onUploadPdf={handleUploadPdf}
                 />
               ) : (
                 <ChannelTaskDrawer
