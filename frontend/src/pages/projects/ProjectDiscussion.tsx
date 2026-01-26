@@ -1111,10 +1111,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           isSearching: false,
           notification: `Found ${papers.length} paper${papers.length !== 1 ? 's' : ''} for "${data.query}"`,
         })
-        // Auto-open the Discovery Queue panel when papers arrive
-        if (papers.length > 0) {
-          setOpenDialog('discoveries')
-        }
       } else {
         // Store in the original channel's discovery queue
         setDiscoveryQueueByChannel(prev => ({
@@ -2181,8 +2177,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           isSearching: false,
           notification: `Found ${papers.length} papers`,
         })
-        // Auto-open the Discovery Queue panel when papers arrive
-        setOpenDialog('discoveries')
       }
       return
     }
@@ -2977,6 +2971,43 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                   {renderDiscussionContent()}
                 </div>
               </div>
+
+              {/* Floating discovery notification bar */}
+              {discoveryQueue.papers.length > 0 && (
+                <div className="mx-4 mb-2 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 shadow-sm dark:border-amber-500/30 dark:bg-amber-900/20">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-500/20">
+                      <Search className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                        {discoveryQueue.papers.length} paper{discoveryQueue.papers.length !== 1 ? 's' : ''} found
+                      </p>
+                      {discoveryQueue.query && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400">
+                          for "{discoveryQueue.query}"
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setOpenDialog('discoveries')}
+                      className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600"
+                    >
+                      Review
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDismissAllPapers}
+                      className="rounded-lg px-2 py-1.5 text-xs font-medium text-amber-700 transition hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-500/20"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className="border-t border-gray-100 bg-white px-4 py-2 text-xs text-gray-600 dark:border-slate-800 dark:bg-slate-900/40">
                 <button
