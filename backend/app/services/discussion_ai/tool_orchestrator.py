@@ -1984,45 +1984,11 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         if not citation_keys:
             return {"linked": 0, "message": "No citations found in content"}
 
-        # Build lookup from recent search results
-        # Try to match citation keys (e.g., "vaswani2017attention") to papers
-        def normalize_for_matching(text: str) -> str:
-            """Normalize text for fuzzy matching."""
-            return re.sub(r'[^a-z0-9]', '', text.lower())
-
-        def get_author_year_key(paper: Dict) -> str:
-            """Generate a citation-like key from paper info."""
-            authors = paper.get("authors", "")
-            if isinstance(authors, list):
-                first_author = authors[0] if authors else "unknown"
-            else:
-                first_author = authors.split(",")[0].strip() if authors else "unknown"
-
-            # Extract last name - handle both "LastName, Initial." and "First Last" formats
-            if "," in first_author:
-                # Format: "LastName, Initial." - take part before comma
-                last_name = first_author.split(",")[0].strip()
-            else:
-                # Format: "First Last" - take last word
-                last_name = first_author.split()[-1] if first_author else "unknown"
-            year = str(paper.get("year", ""))
-
-            # Get first significant word from title for disambiguation
-            title = paper.get("title", "")
-            title_words = [w for w in re.findall(r'[a-z]+', title.lower()) if len(w) > 3]
-            title_word = title_words[0] if title_words else ""
-
-            return normalize_for_matching(f"{last_name}{year}{title_word}")
-
-        # Create lookup mapping from all available papers (search results + library)
-        paper_lookup = {}
+        # Create lookup by our generated keys for fast exact matching
+        paper_by_key = {}
         for paper in all_papers:
-            key = get_author_year_key(paper)
-            paper_lookup[key] = paper
-            # Also add by normalized title for fallback matching
-            title_key = normalize_for_matching(paper.get("title", ""))
-            if title_key:
-                paper_lookup[title_key] = paper
+            key = self._generate_citation_key(paper)
+            paper_by_key[key] = paper
 
         # Match citation keys to papers
         linked_count = 0
@@ -2034,19 +2000,15 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             return {"linked": 0, "message": "Invalid paper ID"}
 
         for cite_key in citation_keys:
-            normalized_key = normalize_for_matching(cite_key)
+            # 1. Try exact match with our generated keys first
+            matched_paper = paper_by_key.get(cite_key)
 
-            # Try exact match first
-            matched_paper = paper_lookup.get(normalized_key)
-
-            # Try partial match if no exact match
+            # 2. Use intelligent fuzzy matching on paper metadata
             if not matched_paper:
-                for lookup_key, paper in paper_lookup.items():
-                    if normalized_key in lookup_key or lookup_key in normalized_key:
-                        matched_paper = paper
-                        break
+                matched_paper = self._match_citation_to_paper(cite_key, all_papers)
 
             if not matched_paper:
+                logger.debug(f"[LinkRefs] Could not match citation key: {cite_key}")
                 continue
 
             # Check if reference already exists
@@ -2313,8 +2275,140 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 
         return f"{last_name}{year}{title_word}"
 
+    def _parse_citation_key(self, cite_key: str) -> Dict[str, str]:
+        """Parse a citation key into semantic components (author, year, title_word)."""
+        import re
+
+        result = {"author": "", "year": "", "title_word": "", "raw": cite_key}
+
+        # Extract year (4 digits)
+        year_match = re.search(r'(\d{4})', cite_key)
+        if year_match:
+            result["year"] = year_match.group(1)
+            # Split on year to get author (before) and title word (after)
+            parts = cite_key.split(result["year"])
+            result["author"] = re.sub(r'[^a-z]', '', parts[0].lower()) if parts[0] else ""
+            result["title_word"] = re.sub(r'[^a-z]', '', parts[1].lower()) if len(parts) > 1 and parts[1] else ""
+        else:
+            # No year found - treat entire key as author
+            result["author"] = re.sub(r'[^a-z]', '', cite_key.lower())
+
+        return result
+
+    def _extract_paper_metadata(self, paper: Dict) -> Dict[str, any]:
+        """Extract normalized metadata from a paper for matching."""
+        import re
+
+        # Normalize authors
+        authors = paper.get("authors", "")
+        if isinstance(authors, list):
+            authors_str = " ".join(authors)
+        else:
+            authors_str = authors or ""
+
+        # Extract individual author last names
+        author_names = []
+        for part in re.split(r'[,;&]', authors_str):
+            words = part.strip().split()
+            if words:
+                # Last word is usually the last name, or first word if "LastName, FirstName" format
+                if len(words) >= 2 and '.' in words[-1]:
+                    author_names.append(words[0].lower())  # "Smith, J." -> "smith"
+                else:
+                    author_names.append(words[-1].lower())  # "John Smith" -> "smith"
+
+        # Normalize title words
+        title = paper.get("title", "")
+        title_words = [w.lower() for w in re.findall(r'[a-zA-Z]+', title) if len(w) > 2]
+
+        return {
+            "authors_raw": authors_str.lower(),
+            "author_names": author_names,
+            "year": str(paper.get("year", "")),
+            "title_words": title_words,
+            "title_raw": title.lower(),
+        }
+
+    def _match_citation_to_paper(self, cite_key: str, papers: List[Dict]) -> Optional[Dict]:
+        """
+        Match a citation key to a paper using intelligent fuzzy matching.
+
+        Parses the citation key into components and scores each paper
+        based on metadata matches. Returns best match above threshold.
+        """
+        parsed = self._parse_citation_key(cite_key)
+
+        best_match = None
+        best_score = 0
+
+        for paper in papers:
+            meta = self._extract_paper_metadata(paper)
+            score = 0
+
+            # Year match (exact) - strong signal
+            if parsed["year"] and meta["year"]:
+                if parsed["year"] == meta["year"]:
+                    score += 40
+                else:
+                    # Year mismatch is a strong negative signal
+                    score -= 20
+
+            # Author match - check if citation author matches any paper author
+            if parsed["author"]:
+                author_matched = False
+                for author_name in meta["author_names"]:
+                    # Check various matching strategies
+                    if parsed["author"] == author_name:
+                        score += 35  # Exact match
+                        author_matched = True
+                        break
+                    elif parsed["author"] in author_name or author_name in parsed["author"]:
+                        score += 25  # Partial match
+                        author_matched = True
+                        break
+                    elif len(parsed["author"]) >= 3 and len(author_name) >= 3:
+                        # Check if they share a common prefix (handles typos/variations)
+                        common_len = min(len(parsed["author"]), len(author_name))
+                        if parsed["author"][:common_len-1] == author_name[:common_len-1]:
+                            score += 20
+                            author_matched = True
+                            break
+
+                # Also check raw authors string for partial matches
+                if not author_matched and parsed["author"] in meta["authors_raw"]:
+                    score += 15
+
+            # Title word match
+            if parsed["title_word"]:
+                title_matched = False
+                for title_word in meta["title_words"]:
+                    if parsed["title_word"] == title_word:
+                        score += 30  # Exact match
+                        title_matched = True
+                        break
+                    elif parsed["title_word"] in title_word or title_word in parsed["title_word"]:
+                        score += 20  # Partial match
+                        title_matched = True
+                        break
+
+                # Also check raw title
+                if not title_matched and parsed["title_word"] in meta["title_raw"]:
+                    score += 10
+
+            if score > best_score:
+                best_score = score
+                best_match = paper
+
+        # Require minimum score to avoid false positives
+        # Score of 50+ means at least year + author or year + title matched
+        return best_match if best_score >= 50 else None
+
     def _generate_bibliography_entries(self, ctx: Dict[str, Any], content: str) -> list:
-        """Generate \\bibitem entries for all citations in content."""
+        """Generate \\bibitem entries for all citations in content.
+
+        Uses intelligent fuzzy matching to match AI-generated citation keys
+        to actual papers in the context (recent search results + project library).
+        """
         import re
         from app.models import Reference, ProjectReference
 
@@ -2329,7 +2423,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             .all()
         )
 
-        # Build lookup of all available papers by citation key
+        # Build list of all available papers
         all_papers = []
         for paper in recent_search_results:
             all_papers.append(paper)
@@ -2343,7 +2437,11 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 "journal": ref.journal,
             })
 
-        # Create lookup by citation key
+        if not all_papers:
+            logger.warning("[Bibliography] No papers available for citation matching")
+            return []
+
+        # Also create lookup by our generated keys for exact matches
         paper_by_key = {}
         for paper in all_papers:
             key = self._generate_citation_key(paper)
@@ -2357,22 +2455,26 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             for key in match.split(','):
                 citation_keys.add(key.strip())
 
-        # Generate bibitem entries
+        if not citation_keys:
+            return []
+
+        # Generate bibitem entries using intelligent matching
         bibliography_entries = []
+        matched_count = 0
+        unmatched_keys = []
+
         for cite_key in sorted(citation_keys):
-            # Try exact match first
+            paper = None
+
+            # 1. Try exact match with our generated keys first
             paper = paper_by_key.get(cite_key)
 
-            # Try partial match
+            # 2. Use intelligent fuzzy matching on paper metadata
             if not paper:
-                normalized_key = re.sub(r'[^a-z0-9]', '', cite_key.lower())
-                for lookup_key, p in paper_by_key.items():
-                    normalized_lookup = re.sub(r'[^a-z0-9]', '', lookup_key.lower())
-                    if normalized_key in normalized_lookup or normalized_lookup in normalized_key:
-                        paper = p
-                        break
+                paper = self._match_citation_to_paper(cite_key, all_papers)
 
             if paper:
+                matched_count += 1
                 authors = paper.get("authors", "Unknown")
                 if isinstance(authors, list):
                     authors = ", ".join(authors)
@@ -2387,7 +2489,13 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 if year:
                     entry += f" {year}."
                 bibliography_entries.append(entry)
+            else:
+                unmatched_keys.append(cite_key)
 
+        if unmatched_keys:
+            logger.warning(f"[Bibliography] Could not match {len(unmatched_keys)} citation keys: {unmatched_keys[:5]}...")
+
+        logger.info(f"[Bibliography] Matched {matched_count}/{len(citation_keys)} citations to papers")
         return bibliography_entries
 
     def _sanitize_latex_content(self, content: str) -> str:
