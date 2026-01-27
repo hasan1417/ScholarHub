@@ -127,7 +127,13 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             return {"content": f"Error: {str(e)}", "tool_calls": []}
 
     def _call_ai_with_tools_streaming(self, messages: List[Dict]) -> Generator[Dict[str, Any], None, None]:
-        """Call OpenRouter with tool definitions (streaming)."""
+        """Call OpenRouter with tool definitions (streaming).
+
+        Yields:
+        - {"type": "token", "content": str} for content tokens
+        - {"type": "tool_call_detected"} when first tool call is detected (stop streaming tokens)
+        - {"type": "result", "content": str, "tool_calls": list} at the end
+        """
         try:
             if not self.openrouter_client:
                 yield {"type": "result", "content": "OpenRouter API not configured.", "tool_calls": []}
@@ -145,6 +151,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
 
             content_chunks = []
             tool_calls_data = {}  # {index: {"id": ..., "name": ..., "arguments": ...}}
+            tool_call_signaled = False
 
             for chunk in stream:
                 delta = chunk.choices[0].delta if chunk.choices else None
@@ -154,10 +161,17 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 # Handle content tokens
                 if delta.content:
                     content_chunks.append(delta.content)
-                    yield {"type": "token", "content": delta.content}
+                    # Only yield tokens if we haven't detected a tool call yet
+                    if not tool_call_signaled:
+                        yield {"type": "token", "content": delta.content}
 
                 # Handle tool calls (accumulated across chunks)
                 if delta.tool_calls:
+                    # Signal tool call detection ONCE so caller knows to stop streaming
+                    if not tool_call_signaled:
+                        tool_call_signaled = True
+                        yield {"type": "tool_call_detected"}
+
                     for tc_chunk in delta.tool_calls:
                         idx = tc_chunk.index
                         if idx not in tool_calls_data:
@@ -204,7 +218,10 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         Execute with tool calling and streaming.
 
         OVERRIDE: Only streams the FINAL response, not intermediate thinking.
-        Status messages are still shown during tool execution.
+        - Tokens are streamed immediately until a tool call is detected
+        - When tool call is detected mid-stream, remaining content is hidden
+        - Status messages are shown during tool execution
+        - Final response (no tool calls) is fully streamed
         """
         max_iterations = 8
         iteration = 0
@@ -218,15 +235,21 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             iteration += 1
             print(f"\n[OpenRouter Streaming] Iteration {iteration}, messages count: {len(messages)}")
 
-            # Collect AI response (DON'T stream intermediate tokens)
             response_content = ""
             tool_calls = []
             iteration_content = []
+            has_tool_call = False
 
             for event in self._call_ai_with_tools_streaming(messages):
                 if event["type"] == "token":
-                    # Buffer tokens, don't stream yet
                     iteration_content.append(event["content"])
+                    # Stream tokens to client UNLESS we already know this iteration has tool calls
+                    if not has_tool_call:
+                        yield {"type": "token", "content": event["content"]}
+                elif event["type"] == "tool_call_detected":
+                    # Tool call detected mid-stream - stop streaming, buffer the rest
+                    has_tool_call = True
+                    logger.info("[OpenRouter Streaming] Tool call detected, stopping token stream")
                 elif event["type"] == "result":
                     response_content = event["content"]
                     tool_calls = event.get("tool_calls", [])
@@ -235,15 +258,12 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             print(f"[OpenRouter Streaming] Content preview: {response_content[:100] if response_content else 'empty'}...")
 
             if not tool_calls:
-                # No more tool calls - this is the FINAL response
-                # NOW stream the tokens to the client
-                logger.info("[OpenRouter Streaming] Final response - streaming to client")
-                for content in iteration_content:
-                    yield {"type": "token", "content": content}
+                # No tool calls - this was the final response, already streamed
+                logger.info("[OpenRouter Streaming] Final response - tokens already streamed")
                 final_content_chunks.extend(iteration_content)
                 break
 
-            # Tool calls present - send status messages but DON'T stream thinking text
+            # Tool calls present - send status messages
             for tc in tool_calls:
                 tool_name = tc.get("name", "")
                 status_message = self._get_tool_status_message(tool_name)

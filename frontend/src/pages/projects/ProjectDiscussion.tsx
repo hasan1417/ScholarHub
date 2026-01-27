@@ -1685,6 +1685,8 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
               next.delete(originalChannelId)
               return next
             })
+            // Clear dismissed paper IDs - new search results shouldn't be affected by old dismissals
+            setDismissedPaperIds(new Set())
             // Store results for the ORIGINAL channel
             setSearchResultsByChannel(prev => ({
               ...prev,
@@ -1776,6 +1778,8 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
             delete next[originalChannelId]
             return next
           })
+          // Clear dismissed paper IDs - new search results shouldn't be affected by old dismissals
+          setDismissedPaperIds(new Set())
           setSearchResultsByChannel(prev => ({
             ...prev,
             [originalChannelId]: {
@@ -2001,6 +2005,8 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                 next.delete(activeChannelId)
                 return next
               })
+              // Clear dismissed paper IDs - new search results shouldn't be affected by old dismissals
+              setDismissedPaperIds(new Set())
             }
           }
 

@@ -1704,7 +1704,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 
             # Format results - filter out papers already in library
             papers = []
-            for p in source_papers:
+            for idx, p in enumerate(source_papers):
                 # Check if paper is already in library - skip silently
                 if p.doi and p.doi.lower().replace("https://doi.org/", "").strip() in library_dois:
                     continue
