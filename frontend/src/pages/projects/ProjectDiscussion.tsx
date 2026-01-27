@@ -336,6 +336,14 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     }
   }, [activeChannelId, discoveryQueueByChannel, dismissedPaperIds])
 
+  // Count dismissed papers only for the current search (not all dismissed papers ever)
+  const dismissedInCurrentSearch = useMemo(() => {
+    if (!activeChannelId) return 0
+    const raw = discoveryQueueByChannel[activeChannelId]
+    if (!raw?.papers) return 0
+    return raw.papers.filter(p => dismissedPaperIds.has(p.id)).length
+  }, [activeChannelId, discoveryQueueByChannel, dismissedPaperIds])
+
   // Compute ingestion summary for notification bar - derived from unified ingestion state
   const ingestionSummary = useMemo(() => {
     const states = Object.values(currentIngestionStates)
@@ -3459,13 +3467,13 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                               for "{discoveryQueue.query}"
                             </p>
                           )}
-                          {dismissedPaperIds.size > 0 && (
+                          {dismissedInCurrentSearch > 0 && (
                             <button
                               type="button"
                               onClick={resetDismissedPapers}
                               className="text-[10px] sm:text-xs text-amber-500 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300 underline"
                             >
-                              Show {dismissedPaperIds.size} dismissed
+                              Show {dismissedInCurrentSearch} dismissed
                             </button>
                           )}
                         </div>
