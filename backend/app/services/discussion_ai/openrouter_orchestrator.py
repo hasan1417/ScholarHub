@@ -57,6 +57,30 @@ OPENROUTER_MODELS = {
 }
 
 
+# Models that support OpenRouter's reasoning parameter
+# Based on OpenRouter docs: https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
+REASONING_SUPPORTED_MODELS = {
+    # OpenAI GPT-5+ supports reasoning.effort
+    "openai/gpt-5.2-20251211",
+    "openai/gpt-5.2-codex-20260114",
+    "openai/gpt-5.1-20251113",
+    # Anthropic Claude 4.5+ supports extended thinking
+    "anthropic/claude-4.5-opus-20251124",
+    "anthropic/claude-4.5-sonnet-20250929",
+    "anthropic/claude-4.5-haiku-20251001",
+    # Google Gemini 2.5+/3.x supports reasoning via thinkingLevel
+    "google/gemini-3-pro-preview-20251117",
+    "google/gemini-3-flash-preview-20251217",
+    "google/gemini-2.5-pro",
+    "google/gemini-2.5-flash",
+    # DeepSeek V3+ and R1 support reasoning
+    "deepseek/deepseek-v3.2-20251201",
+    "deepseek/deepseek-chat-v3.1",
+    "deepseek/deepseek-r1",
+    "deepseek/deepseek-r1:free",
+}
+
+
 class OpenRouterOrchestrator(ToolOrchestrator):
     """
     AI orchestrator that uses OpenRouter for multi-model support.
@@ -68,6 +92,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
     def __init__(self, ai_service: "AIService", db: "Session", model: str = "openai/gpt-5.2-20251211"):
         super().__init__(ai_service, db)
         self._model = model
+        self._reasoning_mode = False  # Set by invoke methods from ctx
 
         # Initialize OpenRouter client (OpenAI-compatible API)
         api_key = settings.OPENROUTER_API_KEY
@@ -82,6 +107,25 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 "X-Title": "ScholarHub",
             }
         ) if api_key else None
+
+    def _model_supports_reasoning(self) -> bool:
+        """Check if the current model supports OpenRouter reasoning parameter."""
+        return self._model in REASONING_SUPPORTED_MODELS
+
+    def _get_reasoning_params(self) -> dict:
+        """Get reasoning parameters for the API call if enabled and supported."""
+        if not self._reasoning_mode or not self._model_supports_reasoning():
+            return {}
+
+        # OpenRouter unified reasoning parameter
+        # effort: "high" provides good balance of reasoning depth vs cost
+        return {
+            "extra_body": {
+                "reasoning": {
+                    "effort": "high"
+                }
+            }
+        }
 
     @property
     def model(self) -> str:
@@ -102,14 +146,23 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     "tool_calls": []
                 }
 
-            logger.info(f"Calling OpenRouter with model: {self.model}")
+            reasoning_info = f" (reasoning: {self._reasoning_mode})" if self._reasoning_mode else ""
+            logger.info(f"Calling OpenRouter with model: {self.model}{reasoning_info}")
 
-            response = self.openrouter_client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                tools=DISCUSSION_TOOLS,
-                tool_choice="auto",
-            )
+            # Build API call params
+            call_params = {
+                "model": self.model,
+                "messages": messages,
+                "tools": DISCUSSION_TOOLS,
+                "tool_choice": "auto",
+            }
+
+            # Add reasoning params if enabled
+            reasoning_params = self._get_reasoning_params()
+            if reasoning_params.get("extra_body"):
+                call_params["extra_body"] = reasoning_params["extra_body"]
+
+            response = self.openrouter_client.chat.completions.create(**call_params)
 
             choice = response.choices[0]
             message = choice.message
@@ -146,15 +199,24 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 yield {"type": "result", "content": "OpenRouter API not configured.", "tool_calls": []}
                 return
 
-            logger.info(f"Streaming from OpenRouter with model: {self.model}")
+            reasoning_info = f" (reasoning: {self._reasoning_mode})" if self._reasoning_mode else ""
+            logger.info(f"Streaming from OpenRouter with model: {self.model}{reasoning_info}")
 
-            stream = self.openrouter_client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                tools=DISCUSSION_TOOLS,
-                tool_choice="auto",
-                stream=True,
-            )
+            # Build API call params
+            call_params = {
+                "model": self.model,
+                "messages": messages,
+                "tools": DISCUSSION_TOOLS,
+                "tool_choice": "auto",
+                "stream": True,
+            }
+
+            # Add reasoning params if enabled
+            reasoning_params = self._get_reasoning_params()
+            if reasoning_params.get("extra_body"):
+                call_params["extra_body"] = reasoning_params["extra_body"]
+
+            stream = self.openrouter_client.chat.completions.create(**call_params)
 
             content_chunks = []
             tool_calls_data = {}  # {index: {"id": ..., "name": ..., "arguments": ...}}
@@ -230,6 +292,9 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         - Status messages are shown during tool execution
         - Final response (no tool calls) is fully streamed
         """
+        # Set reasoning mode from context for use in API calls
+        self._reasoning_mode = ctx.get("reasoning_mode", False)
+
         max_iterations = 8
         iteration = 0
         all_tool_results = []

@@ -6,37 +6,45 @@ export interface OpenRouterModelOption {
   id: string
   name: string
   provider: string
+  supportsReasoning: boolean
 }
 
 // Available OpenRouter models with pricing info (January 2026)
 // Must match backend OPENROUTER_MODELS in openrouter_orchestrator.py
+// supportsReasoning: true if the model supports OpenRouter's reasoning parameter
 export const OPENROUTER_MODELS: OpenRouterModelOption[] = [
-  // OpenAI (GPT-5.2 series - latest)
-  { id: 'openai/gpt-5.2-20251211', name: 'GPT-5.2', provider: 'OpenAI' },
-  { id: 'openai/gpt-5.2-codex-20260114', name: 'GPT-5.2 Codex', provider: 'OpenAI' },
-  { id: 'openai/gpt-5.1-20251113', name: 'GPT-5.1', provider: 'OpenAI' },
-  { id: 'openai/gpt-4o', name: 'GPT-4o', provider: 'OpenAI' },
-  { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini', provider: 'OpenAI' },
-  // Anthropic (Claude 4.5 series - latest)
-  { id: 'anthropic/claude-4.5-opus-20251124', name: 'Claude 4.5 Opus', provider: 'Anthropic' },
-  { id: 'anthropic/claude-4.5-sonnet-20250929', name: 'Claude 4.5 Sonnet', provider: 'Anthropic' },
-  { id: 'anthropic/claude-4.5-haiku-20251001', name: 'Claude 4.5 Haiku', provider: 'Anthropic' },
-  { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', provider: 'Anthropic' },
-  // Google (Gemini 3 series - latest)
-  { id: 'google/gemini-3-pro-preview-20251117', name: 'Gemini 3 Pro', provider: 'Google' },
-  { id: 'google/gemini-3-flash-preview-20251217', name: 'Gemini 3 Flash', provider: 'Google' },
-  { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'Google' },
-  { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: 'Google' },
-  // DeepSeek (V3.2 series - latest)
-  { id: 'deepseek/deepseek-v3.2-20251201', name: 'DeepSeek V3.2', provider: 'DeepSeek' },
-  { id: 'deepseek/deepseek-chat-v3.1', name: 'DeepSeek V3.1', provider: 'DeepSeek' },
-  { id: 'deepseek/deepseek-r1', name: 'DeepSeek R1', provider: 'DeepSeek' },
-  { id: 'deepseek/deepseek-r1:free', name: 'DeepSeek R1 (Free)', provider: 'DeepSeek' },
-  // Meta
-  { id: 'meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 70B', provider: 'Meta' },
-  // Qwen
-  { id: 'qwen/qwen-2.5-72b-instruct', name: 'Qwen 2.5 72B', provider: 'Qwen' },
+  // OpenAI (GPT-5.2 series - latest) - All GPT-5+ support reasoning via reasoning.effort
+  { id: 'openai/gpt-5.2-20251211', name: 'GPT-5.2', provider: 'OpenAI', supportsReasoning: true },
+  { id: 'openai/gpt-5.2-codex-20260114', name: 'GPT-5.2 Codex', provider: 'OpenAI', supportsReasoning: true },
+  { id: 'openai/gpt-5.1-20251113', name: 'GPT-5.1', provider: 'OpenAI', supportsReasoning: true },
+  { id: 'openai/gpt-4o', name: 'GPT-4o', provider: 'OpenAI', supportsReasoning: false },
+  { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini', provider: 'OpenAI', supportsReasoning: false },
+  // Anthropic (Claude 4.5 series - latest) - Claude 4.5+ supports extended thinking
+  { id: 'anthropic/claude-4.5-opus-20251124', name: 'Claude 4.5 Opus', provider: 'Anthropic', supportsReasoning: true },
+  { id: 'anthropic/claude-4.5-sonnet-20250929', name: 'Claude 4.5 Sonnet', provider: 'Anthropic', supportsReasoning: true },
+  { id: 'anthropic/claude-4.5-haiku-20251001', name: 'Claude 4.5 Haiku', provider: 'Anthropic', supportsReasoning: true },
+  { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', provider: 'Anthropic', supportsReasoning: false },
+  // Google (Gemini 3 series - latest) - Gemini 2.5+ supports thinking via thinkingLevel
+  { id: 'google/gemini-3-pro-preview-20251117', name: 'Gemini 3 Pro', provider: 'Google', supportsReasoning: true },
+  { id: 'google/gemini-3-flash-preview-20251217', name: 'Gemini 3 Flash', provider: 'Google', supportsReasoning: true },
+  { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'Google', supportsReasoning: true },
+  { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: 'Google', supportsReasoning: true },
+  // DeepSeek (V3.2 series - latest) - R1 models have built-in reasoning, V3 supports via param
+  { id: 'deepseek/deepseek-v3.2-20251201', name: 'DeepSeek V3.2', provider: 'DeepSeek', supportsReasoning: true },
+  { id: 'deepseek/deepseek-chat-v3.1', name: 'DeepSeek V3.1', provider: 'DeepSeek', supportsReasoning: true },
+  { id: 'deepseek/deepseek-r1', name: 'DeepSeek R1', provider: 'DeepSeek', supportsReasoning: true },
+  { id: 'deepseek/deepseek-r1:free', name: 'DeepSeek R1 (Free)', provider: 'DeepSeek', supportsReasoning: true },
+  // Meta - Llama doesn't have native reasoning support
+  { id: 'meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 70B', provider: 'Meta', supportsReasoning: false },
+  // Qwen - No native reasoning support
+  { id: 'qwen/qwen-2.5-72b-instruct', name: 'Qwen 2.5 72B', provider: 'Qwen', supportsReasoning: false },
 ]
+
+// Helper function to check if a model supports reasoning
+export function modelSupportsReasoning(modelId: string): boolean {
+  const model = OPENROUTER_MODELS.find((m) => m.id === modelId)
+  return model?.supportsReasoning ?? false
+}
 
 // Group models by provider
 const MODEL_GROUPS = OPENROUTER_MODELS.reduce((acc, model) => {

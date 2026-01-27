@@ -26,12 +26,10 @@ import {
   ChevronRight,
   FilePlus,
   Pencil,
-  CheckSquare,
   Search,
   Download,
   MoreHorizontal,
   FolderOpen,
-  ListTodo,
   Puzzle,
   Hash,
   CheckCircle,
@@ -57,8 +55,6 @@ import {
   DiscussionMessage,
   DiscussionThread as DiscussionThreadType,
   DiscussionChannelSummary,
-  DiscussionTaskCreate,
-  DiscussionTaskUpdate,
   DiscussionChannelResourceCreate,
   DiscussionAssistantResponse,
   DiscussionAssistantSuggestedAction,
@@ -71,12 +67,11 @@ import MessageInput from '../../components/discussion/MessageInput'
 import DiscussionThread from '../../components/discussion/DiscussionThread'
 import DiscussionChannelSidebar from '../../components/discussion/DiscussionChannelSidebar'
 import ChannelResourcePanel from '../../components/discussion/ChannelResourcePanel'
-import ChannelTaskDrawer from '../../components/discussion/ChannelTaskDrawer'
 import ChannelArtifactsPanel from '../../components/discussion/ChannelArtifactsPanel'
 import { DiscoveredPaper, IngestionStatus } from '../../components/discussion/DiscoveredPaperCard'
 import { DiscoveryQueuePanel, PaperIngestionState, IngestionStatesMap } from '../../components/discussion/DiscoveryQueuePanel'
 import { getProjectUrlId } from '../../utils/urlId'
-import ModelSelector, { OPENROUTER_MODELS } from '../../components/discussion/ModelSelector'
+import ModelSelector, { OPENROUTER_MODELS, modelSupportsReasoning } from '../../components/discussion/ModelSelector'
 
 // Types
 type AssistantExchange = {
@@ -187,6 +182,13 @@ const ProjectDiscussionOR = () => {
     }
   }, [selectedModel, modelStorageKey])
 
+  // Turn off reasoning when switching to a model that doesn't support it
+  useEffect(() => {
+    if (!modelSupportsReasoning(selectedModel)) {
+      setAssistantReasoning(false)
+    }
+  }, [selectedModel])
+
   // Core state
   const [replyingTo, setReplyingTo] = useState<{ id: string; userName: string } | null>(null)
   const [editingMessage, setEditingMessage] = useState<{ id: string; content: string } | null>(null)
@@ -212,7 +214,7 @@ const ProjectDiscussionOR = () => {
     })
   }, [])
 
-  const [openDialog, setOpenDialog] = useState<'resources' | 'tasks' | 'artifacts' | 'discoveries' | null>(null)
+  const [openDialog, setOpenDialog] = useState<'resources' | 'artifacts' | 'discoveries' | null>(null)
   const [channelMenuOpen, setChannelMenuOpen] = useState(false)
   const [aiContextExpanded, setAiContextExpanded] = useState(false)
   const channelMenuRef = useRef<HTMLDivElement>(null)
@@ -597,21 +599,6 @@ const ProjectDiscussionOR = () => {
     )
   }, [threadsData])
 
-  // Tasks query
-  const tasksQuery = useQuery({
-    queryKey: ['channel-tasks', project.id, activeChannelId],
-    queryFn: async () => {
-      if (!activeChannelId) return []
-      const response = await projectDiscussionAPI.listTasks(project.id, { channelId: activeChannelId })
-      return response.data
-    },
-    enabled: Boolean(activeChannelId),
-  })
-
-  const pendingTasksCount = useMemo(() => {
-    return (tasksQuery.data ?? []).filter((t) => t.status === 'open').length
-  }, [tasksQuery.data])
-
   // Artifacts query
   const artifactsQuery = useQuery({
     queryKey: ['channel-artifacts', project.id, activeChannelId],
@@ -811,49 +798,6 @@ const ProjectDiscussionOR = () => {
     onError: (error) => {
       console.error('Failed to delete message:', error)
       alert('Failed to delete message. Please try again.')
-    },
-  })
-
-  // Task mutations
-  const createTaskMutation = useMutation({
-    mutationFn: async (payload: DiscussionTaskCreate) => {
-      if (!activeChannelId) throw new Error('No channel selected')
-      const response = await projectDiscussionAPI.createTask(project.id, activeChannelId, payload)
-      return response.data
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['channel-tasks', project.id, activeChannelId] })
-    },
-    onError: (error) => {
-      console.error('Failed to create task:', error)
-      alert('Failed to create task. Please try again.')
-    },
-  })
-
-  const updateTaskMutation = useMutation({
-    mutationFn: async ({ taskId, payload }: { taskId: string; payload: DiscussionTaskUpdate }) => {
-      const response = await projectDiscussionAPI.updateTask(project.id, taskId, payload)
-      return response.data
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['channel-tasks', project.id, activeChannelId] })
-    },
-    onError: (error) => {
-      console.error('Failed to update task:', error)
-      alert('Failed to update task. Please try again.')
-    },
-  })
-
-  const deleteTaskMutation = useMutation({
-    mutationFn: async (taskId: string) => {
-      await projectDiscussionAPI.deleteTask(project.id, taskId)
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['channel-tasks', project.id, activeChannelId] })
-    },
-    onError: (error) => {
-      console.error('Failed to delete task:', error)
-      alert('Failed to delete task. Please try again.')
     },
   })
 
@@ -1717,23 +1661,6 @@ const ProjectDiscussionOR = () => {
     const actionKey = `${exchange.id}:${index}`
     if (exchange.appliedActions.includes(actionKey)) return
 
-    if (action.action_type === 'create_task') {
-      const title = String(action.payload?.title || '').trim()
-      if (!title) {
-        alert('The assistant suggestion is missing a task title.')
-        return
-      }
-      const description = action.payload?.description ? String(action.payload.description) : undefined
-      const messageId = action.payload?.message_id ? String(action.payload.message_id) : undefined
-      if (!window.confirm(`Create task "${title}"?`)) return
-
-      createTaskMutation.mutate(
-        { title, description, message_id: messageId },
-        { onSuccess: () => markActionApplied(exchange.id, actionKey) }
-      )
-      return
-    }
-
     if (action.action_type === 'create_paper') {
       const title = String(action.payload?.title || '').trim()
       const paperType = String(action.payload?.paper_type || 'research').trim()
@@ -2014,13 +1941,12 @@ const ProjectDiscussionOR = () => {
                             ).map((action, idx) => {
                               const actionKey = `${exchange.id}:${idx}`
                               const applied = exchange.appliedActions.includes(actionKey)
-                              const isPending = createTaskMutation.isPending || paperActionMutation.isPending || searchReferencesMutation.isPending
+                              const isPending = paperActionMutation.isPending || searchReferencesMutation.isPending
                               const getActionIcon = () => {
                                 if (applied) return <Check className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
                                 switch (action.action_type) {
                                   case 'create_paper': return <FilePlus className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
                                   case 'edit_paper': return <Pencil className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                                  case 'create_task': return <CheckSquare className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
                                   case 'search_references': return <Search className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
                                   case 'artifact_created': return <Download className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
                                   default: return <Sparkles className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
@@ -2185,11 +2111,6 @@ const ProjectDiscussionOR = () => {
                     className="inline-flex items-center gap-1 rounded-lg border border-gray-200 p-1.5 sm:p-2 text-gray-600 transition hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
                   >
                     <MoreHorizontal className="h-4 w-4" />
-                    {pendingTasksCount > 0 && (
-                      <span className="ml-0.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-indigo-500 px-1 text-[10px] font-semibold text-white">
-                        {pendingTasksCount}
-                      </span>
-                    )}
                     {artifactsCount > 0 && (
                       <span className="ml-0.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold text-white">
                         {artifactsCount}
@@ -2214,21 +2135,6 @@ const ProjectDiscussionOR = () => {
                           Channel resources
                         </button>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => { setOpenDialog('tasks'); setChannelMenuOpen(false) }}
-                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-sm text-gray-700 transition hover:bg-gray-50 dark:text-slate-200 dark:hover:bg-slate-700"
-                      >
-                        <div className="flex items-center gap-2">
-                          <ListTodo className="h-4 w-4 text-indigo-500" />
-                          Channel tasks
-                        </div>
-                        {pendingTasksCount > 0 && (
-                          <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-indigo-500 px-1.5 text-[10px] font-semibold text-white">
-                            {pendingTasksCount}
-                          </span>
-                        )}
-                      </button>
                       <button
                         type="button"
                         onClick={() => { setOpenDialog('artifacts'); setChannelMenuOpen(false) }}
@@ -2483,6 +2389,7 @@ const ProjectDiscussionOR = () => {
                 reasoningEnabled={assistantReasoning}
                 onToggleReasoning={() => setAssistantReasoning((prev) => !prev)}
                 reasoningPending={assistantMutation.isPending}
+                reasoningSupported={modelSupportsReasoning(selectedModel)}
               />
             </>
           ) : (
@@ -2532,7 +2439,7 @@ const ProjectDiscussionOR = () => {
             <div className="flex items-start justify-between border-b border-gray-200 px-4 py-3 sm:px-5 sm:py-4 dark:border-slate-700">
               <div className="min-w-0 flex-1 pr-2">
                 <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100 truncate">
-                  {openDialog === 'resources' ? 'Channel resources' : openDialog === 'artifacts' ? 'Channel artifacts' : openDialog === 'discoveries' ? 'Paper Discoveries' : 'Channel tasks'}
+                  {openDialog === 'resources' ? 'Channel resources' : openDialog === 'artifacts' ? 'Channel artifacts' : 'Paper Discoveries'}
                 </h3>
                 <p className="text-[10px] sm:text-xs text-gray-500 dark:text-slate-400 truncate">
                   {openDialog === 'resources'
@@ -2568,7 +2475,7 @@ const ProjectDiscussionOR = () => {
                   projectId={project.id}
                   channelId={activeChannel.id}
                 />
-              ) : openDialog === 'discoveries' ? (
+              ) : (
                 <DiscoveryQueuePanel
                   papers={discoveryQueue.papers}
                   query={discoveryQueue.query}
@@ -2580,17 +2487,6 @@ const ProjectDiscussionOR = () => {
                   onClearNotification={() => setDiscoveryQueue((prev) => ({ ...prev, notification: null }))}
                   ingestionStates={currentIngestionStates}
                   onIngestionStateChange={handleIngestionStateChange}
-                />
-              ) : (
-                <ChannelTaskDrawer
-                  tasks={tasksQuery.data ?? []}
-                  loading={tasksQuery.isLoading || createTaskMutation.isPending}
-                  error={tasksQuery.isError ? (tasksQuery.error as Error) : null}
-                  onCreateTask={(payload) => createTaskMutation.mutate(payload)}
-                  onUpdateTask={(taskId, payload) => updateTaskMutation.mutate({ taskId, payload })}
-                  onDeleteTask={(taskId) => deleteTaskMutation.mutate(taskId)}
-                  allowCreate={Boolean(activeChannelId)}
-                  defaultMessageId={replyingTo?.id ?? editingMessage?.id ?? null}
                 />
               )}
             </div>
@@ -3226,7 +3122,7 @@ const ChannelSettingsModal = ({
           {confirmDelete && (
             <div className="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-500/30 dark:bg-red-500/10">
               <p className="text-sm text-red-700 dark:text-red-300">
-                This will permanently delete the channel and all its messages, tasks, and artifacts.
+                This will permanently delete the channel and all its messages and artifacts.
               </p>
               <p className="mt-2 text-xs text-red-600 dark:text-red-400">
                 Type <strong>{channel.name}</strong> to confirm:

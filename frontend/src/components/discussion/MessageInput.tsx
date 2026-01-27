@@ -12,6 +12,7 @@ interface MessageInputProps {
   reasoningEnabled?: boolean
   onToggleReasoning?: () => void
   reasoningPending?: boolean
+  reasoningSupported?: boolean // Whether the current model supports reasoning
 }
 
 const MessageInput = ({
@@ -25,6 +26,7 @@ const MessageInput = ({
   reasoningEnabled = false,
   onToggleReasoning,
   reasoningPending = false,
+  reasoningSupported = true,
 }: MessageInputProps) => {
   const [content, setContent] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -102,7 +104,7 @@ const MessageInput = ({
           rows={1}
           className="min-h-[2.5rem] max-h-32 flex-1 resize-none rounded-lg border border-gray-300 px-2 py-2 sm:px-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:disabled:bg-slate-800/60 dark:disabled:text-slate-500"
         />
-        {onToggleReasoning && (
+        {onToggleReasoning && reasoningSupported && (
           <button
             type="button"
             onClick={onToggleReasoning}
@@ -130,7 +132,7 @@ const MessageInput = ({
         </button>
       </form>
       <p className="mt-1 text-[10px] sm:text-xs text-gray-500 dark:text-slate-400">
-        <span className="hidden sm:inline">Press <kbd className="rounded bg-gray-100 px-1 py-0.5 dark:bg-slate-700 dark:text-slate-100">Enter</kbd> to send, <kbd className="rounded bg-gray-100 px-1 py-0.5 dark:bg-slate-700 dark:text-slate-100">Shift+Enter</kbd> for new line. </span>Start with <span className="font-semibold">/</span> to ask AI<span className="hidden sm:inline">; use the bulb for reasoning</span>.
+        <span className="hidden sm:inline">Press <kbd className="rounded bg-gray-100 px-1 py-0.5 dark:bg-slate-700 dark:text-slate-100">Enter</kbd> to send, <kbd className="rounded bg-gray-100 px-1 py-0.5 dark:bg-slate-700 dark:text-slate-100">Shift+Enter</kbd> for new line. </span>Start with <span className="font-semibold">/</span> to ask AI{onToggleReasoning && reasoningSupported && <span className="hidden sm:inline">; use the bulb for reasoning</span>}.
       </p>
     </div>
   )
