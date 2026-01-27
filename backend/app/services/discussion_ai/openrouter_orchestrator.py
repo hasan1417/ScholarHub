@@ -27,19 +27,21 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Available OpenRouter models with pricing info
+# Model IDs from https://openrouter.ai/models
 OPENROUTER_MODELS = {
     # OpenAI
-    "openai/gpt-5.2": {"name": "GPT-5.2", "provider": "OpenAI"},
-    "openai/gpt-5.2-pro": {"name": "GPT-5.2 Pro", "provider": "OpenAI"},
     "openai/gpt-4o": {"name": "GPT-4o", "provider": "OpenAI"},
     "openai/gpt-4o-mini": {"name": "GPT-4o Mini", "provider": "OpenAI"},
+    "openai/o1": {"name": "OpenAI o1", "provider": "OpenAI"},
+    "openai/o1-mini": {"name": "OpenAI o1 Mini", "provider": "OpenAI"},
     # Anthropic
-    "anthropic/claude-opus-4.5": {"name": "Claude Opus 4.5", "provider": "Anthropic"},
-    "anthropic/claude-sonnet-4": {"name": "Claude Sonnet 4", "provider": "Anthropic"},
     "anthropic/claude-3.5-sonnet": {"name": "Claude 3.5 Sonnet", "provider": "Anthropic"},
+    "anthropic/claude-3-opus": {"name": "Claude 3 Opus", "provider": "Anthropic"},
+    "anthropic/claude-3-haiku": {"name": "Claude 3 Haiku", "provider": "Anthropic"},
     # Google
-    "google/gemini-3-flash": {"name": "Gemini 3 Flash", "provider": "Google"},
-    "google/gemini-2.0-flash-exp:free": {"name": "Gemini 2.0 Flash (Free)", "provider": "Google"},
+    "google/gemini-2.5-pro": {"name": "Gemini 2.5 Pro", "provider": "Google"},
+    "google/gemini-2.5-flash": {"name": "Gemini 2.5 Flash", "provider": "Google"},
+    "google/gemini-2.0-flash-001": {"name": "Gemini 2.0 Flash", "provider": "Google"},
     # DeepSeek
     "deepseek/deepseek-chat": {"name": "DeepSeek V3", "provider": "DeepSeek"},
     "deepseek/deepseek-r1": {"name": "DeepSeek R1", "provider": "DeepSeek"},
@@ -47,6 +49,8 @@ OPENROUTER_MODELS = {
     "meta-llama/llama-3.3-70b-instruct": {"name": "Llama 3.3 70B", "provider": "Meta"},
     # Qwen
     "qwen/qwen-2.5-72b-instruct": {"name": "Qwen 2.5 72B", "provider": "Qwen"},
+    # Mistral
+    "mistralai/mistral-large": {"name": "Mistral Large", "provider": "Mistral"},
 }
 
 
@@ -58,7 +62,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
     only overrides the AI calling methods to use OpenRouter.
     """
 
-    def __init__(self, ai_service: "AIService", db: "Session", model: str = "openai/gpt-5.2"):
+    def __init__(self, ai_service: "AIService", db: "Session", model: str = "openai/gpt-4o"):
         super().__init__(ai_service, db)
         self._model = model
 
