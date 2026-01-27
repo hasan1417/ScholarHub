@@ -796,6 +796,13 @@ export interface DiscussionAssistantSuggestedAction {
   payload: Record<string, any>
 }
 
+// OpenRouter model types
+export interface OpenRouterModel {
+  id: string
+  name: string
+  provider: string
+}
+
 // Subscription types
 export interface SubscriptionTier {
   id: string

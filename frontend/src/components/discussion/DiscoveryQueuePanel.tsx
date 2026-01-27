@@ -1,21 +1,18 @@
-import { useState, useEffect } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { X, Loader2, Search } from 'lucide-react'
 import { DiscoveredPaperCard, DiscoveredPaper, IngestionStatus } from './DiscoveredPaperCard'
 import { projectDiscussionAPI } from '../../services/api'
 import api from '../../services/api'
 
-interface PaperIngestionState {
+// Ingestion state for a single paper - managed by parent
+export interface PaperIngestionState {
   referenceId: string
   status: IngestionStatus
+  isAdding: boolean
 }
 
-// External updates from AI's add_to_library action
-export interface LibraryUpdateItem {
-  index: number
-  reference_id: string
-  ingestion_status: IngestionStatus
-}
+// Type for ingestion states map
+export type IngestionStatesMap = Record<string, PaperIngestionState>
 
 interface DiscoveryQueuePanelProps {
   papers: DiscoveredPaper[]
@@ -26,8 +23,9 @@ interface DiscoveryQueuePanelProps {
   onDismiss: (paperId: string) => void
   onDismissAll: () => void
   onClearNotification: () => void
-  // External ingestion updates from AI's add_to_library tool
-  externalUpdates?: LibraryUpdateItem[]
+  // Ingestion state - controlled by parent
+  ingestionStates: IngestionStatesMap
+  onIngestionStateChange: (paperId: string, state: Partial<PaperIngestionState>) => void
 }
 
 export function DiscoveryQueuePanel({
@@ -39,42 +37,10 @@ export function DiscoveryQueuePanel({
   onDismiss,
   onDismissAll,
   onClearNotification,
-  externalUpdates,
+  ingestionStates,
+  onIngestionStateChange,
 }: DiscoveryQueuePanelProps) {
   const queryClient = useQueryClient()
-  const [addedPapers, setAddedPapers] = useState<Set<string>>(new Set())
-  const [addingPapers, setAddingPapers] = useState<Set<string>>(new Set())
-  const [ingestionStates, setIngestionStates] = useState<Record<string, PaperIngestionState>>({})
-
-  // Apply external updates from AI's add_to_library action
-  useEffect(() => {
-    if (!externalUpdates || externalUpdates.length === 0) return
-
-    setAddedPapers(prev => {
-      const next = new Set(prev)
-      for (const update of externalUpdates) {
-        const paper = papers[update.index]
-        if (paper) next.add(paper.id)
-      }
-      return next
-    })
-
-    setIngestionStates(prev => {
-      const next = { ...prev }
-      for (const update of externalUpdates) {
-        const paper = papers[update.index]
-        if (paper) {
-          next[paper.id] = {
-            referenceId: update.reference_id,
-            status: update.ingestion_status,
-          }
-        }
-      }
-      return next
-    })
-
-    queryClient.invalidateQueries({ queryKey: ['projectReferences', projectId] })
-  }, [externalUpdates, papers, projectId, queryClient])
 
   const addReferenceMutation = useMutation({
     mutationFn: async (paper: DiscoveredPaper) => {
@@ -93,18 +59,10 @@ export function DiscoveryQueuePanel({
           is_open_access: paper.is_open_access,
         }
       )
-      return { data: response.data, paperId: paper.id, paper }
+      return { data: response.data, paper }
     },
-    onSuccess: ({ data, paperId, paper }) => {
-      setAddingPapers(prev => {
-        const next = new Set(prev)
-        next.delete(paperId)
-        return next
-      })
-
+    onSuccess: ({ data, paper }) => {
       if (data.success && data.reference_id) {
-        setAddedPapers(prev => new Set([...prev, paperId]))
-
         let ingestionStatus: IngestionStatus = 'pending'
         if (data.ingestion_status === 'success') {
           ingestionStatus = 'success'
@@ -116,25 +74,20 @@ export function DiscoveryQueuePanel({
           ingestionStatus = 'no_pdf'
         }
 
-        setIngestionStates(prev => ({
-          ...prev,
-          [paperId]: {
-            referenceId: data.reference_id as string,
-            status: ingestionStatus,
-          },
-        }))
+        onIngestionStateChange(paper.id, {
+          referenceId: data.reference_id as string,
+          status: ingestionStatus,
+          isAdding: false,
+        })
 
         queryClient.invalidateQueries({ queryKey: ['projectReferences', projectId] })
       } else {
+        onIngestionStateChange(paper.id, { isAdding: false })
         alert(data.message || 'Failed to add reference')
       }
     },
     onError: (error: Error, paper) => {
-      setAddingPapers(prev => {
-        const next = new Set(prev)
-        next.delete(paper.id)
-        return next
-      })
+      onIngestionStateChange(paper.id, { isAdding: false })
       alert(error.message || 'Failed to add reference')
     },
   })
@@ -149,29 +102,25 @@ export function DiscoveryQueuePanel({
       return { data: response.data, paperId }
     },
     onMutate: ({ paperId }) => {
-      setIngestionStates(prev => ({
-        ...prev,
-        [paperId]: { ...prev[paperId], status: 'uploading' },
-      }))
+      onIngestionStateChange(paperId, { status: 'uploading' })
     },
     onSuccess: ({ paperId }) => {
-      setIngestionStates(prev => ({
-        ...prev,
-        [paperId]: { ...prev[paperId], status: 'success' },
-      }))
+      onIngestionStateChange(paperId, { status: 'success' })
       queryClient.invalidateQueries({ queryKey: ['projectReferences', projectId] })
     },
     onError: (error: Error, { paperId }) => {
-      setIngestionStates(prev => ({
-        ...prev,
-        [paperId]: { ...prev[paperId], status: 'failed' },
-      }))
+      onIngestionStateChange(paperId, { status: 'failed' })
       alert(`Failed to upload PDF: ${error.message}`)
     },
   })
 
   const handleAdd = (paper: DiscoveredPaper) => {
-    setAddingPapers(prev => new Set([...prev, paper.id]))
+    // Immediately update state to show adding
+    onIngestionStateChange(paper.id, {
+      referenceId: '',
+      status: 'pending',
+      isAdding: true,
+    })
     addReferenceMutation.mutate(paper)
   }
 
@@ -183,16 +132,13 @@ export function DiscoveryQueuePanel({
   }
 
   const handleContinueWithAbstract = (paperId: string) => {
-    setIngestionStates(prev => ({
-      ...prev,
-      [paperId]: { ...prev[paperId], status: 'no_pdf' },
-    }))
+    onIngestionStateChange(paperId, { status: 'no_pdf' })
   }
 
-  // Count statuses for summary
-  const addedCount = addedPapers.size
+  // Derived counts from ingestion states
+  const addedCount = Object.values(ingestionStates).filter(s => s.referenceId).length
   const successCount = Object.values(ingestionStates).filter(s => s.status === 'success').length
-  const failedCount = Object.values(ingestionStates).filter(s => s.status === 'failed').length
+  const failedCount = Object.values(ingestionStates).filter(s => s.status === 'failed' || s.status === 'no_pdf').length
 
   return (
     <div className="flex flex-col">
@@ -256,20 +202,23 @@ export function DiscoveryQueuePanel({
 
             {/* Papers list */}
             <div className="p-2 sm:p-3 space-y-2">
-              {papers.map((paper) => (
-                <DiscoveredPaperCard
-                  key={paper.id}
-                  paper={paper}
-                  onAdd={() => handleAdd(paper)}
-                  isAdding={addingPapers.has(paper.id)}
-                  isAdded={addedPapers.has(paper.id)}
-                  ingestionStatus={ingestionStates[paper.id]?.status}
-                  referenceId={ingestionStates[paper.id]?.referenceId}
-                  onUploadPdf={(file) => handleUploadPdf(paper.id, file)}
-                  onContinueWithAbstract={() => handleContinueWithAbstract(paper.id)}
-                  onDismiss={() => onDismiss(paper.id)}
-                />
-              ))}
+              {papers.map((paper) => {
+                const state = ingestionStates[paper.id]
+                return (
+                  <DiscoveredPaperCard
+                    key={paper.id}
+                    paper={paper}
+                    onAdd={() => handleAdd(paper)}
+                    isAdding={state?.isAdding || false}
+                    isAdded={Boolean(state?.referenceId)}
+                    ingestionStatus={state?.status}
+                    referenceId={state?.referenceId}
+                    onUploadPdf={(file) => handleUploadPdf(paper.id, file)}
+                    onContinueWithAbstract={() => handleContinueWithAbstract(paper.id)}
+                    onDismiss={() => onDismiss(paper.id)}
+                  />
+                )
+              })}
             </div>
           </>
         )}

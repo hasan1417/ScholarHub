@@ -1,0 +1,325 @@
+"""
+OpenRouter-Based Discussion AI Orchestrator
+
+Uses OpenRouter API to support multiple AI models (GPT, Claude, Gemini, etc.)
+Inherits from ToolOrchestrator and only overrides the AI calling methods.
+
+Key difference from base ToolOrchestrator:
+- Streams ONLY the final response (hides intermediate "thinking" during tool calls)
+- Shows status messages during tool execution
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
+
+import openai
+
+from app.core.config import settings
+from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator, DISCUSSION_TOOLS
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+    from app.services.ai_service import AIService
+
+logger = logging.getLogger(__name__)
+
+# Available OpenRouter models with pricing info
+OPENROUTER_MODELS = {
+    # OpenAI
+    "openai/gpt-5.2": {"name": "GPT-5.2", "provider": "OpenAI"},
+    "openai/gpt-5.2-pro": {"name": "GPT-5.2 Pro", "provider": "OpenAI"},
+    "openai/gpt-4o": {"name": "GPT-4o", "provider": "OpenAI"},
+    "openai/gpt-4o-mini": {"name": "GPT-4o Mini", "provider": "OpenAI"},
+    # Anthropic
+    "anthropic/claude-opus-4.5": {"name": "Claude Opus 4.5", "provider": "Anthropic"},
+    "anthropic/claude-sonnet-4": {"name": "Claude Sonnet 4", "provider": "Anthropic"},
+    "anthropic/claude-3.5-sonnet": {"name": "Claude 3.5 Sonnet", "provider": "Anthropic"},
+    # Google
+    "google/gemini-3-flash": {"name": "Gemini 3 Flash", "provider": "Google"},
+    "google/gemini-2.0-flash-exp:free": {"name": "Gemini 2.0 Flash (Free)", "provider": "Google"},
+    # DeepSeek
+    "deepseek/deepseek-chat": {"name": "DeepSeek V3", "provider": "DeepSeek"},
+    "deepseek/deepseek-r1": {"name": "DeepSeek R1", "provider": "DeepSeek"},
+    # Meta
+    "meta-llama/llama-3.3-70b-instruct": {"name": "Llama 3.3 70B", "provider": "Meta"},
+    # Qwen
+    "qwen/qwen-2.5-72b-instruct": {"name": "Qwen 2.5 72B", "provider": "Qwen"},
+}
+
+
+class OpenRouterOrchestrator(ToolOrchestrator):
+    """
+    AI orchestrator that uses OpenRouter for multi-model support.
+
+    Inherits all tool implementations from ToolOrchestrator,
+    only overrides the AI calling methods to use OpenRouter.
+    """
+
+    def __init__(self, ai_service: "AIService", db: "Session", model: str = "openai/gpt-5.2"):
+        super().__init__(ai_service, db)
+        self._model = model
+
+        # Initialize OpenRouter client (OpenAI-compatible API)
+        api_key = settings.OPENROUTER_API_KEY
+        if not api_key:
+            logger.warning("OPENROUTER_API_KEY not configured")
+
+        self.openrouter_client = openai.OpenAI(
+            api_key=api_key or "missing-key",
+            base_url="https://openrouter.ai/api/v1",
+            default_headers={
+                "HTTP-Referer": "https://scholarhub.space",
+                "X-Title": "ScholarHub",
+            }
+        ) if api_key else None
+
+    @property
+    def model(self) -> str:
+        """Get the current model being used."""
+        return self._model
+
+    @model.setter
+    def model(self, value: str) -> None:
+        """Set the model to use."""
+        self._model = value
+
+    def _call_ai_with_tools(self, messages: List[Dict]) -> Dict[str, Any]:
+        """Call OpenRouter with tool definitions (non-streaming)."""
+        try:
+            if not self.openrouter_client:
+                return {
+                    "content": "OpenRouter API not configured. Please check your OPENROUTER_API_KEY.",
+                    "tool_calls": []
+                }
+
+            logger.info(f"Calling OpenRouter with model: {self.model}")
+
+            response = self.openrouter_client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                tools=DISCUSSION_TOOLS,
+                tool_choice="auto",
+            )
+
+            choice = response.choices[0]
+            message = choice.message
+
+            result = {
+                "content": message.content or "",
+                "tool_calls": [],
+            }
+
+            if message.tool_calls:
+                for tc in message.tool_calls:
+                    result["tool_calls"].append({
+                        "id": tc.id,
+                        "name": tc.function.name,
+                        "arguments": json.loads(tc.function.arguments),
+                    })
+
+            return result
+
+        except Exception as e:
+            logger.exception(f"Error calling OpenRouter with model {self.model}")
+            return {"content": f"Error: {str(e)}", "tool_calls": []}
+
+    def _call_ai_with_tools_streaming(self, messages: List[Dict]) -> Generator[Dict[str, Any], None, None]:
+        """Call OpenRouter with tool definitions (streaming)."""
+        try:
+            if not self.openrouter_client:
+                yield {"type": "result", "content": "OpenRouter API not configured.", "tool_calls": []}
+                return
+
+            logger.info(f"Streaming from OpenRouter with model: {self.model}")
+
+            stream = self.openrouter_client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                tools=DISCUSSION_TOOLS,
+                tool_choice="auto",
+                stream=True,
+            )
+
+            content_chunks = []
+            tool_calls_data = {}  # {index: {"id": ..., "name": ..., "arguments": ...}}
+
+            for chunk in stream:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if not delta:
+                    continue
+
+                # Handle content tokens
+                if delta.content:
+                    content_chunks.append(delta.content)
+                    yield {"type": "token", "content": delta.content}
+
+                # Handle tool calls (accumulated across chunks)
+                if delta.tool_calls:
+                    for tc_chunk in delta.tool_calls:
+                        idx = tc_chunk.index
+                        if idx not in tool_calls_data:
+                            tool_calls_data[idx] = {"id": "", "name": "", "arguments": ""}
+
+                        if tc_chunk.id:
+                            tool_calls_data[idx]["id"] = tc_chunk.id
+                        if tc_chunk.function:
+                            if tc_chunk.function.name:
+                                tool_calls_data[idx]["name"] = tc_chunk.function.name
+                            if tc_chunk.function.arguments:
+                                tool_calls_data[idx]["arguments"] += tc_chunk.function.arguments
+
+            # Parse accumulated tool calls
+            tool_calls = []
+            for idx in sorted(tool_calls_data.keys()):
+                tc = tool_calls_data[idx]
+                try:
+                    args = json.loads(tc["arguments"]) if tc["arguments"] else {}
+                except json.JSONDecodeError:
+                    args = {}
+                tool_calls.append({
+                    "id": tc["id"],
+                    "name": tc["name"],
+                    "arguments": args,
+                })
+
+            yield {
+                "type": "result",
+                "content": "".join(content_chunks),
+                "tool_calls": tool_calls,
+            }
+
+        except Exception as e:
+            logger.exception(f"Error in streaming OpenRouter call with model {self.model}")
+            yield {"type": "result", "content": f"Error: {str(e)}", "tool_calls": []}
+
+    def _execute_with_tools_streaming(
+        self,
+        messages: List[Dict],
+        ctx: Dict[str, Any],
+    ) -> Generator[Dict[str, Any], None, None]:
+        """
+        Execute with tool calling and streaming.
+
+        OVERRIDE: Only streams the FINAL response, not intermediate thinking.
+        Status messages are still shown during tool execution.
+        """
+        max_iterations = 8
+        iteration = 0
+        all_tool_results = []
+        final_content_chunks = []
+
+        recent_results = ctx.get("recent_search_results", [])
+        logger.info(f"[OpenRouter Streaming] Starting with model: {self.model}, recent_search_results: {len(recent_results)} papers")
+
+        while iteration < max_iterations:
+            iteration += 1
+            print(f"\n[OpenRouter Streaming] Iteration {iteration}, messages count: {len(messages)}")
+
+            # Collect AI response (DON'T stream intermediate tokens)
+            response_content = ""
+            tool_calls = []
+            iteration_content = []
+
+            for event in self._call_ai_with_tools_streaming(messages):
+                if event["type"] == "token":
+                    # Buffer tokens, don't stream yet
+                    iteration_content.append(event["content"])
+                elif event["type"] == "result":
+                    response_content = event["content"]
+                    tool_calls = event.get("tool_calls", [])
+
+            print(f"[OpenRouter Streaming] Got {len(tool_calls)} tool calls: {[tc.get('name') for tc in tool_calls]}")
+            print(f"[OpenRouter Streaming] Content preview: {response_content[:100] if response_content else 'empty'}...")
+
+            if not tool_calls:
+                # No more tool calls - this is the FINAL response
+                # NOW stream the tokens to the client
+                logger.info("[OpenRouter Streaming] Final response - streaming to client")
+                for content in iteration_content:
+                    yield {"type": "token", "content": content}
+                final_content_chunks.extend(iteration_content)
+                break
+
+            # Tool calls present - send status messages but DON'T stream thinking text
+            for tc in tool_calls:
+                tool_name = tc.get("name", "")
+                status_message = self._get_tool_status_message(tool_name)
+                yield {"type": "status", "tool": tool_name, "message": status_message}
+
+            # Execute tool calls
+            tool_results = self._execute_tool_calls(tool_calls, ctx)
+            all_tool_results.extend(tool_results)
+
+            # Add assistant message with tool calls to conversation
+            formatted_tool_calls = [
+                {
+                    "id": tc["id"],
+                    "type": "function",
+                    "function": {
+                        "name": tc["name"],
+                        "arguments": json.dumps(tc["arguments"]),
+                    }
+                }
+                for tc in tool_calls
+            ]
+
+            messages.append({
+                "role": "assistant",
+                "content": response_content or "",
+                "tool_calls": formatted_tool_calls,
+            })
+
+            # Add tool results to conversation
+            for tool_call, result in zip(tool_calls, tool_results):
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call["id"],
+                    "content": json.dumps(result, default=str),
+                })
+
+        # Build final result
+        final_message = "".join(final_content_chunks)
+        print(f"\n[OpenRouter DEBUG] Complete. Tools called: {[t['name'] for t in all_tool_results]}")
+        print(f"[OpenRouter DEBUG] Tool results: {all_tool_results[:2]}...")  # First 2 for brevity
+
+        actions = self._extract_actions(final_message, all_tool_results)
+        print(f"[OpenRouter DEBUG] Extracted actions: {actions}")
+
+        # Update AI memory after successful response
+        contradiction_warning = None
+        try:
+            contradiction_warning = self.update_memory_after_exchange(
+                ctx["channel"],
+                ctx["user_message"],
+                final_message,
+                ctx.get("conversation_history", []),
+            )
+            if contradiction_warning:
+                logger.info(f"Contradiction detected: {contradiction_warning}")
+        except Exception as mem_err:
+            logger.error(f"Failed to update AI memory: {mem_err}")
+
+        yield {
+            "type": "result",
+            "data": {
+                "message": final_message,
+                "actions": actions,
+                "citations": [],
+                "model_used": self.model,
+                "reasoning_used": ctx.get("reasoning_mode", False),
+                "tools_called": [t["name"] for t in all_tool_results] if all_tool_results else [],
+                "conversation_state": {},
+                "memory_warning": contradiction_warning,
+            }
+        }
+
+
+def get_available_models() -> List[Dict[str, str]]:
+    """Return list of available models for the frontend."""
+    return [
+        {"id": model_id, **info}
+        for model_id, info in OPENROUTER_MODELS.items()
+    ]

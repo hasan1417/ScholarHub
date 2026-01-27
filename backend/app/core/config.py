@@ -68,6 +68,9 @@ class Settings(BaseSettings):
 
     # OpenAI (optional, for query enhancement and ranking)
     OPENAI_API_KEY: Optional[str] = None
+
+    # OpenRouter (optional, for multi-model AI access)
+    OPENROUTER_API_KEY: Optional[str] = None
     # Model for Rich→LaTeX conversion (optional override)
     OPENAI_CONVERSION_MODEL: Optional[str] = None
     OPENAI_PLANNER_MODEL: Optional[str] = "gpt-5.2"

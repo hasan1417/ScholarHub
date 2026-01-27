@@ -874,6 +874,26 @@ export const projectDiscussionAPI = {
     api.delete(`/projects/${projectId}/discussion/channels/${channelId}/artifacts/${artifactId}`),
 }
 
+// OpenRouter Discussion API endpoints
+export const openRouterDiscussionAPI = {
+  listModels: (projectId: string) =>
+    api.get<Array<{ id: string; name: string; provider: string }>>(
+      `/projects/${projectId}/discussion-or/models`
+    ),
+
+  invokeAssistant: (
+    projectId: string,
+    channelId: string,
+    payload: DiscussionAssistantRequest,
+    model: string = 'openai/gpt-5.2'
+  ) =>
+    api.post<DiscussionAssistantResponse>(
+      `/projects/${projectId}/discussion-or/channels/${channelId}/assistant`,
+      payload,
+      { params: { model } }
+    ),
+}
+
 // Research Papers API endpoints
 export const researchPapersAPI = {
   createPaper: (paperData: ResearchPaperCreate) => 

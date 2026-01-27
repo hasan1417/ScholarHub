@@ -31,8 +31,8 @@ import DiscussionChannelSidebar from '../../components/discussion/DiscussionChan
 import ChannelResourcePanel from '../../components/discussion/ChannelResourcePanel'
 import ChannelTaskDrawer from '../../components/discussion/ChannelTaskDrawer'
 import ChannelArtifactsPanel from '../../components/discussion/ChannelArtifactsPanel'
-import { DiscoveredPaper } from '../../components/discussion/DiscoveredPaperCard'
-import { DiscoveryQueuePanel } from '../../components/discussion/DiscoveryQueuePanel'
+import { DiscoveredPaper, IngestionStatus } from '../../components/discussion/DiscoveredPaperCard'
+import { DiscoveryQueuePanel, PaperIngestionState, IngestionStatesMap } from '../../components/discussion/DiscoveryQueuePanel'
 import { getProjectUrlId } from '../../utils/urlId'
 
 type AssistantExchange = {
@@ -171,12 +171,32 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     isSearching: boolean
   }>>({})
 
-  // Library update state - ingestion status updates from AI's add_to_library tool
-  const [libraryUpdatesByChannel, setLibraryUpdatesByChannel] = useState<Record<string, {
-    index: number
-    reference_id: string
-    ingestion_status: 'success' | 'failed' | 'no_pdf' | 'pending' | 'uploading'
-  }[]>>({})
+  // Ingestion state - managed here, passed to DiscoveryQueuePanel
+  const [ingestionStatesByChannel, setIngestionStatesByChannel] = useState<
+    Record<string, IngestionStatesMap>
+  >({})
+
+  // Get current channel's ingestion states
+  const currentIngestionStates = useMemo(() => {
+    if (!activeChannelId) return {}
+    return ingestionStatesByChannel[activeChannelId] || {}
+  }, [activeChannelId, ingestionStatesByChannel])
+
+  // Callback for DiscoveryQueuePanel to update ingestion state
+  const handleIngestionStateChange = useCallback((paperId: string, state: Partial<PaperIngestionState>) => {
+    if (!activeChannelId) return
+    setIngestionStatesByChannel((prev) => {
+      const channelStates = prev[activeChannelId] || {}
+      const existingState = channelStates[paperId] || { referenceId: '', status: 'pending' as IngestionStatus, isAdding: false }
+      return {
+        ...prev,
+        [activeChannelId]: {
+          ...channelStates,
+          [paperId]: { ...existingState, ...state },
+        },
+      }
+    })
+  }, [activeChannelId])
 
   // Track channel switch to prevent brief notification flash during transitions
   // With the batched state updates fix, this is mainly a safety net
@@ -316,17 +336,20 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     }
   }, [activeChannelId, discoveryQueueByChannel, dismissedPaperIds])
 
-  // Compute ingestion summary for notification bar
+  // Compute ingestion summary for notification bar - derived from unified ingestion state
   const ingestionSummary = useMemo(() => {
-    if (!activeChannelId) return null
-    const updates = libraryUpdatesByChannel[activeChannelId]
-    if (!updates || updates.length === 0) return null
+    const states = Object.values(currentIngestionStates)
+    if (states.length === 0) return null
 
-    const totalAdded = updates.length
-    const successCount = updates.filter(u => u.ingestion_status === 'success').length
-    const failedCount = updates.filter(u => u.ingestion_status === 'failed').length
-    const noPdfCount = updates.filter(u => u.ingestion_status === 'no_pdf').length
-    const pendingCount = updates.filter(u => u.ingestion_status === 'pending' || u.ingestion_status === 'uploading').length
+    const totalAdded = states.filter((s) => s.referenceId || s.isAdding).length
+    if (totalAdded === 0) return null
+
+    const successCount = states.filter((s) => s.status === 'success').length
+    const failedCount = states.filter((s) => s.status === 'failed').length
+    const noPdfCount = states.filter((s) => s.status === 'no_pdf').length
+    const pendingCount = states.filter(
+      (s) => s.status === 'pending' || s.status === 'uploading' || s.isAdding
+    ).length
     const needsAttention = failedCount + noPdfCount
 
     return {
@@ -336,10 +359,10 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       noPdfCount,
       pendingCount,
       needsAttention,
-      isAllSuccess: successCount === totalAdded,
+      isAllSuccess: successCount === totalAdded && totalAdded > 0,
       isProcessing: pendingCount > 0,
     }
-  }, [activeChannelId, libraryUpdatesByChannel])
+  }, [currentIngestionStates])
 
   // Helper to set discovery queue for current channel
   const setDiscoveryQueue = useCallback((
@@ -1193,7 +1216,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       })
       // Also replace discovery queue for the original channel
       // Clear old ingestion status when new search results arrive
-      setLibraryUpdatesByChannel(prev => {
+      setIngestionStatesByChannel(prev => {
         const next = { ...prev }
         delete next[channelId]
         return next
@@ -1643,7 +1666,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           const query = payload?.query || ''
           if (papers.length > 0) {
             // Clear old ingestion status when new search results arrive
-            setLibraryUpdatesByChannel(prev => {
+            setIngestionStatesByChannel(prev => {
               const next = { ...prev }
               delete next[originalChannelId]
               return next
@@ -1740,7 +1763,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         const query = payload?.query || ''
         if (papers.length > 0) {
           // Clear old ingestion status when new search results arrive
-          setLibraryUpdatesByChannel(prev => {
+          setIngestionStatesByChannel(prev => {
             const next = { ...prev }
             delete next[originalChannelId]
             return next
@@ -1780,14 +1803,25 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
             next.delete(originalChannelId)
             return next
           })
-          setLibraryUpdatesByChannel(prev => ({
-            ...prev,
-            [originalChannelId]: updates.map(u => ({
-              index: u.index,
-              reference_id: u.reference_id,
-              ingestion_status: u.ingestion_status as 'success' | 'failed' | 'no_pdf' | 'pending',
-            })),
-          }))
+          // Convert index-based updates to paper ID-based ingestion states
+          // Get papers from discoveryQueueByChannel or searchResultsByChannel
+          const channelPapers = discoveryQueueByChannel[originalChannelId]?.papers ||
+            searchResultsByChannel[originalChannelId]?.papers || []
+          setIngestionStatesByChannel(prev => {
+            const channelStates = prev[originalChannelId] || {}
+            const newStates = { ...channelStates }
+            for (const u of updates) {
+              const paper = channelPapers[u.index]
+              if (paper) {
+                newStates[paper.id] = {
+                  referenceId: u.reference_id,
+                  status: u.ingestion_status as IngestionStatus,
+                  isAdding: false,
+                }
+              }
+            }
+            return { ...prev, [originalChannelId]: newStates }
+          })
         }
       }
 
@@ -1966,7 +2000,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           markActionApplied(exchange.id, actionKey)
 
           // Clear old ingestion status so search results notification shows
-          setLibraryUpdatesByChannel(prev => {
+          setIngestionStatesByChannel(prev => {
             const next = { ...prev }
             delete next[activeChannelId]
             return next
@@ -2042,14 +2076,25 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           console.log('[ProjectDiscussion] Processing', updates.length, 'library updates for channel', activeChannelId)
 
           if (updates.length > 0) {
-            setLibraryUpdatesByChannel(prev => ({
-              ...prev,
-              [activeChannelId]: updates.map(u => ({
-                index: u.index,
-                reference_id: u.reference_id,
-                ingestion_status: u.ingestion_status as 'success' | 'failed' | 'no_pdf' | 'pending',
-              })),
-            }))
+            // Convert index-based updates to paper ID-based ingestion states
+            const channelPapers = discoveryQueue.papers.length > 0
+              ? discoveryQueue.papers
+              : (discoveryQueueByChannel[activeChannelId]?.papers || searchResultsByChannel[activeChannelId]?.papers || [])
+            setIngestionStatesByChannel(prev => {
+              const channelStates = prev[activeChannelId] || {}
+              const newStates = { ...channelStates }
+              for (const u of updates) {
+                const paper = channelPapers[u.index]
+                if (paper) {
+                  newStates[paper.id] = {
+                    referenceId: u.reference_id,
+                    status: u.ingestion_status as IngestionStatus,
+                    isAdding: false,
+                  }
+                }
+              }
+              return { ...prev, [activeChannelId]: newStates }
+            })
           }
           // Continue to process all actions - React batches state updates
           continue
@@ -2419,15 +2464,25 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       markActionApplied(exchange.id, actionKey)
 
       if (updates.length > 0 && activeChannelId) {
-        // Store the updates for the current channel so ReferenceSearchResults can use them
-        setLibraryUpdatesByChannel(prev => ({
-          ...prev,
-          [activeChannelId]: updates.map(u => ({
-            index: u.index,
-            reference_id: u.reference_id,
-            ingestion_status: u.ingestion_status as 'success' | 'failed' | 'no_pdf' | 'pending',
-          })),
-        }))
+        // Convert index-based updates to paper ID-based ingestion states
+        const channelPapers = discoveryQueue.papers.length > 0
+          ? discoveryQueue.papers
+          : (discoveryQueueByChannel[activeChannelId]?.papers || searchResultsByChannel[activeChannelId]?.papers || [])
+        setIngestionStatesByChannel(prev => {
+          const channelStates = prev[activeChannelId] || {}
+          const newStates = { ...channelStates }
+          for (const u of updates) {
+            const paper = channelPapers[u.index]
+            if (paper) {
+              newStates[paper.id] = {
+                referenceId: u.reference_id,
+                status: u.ingestion_status as IngestionStatus,
+                isAdding: false,
+              }
+            }
+          }
+          return { ...prev, [activeChannelId]: newStates }
+        })
       }
       return
     }
@@ -3320,7 +3375,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                           type="button"
                           onClick={() => {
                             if (activeChannelId) {
-                              setLibraryUpdatesByChannel(prev => {
+                              setIngestionStatesByChannel(prev => {
                                 const next = { ...prev }
                                 delete next[activeChannelId]
                                 return next
@@ -3374,7 +3429,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                           type="button"
                           onClick={() => {
                             if (activeChannelId) {
-                              setLibraryUpdatesByChannel(prev => {
+                              setIngestionStatesByChannel(prev => {
                                 const next = { ...prev }
                                 delete next[activeChannelId]
                                 return next
@@ -3588,7 +3643,8 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                   onDismiss={handleDismissPaper}
                   onDismissAll={handleDismissAllPapers}
                   onClearNotification={() => setDiscoveryQueue((prev) => ({ ...prev, notification: null }))}
-                  externalUpdates={activeChannelId ? libraryUpdatesByChannel[activeChannelId] : undefined}
+                  ingestionStates={currentIngestionStates}
+                  onIngestionStateChange={handleIngestionStateChange}
                 />
               ) : (
                 <ChannelTaskDrawer
