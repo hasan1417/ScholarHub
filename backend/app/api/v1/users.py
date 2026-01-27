@@ -187,11 +187,57 @@ async def update_user(
     user = db.query(UserModel).filter(UserModel.id == user_id).first()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     update_data = user_update.dict(exclude_unset=True)
     for field, value in update_data.items():
         setattr(user, field, value)
-    
+
     db.commit()
     db.refresh(user)
     return user
+
+
+# ========== API Keys Management ==========
+
+class OpenRouterKeyRequest(BaseModel):
+    api_key: str | None = None  # None to clear the key
+
+
+@router.get("/me/api-keys")
+async def get_api_keys(
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Get user's API key status (not the actual keys for security)."""
+    return {
+        "openrouter": {
+            "configured": bool(current_user.openrouter_api_key),
+            # Return masked key if present (last 4 chars)
+            "masked_key": f"sk-or-...{current_user.openrouter_api_key[-4:]}" if current_user.openrouter_api_key else None,
+        }
+    }
+
+
+@router.put("/me/api-keys/openrouter")
+async def set_openrouter_key(
+    request: OpenRouterKeyRequest,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Set or clear the user's OpenRouter API key."""
+    if request.api_key:
+        # Basic validation - OpenRouter keys start with sk-or-
+        if not request.api_key.startswith("sk-or-"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid OpenRouter API key format. Keys should start with 'sk-or-'"
+            )
+        current_user.openrouter_api_key = request.api_key
+    else:
+        current_user.openrouter_api_key = None
+
+    db.commit()
+
+    return {
+        "message": "OpenRouter API key updated successfully",
+        "configured": bool(current_user.openrouter_api_key),
+    }

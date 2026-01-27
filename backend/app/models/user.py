@@ -35,6 +35,9 @@ class User(Base):
     password_reset_token = Column(String(255), nullable=True)
     password_reset_sent_at = Column(DateTime(timezone=True), nullable=True)
 
+    # API Keys (user-provided, used instead of system keys)
+    openrouter_api_key = Column(String(255), nullable=True)  # User's OpenRouter API key
+
     # Relationships
     owned_projects = relationship("Project", back_populates="owner", cascade="all, delete-orphan")
     owned_papers = relationship("ResearchPaper", back_populates="owner", cascade="all, delete-orphan")

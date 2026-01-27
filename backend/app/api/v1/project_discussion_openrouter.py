@@ -170,8 +170,14 @@ def invoke_openrouter_assistant(
     if last_exchange and last_exchange.conversation_state:
         previous_state_dict = last_exchange.conversation_state
 
-    # Create OpenRouter orchestrator
-    orchestrator = OpenRouterOrchestrator(_discussion_ai_core, db, model=model)
+    # Create OpenRouter orchestrator with user's API key if available
+    user_api_key = current_user.openrouter_api_key
+    orchestrator = OpenRouterOrchestrator(
+        _discussion_ai_core,
+        db,
+        model=model,
+        user_api_key=user_api_key,
+    )
 
     # Convert conversation history if provided
     conversation_history = None

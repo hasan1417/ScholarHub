@@ -89,15 +89,24 @@ class OpenRouterOrchestrator(ToolOrchestrator):
     only overrides the AI calling methods to use OpenRouter.
     """
 
-    def __init__(self, ai_service: "AIService", db: "Session", model: str = "openai/gpt-5.2-20251211"):
+    def __init__(
+        self,
+        ai_service: "AIService",
+        db: "Session",
+        model: str = "openai/gpt-5.2-20251211",
+        user_api_key: Optional[str] = None,
+    ):
         super().__init__(ai_service, db)
         self._model = model
         self._reasoning_mode = False  # Set by invoke methods from ctx
 
         # Initialize OpenRouter client (OpenAI-compatible API)
-        api_key = settings.OPENROUTER_API_KEY
+        # User's API key takes priority over system key
+        api_key = user_api_key or settings.OPENROUTER_API_KEY
+        self._using_user_key = bool(user_api_key)
+
         if not api_key:
-            logger.warning("OPENROUTER_API_KEY not configured")
+            logger.warning("OPENROUTER_API_KEY not configured (no user key or system key)")
 
         self.openrouter_client = openai.OpenAI(
             api_key=api_key or "missing-key",
@@ -107,6 +116,9 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 "X-Title": "ScholarHub",
             }
         ) if api_key else None
+
+        if user_api_key:
+            logger.info("Using user-provided OpenRouter API key")
 
     def _model_supports_reasoning(self) -> bool:
         """Check if the current model supports OpenRouter reasoning parameter."""

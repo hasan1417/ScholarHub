@@ -386,6 +386,10 @@ export const usersAPI = {
     })
   },
   deleteAvatar: () => api.delete<User>('/me/avatar'),
+  // API Keys management
+  getApiKeys: () => api.get<{ openrouter: { configured: boolean; masked_key: string | null } }>('/me/api-keys'),
+  setOpenRouterKey: (apiKey: string | null) =>
+    api.put<{ message: string; configured: boolean }>('/me/api-keys/openrouter', { api_key: apiKey }),
 }
 
 // Projects API endpoints
