@@ -3058,7 +3058,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       {/* Mobile sidebar overlay */}
       {isMobileSidebarOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          className="fixed inset-0 z-40 bg-black/50 md:hidden touch-manipulation"
           onClick={() => setIsMobileSidebarOpen(false)}
         />
       )}
@@ -3075,12 +3075,12 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
             <button
               type="button"
               onClick={() => setIsMobileSidebarOpen(false)}
-              className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-800"
+              className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-800 touch-manipulation"
             >
               <X className="h-5 w-5" />
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto overscroll-contain">
             <DiscussionChannelSidebar
               channels={channels}
               activeChannelId={activeChannelId}
@@ -3100,7 +3100,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         </div>
       </div>
 
-      <div className="flex h-[calc(100vh-160px)] min-h-[24rem] sm:min-h-[32rem] w-full gap-2 md:gap-3 overflow-hidden">
+      <div className="flex h-[calc(100vh-120px)] sm:h-[calc(100vh-140px)] md:h-[calc(100vh-160px)] min-h-[20rem] sm:min-h-[24rem] md:min-h-[32rem] w-full gap-2 md:gap-3 overflow-hidden">
         {/* Desktop sidebar - hidden on mobile */}
         <div className="hidden md:block flex-shrink-0">
           <DiscussionChannelSidebar
@@ -3126,7 +3126,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
               <button
                 type="button"
                 onClick={() => setIsMobileSidebarOpen(true)}
-                className="flex-shrink-0 rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 md:hidden dark:text-slate-400 dark:hover:bg-slate-800"
+                className="flex-shrink-0 rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 md:hidden dark:text-slate-400 dark:hover:bg-slate-800 touch-manipulation"
               >
                 <Menu className="h-5 w-5" />
               </button>

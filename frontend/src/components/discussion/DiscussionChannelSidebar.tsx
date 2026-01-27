@@ -172,18 +172,11 @@ const DiscussionChannelSidebar = ({
 
               return (
                 <li key={channel.id}>
-                  <div
-                    role="button"
-                    tabIndex={0}
+                  <button
+                    type="button"
                     onClick={() => onSelectChannel(channel.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        onSelectChannel(channel.id)
-                      }
-                    }}
                     className={clsx(
-                      'group relative rounded-lg transition-all cursor-pointer border-l-2 px-2.5 py-2.5',
+                      'group relative w-full text-left rounded-lg transition-all cursor-pointer border-l-2 px-2.5 py-2.5 touch-manipulation',
                       isActive
                         ? 'bg-indigo-50 border-l-indigo-500 dark:bg-indigo-500/10 dark:border-l-indigo-400'
                         : channel.is_default
@@ -287,7 +280,7 @@ const DiscussionChannelSidebar = ({
                         </div>
                       </div>
                     </div>
-                  </div>
+                  </button>
                 </li>
               )
             })}
