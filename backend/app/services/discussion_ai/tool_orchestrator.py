@@ -2126,7 +2126,12 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         owner_id = current_user.id if current_user else project.created_by
 
         # Generate bibliography entries BEFORE creating the document
+        # Initialize unmatched citations tracker
+        self._last_unmatched_citations = []
         bibliography_entries = self._generate_bibliography_entries(ctx, content)
+
+        # Check for hallucinated/unverified citations
+        unverified_citations = getattr(self, '_last_unmatched_citations', [])
 
         latex_source = self._ensure_latex_document(content, title, abstract, bibliography_entries)
 
@@ -2174,20 +2179,27 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         ref_result = self._link_cited_references(ctx, str(new_paper.id), latex_source)
         ref_message = f" {ref_result['message']}" if ref_result.get("linked", 0) > 0 else ""
 
+        # Build warning message for unverified citations
+        unverified_warning = ""
+        if unverified_citations:
+            unverified_warning = f" Warning: {len(unverified_citations)} citation(s) could not be verified against your library ({', '.join(unverified_citations[:3])}{'...' if len(unverified_citations) > 3 else ''})."
+
         # Build url_id for frontend navigation
         url_id = f"{new_paper.slug}-{new_paper.short_id}" if new_paper.slug and new_paper.short_id else str(new_paper.id)
 
         return {
             "status": "success",
-            "message": f"Created paper '{title}' in the project.{ref_message}",
+            "message": f"Created paper '{title}' in the project.{ref_message}{unverified_warning}",
             # Note: paper_id is in action.payload for frontend use - don't show UUIDs to users
             "references_linked": ref_result.get("linked", 0),
+            "unverified_citations": unverified_citations,
             "action": {
                 "type": "paper_created",
                 "payload": {
                     "paper_id": str(new_paper.id),
                     "url_id": url_id,
                     "title": title,
+                    "unverified_citations": unverified_citations,
                 }
             }
         }
@@ -2491,11 +2503,23 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 bibliography_entries.append(entry)
             else:
                 unmatched_keys.append(cite_key)
+                # Generate placeholder for unmatched citation so it doesn't show as [?]
+                # Parse the citation key to extract what info we can
+                parsed = self._parse_citation_key(cite_key)
+                author_hint = parsed["author"].capitalize() if parsed["author"] else "Unknown"
+                year_hint = parsed["year"] if parsed["year"] else "n.d."
+                # Create a placeholder entry that's clearly marked as unverified
+                placeholder = f"\\bibitem{{{cite_key}}} {author_hint} et al. \\textit{{[Reference not found in library]}}. {year_hint}. \\textbf{{[Unverified citation]}}"
+                bibliography_entries.append(placeholder)
 
         if unmatched_keys:
-            logger.warning(f"[Bibliography] Could not match {len(unmatched_keys)} citation keys: {unmatched_keys[:5]}...")
+            logger.warning(f"[Bibliography] Could not match {len(unmatched_keys)} citation keys: {unmatched_keys}")
 
-        logger.info(f"[Bibliography] Matched {matched_count}/{len(citation_keys)} citations to papers")
+        logger.info(f"[Bibliography] Matched {matched_count}/{len(citation_keys)} citations, {len(unmatched_keys)} unverified")
+
+        # Store unmatched keys in a class attribute for later retrieval
+        self._last_unmatched_citations = unmatched_keys
+
         return bibliography_entries
 
     def _sanitize_latex_content(self, content: str) -> str:
