@@ -76,7 +76,7 @@ const DiscussionChannelSidebar = ({
   }
 
   return (
-    <aside className="flex h-full w-60 flex-col rounded-2xl border border-gray-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900/40">
+    <aside className="flex h-full w-full md:w-60 flex-col rounded-2xl border border-gray-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900/40">
       <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-slate-700/80">
         <div className="flex items-center gap-2">
           <MessageCircle className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />

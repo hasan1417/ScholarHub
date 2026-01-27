@@ -37,7 +37,7 @@ const DiscussionThread = ({
         <div className="mt-2">
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className="ml-12 inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-300 dark:hover:text-indigo-200"
+            className="ml-8 sm:ml-12 inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-300 dark:hover:text-indigo-200"
           >
             {isExpanded ? (
               <>

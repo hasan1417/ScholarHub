@@ -72,10 +72,10 @@ const MessageInput = ({
   }
 
   return (
-    <div className="border-t border-gray-200 bg-white p-4 transition-colors dark:border-slate-700 dark:bg-slate-900/40">
+    <div className="border-t border-gray-200 bg-white p-3 sm:p-4 transition-colors dark:border-slate-700 dark:bg-slate-900/40">
       {(replyingTo || editingMessage) && (
-        <div className="mb-2 flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 dark:bg-slate-800/60">
-          <span className="text-sm text-gray-600 dark:text-slate-300">
+        <div className="mb-2 flex items-center justify-between rounded-lg bg-gray-50 px-2 py-1.5 sm:px-3 sm:py-2 dark:bg-slate-800/60">
+          <span className="text-xs sm:text-sm text-gray-600 dark:text-slate-300">
             {editingMessage ? (
               <>Editing message</>
             ) : (
@@ -91,7 +91,7 @@ const MessageInput = ({
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="flex gap-2">
+      <form onSubmit={handleSubmit} className="flex gap-1.5 sm:gap-2">
         <textarea
           ref={textareaRef}
           value={content}
@@ -100,7 +100,7 @@ const MessageInput = ({
           placeholder={placeholder}
           disabled={isSubmitting}
           rows={1}
-          className="min-h-[2.5rem] max-h-32 flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:disabled:bg-slate-800/60 dark:disabled:text-slate-500"
+          className="min-h-[2.5rem] max-h-32 flex-1 resize-none rounded-lg border border-gray-300 px-2 py-2 sm:px-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:disabled:bg-slate-800/60 dark:disabled:text-slate-500"
         />
         {onToggleReasoning && (
           <button
@@ -129,8 +129,8 @@ const MessageInput = ({
           <Send className="h-4 w-4" />
         </button>
       </form>
-      <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-        Press <kbd className="rounded bg-gray-100 px-1 py-0.5 dark:bg-slate-700 dark:text-slate-100">Enter</kbd> to send, <kbd className="rounded bg-gray-100 px-1 py-0.5 dark:bg-slate-700 dark:text-slate-100">Shift+Enter</kbd> for new line. Start with <span className="font-semibold">/</span> to ask Scholar AI; use the bulb icon to enable reasoning when needed.
+      <p className="mt-1 text-[10px] sm:text-xs text-gray-500 dark:text-slate-400">
+        <span className="hidden sm:inline">Press <kbd className="rounded bg-gray-100 px-1 py-0.5 dark:bg-slate-700 dark:text-slate-100">Enter</kbd> to send, <kbd className="rounded bg-gray-100 px-1 py-0.5 dark:bg-slate-700 dark:text-slate-100">Shift+Enter</kbd> for new line. </span>Start with <span className="font-semibold">/</span> to ask AI<span className="hidden sm:inline">; use the bulb for reasoning</span>.
       </p>
     </div>
   )

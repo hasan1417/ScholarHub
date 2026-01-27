@@ -244,58 +244,58 @@ const ProjectsHome = () => {
         }`}
       >
         {/* Header Stripe */}
-        <div className={`h-1.5 ${isPinned ? 'bg-amber-500' : 'bg-indigo-500'}`}></div>
+        <div className={`h-1 sm:h-1.5 ${isPinned ? 'bg-amber-500' : 'bg-indigo-500'}`}></div>
 
-        {/* Hover Quick Actions */}
-        <div className="absolute top-4 right-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+        {/* Quick Actions - always visible on mobile, hover on desktop */}
+        <div className="absolute top-3 sm:top-4 right-3 sm:right-4 flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity z-10">
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation()
               togglePin(project.id)
             }}
-            className={`p-1.5 rounded-lg transition-colors ${
+            className={`p-1 sm:p-1.5 rounded-lg transition-colors ${
               isPinned
                 ? 'bg-amber-100 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400'
                 : 'bg-white/90 dark:bg-slate-700/90 hover:bg-gray-100 dark:hover:bg-slate-600 text-gray-400 hover:text-amber-500 shadow-sm'
             }`}
             title={isPinned ? 'Unpin project' : 'Pin project'}
           >
-            {isPinned ? <Star className="h-4 w-4 fill-current" /> : <Pin className="h-4 w-4" />}
+            {isPinned ? <Star className="h-3.5 w-3.5 sm:h-4 sm:w-4 fill-current" /> : <Pin className="h-3.5 w-3.5 sm:h-4 sm:w-4" />}
           </button>
         </div>
 
-        <div className="p-5 flex flex-col flex-1">
+        <div className="p-3 sm:p-5 flex flex-col flex-1">
           {/* Title */}
-          <div className="flex items-start gap-2">
+          <div className="flex items-start gap-1.5 sm:gap-2">
             {isPinned && (
-              <Star className="h-4 w-4 text-amber-500 fill-amber-500 mt-0.5 flex-shrink-0" />
+              <Star className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-amber-500 fill-amber-500 mt-0.5 flex-shrink-0" />
             )}
-            <h3 className="text-base font-semibold text-gray-900 dark:text-white line-clamp-1 pr-6">
+            <h3 className="text-sm sm:text-base font-semibold text-gray-900 dark:text-white line-clamp-2 sm:line-clamp-1 pr-6">
               {project.title}
             </h3>
           </div>
 
           {/* Description */}
           {project.idea && (
-            <p className="mt-2 text-sm text-gray-500 dark:text-slate-400 line-clamp-2">
+            <p className="mt-1.5 sm:mt-2 text-xs sm:text-sm text-gray-500 dark:text-slate-400 line-clamp-2">
               {project.idea}
             </p>
           )}
 
           {/* Keywords */}
           {keywords.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-1.5">
+            <div className="mt-2 sm:mt-3 flex flex-wrap gap-1 sm:gap-1.5">
               {keywords.slice(0, 3).map((kw) => (
                 <span
                   key={kw}
-                  className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400"
+                  className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] sm:text-xs font-medium text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400"
                 >
                   {kw}
                 </span>
               ))}
               {keywords.length > 3 && (
-                <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-500 dark:bg-slate-700 dark:text-slate-400">
+                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] sm:text-xs font-medium text-gray-500 dark:bg-slate-700 dark:text-slate-400">
                   +{keywords.length - 3}
                 </span>
               )}
@@ -303,21 +303,21 @@ const ProjectsHome = () => {
           )}
 
           {/* Spacer */}
-          <div className="flex-1 min-h-4" />
+          <div className="flex-1 min-h-3 sm:min-h-4" />
 
           {/* Footer with stats */}
-          <div className="mt-4 flex items-center justify-between text-xs text-gray-400 dark:text-slate-500">
-            <div className="flex items-center gap-3">
+          <div className="mt-3 sm:mt-4 flex items-center justify-between text-[10px] sm:text-xs text-gray-400 dark:text-slate-500">
+            <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
               <span>{project.paper_count ?? 0} papers</span>
-              <span>·</span>
-              <span>{project.reference_count ?? 0} refs</span>
-              <span>·</span>
-              <span>{memberCount} members</span>
+              <span className="hidden xs:inline">·</span>
+              <span className="hidden xs:inline">{project.reference_count ?? 0} refs</span>
+              <span className="hidden sm:inline">·</span>
+              <span className="hidden sm:inline">{memberCount} members</span>
             </div>
             <button
               type="button"
               onClick={() => handleOpenProject(project)}
-              className="font-medium text-indigo-600 transition-colors hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+              className="font-medium text-indigo-600 transition-colors hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 text-xs sm:text-sm"
             >
               Open →
             </button>
@@ -328,21 +328,21 @@ const ProjectsHome = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Header */}
-      <header className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+      <header className="flex flex-col gap-4 sm:gap-6 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Projects</h1>
-            <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 dark:text-white">Projects</h1>
+            <span className="rounded-full bg-indigo-50 px-2 py-0.5 sm:px-3 sm:py-1 text-[10px] sm:text-xs font-medium text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300">
               {totalProjects} total
             </span>
           </div>
-          <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
+          <p className="mt-1 text-xs sm:text-sm text-gray-500 dark:text-slate-400 hidden sm:block">
             Spin up new initiatives or jump back into active collaborations.
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           <div className="relative hidden sm:flex" data-tour="search">
             <div className="pointer-events-none absolute inset-y-0 left-3 flex items-center">
               <Search className="h-4 w-4 text-gray-400" />
@@ -355,7 +355,8 @@ const ProjectsHome = () => {
               placeholder="Search projects"
             />
           </div>
-          <div className="flex rounded-full border border-gray-200 bg-white p-1 shadow-sm dark:border-slate-600 dark:bg-slate-700" data-tour="view-mode">
+          {/* Hide view mode toggle on mobile - always use grid on small screens */}
+          <div className="hidden sm:flex rounded-full border border-gray-200 bg-white p-1 shadow-sm dark:border-slate-600 dark:bg-slate-700" data-tour="view-mode">
             <button
               type="button"
               onClick={() => setViewMode('grid')}
@@ -380,10 +381,11 @@ const ProjectsHome = () => {
           <button
             type="button"
             onClick={() => setIsCreateOpen(true)}
-            className="inline-flex items-center rounded-full bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700"
+            className="inline-flex items-center rounded-full bg-indigo-600 px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-white shadow-sm hover:bg-indigo-700"
             data-tour="create-project"
           >
-            New Project
+            <span className="sm:hidden">+ New</span>
+            <span className="hidden sm:inline">New Project</span>
           </button>
         </div>
       </header>
@@ -405,45 +407,47 @@ const ProjectsHome = () => {
       </div>
 
       {/* Filter & Sort Bar */}
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
         {/* Filter Tabs */}
-        <div className="flex rounded-lg border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700 p-1">
+        <div className="flex rounded-lg border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700 p-0.5 sm:p-1 overflow-x-auto">
           <button
             type="button"
             onClick={() => setFilterTab('all')}
-            className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+            className={`px-2 py-1 sm:px-3 sm:py-1.5 text-xs sm:text-sm font-medium rounded-md transition-colors whitespace-nowrap ${
               filterTab === 'all'
                 ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300'
                 : 'text-gray-600 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white'
             }`}
           >
-            All Projects
+            All
           </button>
           <button
             type="button"
             onClick={() => setFilterTab('my')}
-            className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+            className={`px-2 py-1 sm:px-3 sm:py-1.5 text-xs sm:text-sm font-medium rounded-md transition-colors whitespace-nowrap ${
               filterTab === 'my'
                 ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300'
                 : 'text-gray-600 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white'
             }`}
           >
-            My Projects
+            <span className="sm:hidden">Mine</span>
+            <span className="hidden sm:inline">My Projects</span>
           </button>
           <button
             type="button"
             onClick={() => setFilterTab('shared')}
-            className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+            className={`px-2 py-1 sm:px-3 sm:py-1.5 text-xs sm:text-sm font-medium rounded-md transition-colors whitespace-nowrap ${
               filterTab === 'shared'
                 ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300'
                 : 'text-gray-600 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white'
             }`}
           >
-            Shared with Me
+            <span className="sm:hidden">Shared</span>
+            <span className="hidden sm:inline">Shared with Me</span>
           </button>
         </div>
 
-        <div className="flex-1" />
+        <div className="flex-1 min-w-0" />
 
         {/* Sort Dropdown */}
         <div className="relative">
@@ -607,17 +611,18 @@ const ProjectsHome = () => {
             </div>
           )}
         </div>
-      ) : viewMode === 'grid' ? (
+      ) : viewMode === 'grid' || window.innerWidth < 640 ? (
+        // Always use grid view on mobile (< 640px)
         <div className="space-y-6">
           {/* Pinned Projects */}
           {pinnedProjects.length > 0 && (
             <div>
-              <div className="flex items-center gap-2 mb-4">
+              <div className="flex items-center gap-2 mb-3 sm:mb-4">
                 <Star className="h-4 w-4 text-amber-500 fill-amber-500" />
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Pinned</h3>
                 <span className="text-xs text-gray-500 dark:text-slate-400">{pinnedProjects.length}</span>
               </div>
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
                 {pinnedProjects.map((project) => (
                   <ProjectCard key={project.id} project={project} isPinned={true} />
                 ))}
@@ -629,9 +634,9 @@ const ProjectsHome = () => {
           {unpinnedProjects.length > 0 && (
             <div>
               {pinnedProjects.length > 0 && (
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">All Projects</h3>
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 sm:mb-4">All Projects</h3>
               )}
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
                 {unpinnedProjects.map((project) => (
                   <ProjectCard key={project.id} project={project} isPinned={false} />
                 ))}
@@ -640,15 +645,16 @@ const ProjectsHome = () => {
           )}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        // Table view - only shown on tablet and desktop
+        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-100 dark:divide-slate-700">
             <thead className="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:bg-slate-800/70 dark:text-slate-300">
               <tr>
-                <th className="px-6 py-3 w-8"></th>
-                <th className="px-6 py-3">Project</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3">Updated</th>
-                <th className="px-6 py-3 text-right">Actions</th>
+                <th className="px-4 sm:px-6 py-3 w-8"></th>
+                <th className="px-4 sm:px-6 py-3">Project</th>
+                <th className="px-4 sm:px-6 py-3 hidden md:table-cell">Status</th>
+                <th className="px-4 sm:px-6 py-3 hidden sm:table-cell">Updated</th>
+                <th className="px-4 sm:px-6 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 text-sm text-gray-700 dark:divide-slate-700 dark:text-slate-200">
@@ -656,7 +662,7 @@ const ProjectsHome = () => {
                 const isPinned = pinnedIds.includes(project.id)
                 return (
                   <tr key={project.id} className="hover:bg-gray-50 dark:hover:bg-slate-700/40">
-                    <td className="px-6 py-4">
+                    <td className="px-4 sm:px-6 py-4">
                       <button
                         type="button"
                         onClick={() => togglePin(project.id)}
@@ -665,34 +671,34 @@ const ProjectsHome = () => {
                         <Star className={`h-4 w-4 ${isPinned ? 'fill-current' : ''}`} />
                       </button>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 sm:px-6 py-4">
                       <div className="font-medium text-gray-900 dark:text-slate-100">{project.title}</div>
                       {project.idea && (
-                        <div className="text-xs text-gray-500 dark:text-slate-400 truncate max-w-xs">{project.idea}</div>
+                        <div className="text-xs text-gray-500 dark:text-slate-400 truncate max-w-[200px] sm:max-w-xs">{project.idea}</div>
                       )}
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 sm:px-6 py-4 hidden md:table-cell">
                       <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${getStatusColor(project.status)}`}>
                         {project.status || 'Active'}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-gray-500 dark:text-slate-300">{formatDate(project.updated_at)}</td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex justify-end gap-3">
+                    <td className="px-4 sm:px-6 py-4 text-gray-500 dark:text-slate-300 hidden sm:table-cell">{formatDate(project.updated_at)}</td>
+                    <td className="px-4 sm:px-6 py-4 text-right">
+                      <div className="flex justify-end gap-2 sm:gap-3">
                         <button
                           type="button"
                           onClick={() => {
                             setEditError(null)
                             setEditingProject(project)
                           }}
-                          className="text-sm font-medium text-gray-500 hover:text-indigo-600 dark:text-slate-300 dark:hover:text-indigo-300"
+                          className="text-xs sm:text-sm font-medium text-gray-500 hover:text-indigo-600 dark:text-slate-300 dark:hover:text-indigo-300"
                         >
                           Edit
                         </button>
                         <button
                           type="button"
                           onClick={() => handleOpenProject(project)}
-                          className="text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-300 dark:hover:text-indigo-200"
+                          className="text-xs sm:text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-300 dark:hover:text-indigo-200"
                         >
                           Open
                         </button>

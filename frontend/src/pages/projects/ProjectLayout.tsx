@@ -288,7 +288,7 @@ const ProjectLayout = () => {
   return (
     <div className="space-y-8">
       {!hideProjectChrome && (
-      <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800">
+      <div className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800">
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <button
             type="button"
@@ -296,7 +296,7 @@ const ProjectLayout = () => {
             className="inline-flex items-center gap-2 text-sm font-medium text-gray-500 transition-colors hover:text-gray-700 dark:text-slate-300 dark:hover:text-slate-100"
           >
             <ArrowLeft className="h-4 w-4" />
-            All projects
+            <span className="sm:inline">All projects</span>
           </button>
           <div className="flex items-center gap-2">
             {canEditProject && (
@@ -306,56 +306,57 @@ const ProjectLayout = () => {
                   setEditError(null)
                   setIsEditOpen(true)
                 }}
-                className="inline-flex items-center rounded-full border border-indigo-200 px-4 py-2 text-sm font-medium text-indigo-600 transition-colors hover:bg-indigo-50 dark:border-indigo-400/50 dark:text-indigo-200 dark:hover:bg-indigo-400/10"
+                className="inline-flex items-center rounded-full border border-indigo-200 px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-indigo-600 transition-colors hover:bg-indigo-50 dark:border-indigo-400/50 dark:text-indigo-200 dark:hover:bg-indigo-400/10"
               >
-                Edit project
+                <span className="hidden sm:inline">Edit project</span>
+                <span className="sm:hidden">Edit</span>
               </button>
             )}
             {canEditProject && (
               <button
                 type="button"
                 onClick={() => setShowDeleteConfirm(true)}
-                className="inline-flex items-center gap-2 rounded-full border border-red-200 px-4 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 dark:border-red-400/40 dark:text-red-200 dark:hover:bg-red-500/10"
+                className="inline-flex items-center gap-1 sm:gap-2 rounded-full border border-red-200 px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-red-600 transition-colors hover:bg-red-50 dark:border-red-400/40 dark:text-red-200 dark:hover:bg-red-500/10"
               >
-                <Trash2 className="h-4 w-4" />
-                Delete
+                <Trash2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">Delete</span>
               </button>
             )}
           </div>
         </div>
-        <div className="space-y-4">
+        <div className="space-y-3 sm:space-y-4">
           {/* Title */}
-          <h1 className="text-2xl font-semibold text-gray-900 dark:text-slate-100">{project.title}</h1>
+          <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 dark:text-slate-100 break-words">{project.title}</h1>
 
           {/* Metadata Row - compact inline display */}
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-gray-500 dark:text-slate-400">
+          <div className="flex flex-wrap items-center gap-x-4 sm:gap-x-5 gap-y-2 text-xs sm:text-sm text-gray-500 dark:text-slate-400">
             <div className="flex items-center gap-1.5">
-              <Calendar className="h-3.5 w-3.5" />
+              <Calendar className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
               <span>Updated {new Date(project.updated_at).toLocaleDateString()}</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <UsersIcon className="h-3.5 w-3.5" />
+              <UsersIcon className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
               <span>{memberCount} member{memberCount === 1 ? '' : 's'}</span>
             </div>
           </div>
         </div>
-        <nav className="mt-8 flex flex-wrap items-center gap-2 text-sm font-medium">
+        <nav className="mt-6 sm:mt-8 flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium overflow-x-auto pb-1">
           {getNavigationMode() === 'new' ? (
             // NEW NAVIGATION: 4 simple tabs
             NEW_TAB_GROUPS.main.map(({ label, path, exact, icon: Icon, tooltip, badge }) => (
-              <div key={label} className="relative">
+              <div key={label} className="relative flex-shrink-0">
                 <NavLink
                   to={path ? `/projects/${getProjectUrlId(project)}/${path}` : `/projects/${getProjectUrlId(project)}`}
                   end={Boolean(exact)}
                   title={tooltip}
                   className={({ isActive }) =>
-                    `inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 transition-colors ${
-                      isActive ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:bg-gray-100'
+                    `inline-flex items-center gap-1 sm:gap-1.5 rounded-full px-2.5 py-1 sm:px-3 sm:py-1.5 transition-colors whitespace-nowrap ${
+                      isActive ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-700'
                     }`
                   }
                 >
-                  {Icon && <Icon className="h-4 w-4" />}
-                  <span>{label}</span>
+                  {Icon && <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />}
+                  <span className="hidden xs:inline sm:inline">{label}</span>
                 </NavLink>
                 {badge === 'discovery' && hasLibraryNotifications && (
                   <span
@@ -375,13 +376,13 @@ const ProjectLayout = () => {
                   end={Boolean(exact)}
                   title={tooltip}
                   className={({ isActive }) =>
-                    `inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 transition-colors ${
-                      isActive ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:bg-gray-100'
+                    `inline-flex items-center gap-1 sm:gap-1.5 rounded-full px-2.5 py-1 sm:px-3 sm:py-1.5 transition-colors whitespace-nowrap flex-shrink-0 ${
+                      isActive ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-700'
                     }`
                   }
                 >
-                  {Icon && <Icon className="h-4 w-4" />}
-                  <span>{label}</span>
+                  {Icon && <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />}
+                  <span className="hidden xs:inline sm:inline">{label}</span>
                 </NavLink>
               ))}
 

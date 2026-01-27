@@ -174,7 +174,18 @@ DISCUSSION_TOOLS = [
         "type": "function",
         "function": {
             "name": "get_channel_resources",
-            "description": "Get papers/references specifically attached to this discussion channel. Use when user mentions 'channel papers' or papers in this specific discussion.",
+            "description": "Get files/documents specifically attached to this discussion channel (uploaded PDFs, etc). NOT for papers added to library via this channel.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_channel_papers",
+            "description": "Get papers that were added to the library through this discussion channel. Use when user asks 'how many papers added to/through this channel', 'papers we discussed', 'references added here'.",
             "parameters": {
                 "type": "object",
                 "properties": {}
@@ -1321,6 +1332,8 @@ class ToolOrchestrator:
                     result = self._tool_get_project_info(ctx)
                 elif name == "get_channel_resources":
                     result = self._tool_get_channel_resources(ctx)
+                elif name == "get_channel_papers":
+                    result = self._tool_get_channel_papers(ctx)
                 elif name == "create_paper":
                     result = self._tool_create_paper(ctx, **args)
                 elif name == "update_paper":
@@ -1869,6 +1882,38 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 }
                 for res in resources
             ]
+        }
+
+    def _tool_get_channel_papers(self, ctx: Dict[str, Any]) -> Dict:
+        """Get papers that were added to the library through this discussion channel."""
+        from app.models import Reference, ProjectReference
+
+        channel = ctx["channel"]
+        project = ctx["project"]
+
+        # Query papers added via this channel
+        channel_papers = self.db.query(Reference.id, Reference.title, Reference.year, Reference.status, Reference.doi).join(
+            ProjectReference, ProjectReference.reference_id == Reference.id
+        ).filter(
+            ProjectReference.project_id == project.id,
+            ProjectReference.added_via_channel_id == channel.id
+        ).all()
+
+        papers_list = []
+        for ref in channel_papers:
+            ft_available = ref.status in ("ingested", "analyzed")
+            papers_list.append({
+                "reference_id": str(ref.id),
+                "title": ref.title or "Untitled",
+                "year": ref.year,
+                "doi": ref.doi,
+                "full_text_available": ft_available,
+            })
+
+        return {
+            "count": len(channel_papers),
+            "papers": papers_list,
+            "message": f"{len(channel_papers)} paper(s) were added to the library through this channel."
         }
 
     def _link_cited_references(
@@ -2928,9 +2973,9 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 ).first()
 
                 already_in_library = existing_project_ref is not None
+                channel = ctx.get("channel")
 
                 if not existing_project_ref:
-                    channel = ctx.get("channel")
                     project_ref = ProjectReference(
                         project_id=project.id,
                         reference_id=existing_ref.id,
@@ -2939,6 +2984,9 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                         added_via_channel_id=channel.id if channel else None,
                     )
                     self.db.add(project_ref)
+                elif channel and not existing_project_ref.added_via_channel_id:
+                    # Update existing reference to track the channel if not already set
+                    existing_project_ref.added_via_channel_id = channel.id
 
                 # Commit changes before attempting PDF ingestion
                 self.db.commit()

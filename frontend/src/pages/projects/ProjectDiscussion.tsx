@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { MessageCircle, Loader2, AlertCircle, Plus, Sparkles, X, Bot, FileText, BookOpen, Calendar, Check, ChevronDown, ChevronRight, FilePlus, Pencil, CheckSquare, Search, Download, MoreHorizontal, FolderOpen, ListTodo, Puzzle, Hash, CheckCircle, Library } from 'lucide-react'
+import { MessageCircle, Loader2, AlertCircle, Plus, Sparkles, X, Bot, FileText, BookOpen, Calendar, Check, ChevronDown, ChevronRight, FilePlus, Pencil, CheckSquare, Search, Download, MoreHorizontal, FolderOpen, ListTodo, Puzzle, Hash, CheckCircle, Library, Menu } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -124,6 +124,7 @@ const ProjectDiscussion = () => {
   const [replyingTo, setReplyingTo] = useState<{ id: string; userName: string } | null>(null)
   const [editingMessage, setEditingMessage] = useState<{ id: string; content: string } | null>(null)
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null)
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
 const [isCreateChannelModalOpen, setIsCreateChannelModalOpen] = useState(false)
 const [newChannelName, setNewChannelName] = useState('')
 const [newChannelDescription, setNewChannelDescription] = useState('')
@@ -177,7 +178,8 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     ingestion_status: 'success' | 'failed' | 'no_pdf' | 'pending' | 'uploading'
   }[]>>({})
 
-  // Track channel switch to prevent notification flash
+  // Track channel switch to prevent brief notification flash during transitions
+  // With the batched state updates fix, this is mainly a safety net
   const [isChannelSwitching, setIsChannelSwitching] = useState(false)
   const prevChannelRef = useRef<string | null>(null)
 
@@ -189,10 +191,10 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     prevChannelRef.current = activeChannelId
   }, [activeChannelId])
 
-  // Separate effect to re-enable after a brief delay
+  // Re-enable after state updates are batched (very brief delay)
   useEffect(() => {
     if (isChannelSwitching) {
-      const timer = setTimeout(() => setIsChannelSwitching(false), 150)
+      const timer = setTimeout(() => setIsChannelSwitching(false), 50)
       return () => clearTimeout(timer)
     }
   }, [isChannelSwitching])
@@ -221,6 +223,14 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       // Ignore localStorage errors
     }
   }, [dismissedPaperIds, dismissedPapersKey])
+
+  // Reset all dismissed papers
+  const resetDismissedPapers = useCallback(() => {
+    setDismissedPaperIds(new Set())
+    if (dismissedPapersKey) {
+      localStorage.removeItem(dismissedPapersKey)
+    }
+  }, [dismissedPapersKey])
 
   // Get current channel's search results (filtering out dismissed papers)
   const referenceSearchResults = useMemo(() => {
@@ -268,6 +278,32 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     notification: string | null
   }>>({})
 
+  // Track channels where user has dismissed the notification (prevents re-showing from history)
+  // Persisted to localStorage per project
+  const dismissedNotificationsKey = project?.id ? `scholarhub_dismissed_notifications_${project.id}` : null
+  const [dismissedNotificationChannels, setDismissedNotificationChannels] = useState<Set<string>>(() => {
+    if (!dismissedNotificationsKey) return new Set()
+    try {
+      const stored = localStorage.getItem(dismissedNotificationsKey)
+      if (stored) {
+        return new Set(JSON.parse(stored))
+      }
+    } catch {
+      // Ignore localStorage errors
+    }
+    return new Set()
+  })
+
+  // Persist dismissed notifications to localStorage when they change
+  useEffect(() => {
+    if (!dismissedNotificationsKey) return
+    try {
+      localStorage.setItem(dismissedNotificationsKey, JSON.stringify([...dismissedNotificationChannels]))
+    } catch {
+      // Ignore localStorage errors
+    }
+  }, [dismissedNotificationChannels, dismissedNotificationsKey])
+
   // Get current channel's discovery queue (filtering out dismissed papers)
   const discoveryQueue = useMemo(() => {
     if (!activeChannelId) {
@@ -304,27 +340,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       isProcessing: pendingCount > 0,
     }
   }, [activeChannelId, libraryUpdatesByChannel])
-
-  // Auto-dismiss success notification after 8 seconds
-  useEffect(() => {
-    if (!ingestionSummary?.isAllSuccess || !activeChannelId) return
-
-    const timer = setTimeout(() => {
-      setLibraryUpdatesByChannel(prev => {
-        const next = { ...prev }
-        delete next[activeChannelId]
-        return next
-      })
-      // Also clear the discovery queue papers since they're all added
-      setDiscoveryQueueByChannel(prev => {
-        const next = { ...prev }
-        delete next[activeChannelId]
-        return next
-      })
-    }, 8000)
-
-    return () => clearTimeout(timer)
-  }, [ingestionSummary?.isAllSuccess, activeChannelId])
 
   // Helper to set discovery queue for current channel
   const setDiscoveryQueue = useCallback((
@@ -1132,6 +1147,14 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     onMutate: (params) => {
       // Capture the channel ID at mutation start - use this in onSuccess/onError
       const originalChannelId = activeChannelId || ''
+      // Clear dismissed state for this channel - new search should show results
+      if (originalChannelId) {
+        setDismissedNotificationChannels(prev => {
+          const next = new Set(prev)
+          next.delete(originalChannelId)
+          return next
+        })
+      }
       // Set searching state
       const currentResults = originalChannelId ? searchResultsByChannel[originalChannelId] : null
       setReferenceSearchResults({
@@ -1360,12 +1383,16 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
   })
 
   const handleDismissAllPapers = () => {
+    // Only clear the notification text, keep papers for the discovery panel
     setDiscoveryQueue((prev) => ({
       ...prev,
-      papers: [],
-      query: '',
       notification: null,
     }))
+    // Mark this channel as having dismissed notification bar (prevents re-showing)
+    // Papers remain accessible via the Discoveries menu
+    if (activeChannelId) {
+      setDismissedNotificationChannels(prev => new Set([...prev, activeChannelId]))
+    }
   }
 
   const assistantMutation = useMutation({
@@ -1621,6 +1648,12 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
               delete next[originalChannelId]
               return next
             })
+            // Clear dismissed notification state for this channel (new search = show new results)
+            setDismissedNotificationChannels(prev => {
+              const next = new Set(prev)
+              next.delete(originalChannelId)
+              return next
+            })
             // Store results for the ORIGINAL channel
             setSearchResultsByChannel(prev => ({
               ...prev,
@@ -1729,6 +1762,31 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
               isSearching: false,
               notification: `Found ${papers.length} paper${papers.length !== 1 ? 's' : ''} for "${query}"`,
             }
+          }))
+        }
+      }
+
+      // Process library_update immediately so ingestion status shows without delay
+      const libraryUpdateAction = data.suggested_actions?.find(
+        (action: DiscussionAssistantSuggestedAction) => action.action_type === 'library_update'
+      )
+      if (libraryUpdateAction && originalChannelId) {
+        const payload = libraryUpdateAction.payload as { updates?: { index: number; reference_id: string; ingestion_status: string }[] } | undefined
+        const updates = payload?.updates || []
+        if (updates.length > 0) {
+          // Clear dismissed state so notification shows
+          setDismissedNotificationChannels(prev => {
+            const next = new Set(prev)
+            next.delete(originalChannelId)
+            return next
+          })
+          setLibraryUpdatesByChannel(prev => ({
+            ...prev,
+            [originalChannelId]: updates.map(u => ({
+              index: u.index,
+              reference_id: u.reference_id,
+              ingestion_status: u.ingestion_status as 'success' | 'failed' | 'no_pdf' | 'pending',
+            })),
           }))
         }
       }
@@ -1867,14 +1925,54 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           if (!activeChannelId) continue
           if (exchange.channelId && exchange.channelId !== activeChannelId) continue
 
-          // For history entries with existing stored results, skip processing
-          // The render logic will find the correct exchange to display results on
-          const existingResults = searchResultsByChannel[activeChannelId]
-          if (exchange.fromHistory && existingResults && existingResults.papers.length > 0) {
-            continue
+          // Check if user has dismissed notifications for this channel
+          const isChannelDismissed = dismissedNotificationChannels.has(activeChannelId)
+
+          // For history entries + dismissed channel, skip restoring discoveryQueue
+          // For fresh responses, clear dismissed state so notification shows
+          if (isChannelDismissed) {
+            if (exchange.fromHistory) {
+              // History entry - keep notification hidden, but still populate discoveryQueue
+              // so papers are accessible in the Discovery drawer
+              // Always mark action as applied to prevent re-processing
+              markActionApplied(exchange.id, actionKey)
+              // Always use current action's papers (newer exchanges overwrite older ones)
+              setReferenceSearchResults({
+                exchangeId: exchange.id,
+                channelId: activeChannelId,
+                papers: papers,
+                query: query,
+                isSearching: false,
+              })
+              // Populate discoveryQueue so papers show in drawer (notification bar stays hidden)
+              setDiscoveryQueue({
+                papers: papers,
+                query: query,
+                isSearching: false,
+                notification: null, // No notification since channel is dismissed
+              })
+              continue
+            } else {
+              // Fresh response - clear dismissed state so notification shows
+              setDismissedNotificationChannels(prev => {
+                const next = new Set(prev)
+                next.delete(activeChannelId)
+                return next
+              })
+            }
           }
 
+          // Always mark action as applied to prevent re-processing on next render
           markActionApplied(exchange.id, actionKey)
+
+          // Clear old ingestion status so search results notification shows
+          setLibraryUpdatesByChannel(prev => {
+            const next = { ...prev }
+            delete next[activeChannelId]
+            return next
+          })
+
+          // Always use current action's papers (newer exchanges overwrite older ones)
           setReferenceSearchResults({
             exchangeId: exchange.id,
             channelId: activeChannelId,
@@ -1882,13 +1980,16 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
             query: query,
             isSearching: false,
           })
+
+          // Restore discoveryQueue.papers so notification bar shows them
           setDiscoveryQueue({
             papers: papers,
             query: query,
             isSearching: false,
             notification: `Found ${papers.length} papers`,
           })
-          return
+          // Continue to process all actions - React batches state updates
+          continue
         }
 
         // Handle library_update - auto-apply ingestion status from AI's add_to_library
@@ -1907,6 +2008,36 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
             continue
           }
 
+          // Check if there's a NEWER exchange with search_results - if so, skip this old library_update
+          // This prevents old ingestion notifications from overwriting new search results
+          const exchangeIndex = assistantHistory.findIndex(e => e.id === exchange.id)
+          const hasNewerSearchResults = assistantHistory.slice(exchangeIndex + 1).some(laterExchange => {
+            if (laterExchange.status !== 'complete') return false
+            const laterActions = laterExchange.response?.suggested_actions || []
+            return laterActions.some(a => a.action_type === 'search_results')
+          })
+          if (hasNewerSearchResults) {
+            console.log('[ProjectDiscussion] Skipping old library_update - newer search_results exists')
+            markActionApplied(exchange.id, actionKey)
+            continue
+          }
+
+          // For history entries, skip if user dismissed notifications for this channel
+          // For fresh responses, always show and clear dismissed state
+          if (exchange.fromHistory && dismissedNotificationChannels.has(activeChannelId)) {
+            console.log('[ProjectDiscussion] Skipping history library_update - channel dismissed:', activeChannelId)
+            continue
+          }
+
+          // Fresh library_update - clear dismissed state so notification shows
+          if (!exchange.fromHistory && dismissedNotificationChannels.has(activeChannelId)) {
+            setDismissedNotificationChannels(prev => {
+              const next = new Set(prev)
+              next.delete(activeChannelId)
+              return next
+            })
+          }
+
           markActionApplied(exchange.id, actionKey)
           console.log('[ProjectDiscussion] Processing', updates.length, 'library updates for channel', activeChannelId)
 
@@ -1920,7 +2051,8 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
               })),
             }))
           }
-          return
+          // Continue to process all actions - React batches state updates
+          continue
         }
 
         // Handle single search_references (legacy - triggers frontend search)
@@ -1959,6 +2091,12 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           // Set searching state
           const batchQuery = queries.map(q => q.topic).join(', ')
           if (!activeChannelId) continue
+          // Clear dismissed state for this channel - new search should show results
+          setDismissedNotificationChannels(prev => {
+            const next = new Set(prev)
+            next.delete(activeChannelId)
+            return next
+          })
           setReferenceSearchResults({
             exchangeId: exchange.id,
             channelId: activeChannelId,
@@ -2163,6 +2301,15 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       }
       const openAccessOnly = Boolean(action.payload?.open_access_only)
       markActionApplied(exchange.id, actionKey)
+
+      // Clear dismissed state for this channel - new search should show results
+      if (activeChannelId) {
+        setDismissedNotificationChannels(prev => {
+          const next = new Set(prev)
+          next.delete(activeChannelId)
+          return next
+        })
+      }
 
       // Set searching state
       const batchQuery = queries.map(q => q.topic).join(', ')
@@ -2902,48 +3049,112 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     })
   }
 
+  // Close mobile sidebar when a channel is selected
+  const handleMobileChannelSelect = (channelId: string) => {
+    setActiveChannelId(channelId)
+    setIsMobileSidebarOpen(false)
+  }
+
   return (
     <>
-      <div className="flex h-[calc(100vh-160px)] min-h-[32rem] w-full gap-3 overflow-hidden">
-        <DiscussionChannelSidebar
-          channels={channels}
-          activeChannelId={activeChannelId}
-          onSelectChannel={setActiveChannelId}
-          onCreateChannel={handleOpenCreateChannel}
-          isCreating={createChannelMutation.isPending}
-          onArchiveToggle={handleToggleArchive}
-          onOpenSettings={(channel) => {
-            setSettingsChannel(channel)
-            setIsChannelSettingsOpen(true)
-          }}
-          showArchived={showArchivedChannels}
-          onToggleShowArchived={() => setShowArchivedChannels((prev) => !prev)}
+      {/* Mobile sidebar overlay */}
+      {isMobileSidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={() => setIsMobileSidebarOpen(false)}
         />
+      )}
+
+      {/* Mobile sidebar drawer */}
+      <div
+        className={`fixed inset-y-0 left-0 z-50 w-72 transform transition-transform duration-300 ease-in-out md:hidden ${
+          isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="flex h-full flex-col bg-white dark:bg-slate-900">
+          <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-slate-700">
+            <span className="text-sm font-semibold text-gray-800 dark:text-slate-100">Channels</span>
+            <button
+              type="button"
+              onClick={() => setIsMobileSidebarOpen(false)}
+              className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-800"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            <DiscussionChannelSidebar
+              channels={channels}
+              activeChannelId={activeChannelId}
+              onSelectChannel={handleMobileChannelSelect}
+              onCreateChannel={handleOpenCreateChannel}
+              isCreating={createChannelMutation.isPending}
+              onArchiveToggle={handleToggleArchive}
+              onOpenSettings={(channel) => {
+                setSettingsChannel(channel)
+                setIsChannelSettingsOpen(true)
+                setIsMobileSidebarOpen(false)
+              }}
+              showArchived={showArchivedChannels}
+              onToggleShowArchived={() => setShowArchivedChannels((prev) => !prev)}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="flex h-[calc(100vh-160px)] min-h-[32rem] w-full gap-3 overflow-hidden">
+        {/* Desktop sidebar - hidden on mobile */}
+        <div className="hidden md:block">
+          <DiscussionChannelSidebar
+            channels={channels}
+            activeChannelId={activeChannelId}
+            onSelectChannel={setActiveChannelId}
+            onCreateChannel={handleOpenCreateChannel}
+            isCreating={createChannelMutation.isPending}
+            onArchiveToggle={handleToggleArchive}
+            onOpenSettings={(channel) => {
+              setSettingsChannel(channel)
+              setIsChannelSettingsOpen(true)
+            }}
+            showArchived={showArchivedChannels}
+            onToggleShowArchived={() => setShowArchivedChannels((prev) => !prev)}
+          />
+        </div>
 
         <div className="flex flex-1 min-h-0 min-w-0 flex-col rounded-2xl border border-gray-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900/40">
-          <div className="flex items-center justify-between border-b border-gray-200 p-4 dark:border-slate-700">
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-2">
-                {activeChannel && (
-                  <Hash className="h-5 w-5 text-indigo-500 dark:text-indigo-400" />
-                )}
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
-                  {activeChannel ? activeChannel.name : 'Project Discussion'}
-                </h2>
-                {activeChannel?.is_default && (
-                  <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
-                    Default
-                  </span>
-                )}
-                {activeChannel?.is_archived && (
-                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
-                    Archived
-                  </span>
+          <div className="flex items-center justify-between border-b border-gray-200 p-3 md:p-4 dark:border-slate-700">
+            <div className="flex items-center gap-2 md:gap-0 flex-col md:flex-row">
+              {/* Mobile menu button */}
+              <button
+                type="button"
+                onClick={() => setIsMobileSidebarOpen(true)}
+                className="mr-2 rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 md:hidden dark:text-slate-400 dark:hover:bg-slate-800"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  {activeChannel && (
+                    <Hash className="h-4 w-4 md:h-5 md:w-5 text-indigo-500 dark:text-indigo-400" />
+                  )}
+                  <h2 className="text-base md:text-lg font-semibold text-gray-900 dark:text-slate-100 truncate max-w-[180px] md:max-w-none">
+                    {activeChannel ? activeChannel.name : 'Project Discussion'}
+                  </h2>
+                  {activeChannel?.is_default && (
+                    <span className="hidden sm:inline rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
+                      Default
+                    </span>
+                  )}
+                  {activeChannel?.is_archived && (
+                    <span className="hidden sm:inline rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
+                      Archived
+                    </span>
+                  )}
+                </div>
+                {activeChannel?.description && (
+                  <p className="hidden md:block text-xs text-gray-500 dark:text-slate-400">{activeChannel.description}</p>
                 )}
               </div>
-              {activeChannel?.description && (
-                <p className="text-xs text-gray-500 dark:text-slate-400">{activeChannel.description}</p>
-              )}
             </div>
             {activeChannel && (
               <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-slate-400">
@@ -2965,7 +3176,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                         {artifactsCount}
                       </span>
                     )}
-                    {discoveryQueue.papers.length > 0 && (
+                    {!isChannelSwitching && discoveryQueue.papers.length > 0 && (
                       <span className="ml-0.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-white">
                         {discoveryQueue.papers.length}
                       </span>
@@ -3035,7 +3246,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                           <Search className="h-4 w-4 text-amber-500" />
                           Discoveries
                         </div>
-                        {discoveryQueue.papers.length > 0 && (
+                        {!isChannelSwitching && discoveryQueue.papers.length > 0 && (
                           <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500 px-1.5 text-[10px] font-semibold text-white">
                             {discoveryQueue.papers.length}
                           </span>
@@ -3177,8 +3388,8 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                         </button>
                       </div>
                     </div>
-                  ) : discoveryQueue.papers.length > 0 ? (
-                    /* State 4: Papers found but not yet added - amber discovery bar */
+                  ) : discoveryQueue.papers.length > 0 && activeChannelId && !dismissedNotificationChannels.has(activeChannelId) ? (
+                    /* State 4: Papers found but not yet added - amber discovery bar (hidden if dismissed) */
                     <div className="mx-4 mb-2 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 shadow-sm dark:border-amber-500/30 dark:bg-amber-900/20">
                       <div className="flex items-center gap-3">
                         <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-500/20">
@@ -3192,6 +3403,15 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                             <p className="text-xs text-amber-600 dark:text-amber-400">
                               for "{discoveryQueue.query}"
                             </p>
+                          )}
+                          {dismissedPaperIds.size > 0 && (
+                            <button
+                              type="button"
+                              onClick={resetDismissedPapers}
+                              className="text-xs text-amber-500 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300 underline"
+                            >
+                              Show {dismissedPaperIds.size} dismissed
+                            </button>
                           )}
                         </div>
                       </div>
