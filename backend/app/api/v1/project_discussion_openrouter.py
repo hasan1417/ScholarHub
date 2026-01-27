@@ -238,6 +238,7 @@ def invoke_openrouter_assistant(
         question_text = payload.question
         reasoning_enabled = payload.reasoning or False
         selected_model = model
+        user_key = user_api_key  # Capture user's API key for the thread
 
         def run_ai_processing():
             """Background thread that runs AI and puts events in queue."""
@@ -253,7 +254,8 @@ def invoke_openrouter_assistant(
 
                 # Create a new OpenRouterOrchestrator with thread's db session
                 thread_orchestrator = OpenRouterOrchestrator(
-                    _discussion_ai_core, thread_db, model=selected_model
+                    _discussion_ai_core, thread_db, model=selected_model,
+                    user_api_key=user_key,
                 )
 
                 final_result = None
