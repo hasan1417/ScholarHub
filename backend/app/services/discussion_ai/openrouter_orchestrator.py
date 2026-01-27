@@ -239,12 +239,24 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             tool_calls = []
             iteration_content = []
             has_tool_call = False
+            latex_detected = False
+            content_buffer = ""  # Buffer to detect LaTeX early
 
             for event in self._call_ai_with_tools_streaming(messages):
                 if event["type"] == "token":
                     iteration_content.append(event["content"])
-                    # Stream tokens to client UNLESS we already know this iteration has tool calls
-                    if not has_tool_call:
+                    content_buffer += event["content"]
+
+                    # Early LaTeX detection - check after accumulating some content
+                    if not latex_detected and len(content_buffer) > 50:
+                        if self._detect_paper_content(content_buffer):
+                            latex_detected = True
+                            logger.info("[OpenRouter Streaming] LaTeX/paper content detected early - stopping token stream")
+                            # Send status message to show loading state
+                            yield {"type": "status", "tool": "create_paper", "message": "Creating paper"}
+
+                    # Stream tokens to client UNLESS tool call or LaTeX detected
+                    if not has_tool_call and not latex_detected:
                         yield {"type": "token", "content": event["content"]}
                 elif event["type"] == "tool_call_detected":
                     # Tool call detected mid-stream - stop streaming, buffer the rest
@@ -314,11 +326,14 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 logger.info(f"[OpenRouter] Detected {paper_format} paper content without create_paper call - auto-invoking tool")
                 auto_result = self._auto_create_paper_from_content(ctx, final_message, paper_format)
                 if auto_result and auto_result.get("status") == "success":
-                    all_tool_results.append({"name": "create_paper", **auto_result})
-                    # Update message to show paper was created
+                    # Use proper tool result structure for _extract_actions
+                    all_tool_results.append({"name": "create_paper", "result": auto_result})
+                    # Update message to match normal Discussion AI format
                     paper_title = auto_result.get("action", {}).get("payload", {}).get("title", "paper")
-                    final_message = f"Created a new paper in your project:\n\n**{paper_title}**\n\nYou can find it in the Papers section."
-                    yield {"type": "status", "tool": "create_paper", "message": "Creating paper"}
+                    paper_id = auto_result.get("action", {}).get("payload", {}).get("paper_id", "")
+                    refs_linked = auto_result.get("references_linked", 0)
+                    ref_msg = f" Linked {refs_linked} references." if refs_linked > 0 else ""
+                    final_message = f"Created a new literature review paper in your project:\n\n**{paper_title}**\n(paper id: {paper_id})\n\n{ref_msg}"
 
         actions = self._extract_actions(final_message, all_tool_results)
         print(f"[OpenRouter DEBUG] Extracted actions: {actions}")
