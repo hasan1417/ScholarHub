@@ -1416,8 +1416,6 @@ const ProjectDiscussionOR = () => {
                 next.delete(activeChannelId)
                 return next
               })
-              // Clear dismissed paper IDs - new search results shouldn't be affected by old dismissals
-              setDismissedPaperIds(new Set())
             }
 
             setReferenceSearchResults({
