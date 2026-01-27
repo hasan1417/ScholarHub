@@ -427,6 +427,12 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     ref_msg = f" Linked {refs_linked} references." if refs_linked > 0 else ""
                     final_message = f"Created a new literature review paper in your project:\n\n**{paper_title}**\n(paper id: {paper_id})\n\n{ref_msg}"
 
+        # AUTO-FIX: Generate message when model returns empty content after tool execution
+        # Some models (e.g., DeepSeek) don't provide a summary message after executing tools
+        if not final_message.strip() and all_tool_results:
+            final_message = self._generate_tool_summary_message(all_tool_results)
+            logger.info(f"[OpenRouter] Generated summary for empty response: {final_message[:100]}...")
+
         actions = self._extract_actions(final_message, all_tool_results)
         print(f"[OpenRouter DEBUG] Extracted actions: {actions}")
 
@@ -585,6 +591,49 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         content = re.sub(r'((?:\\item .+\n?)+)', wrap_itemize, content)
 
         return content.strip()
+
+    def _generate_tool_summary_message(self, tool_results: List[Dict]) -> str:
+        """Generate a summary message when model returns empty content after tool execution."""
+        messages = []
+
+        for tr in tool_results:
+            tool_name = tr.get("name", "")
+            result = tr.get("result", {})
+
+            if tool_name == "add_to_library":
+                added = result.get("added_count", 0)
+                if added > 0:
+                    messages.append(f"Added {added} paper{'s' if added != 1 else ''} to your library.")
+
+            elif tool_name == "search_papers":
+                action = result.get("action", {})
+                payload = action.get("payload", {})
+                papers_found = len(payload.get("papers", []))
+                query = payload.get("query", "")
+                if papers_found > 0:
+                    messages.append(f"Found {papers_found} papers for '{query}'.")
+
+            elif tool_name == "get_project_references":
+                total = result.get("total_count", 0)
+                messages.append(f"Retrieved your library ({total} reference{'s' if total != 1 else ''}).")
+
+            elif tool_name == "create_paper":
+                action = result.get("action", {})
+                payload = action.get("payload", {})
+                title = payload.get("title", "paper")
+                messages.append(f"Created paper: **{title}**")
+
+            elif tool_name == "get_recent_search_results":
+                count = result.get("count", 0)
+                if count > 0:
+                    messages.append(f"Retrieved {count} recent search result{'s' if count != 1 else ''}.")
+
+        if messages:
+            return " ".join(messages)
+        else:
+            # Fallback - list what tools were called
+            tools_called = [tr.get("name", "unknown") for tr in tool_results]
+            return f"Completed: {', '.join(tools_called)}."
 
 
 def get_available_models() -> List[Dict[str, str]]:
