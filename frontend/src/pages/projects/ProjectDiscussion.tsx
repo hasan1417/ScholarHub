@@ -2773,10 +2773,10 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
   const renderDiscussionContent = () => {
     if (isLoading || channelsQuery.isLoading) {
       return (
-        <div className="flex h-full items-center justify-center">
+        <div className="flex h-full items-center justify-center px-4">
           <div className="text-center">
-            <Loader2 className="mx-auto h-8 w-8 animate-spin text-indigo-600 dark:text-indigo-300" />
-            <p className="mt-2 text-sm text-gray-600 dark:text-slate-300">Loading discussion...</p>
+            <Loader2 className="mx-auto h-6 w-6 sm:h-8 sm:w-8 animate-spin text-indigo-600 dark:text-indigo-300" />
+            <p className="mt-2 text-xs sm:text-sm text-gray-600 dark:text-slate-300">Loading discussion...</p>
           </div>
         </div>
       )
@@ -2784,11 +2784,11 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
 
     if (isError) {
       return (
-        <div className="flex h-full items-center justify-center">
-          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-center dark:border-red-500/40 dark:bg-red-500/10">
-            <AlertCircle className="mx-auto h-8 w-8 text-red-600 dark:text-red-300" />
-            <p className="mt-2 text-sm font-medium text-red-900 dark:text-red-200">Failed to load discussion</p>
-            <p className="mt-1 text-xs text-red-700 dark:text-red-200/80">{(error as Error)?.message || 'Please try again later'}</p>
+        <div className="flex h-full items-center justify-center px-4">
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3 sm:p-4 text-center dark:border-red-500/40 dark:bg-red-500/10">
+            <AlertCircle className="mx-auto h-6 w-6 sm:h-8 sm:w-8 text-red-600 dark:text-red-300" />
+            <p className="mt-2 text-xs sm:text-sm font-medium text-red-900 dark:text-red-200">Failed to load discussion</p>
+            <p className="mt-1 text-[10px] sm:text-xs text-red-700 dark:text-red-200/80">{(error as Error)?.message || 'Please try again later'}</p>
           </div>
         </div>
       )
@@ -2797,11 +2797,11 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     const hasThreads = orderedThreads.length > 0
     if (!hasThreads && !hasAssistantHistory) {
       return (
-        <div className="flex h-full items-center justify-center">
+        <div className="flex h-full items-center justify-center px-4">
           <div className="text-center">
-            <MessageCircle className="mx-auto h-12 w-12 text-gray-300 dark:text-slate-600" />
-            <h3 className="mt-4 text-sm font-medium text-gray-900 dark:text-slate-100">No messages yet</h3>
-            <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">Start the conversation by sending a message or ask Scholar AI for help.</p>
+            <MessageCircle className="mx-auto h-10 w-10 sm:h-12 sm:w-12 text-gray-300 dark:text-slate-600" />
+            <h3 className="mt-3 sm:mt-4 text-xs sm:text-sm font-medium text-gray-900 dark:text-slate-100">No messages yet</h3>
+            <p className="mt-1 text-xs sm:text-sm text-gray-500 dark:text-slate-400">Start the conversation by sending a message or ask Scholar AI for help.</p>
           </div>
         </div>
       )
@@ -2822,41 +2822,40 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           const showTyping = !displayedMessage && exchange.status !== 'complete'
           const authorLabel = resolveAuthorLabel(exchange.author)
           const avatarText = authorLabel.trim().charAt(0).toUpperCase() || 'U'
-          const promptBubbleClass = 'inline-block max-w-fit rounded-2xl bg-purple-50/70 px-4 py-2 shadow-sm ring-2 ring-purple-200 transition dark:bg-purple-500/15 dark:ring-purple-400/40 dark:shadow-purple-900/30'
-          const responseBubbleClass = 'inline-block max-w-fit rounded-2xl bg-white px-4 py-2 transition dark:bg-slate-800/70 dark:ring-1 dark:ring-slate-700'
+          const promptBubbleClass = 'inline-block max-w-full sm:max-w-fit rounded-xl sm:rounded-2xl bg-purple-50/70 px-3 py-1.5 sm:px-4 sm:py-2 shadow-sm ring-2 ring-purple-200 transition dark:bg-purple-500/15 dark:ring-purple-400/40 dark:shadow-purple-900/30'
+          const responseBubbleClass = 'inline-block max-w-full sm:max-w-fit rounded-xl sm:rounded-2xl bg-white px-3 py-1.5 sm:px-4 sm:py-2 transition dark:bg-slate-800/70 dark:ring-1 dark:ring-slate-700'
           return (
-            <div key={exchange.id} className="border-b border-gray-100 pb-4 last:border-b-0 dark:border-slate-700">
-              <div className="space-y-4 pt-4">
-                <div className="flex items-start gap-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-100 text-sm font-medium text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-200">
+            <div key={exchange.id} className="border-b border-gray-100 pb-3 sm:pb-4 last:border-b-0 dark:border-slate-700">
+              <div className="space-y-3 sm:space-y-4 pt-3 sm:pt-4">
+                <div className="flex items-start gap-2 sm:gap-3">
+                  <div className="flex h-6 w-6 sm:h-8 sm:w-8 flex-shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs sm:text-sm font-medium text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-200">
                     {avatarText}
                   </div>
                   <div className="flex min-w-0 flex-1 flex-col">
-                    <div className="mb-1 flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-medium text-gray-900">{authorLabel}</span>
-                      <span className="text-xs text-gray-500">{askedLabel}</span>
-                      <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-200">
-                        <Bot className="h-3 w-3" />
+                    <div className="mb-1 flex flex-wrap items-center gap-1.5 sm:gap-2">
+                      <span className="text-xs sm:text-sm font-medium text-gray-900">{authorLabel}</span>
+                      <span className="text-[10px] sm:text-xs text-gray-500">{askedLabel}</span>
+                      <span className="inline-flex items-center gap-0.5 sm:gap-1 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[9px] sm:text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-200">
+                        <Bot className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
                         AI prompt
                       </span>
                     </div>
                     <div className={promptBubbleClass}>
-                      <p className="text-sm text-gray-700">{exchange.question}</p>
+                      <p className="text-xs sm:text-sm text-gray-700 break-words">{exchange.question}</p>
                     </div>
                   </div>
-                  <div className="relative flex-shrink-0 w-6"></div>
                 </div>
-                <div className="flex items-start gap-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-100 text-sm font-medium text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-200">
+                <div className="flex items-start gap-2 sm:gap-3">
+                  <div className="flex h-6 w-6 sm:h-8 sm:w-8 flex-shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs sm:text-sm font-medium text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-200">
                     AI
                   </div>
                   <div className="flex min-w-0 flex-1 flex-col">
-                    <div className="mb-1 flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-medium text-gray-900">Scholar AI</span>
-                      <span className="text-xs text-gray-500">{answerLabel}</span>
+                    <div className="mb-1 flex flex-wrap items-center gap-1.5 sm:gap-2">
+                      <span className="text-xs sm:text-sm font-medium text-gray-900">Scholar AI</span>
+                      <span className="text-[10px] sm:text-xs text-gray-500">{answerLabel}</span>
                       {exchange.response.reasoning_used && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-200">
-                          <Sparkles className="h-3 w-3" />
+                        <span className="inline-flex items-center gap-0.5 sm:gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] sm:text-[10px] font-medium text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-200">
+                          <Sparkles className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
                           Reasoning
                         </span>
                       )}
@@ -2886,7 +2885,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                           </div>
                         </div>
                       ) : (
-                        <div className="prose prose-sm max-w-none text-gray-900 prose-headings:text-gray-900 prose-p:leading-relaxed prose-li:marker:text-gray-400 dark:prose-invert">
+                        <div className="prose prose-sm max-w-none text-gray-900 prose-headings:text-gray-900 prose-p:leading-relaxed prose-li:marker:text-gray-400 dark:prose-invert prose-p:text-xs sm:prose-p:text-sm prose-headings:text-sm sm:prose-headings:text-base prose-li:text-xs sm:prose-li:text-sm">
                           <ReactMarkdown remarkPlugins={[remarkGfm]}>
                             {displayedMessage}
                           </ReactMarkdown>
@@ -2894,29 +2893,29 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                       )}
                     </div>
                     {!showTyping && exchange.response.citations.length > 0 && (
-                      <div className="mt-3 space-y-1.5">
-                        <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Sources Used:</p>
-                        <div className="flex flex-wrap gap-2">
+                      <div className="mt-2 sm:mt-3 space-y-1 sm:space-y-1.5">
+                        <p className="text-[10px] sm:text-xs font-medium text-slate-500 dark:text-slate-400">Sources Used:</p>
+                        <div className="flex flex-wrap gap-1.5 sm:gap-2">
                           {exchange.response.citations.map((citation) => {
                             const getResourceIcon = (resourceType?: string) => {
                               switch (resourceType) {
                                 case 'paper':
-                                  return <FileText className="h-3.5 w-3.5 text-blue-500" />
+                                  return <FileText className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-blue-500" />
                                 case 'reference':
-                                  return <BookOpen className="h-3.5 w-3.5 text-emerald-500" />
+                                  return <BookOpen className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-emerald-500" />
                                 case 'meeting':
-                                  return <Calendar className="h-3.5 w-3.5 text-purple-500" />
+                                  return <Calendar className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-purple-500" />
                                 default:
-                                  return <FileText className="h-3.5 w-3.5 text-slate-400" />
+                                  return <FileText className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-slate-400" />
                               }
                             }
                             return (
                               <div
                                 key={`${exchange.id}-${citation.origin}-${citation.origin_id}`}
-                                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800"
+                                className="inline-flex items-center gap-1 sm:gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-1 sm:px-2.5 sm:py-1.5 text-[10px] sm:text-xs dark:border-slate-700 dark:bg-slate-800"
                               >
                                 {getResourceIcon(citation.resource_type ?? undefined)}
-                                <span className="font-medium text-slate-700 dark:text-slate-200">
+                                <span className="font-medium text-slate-700 dark:text-slate-200 truncate max-w-[100px] sm:max-w-none">
                                   {citation.label}
                                 </span>
                               </div>
@@ -2927,26 +2926,26 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                     )}
                     {/* Paper created/updated actions - show View/Write buttons */}
                     {!showTyping && exchange.response.suggested_actions?.some(a => a.action_type === 'paper_created' || a.action_type === 'paper_updated') && (
-                      <div className="mt-3 flex flex-wrap gap-2">
+                      <div className="mt-2 sm:mt-3 flex flex-wrap gap-1.5 sm:gap-2">
                         {exchange.response.suggested_actions
                           .filter(a => a.action_type === 'paper_created' || a.action_type === 'paper_updated')
                           .map((action, idx) => {
                             const urlId = action.payload?.url_id || action.payload?.paper_id
                             const title = action.payload?.title || 'Paper'
                             return (
-                              <div key={idx} className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-400/30 dark:bg-emerald-500/10">
-                                <FileText className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                                <span className="text-sm font-medium text-emerald-700 dark:text-emerald-300">{title}</span>
-                                <div className="ml-2 flex gap-1">
+                              <div key={idx} className="inline-flex items-center gap-1.5 sm:gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1.5 sm:px-3 sm:py-2 dark:border-emerald-400/30 dark:bg-emerald-500/10">
+                                <FileText className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+                                <span className="text-xs sm:text-sm font-medium text-emerald-700 dark:text-emerald-300 truncate max-w-[100px] sm:max-w-[200px]">{title}</span>
+                                <div className="ml-1 sm:ml-2 flex gap-0.5 sm:gap-1 flex-shrink-0">
                                   <button
                                     onClick={() => navigate(`/projects/${getProjectUrlId(project)}/papers/${urlId}`)}
-                                    className="rounded px-2 py-0.5 text-xs font-medium text-emerald-600 hover:bg-emerald-100 dark:text-emerald-400 dark:hover:bg-emerald-500/20"
+                                    className="rounded px-1.5 py-0.5 text-[10px] sm:text-xs font-medium text-emerald-600 hover:bg-emerald-100 dark:text-emerald-400 dark:hover:bg-emerald-500/20"
                                   >
                                     View
                                   </button>
                                   <button
                                     onClick={() => navigate(`/projects/${getProjectUrlId(project)}/papers/${urlId}/editor`)}
-                                    className="rounded px-2 py-0.5 text-xs font-medium text-emerald-600 hover:bg-emerald-100 dark:text-emerald-400 dark:hover:bg-emerald-500/20"
+                                    className="rounded px-1.5 py-0.5 text-[10px] sm:text-xs font-medium text-emerald-600 hover:bg-emerald-100 dark:text-emerald-400 dark:hover:bg-emerald-500/20"
                                   >
                                     Write
                                   </button>
@@ -2963,8 +2962,8 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                       a.action_type !== 'search_results'
                     ).length > 0 && (
                       <div className="mt-2 space-y-1">
-                        <p className="text-[11px] uppercase tracking-wide text-gray-400">Suggested actions</p>
-                        <div className="flex flex-wrap gap-2">
+                        <p className="text-[10px] sm:text-[11px] uppercase tracking-wide text-gray-400">Suggested actions</p>
+                        <div className="flex flex-wrap gap-1.5 sm:gap-2">
                           {exchange.response.suggested_actions.filter(a =>
                             // Filter out internal actions that update UI but shouldn't show as suggested actions
                             a.action_type !== 'paper_created' &&
@@ -2976,15 +2975,15 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                             const applied = exchange.appliedActions.includes(actionKey)
                             const isPending = createTaskMutation.isPending || paperActionMutation.isPending || searchReferencesMutation.isPending
                             const getActionIcon = () => {
-                              if (applied) return <Check className="h-3 w-3" />
+                              if (applied) return <Check className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
                               switch (action.action_type) {
-                                case 'create_paper': return <FilePlus className="h-3 w-3" />
-                                case 'edit_paper': return <Pencil className="h-3 w-3" />
-                                case 'paper_updated': return <FileText className="h-3 w-3" />
-                                case 'create_task': return <CheckSquare className="h-3 w-3" />
-                                case 'search_references': return <Search className="h-3 w-3" />
-                                case 'artifact_created': return <Download className="h-3 w-3" />
-                                default: return <Sparkles className="h-3 w-3" />
+                                case 'create_paper': return <FilePlus className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                                case 'edit_paper': return <Pencil className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                                case 'paper_updated': return <FileText className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                                case 'create_task': return <CheckSquare className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                                case 'search_references': return <Search className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                                case 'artifact_created': return <Download className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                                default: return <Sparkles className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
                               }
                             }
                             return (
@@ -2993,10 +2992,10 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                                 type="button"
                                 onClick={() => handleSuggestedAction(exchange, action, idx)}
                                 disabled={applied || isPending}
-                                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition ${applied ? 'border-emerald-300 bg-emerald-50 text-emerald-600 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-200' : 'border-indigo-200 bg-white text-indigo-600 hover:bg-indigo-50 dark:border-indigo-400/40 dark:bg-slate-800/70 dark:text-indigo-200 dark:hover:bg-indigo-500/10'}`}
+                                className={`inline-flex items-center gap-1 sm:gap-1.5 rounded-full border px-2 py-0.5 sm:px-3 sm:py-1 text-[10px] sm:text-xs font-medium transition ${applied ? 'border-emerald-300 bg-emerald-50 text-emerald-600 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-200' : 'border-indigo-200 bg-white text-indigo-600 hover:bg-indigo-50 dark:border-indigo-400/40 dark:bg-slate-800/70 dark:text-indigo-200 dark:hover:bg-indigo-500/10'}`}
                               >
                                 {getActionIcon()}
-                                {applied ? 'Applied' : action.summary}
+                                <span className="truncate max-w-[80px] sm:max-w-none">{applied ? 'Applied' : action.summary}</span>
                               </button>
                             )
                           })}
@@ -3004,15 +3003,14 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                       </div>
                     )}
                     {!showTyping && (
-                      <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-gray-400 dark:text-slate-500">
-                        {exchange.response.model && <span>Model: {exchange.response.model}</span>}
+                      <div className="mt-1.5 sm:mt-2 flex flex-wrap items-center gap-2 sm:gap-3 text-[9px] sm:text-[11px] text-gray-400 dark:text-slate-500">
+                        {exchange.response.model && <span className="hidden sm:inline">Model: {exchange.response.model}</span>}
                         {exchange.response.usage && typeof exchange.response.usage['total_tokens'] === 'number' && (
-                          <span>Total tokens: {exchange.response.usage['total_tokens'] as number}</span>
+                          <span className="hidden sm:inline">Total tokens: {exchange.response.usage['total_tokens'] as number}</span>
                         )}
                       </div>
                     )}
                   </div>
-                  <div className="relative flex-shrink-0 w-6"></div>
                 </div>
               </div>
             </div>
@@ -3102,9 +3100,9 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         </div>
       </div>
 
-      <div className="flex h-[calc(100vh-160px)] min-h-[32rem] w-full gap-3 overflow-hidden">
+      <div className="flex h-[calc(100vh-160px)] min-h-[24rem] sm:min-h-[32rem] w-full gap-2 md:gap-3 overflow-hidden">
         {/* Desktop sidebar - hidden on mobile */}
-        <div className="hidden md:block">
+        <div className="hidden md:block flex-shrink-0">
           <DiscussionChannelSidebar
             channels={channels}
             activeChannelId={activeChannelId}
@@ -3121,49 +3119,49 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           />
         </div>
 
-        <div className="flex flex-1 min-h-0 min-w-0 flex-col rounded-2xl border border-gray-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900/40">
-          <div className="flex items-center justify-between border-b border-gray-200 p-3 md:p-4 dark:border-slate-700">
-            <div className="flex items-center gap-2 md:gap-0 flex-col md:flex-row">
+        <div className="flex flex-1 min-h-0 min-w-0 flex-col rounded-xl md:rounded-2xl border border-gray-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900/40">
+          <div className="flex items-center justify-between border-b border-gray-200 px-2 py-2 sm:px-3 sm:py-3 md:p-4 dark:border-slate-700">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
               {/* Mobile menu button */}
               <button
                 type="button"
                 onClick={() => setIsMobileSidebarOpen(true)}
-                className="mr-2 rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 md:hidden dark:text-slate-400 dark:hover:bg-slate-800"
+                className="flex-shrink-0 rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 md:hidden dark:text-slate-400 dark:hover:bg-slate-800"
               >
                 <Menu className="h-5 w-5" />
               </button>
-              <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 sm:gap-2">
                   {activeChannel && (
-                    <Hash className="h-4 w-4 md:h-5 md:w-5 text-indigo-500 dark:text-indigo-400" />
+                    <Hash className="h-4 w-4 flex-shrink-0 text-indigo-500 dark:text-indigo-400" />
                   )}
-                  <h2 className="text-base md:text-lg font-semibold text-gray-900 dark:text-slate-100 truncate max-w-[180px] md:max-w-none">
+                  <h2 className="text-sm sm:text-base md:text-lg font-semibold text-gray-900 dark:text-slate-100 truncate">
                     {activeChannel ? activeChannel.name : 'Project Discussion'}
                   </h2>
                   {activeChannel?.is_default && (
-                    <span className="hidden sm:inline rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
+                    <span className="hidden sm:inline flex-shrink-0 rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
                       Default
                     </span>
                   )}
                   {activeChannel?.is_archived && (
-                    <span className="hidden sm:inline rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
+                    <span className="hidden sm:inline flex-shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
                       Archived
                     </span>
                   )}
                 </div>
                 {activeChannel?.description && (
-                  <p className="hidden md:block text-xs text-gray-500 dark:text-slate-400">{activeChannel.description}</p>
+                  <p className="hidden md:block text-xs text-gray-500 dark:text-slate-400 truncate">{activeChannel.description}</p>
                 )}
               </div>
             </div>
             {activeChannel && (
-              <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-slate-400">
+              <div className="flex items-center gap-1.5 sm:gap-2 text-sm text-gray-600 dark:text-slate-400 flex-shrink-0">
                 {/* Channel actions dropdown menu */}
                 <div className="relative" ref={channelMenuRef}>
                   <button
                     type="button"
                     onClick={() => setChannelMenuOpen(!channelMenuOpen)}
-                    className="inline-flex items-center gap-1 rounded-lg border border-gray-200 p-2 text-gray-600 transition hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                    className="inline-flex items-center gap-1 rounded-lg border border-gray-200 p-1.5 sm:p-2 text-gray-600 transition hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
                   >
                     <MoreHorizontal className="h-4 w-4" />
                     {pendingTasksCount > 0 && (
@@ -3184,7 +3182,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                   </button>
 
                   {channelMenuOpen && (
-                    <div className="absolute right-0 top-full z-50 mt-1 w-48 rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                    <div className="absolute right-0 top-full z-50 mt-1 w-44 sm:w-48 rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
                       {activeChannel.scope && (
                         <button
                           type="button"
@@ -3261,8 +3259,8 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
 
           {activeChannel ? (
             <>
-              <div className="flex flex-1 min-h-0 overflow-hidden p-4">
-                <div className="flex-1 min-h-0 overflow-y-auto pr-2">
+              <div className="flex flex-1 min-h-0 overflow-hidden p-2 sm:p-3 md:p-4">
+                <div className="flex-1 min-h-0 overflow-y-auto pr-1 sm:pr-2">
                   {renderDiscussionContent()}
                 </div>
               </div>
@@ -3272,16 +3270,16 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                 <>
                   {/* State 1: Processing papers - blue progress bar (highest priority) */}
                   {ingestionSummary?.isProcessing ? (
-                    <div className="mx-4 mb-2 flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 shadow-sm dark:border-blue-500/30 dark:bg-blue-900/20">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-500/20">
-                          <Loader2 className="h-4 w-4 animate-spin text-blue-600 dark:text-blue-400" />
+                    <div className="mx-2 sm:mx-4 mb-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 sm:px-4 sm:py-2.5 shadow-sm dark:border-blue-500/30 dark:bg-blue-900/20">
+                      <div className="flex items-center gap-2 sm:gap-3">
+                        <div className="flex h-7 w-7 sm:h-8 sm:w-8 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-500/20">
+                          <Loader2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-spin text-blue-600 dark:text-blue-400" />
                         </div>
-                        <div>
-                          <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                        <div className="min-w-0">
+                          <p className="text-xs sm:text-sm font-medium text-blue-800 dark:text-blue-200">
                             Adding papers to library...
                           </p>
-                          <p className="text-xs text-blue-600 dark:text-blue-400">
+                          <p className="text-[10px] sm:text-xs text-blue-600 dark:text-blue-400">
                             {ingestionSummary.successCount} of {ingestionSummary.totalAdded} processed
                           </p>
                         </div>
@@ -3289,32 +3287,32 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                       <button
                         type="button"
                         onClick={() => setOpenDialog('discoveries')}
-                        className="rounded-lg border border-blue-300 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100 dark:border-blue-500/40 dark:text-blue-300 dark:hover:bg-blue-500/20"
+                        className="ml-auto rounded-lg border border-blue-300 px-2.5 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-medium text-blue-700 transition hover:bg-blue-100 dark:border-blue-500/40 dark:text-blue-300 dark:hover:bg-blue-500/20"
                       >
                         View Progress
                       </button>
                     </div>
                   ) : ingestionSummary?.isAllSuccess ? (
                     /* State 2: All papers successfully added - green success bar */
-                    <div className="mx-4 mb-2 flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 shadow-sm dark:border-emerald-500/30 dark:bg-emerald-900/20">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-500/20">
-                          <CheckCircle className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                    <div className="mx-2 sm:mx-4 mb-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 sm:px-4 sm:py-2.5 shadow-sm dark:border-emerald-500/30 dark:bg-emerald-900/20">
+                      <div className="flex items-center gap-2 sm:gap-3">
+                        <div className="flex h-7 w-7 sm:h-8 sm:w-8 flex-shrink-0 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-500/20">
+                          <CheckCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-600 dark:text-emerald-400" />
                         </div>
-                        <div>
-                          <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200">
+                        <div className="min-w-0">
+                          <p className="text-xs sm:text-sm font-medium text-emerald-800 dark:text-emerald-200">
                             {ingestionSummary.totalAdded} paper{ingestionSummary.totalAdded !== 1 ? 's' : ''} added to library
                           </p>
-                          <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                          <p className="text-[10px] sm:text-xs text-emerald-600 dark:text-emerald-400">
                             All with full text available
                           </p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
                         <button
                           type="button"
                           onClick={() => setOpenDialog('discoveries')}
-                          className="rounded-lg border border-emerald-300 px-3 py-1.5 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-500/40 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
+                          className="rounded-lg border border-emerald-300 px-2.5 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-500/40 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
                         >
                           View Details
                         </button>
@@ -3330,7 +3328,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                               handleDismissAllPapers()
                             }
                           }}
-                          className="rounded-lg px-2 py-1.5 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
+                          className="rounded-lg px-2 py-1 sm:px-2 sm:py-1.5 text-[10px] sm:text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
                         >
                           Dismiss
                         </button>
@@ -3338,35 +3336,37 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                     </div>
                   ) : ingestionSummary && ingestionSummary.needsAttention > 0 ? (
                     /* State 3: Papers added but some need attention - amber warning bar */
-                    <div className="mx-4 mb-2 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 shadow-sm dark:border-amber-500/30 dark:bg-amber-900/20">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-500/20">
-                          <Library className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                    <div className="mx-2 sm:mx-4 mb-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 sm:px-4 sm:py-2.5 shadow-sm dark:border-amber-500/30 dark:bg-amber-900/20">
+                      <div className="flex items-center gap-2 sm:gap-3">
+                        <div className="flex h-7 w-7 sm:h-8 sm:w-8 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-500/20">
+                          <Library className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-amber-600 dark:text-amber-400" />
                         </div>
-                        <div>
-                          <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                            {ingestionSummary.totalAdded} added
+                        <div className="min-w-0">
+                          <p className="text-xs sm:text-sm font-medium text-amber-800 dark:text-amber-200">
+                            <span className="hidden sm:inline">{ingestionSummary.totalAdded} added</span>
+                            <span className="sm:hidden">{ingestionSummary.totalAdded} added</span>
                             {ingestionSummary.successCount > 0 && (
-                              <span className="mx-1.5 text-emerald-600 dark:text-emerald-400">
+                              <span className="hidden sm:inline mx-1.5 text-emerald-600 dark:text-emerald-400">
                                 • {ingestionSummary.successCount} full text
                               </span>
                             )}
                             {ingestionSummary.needsAttention > 0 && (
-                              <span className="mx-1.5 text-amber-600 dark:text-amber-400">
+                              <span className="hidden sm:inline mx-1.5 text-amber-600 dark:text-amber-400">
                                 • {ingestionSummary.needsAttention} need PDF
                               </span>
                             )}
                           </p>
-                          <p className="text-xs text-amber-600 dark:text-amber-400">
-                            Some papers need manual PDF upload
+                          <p className="text-[10px] sm:text-xs text-amber-600 dark:text-amber-400">
+                            <span className="hidden sm:inline">Some papers need manual PDF upload</span>
+                            <span className="sm:hidden">{ingestionSummary.needsAttention} need PDF upload</span>
                           </p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
                         <button
                           type="button"
                           onClick={() => setOpenDialog('discoveries')}
-                          className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600"
+                          className="rounded-lg bg-amber-600 px-2.5 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-medium text-white transition hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600"
                         >
                           Review
                         </button>
@@ -3382,7 +3382,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                               handleDismissAllPapers()
                             }
                           }}
-                          className="rounded-lg px-2 py-1.5 text-xs font-medium text-amber-700 transition hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-500/20"
+                          className="rounded-lg px-2 py-1 sm:px-2 sm:py-1.5 text-[10px] sm:text-xs font-medium text-amber-700 transition hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-500/20"
                         >
                           Dismiss
                         </button>
@@ -3390,17 +3390,17 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                     </div>
                   ) : discoveryQueue.papers.length > 0 && activeChannelId && !dismissedNotificationChannels.has(activeChannelId) ? (
                     /* State 4: Papers found but not yet added - amber discovery bar (hidden if dismissed) */
-                    <div className="mx-4 mb-2 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 shadow-sm dark:border-amber-500/30 dark:bg-amber-900/20">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-500/20">
-                          <Search className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                    <div className="mx-2 sm:mx-4 mb-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 sm:px-4 sm:py-2.5 shadow-sm dark:border-amber-500/30 dark:bg-amber-900/20">
+                      <div className="flex items-center gap-2 sm:gap-3">
+                        <div className="flex h-7 w-7 sm:h-8 sm:w-8 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-500/20">
+                          <Search className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-amber-600 dark:text-amber-400" />
                         </div>
-                        <div>
-                          <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                        <div className="min-w-0">
+                          <p className="text-xs sm:text-sm font-medium text-amber-800 dark:text-amber-200">
                             {discoveryQueue.papers.length} paper{discoveryQueue.papers.length !== 1 ? 's' : ''} found
                           </p>
                           {discoveryQueue.query && (
-                            <p className="text-xs text-amber-600 dark:text-amber-400">
+                            <p className="text-[10px] sm:text-xs text-amber-600 dark:text-amber-400 truncate max-w-[150px] sm:max-w-none">
                               for "{discoveryQueue.query}"
                             </p>
                           )}
@@ -3408,25 +3408,25 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                             <button
                               type="button"
                               onClick={resetDismissedPapers}
-                              className="text-xs text-amber-500 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300 underline"
+                              className="text-[10px] sm:text-xs text-amber-500 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300 underline"
                             >
                               Show {dismissedPaperIds.size} dismissed
                             </button>
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
                         <button
                           type="button"
                           onClick={() => setOpenDialog('discoveries')}
-                          className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600"
+                          className="rounded-lg bg-amber-600 px-2.5 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-medium text-white transition hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600"
                         >
                           Review
                         </button>
                         <button
                           type="button"
                           onClick={handleDismissAllPapers}
-                          className="rounded-lg px-2 py-1.5 text-xs font-medium text-amber-700 transition hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-500/20"
+                          className="rounded-lg px-2 py-1 sm:px-2 sm:py-1.5 text-[10px] sm:text-xs font-medium text-amber-700 transition hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-500/20"
                         >
                           Dismiss
                         </button>
@@ -3436,30 +3436,30 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                 </>
               )}
 
-              <div className="border-t border-gray-100 bg-white px-4 py-2 text-xs text-gray-600 dark:border-slate-800 dark:bg-slate-900/40">
+              <div className="border-t border-gray-100 bg-white px-2 py-1.5 sm:px-4 sm:py-2 text-xs text-gray-600 dark:border-slate-800 dark:bg-slate-900/40">
                 <button
                   type="button"
                   onClick={() => setAiContextExpanded(!aiContextExpanded)}
-                  className="flex w-full items-center gap-2 text-left"
+                  className="flex w-full items-center gap-1.5 sm:gap-2 text-left"
                 >
                   {aiContextExpanded ? (
-                    <ChevronDown className="h-3.5 w-3.5 text-gray-400 dark:text-slate-500" />
+                    <ChevronDown className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-gray-400 dark:text-slate-500" />
                   ) : (
-                    <ChevronRight className="h-3.5 w-3.5 text-gray-400 dark:text-slate-500" />
+                    <ChevronRight className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-gray-400 dark:text-slate-500" />
                   )}
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-slate-500">
+                  <span className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-slate-500">
                     AI Context
                   </span>
                   {!aiContextExpanded && (
-                    <span className="text-[10px] text-gray-400 dark:text-slate-500">
+                    <span className="text-[9px] sm:text-[10px] text-gray-400 dark:text-slate-500">
                       ({assistantScope.length} selected)
                     </span>
                   )}
                 </button>
                 {aiContextExpanded && (
-                  <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-                    <p className="text-xs text-gray-500 dark:text-slate-400">Pick which resources the assistant can reference.</p>
-                    <div className="flex flex-wrap gap-2">
+                  <div className="mt-1.5 sm:mt-2 flex flex-col sm:flex-row sm:flex-wrap items-start sm:items-center justify-between gap-2 sm:gap-3">
+                    <p className="text-[10px] sm:text-xs text-gray-500 dark:text-slate-400">Pick which resources the assistant can reference.</p>
+                    <div className="flex flex-wrap gap-1.5 sm:gap-2">
                       {ASSISTANT_SCOPE_OPTIONS.map((option) => {
                         const active = assistantScope.includes(option.id)
                         return (
@@ -3467,7 +3467,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                             key={option.id}
                             type="button"
                             onClick={() => toggleAssistantScope(option.id)}
-                            className={`rounded-full px-3 py-1 text-xs font-medium transition border ${
+                            className={`rounded-full px-2 py-0.5 sm:px-3 sm:py-1 text-[10px] sm:text-xs font-medium transition border ${
                               active
                                 ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-500/20 dark:text-indigo-100'
                                 : 'border-gray-200 text-gray-600 hover:border-indigo-200 hover:text-indigo-600 dark:border-slate-700 dark:text-slate-300 dark:hover:border-indigo-400/60'
@@ -3496,29 +3496,30 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
               />
             </>
           ) : (
-            <div className="flex flex-1 items-center justify-center px-6 py-10">
+            <div className="flex flex-1 items-center justify-center px-4 sm:px-6 py-6 sm:py-10">
               <div className="max-w-md text-center">
-                <MessageCircle className="mx-auto h-12 w-12 text-gray-300 dark:text-slate-600" />
+                <MessageCircle className="mx-auto h-10 w-10 sm:h-12 sm:w-12 text-gray-300 dark:text-slate-600" />
                 {channels.length === 0 ? (
                   <>
-                    <h3 className="mt-4 text-base font-semibold text-gray-900 dark:text-slate-100">Create a channel to start the conversation</h3>
-                    <p className="mt-2 text-sm text-gray-500 dark:text-slate-400">
+                    <h3 className="mt-3 sm:mt-4 text-sm sm:text-base font-semibold text-gray-900 dark:text-slate-100">Create a channel to start the conversation</h3>
+                    <p className="mt-1.5 sm:mt-2 text-xs sm:text-sm text-gray-500 dark:text-slate-400">
                       Organize discussions by topic, meeting, or workstream. Once a channel is created, messages and AI tools will appear here.
                     </p>
                     <button
                       type="button"
                       onClick={handleOpenCreateChannel}
-                      className="mt-4 inline-flex items-center gap-2 rounded-full border border-indigo-200 px-4 py-2 text-sm font-medium text-indigo-600 transition hover:bg-indigo-50 dark:border-indigo-400/40 dark:text-indigo-200 dark:hover:bg-indigo-500/10"
+                      className="mt-3 sm:mt-4 inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-indigo-200 px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-indigo-600 transition hover:bg-indigo-50 dark:border-indigo-400/40 dark:text-indigo-200 dark:hover:bg-indigo-500/10"
                     >
-                      <Plus className="h-4 w-4" />
+                      <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                       New channel
                     </button>
                   </>
                 ) : (
                   <>
-                    <h3 className="mt-4 text-base font-semibold text-gray-900 dark:text-slate-100">Select a channel to view the conversation</h3>
-                    <p className="mt-2 text-sm text-gray-500 dark:text-slate-400">
-                      Choose a channel from the sidebar to see messages and start chatting with your team, or create a new channel to organize discussions.
+                    <h3 className="mt-3 sm:mt-4 text-sm sm:text-base font-semibold text-gray-900 dark:text-slate-100">Select a channel to view the conversation</h3>
+                    <p className="mt-1.5 sm:mt-2 text-xs sm:text-sm text-gray-500 dark:text-slate-400">
+                      <span className="hidden sm:inline">Choose a channel from the sidebar to see messages and start chatting with your team, or create a new channel to organize discussions.</span>
+                      <span className="sm:hidden">Tap the menu icon to choose a channel and start chatting.</span>
                     </p>
                   </>
                 )}
@@ -3530,19 +3531,19 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
 
       {openDialog && activeChannel && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 px-4 backdrop-blur-sm dark:bg-black/70"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-gray-900/40 sm:px-4 backdrop-blur-sm dark:bg-black/70"
           onClick={() => setOpenDialog(null)}
         >
           <div
-            className="relative w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl transition-colors dark:bg-slate-900/90"
+            className="relative w-full sm:max-w-3xl h-[85vh] sm:h-auto sm:max-h-[85vh] overflow-hidden rounded-t-2xl sm:rounded-2xl bg-white shadow-2xl transition-colors dark:bg-slate-900/90"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-start justify-between border-b border-gray-200 px-5 py-4 dark:border-slate-700">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+            <div className="flex items-start justify-between border-b border-gray-200 px-4 py-3 sm:px-5 sm:py-4 dark:border-slate-700">
+              <div className="min-w-0 flex-1 pr-2">
+                <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100 truncate">
                   {openDialog === 'resources' ? 'Channel resources' : openDialog === 'artifacts' ? 'Channel artifacts' : openDialog === 'discoveries' ? 'Paper Discoveries' : 'Channel tasks'}
                 </h3>
-                <p className="text-xs text-gray-500 dark:text-slate-400">
+                <p className="text-[10px] sm:text-xs text-gray-500 dark:text-slate-400 truncate">
                   {openDialog === 'resources'
                     ? `Manage linked resources for ${activeChannel.name}`
                     : openDialog === 'artifacts'
@@ -3555,13 +3556,13 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
               <button
                 type="button"
                 onClick={() => setOpenDialog(null)}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-700"
+                className="flex-shrink-0 inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-700"
                 aria-label="Close channel dialog"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="max-h-[70vh] overflow-y-auto px-5 py-4">
+            <div className="flex-1 overflow-y-auto px-3 py-3 sm:px-5 sm:py-4" style={{ maxHeight: 'calc(85vh - 70px)' }}>
               {openDialog === 'resources' ? (
                 <ChannelResourcePanel
                   projectId={project.id}
@@ -3607,13 +3608,13 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       )}
 
       {isCreateChannelModalOpen && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-gray-900/40 backdrop-blur-sm dark:bg-black/70">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl transition-colors dark:bg-slate-900/90">
+        <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-gray-900/40 backdrop-blur-sm dark:bg-black/70">
+          <div className="w-full sm:max-w-md max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white p-4 sm:p-6 shadow-xl transition-colors dark:bg-slate-900/90">
             <h3 className="text-base font-semibold text-gray-900 dark:text-slate-100">Create new channel</h3>
-            <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
+            <p className="mt-1 text-xs sm:text-sm text-gray-500 dark:text-slate-400">
               Organize conversations by topic, meeting, or workstream.
             </p>
-            <form className="mt-4 space-y-4" onSubmit={handleCreateChannelSubmit}>
+            <form className="mt-3 sm:mt-4 space-y-3 sm:space-y-4" onSubmit={handleCreateChannelSubmit}>
               <div>
                 <label
                   htmlFor="channel-name"
@@ -3749,10 +3750,10 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
 
       {/* Paper Creation Dialog */}
       {paperCreationDialog?.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 backdrop-blur-sm dark:bg-black/70">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl transition-colors dark:bg-slate-900/90">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Create New Paper</h3>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-gray-900/40 backdrop-blur-sm dark:bg-black/70">
+          <div className="w-full sm:max-w-lg max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white p-4 sm:p-6 shadow-xl transition-colors dark:bg-slate-900/90">
+            <div className="flex items-center justify-between mb-3 sm:mb-4">
+              <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">Create New Paper</h3>
               <button
                 type="button"
                 onClick={() => setPaperCreationDialog(null)}
@@ -3762,7 +3763,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
               </button>
             </div>
 
-            <form onSubmit={handlePaperCreationSubmit} className="space-y-4">
+            <form onSubmit={handlePaperCreationSubmit} className="space-y-3 sm:space-y-4">
               {/* Title */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
@@ -3779,9 +3780,9 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
               </div>
 
               {/* Paper Type & Authoring Mode */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Paper Type</label>
+                  <label className="block text-xs sm:text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Paper Type</label>
                   <select
                     value={paperFormData.paperType}
                     onChange={(e) => setPaperFormData((prev) => ({ ...prev, paperType: e.target.value }))}
@@ -4206,13 +4207,13 @@ const ChannelSettingsModal = ({
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-gray-900/40 backdrop-blur-sm dark:bg-black/70">
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl transition-colors dark:bg-slate-900/90">
+    <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-gray-900/40 backdrop-blur-sm dark:bg-black/70">
+      <div className="w-full sm:max-w-md max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white p-4 sm:p-6 shadow-xl transition-colors dark:bg-slate-900/90">
         <h3 className="text-base font-semibold text-gray-900 dark:text-slate-100">Channel Settings</h3>
-        <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
+        <p className="mt-1 text-xs sm:text-sm text-gray-500 dark:text-slate-400">
           Update channel configuration and AI scope
         </p>
-        <form className="mt-4 space-y-4" onSubmit={handleSubmit}>
+        <form className="mt-3 sm:mt-4 space-y-3 sm:space-y-4" onSubmit={handleSubmit}>
           <div>
             <label
               htmlFor="settings-channel-name"
