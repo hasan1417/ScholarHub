@@ -47,8 +47,7 @@ DISCUSSION_TOOLS = [
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Maximum number of references to return",
-                        "default": 10
+                        "description": "Maximum number of references to return. Omit or set high to get all references."
                     }
                 }
             }
@@ -1096,10 +1095,11 @@ class ToolOrchestrator:
         lines.append("## Available Resources")
 
         # Get project references with full text info using JOIN (optimized - single query)
+        # No limit - let AI see all references in the library
         from app.models import Reference
         refs_with_status = self.db.query(Reference.id, Reference.title, Reference.status).join(
             ProjectReference, ProjectReference.reference_id == Reference.id
-        ).filter(ProjectReference.project_id == project.id).limit(50).all()
+        ).filter(ProjectReference.project_id == project.id).all()
 
         ref_count = len(refs_with_status)
         if ref_count > 0:
@@ -1300,9 +1300,11 @@ class ToolOrchestrator:
                     ctx["papers_requested"] = papers_so_far + args.get("count", 1)
 
                 # Check cache for cacheable tools
+                # NOTE: We no longer cache get_project_references since library can change frequently
+                # and stale cache causes major issues (AI sees wrong count)
                 channel = ctx.get("channel")
                 cached_result = None
-                if name in {"get_project_references", "get_project_papers"} and channel:
+                if name in {"get_project_papers"} and channel:  # Removed get_project_references from cache
                     cached_result = self.get_cached_tool_result(channel, name, max_age_seconds=300)
                     if cached_result:
                         logger.info(f"Using cached result for {name}")
@@ -1314,9 +1316,7 @@ class ToolOrchestrator:
                     result = self._tool_get_recent_search_results(ctx)
                 elif name == "get_project_references":
                     result = self._tool_get_project_references(ctx, **args)
-                    # Cache the result
-                    if channel and result.get("count", 0) > 0:
-                        self.cache_tool_result(channel, name, result)
+                    # Don't cache - library can change frequently and stale cache causes wrong counts
                 elif name == "get_reference_details":
                     result = self._tool_get_reference_details(ctx, **args)
                 elif name == "analyze_reference":
@@ -4653,7 +4653,8 @@ Return ONLY valid JSON, no explanation:"""
         memory = self._get_ai_memory(channel)
 
         # Only cache certain tools that are worth caching
-        cacheable_tools = {"get_project_references", "get_project_papers", "get_reference_details"}
+        # NOTE: get_project_references removed - library changes frequently, stale cache causes wrong counts
+        cacheable_tools = {"get_project_papers", "get_reference_details"}
         if tool_name not in cacheable_tools:
             return
 

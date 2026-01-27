@@ -351,3 +351,35 @@ body.dark, [data-theme='dark'], :root.dark {
     margin: 0;
   }
 }
+
+/* Custom thin scrollbar for chat containers */
+.scroll-smooth {
+  scroll-behavior: smooth;
+}
+
+/* Webkit scrollbar styling */
+.overflow-y-auto::-webkit-scrollbar {
+  width: 6px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-radius: 3px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background-color: #94a3b8;
+}
+
+/* Dark mode scrollbar */
+.dark .overflow-y-auto::-webkit-scrollbar-thumb {
+  background-color: #475569;
+}
+
+.dark .overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background-color: #64748b;
+}

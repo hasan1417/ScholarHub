@@ -214,10 +214,50 @@ const ProjectDiscussionOR = () => {
     })
   }, [])
 
+  // Toggle resource in newChannelScope for create channel modal
+  const toggleNewChannelScopeResource = useCallback((type: 'paper' | 'reference' | 'meeting', id: string) => {
+    setNewChannelScope((prev) => {
+      const keyMap = { paper: 'paper_ids', reference: 'reference_ids', meeting: 'meeting_ids' } as const
+      const key = keyMap[type]
+
+      if (prev === null) {
+        return { [key]: [id] } as ChannelScopeConfig
+      }
+
+      const currentIds = prev[key] || []
+      if (currentIds.includes(id)) {
+        const filtered = currentIds.filter((existingId) => existingId !== id)
+        const newScope = { ...prev, [key]: filtered.length > 0 ? filtered : null }
+        const hasAny = newScope.paper_ids?.length || newScope.reference_ids?.length || newScope.meeting_ids?.length
+        return hasAny ? newScope : null
+      }
+
+      return { ...prev, [key]: [...currentIds, id] }
+    })
+  }, [])
+
   const [openDialog, setOpenDialog] = useState<'resources' | 'artifacts' | 'discoveries' | null>(null)
   const [channelMenuOpen, setChannelMenuOpen] = useState(false)
   const [aiContextExpanded, setAiContextExpanded] = useState(false)
   const channelMenuRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
+
+  // Auto-scroll to bottom when new messages arrive
+  const scrollToBottom = useCallback(() => {
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTo({
+        top: messagesContainerRef.current.scrollHeight,
+        behavior: 'smooth'
+      })
+    }
+  }, [])
+
+  // Scroll to bottom when assistant history changes or channel switches
+  useEffect(() => {
+    // Small delay to ensure content is rendered
+    const timer = setTimeout(scrollToBottom, 100)
+    return () => clearTimeout(timer)
+  }, [assistantHistory.length, activeChannelId, scrollToBottom])
 
   // Paper creation dialog state
   const [paperCreationDialog, setPaperCreationDialog] = useState<{
@@ -671,6 +711,9 @@ const ProjectDiscussionOR = () => {
       queryClient.invalidateQueries({ queryKey: ['projectDiscussionChannels', project.id] })
       setActiveChannelId(newChannel.id)
       setIsCreateChannelModalOpen(false)
+      setNewChannelName('')
+      setNewChannelDescription('')
+      setNewChannelScope(null)
     },
     onError: (error) => {
       console.error('Failed to create channel:', error)
@@ -1553,6 +1596,9 @@ const ProjectDiscussionOR = () => {
 
   const handleCloseCreateChannel = () => {
     setIsCreateChannelModalOpen(false)
+    setNewChannelName('')
+    setNewChannelDescription('')
+    setNewChannelScope(null)
   }
 
   const handleCreateChannelSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -2047,7 +2093,7 @@ const ProjectDiscussionOR = () => {
         </div>
       </div>
 
-      <div className="flex h-[calc(100vh-120px)] sm:h-[calc(100vh-140px)] md:h-[calc(100vh-160px)] min-h-[20rem] sm:min-h-[24rem] md:min-h-[32rem] w-full gap-2 md:gap-3 overflow-hidden">
+      <div className="flex h-[calc(100vh-80px)] sm:h-[calc(100vh-90px)] md:h-[calc(100vh-100px)] min-h-[24rem] sm:min-h-[28rem] md:min-h-[36rem] w-full gap-2 md:gap-3 overflow-hidden">
         {/* Desktop sidebar */}
         <div className="hidden md:block flex-shrink-0">
           <DiscussionChannelSidebar
@@ -2176,7 +2222,14 @@ const ProjectDiscussionOR = () => {
             <>
               {/* Messages area */}
               <div className="flex flex-1 min-h-0 overflow-hidden p-2 sm:p-3 md:p-4">
-                <div className="flex-1 min-h-0 overflow-y-auto pr-1 sm:pr-2">
+                <div
+                  ref={messagesContainerRef}
+                  className="flex-1 min-h-0 overflow-y-auto scroll-smooth pr-1 sm:pr-2"
+                  style={{
+                    scrollbarWidth: 'thin',
+                    scrollbarColor: 'rgb(203 213 225) transparent',
+                  }}
+                >
                   {renderDiscussionContent()}
                 </div>
               </div>
@@ -2531,6 +2584,52 @@ const ProjectDiscussionOR = () => {
                   maxLength={2000}
                   placeholder="Describe the focus of this channel"
                 />
+              </div>
+              {/* AI Context Scope */}
+              <div>
+                <label className="text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-slate-300">
+                  AI Context Scope
+                </label>
+                <p className="mt-0.5 text-xs text-gray-500 dark:text-slate-400">
+                  Choose which resources the AI can access in this channel
+                </p>
+                <div className="mt-2 space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setNewChannelScope(null)}
+                    className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
+                      newChannelScope === null
+                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-500/20 dark:text-indigo-100'
+                        : 'border-gray-200 text-gray-600 hover:border-gray-300 dark:border-slate-600 dark:text-slate-300 dark:hover:border-slate-500'
+                    }`}
+                  >
+                    <span className="font-medium">Project-wide</span>
+                    <span className="ml-1 text-xs opacity-70">(all papers, references, transcripts)</span>
+                  </button>
+
+                  {newChannelScope !== null && (
+                    <div className="mt-3 max-h-48 overflow-y-auto rounded-lg border border-gray-200 dark:border-slate-700">
+                      <ResourceScopePicker
+                        scope={newChannelScope}
+                        papers={availablePapersQuery.data || []}
+                        references={availableReferencesQuery.data || []}
+                        meetings={availableMeetingsQuery.data || []}
+                        onToggle={toggleNewChannelScopeResource}
+                        isLoading={availablePapersQuery.isLoading || availableReferencesQuery.isLoading || availableMeetingsQuery.isLoading}
+                      />
+                    </div>
+                  )}
+
+                  {newChannelScope === null && (
+                    <button
+                      type="button"
+                      onClick={() => setNewChannelScope({})}
+                      className="text-xs text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"
+                    >
+                      Or select specific resources...
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="flex justify-end gap-2 pt-2">
                 <button
