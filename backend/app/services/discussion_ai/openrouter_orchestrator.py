@@ -305,18 +305,20 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         print(f"\n[OpenRouter DEBUG] Complete. Tools called: {[t['name'] for t in all_tool_results]}")
         print(f"[OpenRouter DEBUG] Tool results: {all_tool_results[:2]}...")  # First 2 for brevity
 
-        # AUTO-FIX: Detect if model output LaTeX but didn't call create_paper tool
-        # Some models (e.g., DeepSeek) output LaTeX directly instead of calling tools
+        # AUTO-FIX: Detect if model output paper content but didn't call create_paper tool
+        # Some models (e.g., DeepSeek) output content directly instead of calling tools
         create_paper_called = any(t.get("name") == "create_paper" for t in all_tool_results)
-        if not create_paper_called and self._contains_latex_paper(final_message):
-            logger.info("[OpenRouter] Detected LaTeX paper content without create_paper call - auto-invoking tool")
-            auto_result = self._auto_create_paper_from_content(ctx, final_message)
-            if auto_result and auto_result.get("status") == "success":
-                all_tool_results.append({"name": "create_paper", **auto_result})
-                # Update message to show paper was created
-                paper_title = auto_result.get("action", {}).get("payload", {}).get("title", "paper")
-                final_message = f"Created a new paper in your project:\n\n**{paper_title}**\n\nYou can find it in the Papers section."
-                yield {"type": "status", "tool": "create_paper", "message": "Creating paper"}
+        if not create_paper_called:
+            paper_format = self._detect_paper_content(final_message)
+            if paper_format:
+                logger.info(f"[OpenRouter] Detected {paper_format} paper content without create_paper call - auto-invoking tool")
+                auto_result = self._auto_create_paper_from_content(ctx, final_message, paper_format)
+                if auto_result and auto_result.get("status") == "success":
+                    all_tool_results.append({"name": "create_paper", **auto_result})
+                    # Update message to show paper was created
+                    paper_title = auto_result.get("action", {}).get("payload", {}).get("title", "paper")
+                    final_message = f"Created a new paper in your project:\n\n**{paper_title}**\n\nYou can find it in the Papers section."
+                    yield {"type": "status", "tool": "create_paper", "message": "Creating paper"}
 
         actions = self._extract_actions(final_message, all_tool_results)
         print(f"[OpenRouter DEBUG] Extracted actions: {actions}")
@@ -349,12 +351,13 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             }
         }
 
-    def _contains_latex_paper(self, content: str) -> bool:
-        """Check if content contains LaTeX paper indicators."""
+    def _detect_paper_content(self, content: str) -> Optional[str]:
+        """Detect if content contains paper content (LaTeX or Markdown). Returns format or None."""
         import re
         if not content:
-            return False
-        # Look for LaTeX document patterns
+            return None
+
+        # Check for LaTeX patterns
         latex_indicators = [
             r'\\documentclass',
             r'\\begin\{document\}',
@@ -363,47 +366,118 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             r'\\subsection\{',
             r'\\usepackage',
         ]
-        # Need at least 2 indicators to be confident it's a paper
-        matches = sum(1 for pattern in latex_indicators if re.search(pattern, content))
-        return matches >= 2
+        latex_matches = sum(1 for pattern in latex_indicators if re.search(pattern, content))
+        if latex_matches >= 2:
+            return "latex"
 
-    def _auto_create_paper_from_content(self, ctx: Dict[str, Any], content: str) -> Optional[Dict]:
-        """Extract LaTeX content and auto-create paper when model didn't call tool."""
+        # Check for Markdown paper patterns (structured academic content)
+        markdown_indicators = [
+            r'^#\s+.+',  # H1 heading (title)
+            r'^##\s+(?:Abstract|Introduction|Background|Methods|Results|Discussion|Conclusion|References)',  # Academic sections
+            r'^###\s+',  # H3 subsections
+            r'\*\*(?:Abstract|Keywords|Author).*?\*\*',  # Bold academic labels
+        ]
+        markdown_matches = sum(1 for pattern in markdown_indicators if re.search(pattern, content, re.MULTILINE | re.IGNORECASE))
+        # Need title + at least one academic section
+        has_title = bool(re.search(r'^#\s+.+', content, re.MULTILINE))
+        if has_title and markdown_matches >= 2:
+            return "markdown"
+
+        return None
+
+    def _auto_create_paper_from_content(self, ctx: Dict[str, Any], content: str, paper_format: str) -> Optional[Dict]:
+        """Extract paper content and auto-create paper when model didn't call tool."""
         import re
 
         try:
-            # Extract title from \title{...} if present
-            title_match = re.search(r'\\title\{([^}]+)\}', content)
-            title = title_match.group(1) if title_match else "Untitled Paper"
-            # Clean up title (remove LaTeX commands)
-            title = re.sub(r'\\[a-zA-Z]+\{([^}]*)\}', r'\1', title)
-            title = re.sub(r'\\\\', ' ', title).strip()
-
-            # Extract abstract if present
-            abstract_match = re.search(r'\\begin\{abstract\}(.*?)\\end\{abstract\}', content, re.DOTALL)
-            abstract = abstract_match.group(1).strip() if abstract_match else None
-
-            # Extract the LaTeX content (could be in code block or raw)
-            # Try to find content in code block first
-            code_block_match = re.search(r'```(?:latex|tex)?\s*(.*?)```', content, re.DOTALL)
-            if code_block_match:
-                latex_content = code_block_match.group(1).strip()
-            else:
-                # Use the raw content but try to extract from \documentclass to \end{document}
-                doc_match = re.search(r'(\\documentclass.*?\\end\{document\})', content, re.DOTALL)
-                if doc_match:
-                    latex_content = doc_match.group(1)
-                else:
-                    # Just use the content as-is
-                    latex_content = content
-
-            logger.info(f"[OpenRouter] Auto-creating paper: {title}")
-            result = self._tool_create_paper(ctx, title=title, content=latex_content, abstract=abstract)
-            return result
-
+            if paper_format == "latex":
+                return self._extract_and_create_latex_paper(ctx, content)
+            elif paper_format == "markdown":
+                return self._extract_and_create_markdown_paper(ctx, content)
+            return None
         except Exception as e:
             logger.error(f"[OpenRouter] Failed to auto-create paper: {e}")
             return None
+
+    def _extract_and_create_latex_paper(self, ctx: Dict[str, Any], content: str) -> Optional[Dict]:
+        """Extract LaTeX content and create paper."""
+        import re
+
+        # Extract title from \title{...} if present
+        title_match = re.search(r'\\title\{([^}]+)\}', content)
+        title = title_match.group(1) if title_match else "Untitled Paper"
+        # Clean up title (remove LaTeX commands)
+        title = re.sub(r'\\[a-zA-Z]+\{([^}]*)\}', r'\1', title)
+        title = re.sub(r'\\\\', ' ', title).strip()
+
+        # Extract abstract if present
+        abstract_match = re.search(r'\\begin\{abstract\}(.*?)\\end\{abstract\}', content, re.DOTALL)
+        abstract = abstract_match.group(1).strip() if abstract_match else None
+
+        # Extract the LaTeX content (could be in code block or raw)
+        code_block_match = re.search(r'```(?:latex|tex)?\s*(.*?)```', content, re.DOTALL)
+        if code_block_match:
+            latex_content = code_block_match.group(1).strip()
+        else:
+            doc_match = re.search(r'(\\documentclass.*?\\end\{document\})', content, re.DOTALL)
+            if doc_match:
+                latex_content = doc_match.group(1)
+            else:
+                latex_content = content
+
+        logger.info(f"[OpenRouter] Auto-creating LaTeX paper: {title}")
+        return self._tool_create_paper(ctx, title=title, content=latex_content, abstract=abstract)
+
+    def _extract_and_create_markdown_paper(self, ctx: Dict[str, Any], content: str) -> Optional[Dict]:
+        """Extract Markdown content and convert to LaTeX for paper creation."""
+        import re
+
+        # Extract title from first H1
+        title_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
+        title = title_match.group(1).strip() if title_match else "Untitled Paper"
+
+        # Extract abstract if present
+        abstract_match = re.search(r'##\s*Abstract\s*\n+(.*?)(?=\n##|\Z)', content, re.DOTALL | re.IGNORECASE)
+        abstract = abstract_match.group(1).strip() if abstract_match else None
+
+        # Convert Markdown to LaTeX
+        latex_content = self._markdown_to_latex(content, title)
+
+        logger.info(f"[OpenRouter] Auto-creating paper from Markdown: {title}")
+        return self._tool_create_paper(ctx, title=title, content=latex_content, abstract=abstract)
+
+    def _markdown_to_latex(self, md_content: str, title: str) -> str:
+        """Convert Markdown paper content to LaTeX."""
+        import re
+
+        # Remove the title (we'll use \title{} instead)
+        content = re.sub(r'^#\s+.+\n*', '', md_content, count=1)
+
+        # Convert ## headings to \section{}
+        content = re.sub(r'^##\s+(.+)$', r'\\section{\1}', content, flags=re.MULTILINE)
+
+        # Convert ### headings to \subsection{}
+        content = re.sub(r'^###\s+(.+)$', r'\\subsection{\1}', content, flags=re.MULTILINE)
+
+        # Convert #### headings to \subsubsection{}
+        content = re.sub(r'^####\s+(.+)$', r'\\subsubsection{\1}', content, flags=re.MULTILINE)
+
+        # Convert **bold** to \textbf{}
+        content = re.sub(r'\*\*(.+?)\*\*', r'\\textbf{\1}', content)
+
+        # Convert *italic* to \textit{}
+        content = re.sub(r'\*(.+?)\*', r'\\textit{\1}', content)
+
+        # Convert bullet lists
+        content = re.sub(r'^[-*]\s+(.+)$', r'\\item \1', content, flags=re.MULTILINE)
+
+        # Wrap consecutive \item lines in itemize environment
+        def wrap_itemize(match):
+            items = match.group(0)
+            return '\\begin{itemize}\n' + items + '\\end{itemize}'
+        content = re.sub(r'((?:\\item .+\n?)+)', wrap_itemize, content)
+
+        return content.strip()
 
 
 def get_available_models() -> List[Dict[str, str]]:
