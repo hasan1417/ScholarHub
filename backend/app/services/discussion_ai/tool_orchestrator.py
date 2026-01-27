@@ -37,7 +37,7 @@ DISCUSSION_TOOLS = [
         "type": "function",
         "function": {
             "name": "get_project_references",
-            "description": "Get papers/references from the user's project library (permanently saved papers). Use when user mentions 'my library', 'saved papers', 'my collection'. Returns count, ingested_pdf_count, has_pdf_available_count, and paper details. For ingested PDFs, includes summary, key_findings, methodology, limitations. For detailed info about a single paper, use get_reference_details instead.",
+            "description": "Get papers/references from the user's project library (permanently saved papers). Use when user mentions 'my library', 'saved papers', 'my collection'. Returns total_count (TOTAL papers in library), returned_count (papers in this response), ingested_pdf_count, has_pdf_available_count, and paper details. For ingested PDFs, includes summary, key_findings, methodology, limitations. For detailed info about a single paper, use get_reference_details instead.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1459,12 +1459,15 @@ class ToolOrchestrator:
                 func.array_to_string(Reference.authors, ' ').ilike(f"%{topic_filter}%")
             )
 
+        # Get total count BEFORE applying limit (so AI knows actual library size)
+        total_count = query.count()
+
         if limit:
             references = query.limit(limit).all()
         else:
             references = query.all()
 
-        # Count references with ingested PDFs
+        # Count references with ingested PDFs (from returned results)
         ingested_count = sum(1 for ref in references if ref.status in ("ingested", "analyzed"))
         has_pdf_count = sum(1 for ref in references if ref.pdf_url or ref.is_open_access)
 
@@ -1496,7 +1499,8 @@ class ToolOrchestrator:
             papers_list.append(paper_info)
 
         return {
-            "count": len(references),
+            "total_count": total_count,  # Total references in library (before limit)
+            "returned_count": len(references),  # How many returned in this response
             "ingested_pdf_count": ingested_count,
             "has_pdf_available_count": has_pdf_count,
             "papers": papers_list,
