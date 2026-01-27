@@ -27,30 +27,33 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Available OpenRouter models with pricing info
-# Model IDs from https://openrouter.ai/models
+# Model IDs from https://openrouter.ai/models (January 2026)
 OPENROUTER_MODELS = {
-    # OpenAI
+    # OpenAI (GPT-5.2 series - latest)
+    "openai/gpt-5.2-20251211": {"name": "GPT-5.2", "provider": "OpenAI"},
+    "openai/gpt-5.2-codex-20260114": {"name": "GPT-5.2 Codex", "provider": "OpenAI"},
+    "openai/gpt-5.1-20251113": {"name": "GPT-5.1", "provider": "OpenAI"},
     "openai/gpt-4o": {"name": "GPT-4o", "provider": "OpenAI"},
     "openai/gpt-4o-mini": {"name": "GPT-4o Mini", "provider": "OpenAI"},
-    "openai/o1": {"name": "OpenAI o1", "provider": "OpenAI"},
-    "openai/o1-mini": {"name": "OpenAI o1 Mini", "provider": "OpenAI"},
-    # Anthropic
+    # Anthropic (Claude 4.5 series - latest)
+    "anthropic/claude-4.5-opus-20251124": {"name": "Claude 4.5 Opus", "provider": "Anthropic"},
+    "anthropic/claude-4.5-sonnet-20250929": {"name": "Claude 4.5 Sonnet", "provider": "Anthropic"},
+    "anthropic/claude-4.5-haiku-20251001": {"name": "Claude 4.5 Haiku", "provider": "Anthropic"},
     "anthropic/claude-3.5-sonnet": {"name": "Claude 3.5 Sonnet", "provider": "Anthropic"},
-    "anthropic/claude-3-opus": {"name": "Claude 3 Opus", "provider": "Anthropic"},
-    "anthropic/claude-3-haiku": {"name": "Claude 3 Haiku", "provider": "Anthropic"},
-    # Google
+    # Google (Gemini 3 series - latest)
+    "google/gemini-3-pro-preview-20251117": {"name": "Gemini 3 Pro", "provider": "Google"},
+    "google/gemini-3-flash-preview-20251217": {"name": "Gemini 3 Flash", "provider": "Google"},
     "google/gemini-2.5-pro": {"name": "Gemini 2.5 Pro", "provider": "Google"},
     "google/gemini-2.5-flash": {"name": "Gemini 2.5 Flash", "provider": "Google"},
-    "google/gemini-2.0-flash-001": {"name": "Gemini 2.0 Flash", "provider": "Google"},
-    # DeepSeek
-    "deepseek/deepseek-chat": {"name": "DeepSeek V3", "provider": "DeepSeek"},
+    # DeepSeek (V3.2 series - latest)
+    "deepseek/deepseek-v3.2-20251201": {"name": "DeepSeek V3.2", "provider": "DeepSeek"},
+    "deepseek/deepseek-chat-v3.1": {"name": "DeepSeek V3.1", "provider": "DeepSeek"},
     "deepseek/deepseek-r1": {"name": "DeepSeek R1", "provider": "DeepSeek"},
+    "deepseek/deepseek-r1:free": {"name": "DeepSeek R1 (Free)", "provider": "DeepSeek"},
     # Meta
     "meta-llama/llama-3.3-70b-instruct": {"name": "Llama 3.3 70B", "provider": "Meta"},
     # Qwen
     "qwen/qwen-2.5-72b-instruct": {"name": "Qwen 2.5 72B", "provider": "Qwen"},
-    # Mistral
-    "mistralai/mistral-large": {"name": "Mistral Large", "provider": "Mistral"},
 }
 
 
@@ -62,7 +65,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
     only overrides the AI calling methods to use OpenRouter.
     """
 
-    def __init__(self, ai_service: "AIService", db: "Session", model: str = "openai/gpt-4o"):
+    def __init__(self, ai_service: "AIService", db: "Session", model: str = "openai/gpt-5.2-20251211"):
         super().__init__(ai_service, db)
         self._model = model
 
