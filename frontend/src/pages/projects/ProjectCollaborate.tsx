@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
-import { MessageCircle, Video } from 'lucide-react'
+import { MessageCircle, Video, Sparkles } from 'lucide-react'
 import ProjectDiscussion from './ProjectDiscussion'
+import ProjectDiscussionOR from './ProjectDiscussionOR'
 import ProjectSyncSpace from './ProjectSyncSpace'
 import SubTabs, { SubTab } from '../../components/navigation/SubTabs'
 
@@ -10,6 +11,13 @@ const COLLABORATE_TABS: SubTab[] = [
     path: 'chat',
     icon: MessageCircle,
     tooltip: 'Team discussions with channels and threads',
+  },
+  {
+    label: 'Discussion',
+    path: 'chat-beta',
+    icon: Sparkles,
+    tooltip: 'Multi-model AI chat (GPT, Claude, Gemini, DeepSeek)',
+    badge: 'Beta',
   },
   {
     label: 'Meetings',
@@ -38,6 +46,7 @@ const ProjectCollaborate = () => {
         <Routes>
           <Route index element={<Navigate to="chat" replace />} />
           <Route path="chat" element={<ProjectDiscussion />} />
+          <Route path="chat-beta" element={<ProjectDiscussionOR />} />
           <Route path="meetings" element={<ProjectSyncSpace />} />
         </Routes>
       </div>

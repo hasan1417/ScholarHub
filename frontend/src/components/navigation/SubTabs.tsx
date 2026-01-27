@@ -5,7 +5,7 @@ export interface SubTab {
   label: string
   path: string
   icon: LucideIcon
-  badge?: number
+  badge?: number | string
   tooltip?: string
 }
 
@@ -34,8 +34,12 @@ const SubTabs = ({ tabs, basePath }: SubTabsProps) => {
           >
             <tab.icon className="h-4 w-4" />
             <span>{tab.label}</span>
-            {tab.badge !== undefined && tab.badge > 0 && (
-              <span className="ml-1 inline-flex items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/40 px-2 py-0.5 text-xs font-medium text-indigo-600 dark:text-indigo-300">
+            {tab.badge !== undefined && (typeof tab.badge === 'string' || tab.badge > 0) && (
+              <span className={`ml-1 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                typeof tab.badge === 'string'
+                  ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
+                  : 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300'
+              }`}>
                 {tab.badge}
               </span>
             )}
