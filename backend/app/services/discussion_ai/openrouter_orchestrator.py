@@ -270,9 +270,17 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             print(f"[OpenRouter Streaming] Content preview: {response_content[:100] if response_content else 'empty'}...")
 
             if not tool_calls:
-                # No tool calls - this was the final response, already streamed
-                logger.info("[OpenRouter Streaming] Final response - tokens already streamed")
-                final_content_chunks.extend(iteration_content)
+                # No tool calls - this was the final response
+                logger.info("[OpenRouter Streaming] Final response - no more tool calls")
+                # Use streamed tokens if available, otherwise fall back to response_content
+                # (some models don't stream tokens, they return content only in the final result)
+                if iteration_content:
+                    final_content_chunks.extend(iteration_content)
+                elif response_content:
+                    final_content_chunks.append(response_content)
+                    # Stream the content now since it wasn't streamed earlier
+                    if not latex_detected:
+                        yield {"type": "token", "content": response_content}
                 break
 
             # Tool calls present - send status messages
