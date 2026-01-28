@@ -13,12 +13,17 @@ from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.constants.paper_templates import CONFERENCE_TEMPLATES
+
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
     from app.models import Project, ProjectDiscussionChannel, User
     from app.services.ai_service import AIService
 
 logger = logging.getLogger(__name__)
+
+# Available template IDs for create_paper tool
+AVAILABLE_TEMPLATES = list(CONFERENCE_TEMPLATES.keys())
 
 # Tool definitions for OpenAI function calling
 DISCUSSION_TOOLS = [
@@ -215,6 +220,12 @@ DISCUSSION_TOOLS = [
                     "abstract": {
                         "type": "string",
                         "description": "Optional abstract/summary of the paper"
+                    },
+                    "template": {
+                        "type": "string",
+                        "enum": ["generic", "ieee", "acl", "neurips", "icml", "iclr", "aaai", "cvpr", "iccv", "eccv", "nature", "elsevier", "acm", "lncs", "jmlr", "ijcai", "kdd", "pnas"],
+                        "description": "Conference/journal template format. Use when user specifies a format like 'IEEE format', 'ACL style', 'Nature template'. Default is 'generic' (simple article).",
+                        "default": "generic"
                     }
                 },
                 "required": ["title", "content"]
@@ -2118,6 +2129,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         content: str,
         paper_type: str = "research",
         abstract: str = None,
+        template: str = "generic",
     ) -> Dict:
         """Create a new paper in the project (always in LaTeX mode)."""
         from app.models import ResearchPaper, PaperMember, PaperRole
@@ -2137,7 +2149,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         # Check for hallucinated/unverified citations
         unverified_citations = getattr(self, '_last_unmatched_citations', [])
 
-        latex_source = self._ensure_latex_document(content, title, abstract, bibliography_entries)
+        latex_source = self._ensure_latex_document(content, title, abstract, bibliography_entries, template)
 
         # Auto-generate keywords from title, abstract, and content
         keywords = self._generate_keywords(title, abstract, content)
@@ -2541,7 +2553,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         content = content.replace('…', '...')
         return content
 
-    def _ensure_latex_document(self, content: str, title: str, abstract: str = None, bibliography_entries: list = None) -> str:
+    def _ensure_latex_document(self, content: str, title: str, abstract: str = None, bibliography_entries: list = None, template: str = "generic") -> str:
         """Ensure content is wrapped in a proper LaTeX document structure."""
         # Sanitize content first
         content = self._sanitize_latex_content(content)
@@ -2571,7 +2583,25 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 \\end{{thebibliography}}
 """
 
-        latex_template = f"""\\documentclass{{article}}
+        # Get template preamble if specified
+        template_info = CONFERENCE_TEMPLATES.get(template, CONFERENCE_TEMPLATES.get("generic"))
+
+        if template_info and template != "generic":
+            # Use template preamble and inject title
+            preamble = template_info["preamble_example"]
+            # Replace placeholder title with actual title
+            preamble = preamble.replace("Your Paper Title", title)
+            preamble = preamble.replace("Your Full Paper Title", title)
+
+            latex_template = f"""{preamble}
+{abstract_section}
+{content}
+{bibliography_section}
+\\end{{document}}
+"""
+        else:
+            # Default generic template
+            latex_template = f"""\\documentclass{{article}}
 \\usepackage[utf8]{{inputenc}}
 \\usepackage{{amsmath}}
 \\usepackage{{graphicx}}
