@@ -663,6 +663,8 @@ const ProjectDiscussionOR = () => {
     },
     enabled: Boolean(activeChannelId),
     placeholderData: [], // Return empty immediately when channel changes
+    staleTime: 0, // Always consider data stale
+    refetchOnMount: 'always', // Always refetch when component mounts or channel changes
   })
 
   // Transform server history to AssistantExchange format, handling processing status
@@ -1415,12 +1417,27 @@ const ProjectDiscussionOR = () => {
         const exchangeId = payload.exchange_id
         const statusMessage = payload.status_message
         if (!exchangeId || !statusMessage) return
+
+        // Update local state immediately
         setAssistantHistory((prev) =>
           prev.map((entry) =>
             entry.id === exchangeId && entry.status === 'streaming'
               ? { ...entry, statusMessage, isWaitingForTools: true }
               : entry
           )
+        )
+
+        // Also update the query cache so server data stays in sync
+        queryClient.setQueryData<typeof assistantHistoryQuery.data>(
+          ['assistant-history-or', project.id, activeChannelId],
+          (old) => {
+            if (!old) return old
+            return old.map((item) =>
+              item.id === exchangeId
+                ? { ...item, status_message: statusMessage }
+                : item
+            )
+          }
         )
         return
       }
