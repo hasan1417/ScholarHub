@@ -653,6 +653,49 @@ const ProjectDiscussionOR = () => {
 
   const artifactsCount = artifactsQuery.data?.length ?? 0
 
+  // Assistant history query (fetch from server to restore processing state)
+  const assistantHistoryQuery = useQuery({
+    queryKey: ['assistant-history-or', project.id, activeChannelId],
+    queryFn: async () => {
+      if (!activeChannelId) return []
+      const response = await projectDiscussionAPI.listAssistantHistory(project.id, activeChannelId)
+      return response.data
+    },
+    enabled: Boolean(activeChannelId),
+    placeholderData: [], // Return empty immediately when channel changes
+  })
+
+  // Transform server history to AssistantExchange format, handling processing status
+  const serverAssistantHistory = useMemo<AssistantExchange[]>(() => {
+    if (!assistantHistoryQuery.data || !activeChannelId) return []
+
+    return assistantHistoryQuery.data.map((item) => {
+      const createdAt = item.created_at ? new Date(item.created_at) : new Date()
+      const response = item.response
+      const lookup = buildCitationLookup(response.citations)
+
+      // Handle processing status from server - this restores loading state after refresh/channel switch
+      const isProcessing = item.status === 'processing'
+      const isFailed = item.status === 'failed'
+
+      return {
+        id: item.id,
+        channelId: activeChannelId,
+        question: item.question,
+        response,
+        createdAt,
+        completedAt: isProcessing ? undefined : createdAt,
+        appliedActions: [],
+        status: isProcessing ? 'streaming' : 'complete',
+        statusMessage: isProcessing ? (item.status_message || 'Processing...') : (isFailed ? (item.status_message || 'Processing failed') : undefined),
+        displayMessage: isProcessing ? '' : formatAssistantMessage(response.message, lookup),
+        author: item.author ?? undefined,
+        fromHistory: true,
+        isWaitingForTools: isProcessing, // Show loading indicator for processing exchanges
+      }
+    })
+  }, [assistantHistoryQuery.data, activeChannelId])
+
   // Resources query (for channel scope)
   const resourcesQuery = useQuery({
     queryKey: ['channel-resources', project.id, activeChannelId],
@@ -1234,41 +1277,37 @@ const ProjectDiscussionOR = () => {
 
   // ========== LOAD ASSISTANT HISTORY ==========
 
+  // Clear history when channel changes
   useEffect(() => {
-    if (!activeChannelId) {
-      historyChannelRef.current = null
-      return
-    }
+    setAssistantHistory([])
     historyChannelRef.current = activeChannelId
+  }, [activeChannelId])
 
-    const storageKey = buildStorageKey(activeChannelId)
-    if (!storageKey) {
-      setAssistantHistory([])
-      return
-    }
+  // Merge server history with local unsynced entries
+  useEffect(() => {
+    if (!activeChannelId) return
 
-    try {
-      const stored = window.localStorage.getItem(storageKey)
-      if (!stored) {
-        setAssistantHistory([])
-        return
-      }
+    // Merge server data with local unsynced entries (entries created during streaming)
+    setAssistantHistory((prev) => {
+      const idsFromServer = new Set(serverAssistantHistory.map((entry) => entry.id))
 
-      const parsed = JSON.parse(stored)
-      const entries: AssistantExchange[] = parsed.map((entry: Record<string, unknown>) => ({
-        ...entry,
-        createdAt: new Date(entry.createdAt as string),
-        completedAt: entry.completedAt ? new Date(entry.completedAt as string) : undefined,
-        status: 'complete' as const,
-        fromHistory: true,
-      }))
+      // Keep local entries that don't exist on server yet (currently streaming)
+      // but filter out any that have been completed on server
+      const localOnlyEntries = prev.filter((entry) => {
+        // If this entry exists on server, use server version instead
+        if (idsFromServer.has(entry.id)) return false
+        // Keep local streaming/pending entries
+        if (entry.status === 'streaming' || entry.status === 'pending') return true
+        return false
+      })
 
-      setAssistantHistory(entries)
-    } catch (e) {
-      console.error('Failed to load assistant history:', e)
-      setAssistantHistory([])
-    }
-  }, [activeChannelId, buildStorageKey])
+      // Combine server history with local-only entries
+      const merged = [...serverAssistantHistory, ...localOnlyEntries]
+
+      // Sort by creation time
+      return merged.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+    })
+  }, [serverAssistantHistory, activeChannelId])
 
   // Save assistant history to localStorage
   useEffect(() => {
@@ -1334,6 +1373,106 @@ const ProjectDiscussionOR = () => {
       window.removeEventListener('discussion:message_deleted', handleMessageDeleted as EventListener)
     }
   }, [project.id, activeChannelId, queryClient])
+
+  // Handle discussion events from WebSocket (for assistant processing/status/reply)
+  const handleDiscussionEvent = useCallback(
+    (payload: any) => {
+      if (!payload || payload.project_id !== project.id) return
+      if (!activeChannelId || payload.channel_id !== activeChannelId) return
+
+      // Handle assistant processing started (restores state after channel switch/refresh)
+      if (payload.event === 'assistant_processing') {
+        const exchange = payload.exchange
+        if (!exchange) return
+
+        // Skip if from same user who already has local streaming entry
+        if (exchange.author?.id && user?.id && exchange.author.id === user.id) {
+          setAssistantHistory((prev) => {
+            if (prev.some((entry) => entry.status === 'streaming' || entry.status === 'pending')) return prev
+            if (prev.some((entry) => entry.id === exchange.id)) return prev
+            const entry: AssistantExchange = {
+              id: exchange.id,
+              channelId: activeChannelId,
+              question: exchange.question || '',
+              response: { message: '', citations: [], reasoning_used: false, model: '', usage: undefined, suggested_actions: [] },
+              createdAt: exchange.created_at ? new Date(exchange.created_at) : new Date(),
+              appliedActions: [],
+              status: 'streaming',
+              statusMessage: exchange.status_message || 'Processing...',
+              displayMessage: '',
+              author: exchange.author,
+              fromHistory: true,
+              isWaitingForTools: true,
+            }
+            return [...prev, entry]
+          })
+        }
+        return
+      }
+
+      // Handle assistant status updates (live progress)
+      if (payload.event === 'assistant_status') {
+        const exchangeId = payload.exchange_id
+        const statusMessage = payload.status_message
+        if (!exchangeId || !statusMessage) return
+        setAssistantHistory((prev) =>
+          prev.map((entry) =>
+            entry.id === exchangeId && entry.status === 'streaming'
+              ? { ...entry, statusMessage, isWaitingForTools: true }
+              : entry
+          )
+        )
+        return
+      }
+
+      // Handle assistant reply completed
+      if (payload.event === 'assistant_reply') {
+        const exchange = payload.exchange
+        if (!exchange) return
+        const exchangeId: string = exchange.id
+
+        // Update existing processing entry
+        setAssistantHistory((prev) => {
+          const existingIndex = prev.findIndex((entry) => entry.id === exchangeId)
+          if (existingIndex >= 0) {
+            const response: DiscussionAssistantResponse = exchange.response || {
+              message: '',
+              citations: [],
+              reasoning_used: false,
+              model: '',
+              usage: undefined,
+              suggested_actions: [],
+            }
+            const lookup = buildCitationLookup(response.citations || [])
+            const formatted = formatAssistantMessage(response.message || '', lookup)
+            const updated = [...prev]
+            updated[existingIndex] = {
+              ...updated[existingIndex],
+              response,
+              status: 'complete',
+              statusMessage: undefined,
+              displayMessage: formatted,
+              completedAt: new Date(),
+              isWaitingForTools: false,
+            }
+            return updated
+          }
+          return prev
+        })
+        // Refresh the query to get latest data
+        queryClient.invalidateQueries({ queryKey: ['assistant-history-or', project.id, activeChannelId] })
+      }
+    },
+    [project.id, activeChannelId, user?.id, queryClient]
+  )
+
+  // Subscribe to WebSocket discussion events
+  useEffect(() => {
+    discussionWebsocket.on('discussion_event', handleDiscussionEvent)
+    return () => {
+      discussionWebsocket.off('discussion_event', handleDiscussionEvent)
+    }
+  }, [handleDiscussionEvent])
 
   // Close channel menu on click outside
   useEffect(() => {
