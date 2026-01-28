@@ -1003,9 +1003,10 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       setNewChannelDescription('')
       setNewChannelScope(null)
     },
-    onError: (error) => {
+    onError: (error: any) => {
       console.error('Failed to create channel:', error)
-      alert('Failed to create channel. Please try again.')
+      const message = error?.response?.data?.detail || 'Failed to create channel. Please try again.'
+      alert(message)
     },
   })
 
@@ -1033,9 +1034,10 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         setActiveChannelId(fallback ? fallback.id : null)
       }
     },
-    onError: (error) => {
+    onError: (error: any) => {
       console.error('Failed to update channel:', error)
-      alert('Unable to update channel right now. Please try again.')
+      const message = error?.response?.data?.detail || 'Unable to update channel right now. Please try again.'
+      alert(message)
     },
   })
 

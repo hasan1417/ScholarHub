@@ -858,6 +858,22 @@ def create_discussion_channel(
     project = get_project_or_404(db, project_id)
     ensure_project_member(db, project, current_user, roles=[ProjectRole.ADMIN, ProjectRole.EDITOR])
 
+    # Check for duplicate channel name
+    channel_name = payload.name.strip()
+    existing_channel = (
+        db.query(ProjectDiscussionChannel)
+        .filter(
+            ProjectDiscussionChannel.project_id == project.id,
+            ProjectDiscussionChannel.name == channel_name,
+        )
+        .first()
+    )
+    if existing_channel:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"A channel named '{channel_name}' already exists in this project.",
+        )
+
     base_slug = _slugify(payload.slug or payload.name)
     slug = _generate_unique_slug(db, project.id, base_slug)
 
@@ -900,7 +916,23 @@ def update_discussion_channel(
     channel = _get_channel_or_404(db, project, channel_id)
 
     if payload.name:
-        channel.name = payload.name.strip()
+        new_name = payload.name.strip()
+        # Check for duplicate channel name (excluding current channel)
+        existing_channel = (
+            db.query(ProjectDiscussionChannel)
+            .filter(
+                ProjectDiscussionChannel.project_id == project.id,
+                ProjectDiscussionChannel.name == new_name,
+                ProjectDiscussionChannel.id != channel.id,
+            )
+            .first()
+        )
+        if existing_channel:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"A channel named '{new_name}' already exists in this project.",
+            )
+        channel.name = new_name
     if payload.description is not None:
         channel.description = payload.description
     if payload.is_archived is not None and not channel.is_default:

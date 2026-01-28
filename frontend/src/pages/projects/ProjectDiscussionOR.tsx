@@ -761,9 +761,10 @@ const ProjectDiscussionOR = () => {
       setNewChannelDescription('')
       setNewChannelScope(null)
     },
-    onError: (error) => {
+    onError: (error: any) => {
       console.error('Failed to create channel:', error)
-      alert('Failed to create channel. Please try again.')
+      const message = error?.response?.data?.detail || 'Failed to create channel. Please try again.'
+      alert(message)
     },
   })
 
@@ -783,9 +784,10 @@ const ProjectDiscussionOR = () => {
       setIsChannelSettingsOpen(false)
       setSettingsChannel(null)
     },
-    onError: (error) => {
+    onError: (error: any) => {
       console.error('Failed to update channel:', error)
-      alert('Failed to update channel. Please try again.')
+      const message = error?.response?.data?.detail || 'Failed to update channel. Please try again.'
+      alert(message)
     },
   })
 

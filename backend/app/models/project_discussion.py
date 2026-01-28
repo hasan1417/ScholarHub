@@ -27,6 +27,11 @@ class ProjectDiscussionChannel(Base):
             "slug",
             name="uq_discussion_channel_project_slug",
         ),
+        UniqueConstraint(
+            "project_id",
+            "name",
+            name="uq_discussion_channel_project_name",
+        ),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
