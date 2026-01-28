@@ -200,7 +200,7 @@ DISCUSSION_TOOLS = [
         "type": "function",
         "function": {
             "name": "create_paper",
-            "description": "Create a new paper/document in the project. Use when user asks to 'create a paper', 'write a literature review', 'start a new document'. The paper will be available in the LaTeX editor. IMPORTANT: Content MUST be in LaTeX format, NOT Markdown!",
+            "description": "Create a new paper/document in the project. Use when user asks to 'create a paper', 'write a literature review', 'start a new document'. The paper will be available in the LaTeX editor. IMPORTANT: Content MUST be in LaTeX format, NOT Markdown! CRITICAL: Before calling this, ensure you have papers to cite - either from recent search, library, or call search_papers first!",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -210,7 +210,7 @@ DISCUSSION_TOOLS = [
                     },
                     "content": {
                         "type": "string",
-                        "description": "Content in LATEX FORMAT ONLY. Use \\section{}, \\subsection{}, \\textbf{}, \\textit{}, \\begin{itemize}, \\cite{}, etc. Do NOT use Markdown. CITATION FORMAT: Use \\cite{authorYYYYword} where author=first author's last name (lowercase), YYYY=year, word=first significant word from title (lowercase). Example: For 'Self-Attention as Distributional Projection' by Mehta (2025) use \\cite{mehta2025self}. Do NOT add References section - it's auto-generated."
+                        "description": "Content in LATEX FORMAT ONLY. Use ONLY basic LaTeX: \\section{}, \\subsection{}, \\textbf{}, \\textit{}, \\begin{itemize}, \\cite{}. Do NOT use Markdown. MUST INCLUDE CITATIONS: Use \\cite{authorYYYYword} format where author=first author's last name (lowercase), YYYY=year, word=first significant word from title (lowercase). Example: \\cite{mcmahan2017communication} for 'Communication-Efficient Learning' by McMahan (2017). Every academic paper needs citations - do not create papers without \\cite{} commands! Do NOT add References section - it's auto-generated from your citations."
                     },
                     "paper_type": {
                         "type": "string",
@@ -550,13 +550,27 @@ You are a smart research assistant. Use common sense and conversation context.
 
 **WHEN TO SEARCH**:
 - User explicitly says "find papers about X", "search for Y", "I need new references"
-- There are NO papers in context and user wants content
 - User asks about a DIFFERENT topic than what's in context
 
 **WHEN NOT TO SEARCH**:
 - You just showed search results and user wants to use them
 - You were just discussing specific papers
-- User says "create", "write", "summarize" without mentioning a new topic
+
+**CREATING PAPERS WITH PROPER CITATIONS**:
+When user asks to "create a paper", "write a literature review", etc.:
+1. FIRST check if there are papers in context (recent search results, channel history)
+2. If NO papers in context → call get_project_references to check the library for relevant papers
+3. If library has relevant papers → use those papers and cite them with \cite{{authorYYYYword}}
+4. If library is empty OR has no relevant papers → call search_papers to find papers first
+5. ONLY create the paper AFTER you have papers to cite
+6. EVERY academic paper MUST have citations - do NOT create papers without \cite{{}} commands!
+
+Example flow for "Write a paper about federated learning":
+- Check context: no recent search, no channel papers
+- Call get_project_references to check library
+- If library has federated learning papers → cite them in the paper
+- If not → call search_papers("federated learning") first, then use those results
+- Create paper with \cite{{mcmahan2017communication}}, \cite{{li2020federated}}, etc.
 
 GUIDELINES:
 1. Be dynamic and contextual - don't follow rigid scripts
@@ -2587,11 +2601,19 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         template_info = CONFERENCE_TEMPLATES.get(template, CONFERENCE_TEMPLATES.get("generic"))
 
         if template_info and template != "generic":
+            import re
             # Use template preamble and inject title
             preamble = template_info["preamble_example"]
             # Replace placeholder title with actual title
             preamble = preamble.replace("Your Paper Title", title)
             preamble = preamble.replace("Your Full Paper Title", title)
+
+            # Simplify author block to avoid template-specific issues
+            # Replace complex multi-author blocks with simple anonymous author
+            # Pattern matches \author{...} including nested braces
+            author_pattern = r'\\author\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+            if re.search(author_pattern, preamble, re.DOTALL):
+                preamble = re.sub(author_pattern, r'\\author{Anonymous}', preamble, flags=re.DOTALL)
 
             latex_template = f"""{preamble}
 {abstract_section}
