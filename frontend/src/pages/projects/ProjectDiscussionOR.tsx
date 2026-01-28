@@ -1832,6 +1832,7 @@ const ProjectDiscussionOR = () => {
               : askedLabel
             const displayedMessage = exchange.displayMessage || formattedMessage
             const showTyping = !displayedMessage && exchange.status !== 'complete'
+            const isExecutingTools = displayedMessage && exchange.statusMessage && exchange.status !== 'complete'
             const authorLabel = resolveAuthorLabel(exchange.author)
             const avatarText = authorLabel.trim().charAt(0).toUpperCase() || 'U'
             const modelName = exchange.model ? OPENROUTER_MODELS.find((m) => m.id === exchange.model)?.name || exchange.model : currentModelInfo.name
@@ -1906,6 +1907,13 @@ const ProjectDiscussionOR = () => {
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>
                               {displayedMessage}
                             </ReactMarkdown>
+                          </div>
+                        )}
+                        {/* Tool execution indicator - shown when processing tools after initial message */}
+                        {isExecutingTools && (
+                          <div className="mt-3 flex items-center gap-2 text-sm text-indigo-600 dark:text-indigo-400">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <span>{exchange.statusMessage}...</span>
                           </div>
                         )}
                       </div>
