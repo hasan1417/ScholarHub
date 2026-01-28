@@ -85,6 +85,7 @@ type AssistantExchange = {
   status: 'pending' | 'streaming' | 'complete'
   displayMessage: string
   statusMessage?: string
+  isWaitingForTools?: boolean // True when tokens paused but result not yet received
   author?: { id?: string; name?: { display?: string; first?: string; last?: string } | string }
   fromHistory?: boolean
   model?: string
@@ -1153,9 +1154,10 @@ const ProjectDiscussionOR = () => {
                   )
                 }, 30)
               } else if (event.type === 'status') {
+                // Tool is being executed - set status message and flag
                 setAssistantHistory((prev) =>
                   prev.map((e) =>
-                    e.id === id ? { ...e, statusMessage: event.message } : e
+                    e.id === id ? { ...e, statusMessage: event.message, isWaitingForTools: true } : e
                   )
                 )
               } else if (event.type === 'result') {
@@ -1202,6 +1204,8 @@ const ProjectDiscussionOR = () => {
             status: 'complete' as const,
             completedAt: new Date(),
             displayMessage: formattedMessage,
+            isWaitingForTools: false,
+            statusMessage: undefined,
           }
         })
       )
@@ -1832,7 +1836,8 @@ const ProjectDiscussionOR = () => {
               : askedLabel
             const displayedMessage = exchange.displayMessage || formattedMessage
             const showTyping = !displayedMessage && exchange.status !== 'complete'
-            const isExecutingTools = displayedMessage && exchange.statusMessage && exchange.status !== 'complete'
+            // Show tool execution indicator when we have content but tools are being executed
+            const isExecutingTools = displayedMessage && exchange.isWaitingForTools && exchange.status !== 'complete'
             const authorLabel = resolveAuthorLabel(exchange.author)
             const avatarText = authorLabel.trim().charAt(0).toUpperCase() || 'U'
             const modelName = exchange.model ? OPENROUTER_MODELS.find((m) => m.id === exchange.model)?.name || exchange.model : currentModelInfo.name
