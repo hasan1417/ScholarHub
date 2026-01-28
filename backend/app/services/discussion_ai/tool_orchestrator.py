@@ -3063,21 +3063,58 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             title = paper.get("title", "Untitled")
 
             try:
-                # Check if reference already exists by DOI or title
+                # Check if reference already exists by DOI or normalized title+authors
                 doi = paper.get("doi")
                 existing_ref = None
+                paper_year = paper.get("year")
+                paper_authors = paper.get("authors", [])
+                if isinstance(paper_authors, str):
+                    paper_authors = [a.strip() for a in paper_authors.split(",")]
 
+                # Normalize title for comparison: lowercase, strip extra whitespace/punctuation
+                def normalize_title(t: str) -> str:
+                    import re
+                    t = (t or "").lower().strip()
+                    t = re.sub(r'\s+', ' ', t)  # Collapse multiple spaces
+                    t = re.sub(r'[^\w\s]', '', t)  # Remove punctuation
+                    return t
+
+                # Normalize author name for comparison
+                def normalize_author(a: str) -> str:
+                    return (a or "").lower().strip().split()[-1]  # Use last name only
+
+                normalized_title = normalize_title(title)
+                normalized_authors = set(normalize_author(a) for a in paper_authors if a)
+
+                # 1. Check by DOI first (most reliable)
                 if doi:
                     existing_ref = self.db.query(Reference).filter(
                         Reference.doi == doi,
                         Reference.owner_id == project.created_by
                     ).first()
 
+                # 2. Check by normalized title + author overlap
                 if not existing_ref:
-                    existing_ref = self.db.query(Reference).filter(
-                        Reference.title == title,
+                    all_refs = self.db.query(Reference).filter(
                         Reference.owner_id == project.created_by
-                    ).first()
+                    ).all()
+                    for ref in all_refs:
+                        ref_normalized_title = normalize_title(ref.title or "")
+                        # Title must match
+                        if ref_normalized_title != normalized_title:
+                            continue
+                        # Check author overlap (at least one author in common)
+                        ref_authors = ref.authors or []
+                        ref_normalized_authors = set(normalize_author(a) for a in ref_authors if a)
+                        if normalized_authors & ref_normalized_authors:  # Intersection
+                            existing_ref = ref
+                            logger.info(f"[Dedup] Found duplicate by title+author: '{title}' matches '{ref.title}'")
+                            break
+                        # If no authors to compare but titles match exactly, also consider duplicate
+                        if not normalized_authors and not ref_normalized_authors:
+                            existing_ref = ref
+                            logger.info(f"[Dedup] Found duplicate by title (no authors): '{title}'")
+                            break
 
                 # Create Reference if not exists
                 if not existing_ref:
