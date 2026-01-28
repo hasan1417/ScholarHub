@@ -211,7 +211,7 @@ def invoke_openrouter_assistant(
             exchange_created_at,
             {},
             status="processing",
-            status_message="Processing your request...",
+            status_message="Thinking",
         )
         asyncio.run(_broadcast_discussion_event(
             project.id,
@@ -221,7 +221,7 @@ def invoke_openrouter_assistant(
                 "id": exchange_id,
                 "question": payload.question,
                 "status": "processing",
-                "status_message": "Processing your request...",
+                "status_message": "Thinking",
                 "created_at": exchange_created_at,
                 "author": author_info,
             }},

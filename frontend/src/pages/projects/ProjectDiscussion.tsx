@@ -622,7 +622,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         completedAt: isProcessing ? undefined : createdAt,
         appliedActions: [],
         status: isProcessing ? 'streaming' : 'complete',
-        statusMessage: isProcessing ? (item.status_message || 'Processing...') : (isFailed ? (item.status_message || 'Processing failed') : undefined),
+        statusMessage: isProcessing ? (item.status_message || 'Thinking') : (isFailed ? (item.status_message || 'Processing failed') : undefined),
         displayMessage: isProcessing ? '' : formatAssistantMessage(response.message, lookup),
         author: item.author ?? undefined,
         fromHistory: true, // Loaded from server, don't auto-trigger actions

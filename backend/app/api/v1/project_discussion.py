@@ -1253,7 +1253,7 @@ def invoke_discussion_assistant(
             exchange_created_at,
             {},
             status="processing",
-            status_message="Processing your request...",
+            status_message="Thinking",
         )
         asyncio.run(_broadcast_discussion_event(
             project.id,
@@ -1263,7 +1263,7 @@ def invoke_discussion_assistant(
                 "id": exchange_id,
                 "question": payload.question,
                 "status": "processing",
-                "status_message": "Processing your request...",
+                "status_message": "Thinking",
                 "created_at": exchange_created_at,
                 "author": author_info,
             }},
@@ -1514,7 +1514,7 @@ def invoke_discussion_assistant(
             exchange_created_at,
             {},
             status="processing",
-            status_message="Processing your request...",
+            status_message="Thinking",
         )
 
         # Broadcast that processing has started
@@ -1525,7 +1525,7 @@ def invoke_discussion_assistant(
             "created_at": exchange_created_at,
             "author": author_info,
             "status": "processing",
-            "status_message": "Processing your request...",
+            "status_message": "Thinking",
         }
         _broadcast_discussion_event(
             project.id,

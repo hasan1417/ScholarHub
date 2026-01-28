@@ -689,7 +689,7 @@ const ProjectDiscussionOR = () => {
         completedAt: isProcessing ? undefined : createdAt,
         appliedActions: [],
         status: isProcessing ? 'streaming' : 'complete',
-        statusMessage: isProcessing ? (item.status_message || 'Processing...') : (isFailed ? (item.status_message || 'Processing failed') : undefined),
+        statusMessage: isProcessing ? (item.status_message || 'Thinking') : (isFailed ? (item.status_message || 'Processing failed') : undefined),
         displayMessage: isProcessing ? '' : formatAssistantMessage(response.message, lookup),
         author: item.author ?? undefined,
         fromHistory: true,
@@ -1257,6 +1257,15 @@ const ProjectDiscussionOR = () => {
       assistantAbortController.current = null
     },
     onError: (error, variables) => {
+      // Check if this was a user-initiated cancel (AbortError)
+      const isAbort = error.name === 'AbortError' || error.message?.includes('abort')
+      if (isAbort) {
+        // User cancelled - cancelAssistantRequest already handled the state update
+        console.log('Request cancelled by user')
+        assistantAbortController.current = null
+        return
+      }
+
       console.error('OpenRouter assistant error:', error)
       setAssistantHistory((prev) =>
         prev.map((entry) => {
