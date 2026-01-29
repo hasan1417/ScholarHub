@@ -54,12 +54,37 @@ const SubscriptionSection = () => {
 
   const tier = data?.subscription?.tier_id || 'free'
   const isPro = tier === 'pro'
+  const isByok = tier === 'byok'
   const limits = data?.subscription?.limits || {}
   const usage = data?.subscription?.usage || { discussion_ai_calls: 0, paper_discovery_searches: 0 }
 
-  // Get actual limits from API
+  // Get actual limits from API (-1 means unlimited)
   const aiLimit = limits.discussion_ai_calls || 20
   const aiUsed = usage.discussion_ai_calls || 0
+  const isUnlimited = aiLimit === -1
+
+  // BYOK user - show special badge for users with their own API key
+  if (isByok) {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-slate-300">
+          <Zap className="h-4 w-4" />
+          <span>Subscription</span>
+        </div>
+        <div className="flex items-center gap-3 rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-500/10 dark:to-teal-500/10 border border-emerald-200 dark:border-emerald-500/20 p-4">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 shadow-md">
+            <Sparkles className="h-5 w-5 text-white" />
+          </div>
+          <div className="flex-1">
+            <div className="font-semibold text-emerald-900 dark:text-emerald-200">BYOK Plan</div>
+            <div className="text-sm text-emerald-700 dark:text-emerald-300/70">
+              Unlimited AI calls with your API key
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   if (isPro) {
     // Pro user - show tier badge only (they have generous limits)
@@ -85,7 +110,7 @@ const SubscriptionSection = () => {
   }
 
   // Free user - show upgrade prompt with usage info
-  const aiPercentage = aiLimit > 0 ? Math.min(100, Math.round((aiUsed / aiLimit) * 100)) : 0
+  const aiPercentage = isUnlimited ? 0 : (aiLimit > 0 ? Math.min(100, Math.round((aiUsed / aiLimit) * 100)) : 0)
 
   return (
     <div className="space-y-3">
