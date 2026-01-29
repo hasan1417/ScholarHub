@@ -46,7 +46,7 @@ A collaborative academic research platform that helps researchers manage project
 | Cache | Redis 7 |
 | Real-time | Hocuspocus (Y.js) for collaborative editing |
 | Document Server | OnlyOffice |
-| AI | OpenAI API, OpenRouter |
+| AI | OpenRouter |
 | Containerization | Docker Compose |
 
 ## Project Structure
