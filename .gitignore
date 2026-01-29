@@ -73,3 +73,12 @@ demo-video.mp4
 # Generated assets
 onlyoffice_files/
 uploads/
+
+# Sensitive files - NEVER commit
+CLAUDE.md
+ops/jitsi/jitsi.env
+ops/jitsi/config/prosody/certs/*.key
+*.pem
+*.key
+.env.local
+.env.production.local
