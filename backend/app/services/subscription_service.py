@@ -285,3 +285,64 @@ class SubscriptionService:
         return db.query(SubscriptionTier).filter(
             SubscriptionTier.is_active == True
         ).all()
+
+    @staticmethod
+    def assign_byok_tier(db: Session, user_id: UUID) -> UserSubscription:
+        """
+        Assign BYOK tier to a user when they add their API key.
+        Saves their previous tier so it can be restored if they remove the key.
+
+        Args:
+            db: Database session
+            user_id: User's UUID
+
+        Returns:
+            Updated UserSubscription
+        """
+        subscription = SubscriptionService.get_or_create_subscription(db, user_id)
+
+        # Don't change if already on BYOK
+        if subscription.tier_id == "byok":
+            logger.debug(f"User {user_id} already on BYOK tier")
+            return subscription
+
+        # Save current tier before switching
+        subscription.previous_tier_id = subscription.tier_id
+        subscription.tier_id = "byok"
+
+        db.commit()
+        db.refresh(subscription)
+
+        logger.info(f"Assigned BYOK tier to user {user_id} (previous: {subscription.previous_tier_id})")
+        return subscription
+
+    @staticmethod
+    def remove_byok_tier(db: Session, user_id: UUID) -> UserSubscription:
+        """
+        Remove BYOK tier from a user when they remove their API key.
+        Restores their previous tier.
+
+        Args:
+            db: Database session
+            user_id: User's UUID
+
+        Returns:
+            Updated UserSubscription
+        """
+        subscription = SubscriptionService.get_or_create_subscription(db, user_id)
+
+        # Only revert if currently on BYOK
+        if subscription.tier_id != "byok":
+            logger.debug(f"User {user_id} not on BYOK tier, no change needed")
+            return subscription
+
+        # Restore previous tier (default to 'free' if none saved)
+        previous_tier = subscription.previous_tier_id or "free"
+        subscription.tier_id = previous_tier
+        subscription.previous_tier_id = None
+
+        db.commit()
+        db.refresh(subscription)
+
+        logger.info(f"Removed BYOK tier from user {user_id}, restored to '{previous_tier}'")
+        return subscription

@@ -9,6 +9,7 @@ from app.api.deps import get_current_user
 from app.models.user import User as UserModel
 from app.schemas.user import UserUpdate, UserResponse
 from app.core.security import get_password_hash, verify_password
+from app.services.subscription_service import SubscriptionService
 from typing import List
 from pydantic import BaseModel
 
@@ -223,7 +224,13 @@ async def set_openrouter_key(
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Set or clear the user's OpenRouter API key."""
+    """
+    Set or clear the user's OpenRouter API key.
+
+    When an API key is set, the user is automatically assigned to the BYOK tier
+    which gives unlimited AI usage (since they're paying for their own API).
+    When the key is removed, they're reverted to their previous tier.
+    """
     if request.api_key:
         # Basic validation - OpenRouter keys start with sk-or-
         if not request.api_key.startswith("sk-or-"):
@@ -232,12 +239,21 @@ async def set_openrouter_key(
                 detail="Invalid OpenRouter API key format. Keys should start with 'sk-or-'"
             )
         current_user.openrouter_api_key = request.api_key
+
+        # Auto-assign BYOK tier
+        subscription = SubscriptionService.assign_byok_tier(db, current_user.id)
+        tier_message = f"You've been upgraded to the BYOK tier with unlimited AI usage."
     else:
         current_user.openrouter_api_key = None
+
+        # Revert to previous tier
+        subscription = SubscriptionService.remove_byok_tier(db, current_user.id)
+        tier_message = f"Reverted to '{subscription.tier_id}' tier."
 
     db.commit()
 
     return {
-        "message": "OpenRouter API key updated successfully",
+        "message": f"OpenRouter API key updated successfully. {tier_message}",
         "configured": bool(current_user.openrouter_api_key),
+        "tier": subscription.tier_id,
     }

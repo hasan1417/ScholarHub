@@ -70,6 +70,9 @@ class UserSubscription(Base):
     # Custom limits override (for special cases / enterprise deals)
     custom_limits = Column(JSONB, nullable=True)
 
+    # Track previous tier when switching to BYOK (to restore when API key removed)
+    previous_tier_id = Column(String(50), nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
