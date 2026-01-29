@@ -171,7 +171,8 @@ const ProjectDiscussionOR = () => {
     } catch {
       // Ignore localStorage errors
     }
-    return 'openai/gpt-5.2'
+    // Default to first model in list (GPT-5.2 with full ID)
+    return OPENROUTER_MODELS[0].id
   })
 
   // Save model to localStorage when changed
