@@ -545,21 +545,25 @@ const ProjectOverview = () => {
             </div>
 
             {/* Keywords */}
-            {project.keywords && project.keywords.length > 0 && (
-              <div>
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400">Keywords</h3>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {project.keywords.map((keyword) => (
-                    <span
-                      key={keyword}
-                      className="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300"
-                    >
-                      {keyword}
-                    </span>
-                  ))}
-                </div>
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400">Keywords</h3>
+              <div className="mt-2">
+                {project.keywords && project.keywords.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {project.keywords.map((keyword) => (
+                      <span
+                        key={keyword}
+                        className="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300"
+                      >
+                        {keyword}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-400 dark:text-slate-500 italic">No keywords defined yet.</p>
+                )}
               </div>
-            )}
+            </div>
           </div>
         </section>
 

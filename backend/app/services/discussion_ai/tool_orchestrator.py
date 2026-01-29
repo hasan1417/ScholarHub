@@ -151,7 +151,7 @@ DISCUSSION_TOOLS = [
         "type": "function",
         "function": {
             "name": "update_project_info",
-            "description": "Update project description and/or objectives. Use when user asks to 'update project description', 'add objective', 'change project goals', 'modify objectives', etc. Objectives are stored as separate items - you can add new ones or replace all.",
+            "description": "Update project description, objectives, and/or keywords. Use when user asks to 'update project description', 'add objective', 'change project goals', 'modify objectives', 'add keywords', 'update keywords', etc. Objectives and keywords are stored as separate items - you can add new ones or replace all.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -168,6 +168,17 @@ DISCUSSION_TOOLS = [
                         "type": "string",
                         "enum": ["replace", "append", "remove"],
                         "description": "'replace' = replace all objectives. 'append' = add new objectives. 'remove' = remove specific objectives (match by text or index like 'objective 1', 'objective 2'). Default is 'replace'.",
+                        "default": "replace"
+                    },
+                    "keywords": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of keywords/tags for the project. Each keyword should be 1-3 words. Example: ['machine learning', 'neural networks', 'NLP']"
+                    },
+                    "keywords_mode": {
+                        "type": "string",
+                        "enum": ["replace", "append", "remove"],
+                        "description": "'replace' = replace all keywords. 'append' = add new keywords. 'remove' = remove specific keywords. Default is 'replace'.",
                         "default": "replace"
                     }
                 }
@@ -3339,11 +3350,14 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         description: Optional[str] = None,
         objectives: Optional[List[str]] = None,
         objectives_mode: str = "replace",
+        keywords: Optional[List[str]] = None,
+        keywords_mode: str = "replace",
     ) -> Dict:
         """
-        Update project description and/or objectives.
+        Update project description, objectives, and/or keywords.
 
         Objectives are stored as newline-separated string in the 'scope' field.
+        Keywords are stored as a string array in the 'keywords' field.
         Each objective should be concise (max 150 chars recommended).
         """
         from app.models import Project
@@ -3445,6 +3459,60 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 project.scope = "\n".join(validated_objectives)
                 updated_fields.append("objectives")
 
+        # Update keywords if provided
+        if keywords is not None:
+            if not isinstance(keywords, list):
+                return {
+                    "status": "error",
+                    "message": "Keywords must be a list of strings.",
+                }
+
+            # Validate and clean keywords
+            validated_keywords = []
+            for kw in keywords:
+                if not isinstance(kw, str):
+                    continue
+                kw = kw.strip().lower()
+                if not kw:
+                    continue
+                # Truncate if too long (max 50 chars per keyword)
+                if len(kw) > 50:
+                    kw = kw[:50]
+                validated_keywords.append(kw)
+
+            existing_keywords = project.keywords or []
+
+            if keywords_mode == "append":
+                # Append new keywords (avoid duplicates)
+                added_count = 0
+                for new_kw in validated_keywords:
+                    if new_kw not in existing_keywords:
+                        existing_keywords.append(new_kw)
+                        added_count += 1
+                project.keywords = existing_keywords
+                if added_count > 0:
+                    updated_fields.append(f"keywords (added {added_count})")
+            elif keywords_mode == "remove":
+                # Remove specific keywords
+                removed = []
+                for to_remove in validated_keywords:
+                    if to_remove in existing_keywords:
+                        existing_keywords.remove(to_remove)
+                        removed.append(to_remove)
+                project.keywords = existing_keywords
+                if removed:
+                    updated_fields.append(f"keywords (removed {len(removed)})")
+                else:
+                    return {
+                        "status": "error",
+                        "message": "Could not find keywords to remove.",
+                        "current_keywords": existing_keywords,
+                    }
+            else:
+                # Replace all keywords
+                project.keywords = validated_keywords
+                updated_fields.append("keywords")
+
         if not updated_fields:
             return {
                 "status": "error",
@@ -3467,6 +3535,8 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                     "description": project.idea,
                     "objectives": current_objectives,
                     "objectives_count": len(current_objectives),
+                    "keywords": project.keywords or [],
+                    "keywords_count": len(project.keywords or []),
                 }
             }
         except Exception as e:
