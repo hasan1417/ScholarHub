@@ -2618,7 +2618,7 @@ const ProjectDiscussionOR = () => {
                 onCancelReply={handleCancelReply}
                 editingMessage={editingMessage}
                 onCancelEdit={handleCancelEdit}
-                isSubmitting={createMessageMutation.isPending || updateMessageMutation.isPending}
+                isSubmitting={createMessageMutation.isPending || updateMessageMutation.isPending || assistantMutation.isPending}
                 reasoningEnabled={assistantReasoning}
                 onToggleReasoning={() => setAssistantReasoning((prev) => !prev)}
                 reasoningPending={assistantMutation.isPending}

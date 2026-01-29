@@ -114,7 +114,7 @@ const MessageInput = ({
           >
             <Lightbulb
               className={`h-4 w-4 transition ${
-                reasoningPending
+                reasoningPending && reasoningEnabled
                   ? 'animate-pulse fill-amber-400 text-amber-500 drop-shadow-[0_0_4px_rgba(251,191,36,0.8)] dark:fill-amber-400 dark:text-amber-400'
                   : reasoningEnabled
                     ? 'fill-amber-400 text-amber-500 drop-shadow-[0_0_4px_rgba(251,191,36,0.8)] dark:fill-amber-400 dark:text-amber-400'

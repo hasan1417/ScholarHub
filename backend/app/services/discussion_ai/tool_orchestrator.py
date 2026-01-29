@@ -151,34 +151,38 @@ DISCUSSION_TOOLS = [
         "type": "function",
         "function": {
             "name": "update_project_info",
-            "description": "Update project description, objectives, and/or keywords. Use when user asks to 'update project description', 'add objective', 'change project goals', 'modify objectives', 'add keywords', 'update keywords', etc. Objectives and keywords are stored as separate items - you can add new ones or replace all.",
+            "description": """Update project description, objectives, and/or keywords. IMPORTANT: NEVER ask user about 'replace' vs 'append' modes - these are internal parameters. Instead, infer the mode from user intent:
+- User says 'add keyword X' or 'also include Y' → use append mode
+- User says 'set keywords to X,Y,Z' or 'change keywords to...' or project is empty → use replace mode
+- User says 'remove keyword X' → use remove mode
+For new/empty projects, just use replace mode and apply the content directly without asking for confirmation.""",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "description": {
                         "type": "string",
-                        "description": "New project description (replaces existing). Omit to keep current description unchanged."
+                        "description": "New project description (replaces existing). Omit to keep unchanged."
                     },
                     "objectives": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "List of objectives. Each objective should be concise (max 150 chars). Example: ['Analyze ML algorithms', 'Compare performance metrics']"
+                        "description": "List of objectives. Each should be concise (max 150 chars)."
                     },
                     "objectives_mode": {
                         "type": "string",
                         "enum": ["replace", "append", "remove"],
-                        "description": "'replace' = replace all objectives. 'append' = add new objectives. 'remove' = remove specific objectives (match by text or index like 'objective 1', 'objective 2'). Default is 'replace'.",
+                        "description": "Internal: infer from user intent. 'add' → append, 'set/change to' → replace, 'remove' → remove.",
                         "default": "replace"
                     },
                     "keywords": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "List of keywords/tags for the project. Each keyword should be 1-3 words. Example: ['machine learning', 'neural networks', 'NLP']"
+                        "description": "List of keywords/tags. Each should be 1-3 words."
                     },
                     "keywords_mode": {
                         "type": "string",
                         "enum": ["replace", "append", "remove"],
-                        "description": "'replace' = replace all keywords. 'append' = add new keywords. 'remove' = remove specific keywords. Default is 'replace'.",
+                        "description": "Internal: infer from user intent. 'add' → append, 'set/change to' → replace, 'remove' → remove.",
                         "default": "replace"
                     }
                 }
@@ -514,7 +518,16 @@ DO NOT search again when papers are already focused!
 - get_created_artifacts: Get previously created artifacts (PDFs, documents) in this channel
 - update_paper: Add content to an existing paper
 - generate_section_from_discussion: Create paper sections from discussion insights
-- update_project_info: Update project description and/or objectives
+- update_project_info: Update project description, objectives, and keywords
+
+**CRITICAL - UPDATING PROJECT INFO:**
+When using update_project_info, NEVER mention or ask about "replace", "append", or "remove" modes to the user.
+These are internal implementation details. Instead:
+- If project is empty/new → just apply the content (use replace mode internally)
+- If user says "add X" or "also include Y" → use append mode internally
+- If user says "set to X" or "change to Y" → use replace mode internally
+- If user says "remove X" → use remove mode internally
+Just do it based on context. Don't ask "do you want to replace or append?" - that's confusing to users.
 
 ## CORE PRINCIPLE: BE CONTEXT-AWARE
 
