@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Sparkles, Crown, ArrowRight, Zap } from 'lucide-react'
+import { Sparkles, Crown, ArrowRight, Zap, Key } from 'lucide-react'
 import { subscriptionAPI } from '../../services/api'
 
 interface SubscriptionResponse {
@@ -147,22 +147,42 @@ const SubscriptionSection = () => {
         )}
       </div>
 
-      {/* Upgrade CTA */}
-      <button
-        onClick={() => navigate('/pricing')}
-        className="w-full group flex items-center justify-between gap-3 rounded-xl bg-gradient-to-r from-primary-500 to-primary-600 p-4 text-white shadow-lg shadow-primary-500/25 transition-all hover:from-primary-600 hover:to-primary-700 hover:shadow-xl"
-      >
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20">
-            <Sparkles className="h-5 w-5" />
+      {/* Upgrade CTAs */}
+      <div className="space-y-2">
+        {/* Pro upgrade */}
+        <button
+          onClick={() => navigate('/pricing')}
+          className="w-full group flex items-center justify-between gap-3 rounded-xl bg-gradient-to-r from-primary-500 to-primary-600 p-4 text-white shadow-lg shadow-primary-500/25 transition-all hover:from-primary-600 hover:to-primary-700 hover:shadow-xl"
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20">
+              <Sparkles className="h-5 w-5" />
+            </div>
+            <div className="text-left">
+              <div className="font-semibold">Upgrade to Pro</div>
+              <div className="text-sm text-primary-100">500 AI calls/month + more</div>
+            </div>
           </div>
-          <div className="text-left">
-            <div className="font-semibold">Upgrade to Pro</div>
-            <div className="text-sm text-primary-100">500 AI calls/month + more</div>
+          <ArrowRight className="h-5 w-5 group-hover:translate-x-1 transition-transform" />
+        </button>
+
+        {/* BYOK option */}
+        <button
+          onClick={() => navigate('/settings')}
+          className="w-full group flex items-center justify-between gap-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 p-4 text-white shadow-lg shadow-emerald-500/25 transition-all hover:from-emerald-600 hover:to-teal-700 hover:shadow-xl"
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20">
+              <Key className="h-5 w-5" />
+            </div>
+            <div className="text-left">
+              <div className="font-semibold">Use Your API Key</div>
+              <div className="text-sm text-emerald-100">Unlimited AI with BYOK</div>
+            </div>
           </div>
-        </div>
-        <ArrowRight className="h-5 w-5 group-hover:translate-x-1 transition-transform" />
-      </button>
+          <ArrowRight className="h-5 w-5 group-hover:translate-x-1 transition-transform" />
+        </button>
+      </div>
     </div>
   )
 }

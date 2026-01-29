@@ -636,8 +636,11 @@ const EditProfile = () => {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-indigo-100">Account type</span>
-                <span className={`text-sm font-medium ${subscriptionTier === 'pro' ? 'text-amber-300' : ''}`}>
-                  {subscriptionTier === 'pro' ? 'Pro' : 'Free'}
+                <span className={`text-sm font-medium ${
+                  subscriptionTier === 'pro' ? 'text-amber-300' :
+                  subscriptionTier === 'byok' ? 'text-emerald-300' : ''
+                }`}>
+                  {subscriptionTier === 'pro' ? 'Pro' : subscriptionTier === 'byok' ? 'BYOK' : 'Free'}
                 </span>
               </div>
             </div>
