@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
+from pydantic import BaseModel
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -9,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 from datetime import datetime
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_current_verified_user
 from app.database import get_db
 from app.models import Project, ProjectMember, ProjectRole, User, ResearchPaper, ProjectReference, PendingInvitation
 from app.services.activity_feed import record_project_activity, preview_text
@@ -135,7 +136,7 @@ def _ensure_project_manager(db: Session, project: Project, user: User) -> None:
 def create_project(
     payload: ProjectCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_verified_user),
 ):
     # Check subscription limit for projects
     allowed, current, limit = SubscriptionService.check_resource_limit(
@@ -441,7 +442,7 @@ def invite_user_to_project(
     project_id: str,
     payload: ProjectInviteRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_verified_user),
 ):
     """
     Invite a user to a project by email.
@@ -849,3 +850,86 @@ def decline_project_invitation(
 
     db.commit()
     return {"message": "Invitation declined"}
+
+
+# ========== DISCUSSION SETTINGS ==========
+
+class DiscussionSettingsResponse(BaseModel):
+    enabled: bool
+    model: str
+    owner_has_api_key: bool  # Whether project owner has configured their API key
+
+class DiscussionSettingsUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    model: Optional[str] = None
+
+
+@router.get("/{project_id}/discussion-settings", response_model=DiscussionSettingsResponse)
+def get_project_discussion_settings(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get project discussion AI settings. Any project member can view."""
+    project = _get_project(db, project_id)
+
+    # Check if user is a member (status can be "accepted" for joined members)
+    is_member = db.query(ProjectMember).filter(
+        ProjectMember.project_id == project.id,
+        ProjectMember.user_id == current_user.id,
+        ProjectMember.status == "accepted",
+    ).first()
+
+    if not is_member and str(project.created_by) != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Not a project member")
+
+    # Get project owner to check if they have an API key
+    owner = db.query(User).filter(User.id == project.created_by).first()
+    owner_has_api_key = bool(owner and owner.openrouter_api_key)
+
+    settings = project.discussion_settings or {"enabled": True, "model": "openai/gpt-5.2-20251211"}
+
+    return DiscussionSettingsResponse(
+        enabled=settings.get("enabled", True),
+        model=settings.get("model", "openai/gpt-5.2-20251211"),
+        owner_has_api_key=owner_has_api_key,
+    )
+
+
+@router.patch("/{project_id}/discussion-settings", response_model=DiscussionSettingsResponse)
+def update_project_discussion_settings(
+    project_id: str,
+    update: DiscussionSettingsUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update project discussion AI settings. Only project owner can update."""
+    project = _get_project(db, project_id)
+
+    # Only project owner can update discussion settings
+    if str(project.created_by) != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Only project owner can update discussion settings")
+
+    # Get current settings
+    settings = dict(project.discussion_settings or {"enabled": True, "model": "openai/gpt-5.2-20251211"})
+
+    # Update fields
+    if update.enabled is not None:
+        settings["enabled"] = update.enabled
+    if update.model is not None:
+        settings["model"] = update.model
+
+    # Save
+    project.discussion_settings = settings
+    db.commit()
+    db.refresh(project)
+
+    # Get owner API key status
+    owner = db.query(User).filter(User.id == project.created_by).first()
+    owner_has_api_key = bool(owner and owner.openrouter_api_key)
+
+    return DiscussionSettingsResponse(
+        enabled=settings.get("enabled", True),
+        model=settings.get("model", "openai/gpt-5.2-20251211"),
+        owner_has_api_key=owner_has_api_key,
+    )

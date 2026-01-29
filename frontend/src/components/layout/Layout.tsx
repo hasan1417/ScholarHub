@@ -1,12 +1,12 @@
 import { Outlet, useNavigate, Link, useLocation } from 'react-router-dom'
 import { useMemo, useState, useEffect, useCallback } from 'react'
-import { FolderKanban, UserCircle, Settings as SettingsIcon, Sun, Moon, ChevronRight, Palette, Sparkles, Key, Eye, EyeOff, Check, Loader2 } from 'lucide-react'
+import { FolderKanban, UserCircle, Settings as SettingsIcon, Sun, Moon, ChevronRight, Palette, Sparkles, Key, Eye, EyeOff, Check, Loader2, Mail, X, RefreshCw } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import SettingsModal from '../settings/SettingsModal'
 import { useThemePreference } from '../../hooks/useThemePreference'
 import { Logo } from '../brand/Logo'
 import { UpgradeModal, SubscriptionSection } from '../subscription'
-import { subscriptionAPI, usersAPI } from '../../services/api'
+import { subscriptionAPI, usersAPI, authAPI } from '../../services/api'
 
 const Layout = () => {
   const { user, logout } = useAuth()
@@ -26,6 +26,11 @@ const Layout = () => {
   const [savingApiKey, setSavingApiKey] = useState(false)
   const [apiKeySaved, setApiKeySaved] = useState(false)
 
+  // Email verification banner state
+  const [verificationBannerDismissed, setVerificationBannerDismissed] = useState(false)
+  const [resendingVerification, setResendingVerification] = useState(false)
+  const [verificationResent, setVerificationResent] = useState(false)
+
   // Check subscription tier
   useEffect(() => {
     const checkTier = async () => {
@@ -40,6 +45,16 @@ const Layout = () => {
       }
     }
     checkTier()
+  }, [])
+
+  // Listen for verification required events
+  useEffect(() => {
+    const handleVerificationRequired = () => {
+      // Show the banner if it was dismissed
+      setVerificationBannerDismissed(false)
+    }
+    window.addEventListener('verification-required', handleVerificationRequired)
+    return () => window.removeEventListener('verification-required', handleVerificationRequired)
   }, [])
 
   // Load API keys when settings modal opens
@@ -72,6 +87,20 @@ const Layout = () => {
       setSavingApiKey(false)
     }
   }, [openRouterKey])
+
+  const handleResendVerification = useCallback(async () => {
+    if (!user?.email || resendingVerification) return
+    setResendingVerification(true)
+    try {
+      await authAPI.resendVerification(user.email)
+      setVerificationResent(true)
+      setTimeout(() => setVerificationResent(false), 5000)
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || 'Failed to resend verification email')
+    } finally {
+      setResendingVerification(false)
+    }
+  }, [user?.email, resendingVerification])
 
   const handleLogout = () => {
     setIsSettingsOpen(false)
@@ -258,6 +287,43 @@ const Layout = () => {
           </div>
         </div>
       </header>
+
+      {/* Email Verification Banner */}
+      {user && !user.is_verified && !verificationBannerDismissed && (
+        <div className="border-b border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950">
+          <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-2 sm:px-6 lg:px-8">
+            <div className="flex items-center gap-3">
+              <Mail className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+              <p className="text-sm text-amber-800 dark:text-amber-200">
+                {verificationResent ? (
+                  <span className="font-medium">Verification email sent! Check your inbox.</span>
+                ) : (
+                  <>
+                    Please verify your email to access all features.{' '}
+                    <button
+                      type="button"
+                      onClick={handleResendVerification}
+                      disabled={resendingVerification}
+                      className="inline-flex items-center gap-1 font-medium text-amber-700 underline hover:text-amber-900 disabled:opacity-50 dark:text-amber-300 dark:hover:text-amber-100"
+                    >
+                      {resendingVerification && <RefreshCw className="h-3 w-3 animate-spin" />}
+                      Resend verification email
+                    </button>
+                  </>
+                )}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setVerificationBannerDismissed(true)}
+              className="rounded p-1 text-amber-600 hover:bg-amber-100 dark:text-amber-400 dark:hover:bg-amber-900"
+              aria-label="Dismiss"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       <main className="mx-auto max-w-7xl px-3 py-4 sm:px-6 sm:py-8 lg:px-8">
         <Outlet />

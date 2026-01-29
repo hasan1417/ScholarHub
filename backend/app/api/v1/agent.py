@@ -10,7 +10,7 @@ import logging
 import time
 
 from app.database import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_current_verified_user
 from app.models.user import User
 from app.services.smart_agent_service import SmartAgentService
 from app.services.smart_agent_service_v2 import SmartAgentServiceV2
@@ -48,7 +48,7 @@ class AgentChatResponse(BaseModel):
 async def agent_chat(
     request: AgentChatRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_verified_user)
 ):
     """
     Smart agent chat with tiered routing:
@@ -107,7 +107,7 @@ async def agent_chat(
 async def agent_chat_stream(
     request: AgentChatRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_verified_user)
 ):
     """
     Streaming version of smart agent chat.

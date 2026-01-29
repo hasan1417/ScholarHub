@@ -26,7 +26,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_current_verified_user
 from app.api.utils.project_access import ensure_project_member, get_project_or_404
 from app.core.security import verify_token
 from app.database import SessionLocal, get_db
@@ -1179,7 +1179,7 @@ def invoke_discussion_assistant(
     stream: bool = Query(False),
     background: bool = Query(False, description="Run AI in background, return immediately"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_verified_user),
 ):
     project = get_project_or_404(db, project_id)
     ensure_project_member(db, project, current_user)

@@ -44,6 +44,7 @@ import { useProjectContext } from './ProjectLayout'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   projectDiscussionAPI,
+  projectsAPI,
   buildApiUrl,
   refreshAuthToken,
   researchPapersAPI,
@@ -71,7 +72,7 @@ import ChannelArtifactsPanel from '../../components/discussion/ChannelArtifactsP
 import { DiscoveredPaper, IngestionStatus } from '../../components/discussion/DiscoveredPaperCard'
 import { DiscoveryQueuePanel, PaperIngestionState, IngestionStatesMap } from '../../components/discussion/DiscoveryQueuePanel'
 import { getProjectUrlId } from '../../utils/urlId'
-import ModelSelector, { OPENROUTER_MODELS, modelSupportsReasoning } from '../../components/discussion/ModelSelector'
+import { OPENROUTER_MODELS, modelSupportsReasoning } from '../../components/discussion/ModelSelector'
 
 // Types
 type AssistantExchange = {
@@ -138,7 +139,6 @@ const ASSISTANT_SCOPE_OPTIONS = [
   { id: 'references', label: 'References' },
 ]
 
-const MODEL_STORAGE_KEY_PREFIX = 'scholarhub_or_model_'
 
 const ProjectDiscussionOR = () => {
   const { project } = useProjectContext()
@@ -160,31 +160,22 @@ const ProjectDiscussionOR = () => {
     [STORAGE_PREFIX]
   )
 
-  // Model selector state - load from localStorage
-  const modelStorageKey = `${MODEL_STORAGE_KEY_PREFIX}${project.id}`
-  const [selectedModel, setSelectedModel] = useState<string>(() => {
-    try {
-      const stored = localStorage.getItem(modelStorageKey)
-      if (stored && OPENROUTER_MODELS.some((m) => m.id === stored)) {
-        return stored
-      }
-    } catch {
-      // Ignore localStorage errors
-    }
-    // Default to first model in list (GPT-5.2 with full ID)
-    return OPENROUTER_MODELS[0].id
+  // Fetch project discussion settings (model is now a project-level setting)
+  const discussionSettingsQuery = useQuery({
+    queryKey: ['project-discussion-settings', project.id],
+    queryFn: async () => {
+      const response = await projectsAPI.getDiscussionSettings(project.id)
+      return response.data
+    },
+    staleTime: 30000,
   })
 
-  // Save model to localStorage when changed
-  useEffect(() => {
-    try {
-      localStorage.setItem(modelStorageKey, selectedModel)
-    } catch {
-      // Ignore localStorage errors
-    }
-  }, [selectedModel, modelStorageKey])
+  // Get model from project settings (read-only for non-owners)
+  const selectedModel = discussionSettingsQuery.data?.model || OPENROUTER_MODELS[0].id
+  const discussionEnabled = discussionSettingsQuery.data?.enabled ?? true
+  const ownerHasApiKey = discussionSettingsQuery.data?.owner_has_api_key ?? false
 
-  // Turn off reasoning when switching to a model that doesn't support it
+  // Turn off reasoning when model doesn't support it
   useEffect(() => {
     if (!modelSupportsReasoning(selectedModel)) {
       setAssistantReasoning(false)
@@ -1123,9 +1114,9 @@ const ProjectDiscussionOR = () => {
         })),
       })
 
-      // OpenRouter endpoint with streaming
+      // OpenRouter endpoint with streaming (model is determined by project settings)
       const url = buildApiUrl(
-        `/projects/${project.id}/discussion-or/channels/${activeChannelId}/assistant?stream=true&model=${encodeURIComponent(selectedModel)}`
+        `/projects/${project.id}/discussion-or/channels/${activeChannelId}/assistant?stream=true`
       )
 
       const controller = new AbortController()
@@ -2312,10 +2303,16 @@ const ProjectDiscussionOR = () => {
                 )}
               </div>
             </div>
-            {/* Model selector and channel menu */}
+            {/* Model badge and channel menu */}
             <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
-              {/* Model selector */}
-              <ModelSelector value={selectedModel} onChange={setSelectedModel} />
+              {/* Model badge - configured in Project Settings */}
+              <div
+                className="hidden sm:flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-xs text-gray-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                title="AI model - configure in Project Settings"
+              >
+                <Bot className="h-3.5 w-3.5" />
+                <span className="max-w-[100px] truncate">{currentModelInfo.name}</span>
+              </div>
 
               {activeChannel && (
                 <div className="relative" ref={channelMenuRef}>
@@ -2598,19 +2595,36 @@ const ProjectDiscussionOR = () => {
                 )}
               </div>
 
+              {/* AI availability warning */}
+              {!discussionEnabled && (
+                <div className="mx-3 mb-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                  <AlertCircle className="mr-1.5 inline-block h-3.5 w-3.5" />
+                  Discussion AI is disabled for this project. Contact the project owner to enable it.
+                </div>
+              )}
+              {discussionEnabled && !ownerHasApiKey && (
+                <div className="mx-3 mb-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                  <AlertCircle className="mr-1.5 inline-block h-3.5 w-3.5" />
+                  AI commands require an API key. The project owner needs to configure their OpenRouter key in Settings.
+                </div>
+              )}
+
               {/* Message input */}
               <MessageInput
                 onSend={handleSendMessage}
-                placeholder={`Type a message… use / to ask ${currentModelInfo.name} for help`}
+                placeholder={discussionEnabled && ownerHasApiKey
+                  ? `Type a message… use / to ask ${currentModelInfo.name} for help`
+                  : 'Type a message…'
+                }
                 replyingTo={replyingTo}
                 onCancelReply={handleCancelReply}
                 editingMessage={editingMessage}
                 onCancelEdit={handleCancelEdit}
                 isSubmitting={createMessageMutation.isPending || updateMessageMutation.isPending}
                 reasoningEnabled={assistantReasoning}
-                onToggleReasoning={() => setAssistantReasoning((prev) => !prev)}
+                onToggleReasoning={discussionEnabled && ownerHasApiKey ? () => setAssistantReasoning((prev) => !prev) : undefined}
                 reasoningPending={assistantMutation.isPending}
-                reasoningSupported={modelSupportsReasoning(selectedModel)}
+                reasoningSupported={discussionEnabled && ownerHasApiKey && modelSupportsReasoning(selectedModel)}
                 aiGenerating={assistantMutation.isPending}
               />
             </>

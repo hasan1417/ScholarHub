@@ -52,3 +52,16 @@ def get_current_active_user(current_user: User = Depends(get_current_user)) -> U
             detail="Inactive user"
         )
     return current_user
+
+
+def get_current_verified_user(current_user: User = Depends(get_current_user)) -> User:
+    """
+    Get current user and require email verification.
+    Used for sensitive operations like creating projects, inviting members, AI features.
+    """
+    if not current_user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email verification required. Please verify your email to access this feature."
+        )
+    return current_user

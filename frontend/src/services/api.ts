@@ -273,6 +273,20 @@ api.interceptors.response.use(
       return Promise.reject(error)
     }
 
+    // Handle email verification required errors (403 Forbidden)
+    if (error?.response?.status === 403) {
+      const detail = error?.response?.data?.detail || ''
+      if (detail.includes('Email verification required')) {
+        // Dispatch custom event for verification required
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('verification-required', {
+            detail: { message: detail }
+          }))
+        }
+        return Promise.reject(error)
+      }
+    }
+
     // Skip token refresh for auth endpoints (login, register, refresh, etc.)
     // IMPORTANT: /refresh must be here to prevent infinite loop when refresh token is invalid
     const authEndpoints = ['/login', '/register', '/forgot-password', '/reset-password', '/verify-email', '/refresh']
@@ -447,6 +461,18 @@ export const projectsAPI = {
 
   declineInvitation: (projectId: string, memberId: string) =>
     api.post(`/projects/${projectId}/members/${memberId}/decline`, null),
+
+  // Discussion AI Settings
+  getDiscussionSettings: (projectId: string) =>
+    api.get<{ enabled: boolean; model: string; owner_has_api_key: boolean }>(
+      `/projects/${projectId}/discussion-settings`
+    ),
+
+  updateDiscussionSettings: (projectId: string, settings: { enabled?: boolean; model?: string }) =>
+    api.patch<{ enabled: boolean; model: string; owner_has_api_key: boolean }>(
+      `/projects/${projectId}/discussion-settings`,
+      settings
+    ),
 }
 
 export const projectReferencesAPI = {

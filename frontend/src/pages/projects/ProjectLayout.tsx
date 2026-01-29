@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { NavLink, Outlet, useNavigate, useOutletContext, useParams, useLocation } from 'react-router-dom'
-import { ArrowLeft, Calendar, Users as UsersIcon, Trash2, Home, MessageSquare, FileEdit, Search, Video, BookOpen, FileText } from 'lucide-react'
+import { ArrowLeft, Calendar, Users as UsersIcon, Trash2, Home, MessageSquare, FileEdit, Search, Video, BookOpen, FileText, Settings } from 'lucide-react'
 import { projectDiscoveryAPI, projectsAPI } from '../../services/api'
 import { ProjectCreateInput, ProjectDetail } from '../../types'
 import ProjectFormModal from '../../components/projects/ProjectFormModal'
 import { useAuth } from '../../contexts/AuthContext'
 import ConfirmationModal from '../../components/common/ConfirmationModal'
+import ProjectSettingsModal from '../../components/projects/ProjectSettingsModal'
 import { getProjectUrlId } from '../../utils/urlId'
 import TabDropdown from '../../components/projects/TabDropdown'
 import { getNavigationMode } from '../../config/navigation'
@@ -108,6 +109,7 @@ const ProjectLayout = () => {
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const deleteProjectMutation = useMutation({
     mutationFn: async (projectId: string) => {
       await projectsAPI.delete(projectId)
@@ -302,6 +304,17 @@ const ProjectLayout = () => {
             {canEditProject && (
               <button
                 type="button"
+                onClick={() => setIsSettingsOpen(true)}
+                className="inline-flex items-center gap-1 sm:gap-2 rounded-full border border-gray-200 px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                title="Project AI Settings"
+              >
+                <Settings className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">Settings</span>
+              </button>
+            )}
+            {canEditProject && (
+              <button
+                type="button"
                 onClick={() => {
                   setEditError(null)
                   setIsEditOpen(true)
@@ -440,6 +453,13 @@ const ProjectLayout = () => {
           deleteProjectMutation.mutate(projectId)
         }}
       />
+      {project && (
+        <ProjectSettingsModal
+          project={project}
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+        />
+      )}
     </div>
   )
 }

@@ -28,7 +28,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_current_verified_user
 from app.api.utils.project_access import ensure_project_member, get_project_or_404
 from app.database import SessionLocal, get_db
 from app.models import (
@@ -94,23 +94,55 @@ def invoke_openrouter_assistant(
     channel_id: UUID,
     payload: DiscussionAssistantRequest,
     background_tasks: BackgroundTasks,
-    model: str = Query("openai/gpt-5.2", description="OpenRouter model to use"),
     stream: bool = Query(False),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_verified_user),
 ):
     """
     Invoke the AI assistant using OpenRouter.
 
-    This endpoint mirrors the main discussion assistant but uses OpenRouter
-    for multi-model support.
+    Model and API key are determined by project settings:
+    - Model: from project.discussion_settings.model
+    - API Key: project owner's key (fallback to current user's key)
     """
     project = get_project_or_404(db, project_id)
     ensure_project_member(db, project, current_user)
     channel = _get_channel_or_404(db, project, channel_id)
 
+    # Get discussion settings from project
+    discussion_settings = project.discussion_settings or {"enabled": True, "model": "openai/gpt-5.2-20251211"}
+
+    # Check if discussion AI is enabled for this project
+    if not discussion_settings.get("enabled", True):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Discussion AI is disabled for this project",
+        )
+
+    # Use model from project settings
+    model = discussion_settings.get("model", "openai/gpt-5.2-20251211")
+
+    # Determine API key: prefer project owner's key, fallback to current user's key
+    project_owner = db.query(User).filter(User.id == project.created_by).first()
+    api_key_to_use = None
+    if project_owner and project_owner.openrouter_api_key:
+        api_key_to_use = project_owner.openrouter_api_key
+        logger.info(f"Using project owner's API key for Discussion AI")
+    elif current_user.openrouter_api_key:
+        api_key_to_use = current_user.openrouter_api_key
+        logger.info(f"Using current user's API key for Discussion AI")
+
+    if not api_key_to_use:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "error": "no_api_key",
+                "message": "No API key available. The project owner needs to configure their OpenRouter API key in Settings.",
+            },
+        )
+
     # Check subscription limit for discussion AI calls
-    allowed, current, limit = SubscriptionService.check_feature_limit(
+    allowed, current_usage, limit = SubscriptionService.check_feature_limit(
         db, current_user.id, "discussion_ai_calls"
     )
     if not allowed:
@@ -119,9 +151,9 @@ def invoke_openrouter_assistant(
             detail={
                 "error": "limit_exceeded",
                 "feature": "discussion_ai_calls",
-                "current": current,
+                "current": current_usage,
                 "limit": limit,
-                "message": f"You have reached your AI assistant limit ({current}/{limit} calls this month). Upgrade to Pro for more AI calls.",
+                "message": f"You have reached your AI assistant limit ({current_usage}/{limit} calls this month). Upgrade to Pro for more AI calls.",
             },
         )
 
@@ -134,7 +166,7 @@ def invoke_openrouter_assistant(
             "display": display_name,
         },
     }
-    logger.info(f"OpenRouter AI Assistant - User: {current_user.email}, model: {model}")
+    logger.info(f"OpenRouter AI Assistant - User: {current_user.email}, model: {model} (from project settings)")
     logger.info(f"OpenRouter - recent_search_results received: {len(payload.recent_search_results) if payload.recent_search_results else 0} papers")
 
     # Convert search results to list of dicts
@@ -170,13 +202,12 @@ def invoke_openrouter_assistant(
     if last_exchange and last_exchange.conversation_state:
         previous_state_dict = last_exchange.conversation_state
 
-    # Create OpenRouter orchestrator with user's API key if available
-    user_api_key = current_user.openrouter_api_key
+    # Create OpenRouter orchestrator with the determined API key
     orchestrator = OpenRouterOrchestrator(
         _discussion_ai_core,
         db,
         model=model,
-        user_api_key=user_api_key,
+        user_api_key=api_key_to_use,
     )
 
     # Convert conversation history if provided
@@ -238,7 +269,7 @@ def invoke_openrouter_assistant(
         question_text = payload.question
         reasoning_enabled = payload.reasoning or False
         selected_model = model
-        user_key = user_api_key  # Capture user's API key for the thread
+        user_key = api_key_to_use  # Capture API key (owner's or user's) for the thread
 
         def run_ai_processing():
             """Background thread that runs AI and puts events in queue."""

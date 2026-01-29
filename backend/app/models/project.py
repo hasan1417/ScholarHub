@@ -23,6 +23,8 @@ class Project(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     discovery_preferences = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    # Discussion AI settings: {"model": "openai/gpt-5.2-...", "enabled": true}
+    discussion_settings = Column(JSONB, nullable=False, server_default=text("'{\"enabled\": true, \"model\": \"openai/gpt-5.2-20251211\"}'::jsonb"))
 
     owner = relationship("User", back_populates="owned_projects")
     members = relationship("ProjectMember", back_populates="project", cascade="all, delete-orphan")
