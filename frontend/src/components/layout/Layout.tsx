@@ -196,7 +196,7 @@ const Layout = () => {
               ) : apiKeySaved ? (
                 <Check className="h-3 w-3" />
               ) : null}
-              {apiKeySaved ? 'Saved' : 'Save'}
+              {savingApiKey ? 'Validating...' : apiKeySaved ? 'Saved' : 'Save'}
             </button>
           </div>
           <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">

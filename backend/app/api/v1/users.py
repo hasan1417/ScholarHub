@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, Body, Query, Uplo
 import uuid
 import os
 import aiofiles
+import httpx
+import logging
 from pydantic import EmailStr
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -12,6 +14,8 @@ from app.core.security import get_password_hash, verify_password
 from app.services.subscription_service import SubscriptionService
 from typing import List
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 # Avatar upload directory
 AVATAR_UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "uploads", "avatars")
@@ -204,6 +208,39 @@ class OpenRouterKeyRequest(BaseModel):
     api_key: str | None = None  # None to clear the key
 
 
+async def validate_openrouter_key(api_key: str) -> tuple[bool, str]:
+    """
+    Validate an OpenRouter API key by making a test API call.
+    Returns (is_valid, error_message).
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # Test the key by fetching available models (lightweight call)
+            response = await client.get(
+                "https://openrouter.ai/api/v1/models",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "HTTP-Referer": "https://scholarhub.space",
+                    "X-Title": "ScholarHub API Key Validation"
+                }
+            )
+
+            if response.status_code == 200:
+                return True, ""
+            elif response.status_code == 401:
+                return False, "Invalid API key. Please check your key and try again."
+            elif response.status_code == 403:
+                return False, "API key is not authorized. Please check your OpenRouter account."
+            else:
+                return False, f"OpenRouter returned error: {response.status_code}"
+
+    except httpx.TimeoutException:
+        return False, "Timeout connecting to OpenRouter. Please try again."
+    except httpx.RequestError as e:
+        logger.error(f"Error validating OpenRouter key: {e}")
+        return False, "Failed to connect to OpenRouter. Please try again later."
+
+
 @router.get("/me/api-keys")
 async def get_api_keys(
     current_user: UserModel = Depends(get_current_user),
@@ -227,17 +264,30 @@ async def set_openrouter_key(
     """
     Set or clear the user's OpenRouter API key.
 
-    When an API key is set, the user is automatically assigned to the BYOK tier
-    which gives unlimited AI usage (since they're paying for their own API).
+    When an API key is set:
+    1. The key is validated by making a test API call to OpenRouter
+    2. If valid, the user is automatically assigned to the BYOK tier
+       which gives unlimited AI usage (since they're paying for their own API)
+
     When the key is removed, they're reverted to their previous tier.
     """
     if request.api_key:
-        # Basic validation - OpenRouter keys start with sk-or-
+        # Basic format validation - OpenRouter keys start with sk-or-
         if not request.api_key.startswith("sk-or-"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid OpenRouter API key format. Keys should start with 'sk-or-'"
             )
+
+        # Validate the key by testing it against OpenRouter API
+        is_valid, error_message = await validate_openrouter_key(request.api_key)
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error_message
+            )
+
+        # Key is valid - save it
         current_user.openrouter_api_key = request.api_key
 
         # Auto-assign BYOK tier
