@@ -6,14 +6,15 @@ import ProjectSyncSpace from './ProjectSyncSpace'
 import SubTabs, { SubTab } from '../../components/navigation/SubTabs'
 
 const COLLABORATE_TABS: SubTab[] = [
+  // Normal Discussion hidden - using Beta only for now
+  // {
+  //   label: 'Discussion',
+  //   path: 'chat',
+  //   icon: MessageCircle,
+  //   tooltip: 'Team discussions with channels and threads',
+  // },
   {
-    label: 'Discussion',
-    path: 'chat',
-    icon: MessageCircle,
-    tooltip: 'Team discussions with channels and threads',
-  },
-  {
-    label: 'Discussion',
+    label: 'Discussion AI',
     path: 'chat-beta',
     icon: Sparkles,
     tooltip: 'Multi-model AI chat (GPT, Claude, Gemini, DeepSeek)',
@@ -44,7 +45,7 @@ const ProjectCollaborate = () => {
 
       <div className="p-6 dark:bg-slate-900/10">
         <Routes>
-          <Route index element={<Navigate to="chat" replace />} />
+          <Route index element={<Navigate to="chat-beta" replace />} />
           <Route path="chat" element={<ProjectDiscussion />} />
           <Route path="chat-beta" element={<ProjectDiscussionOR />} />
           <Route path="meetings" element={<ProjectSyncSpace />} />

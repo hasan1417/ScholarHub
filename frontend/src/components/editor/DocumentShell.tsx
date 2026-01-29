@@ -15,6 +15,7 @@ import { useCollabProvider } from '../../hooks/useCollabProvider'
 import { useThemePreference } from '../../hooks/useThemePreference'
 import EnhancedAIWritingTools from './EnhancedAIWritingTools'
 import EditorAIChat from './EditorAIChat'
+import EditorAIChatOR from './EditorAIChatOR'
 
 type AdapterComponent = React.ForwardRefExoticComponent<EditorAdapterProps & React.RefAttributes<EditorAdapterHandle>>
 
@@ -56,6 +57,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
   const [aiPanelOpen, setAiPanelOpen] = useState(false)
   const [aiAnchor, setAiAnchor] = useState<HTMLElement | null>(null)
   const [aiChatOpen, setAiChatOpen] = useState(false)
+  const [aiChatBetaMode, setAiChatBetaMode] = useState(true) // Default to Beta (OpenRouter) mode
   const readOnly = forceReadOnly || paperRole === 'viewer'
   const collabFeatureEnabled = useMemo(() => isCollabEnabled(), [])
   const [collabToken, setCollabToken] = useState<{ token: string; ws_url?: string } | null>(null)
@@ -679,100 +681,83 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     setAiPanelOpen(true)
   }, [readOnly])
 
-  /** Handle AI edit approval - find and replace text in document */
-  const handleApplyAiEdit = useCallback((original: string, replacement: string): boolean => {
-    if (readOnly || !original || !replacement) return false
+  /** Handle AI edit approval - replace lines by line numbers (root cause fix) */
+  const handleApplyAiEdit = useCallback((startLine: number, endLine: number, anchor: string, replacement: string): boolean => {
+    if (readOnly) return false
 
     // Get current content from the adapter directly for most accurate state
-    // Try getContent() first (direct from Yjs), fall back to latestContentRef
     const currentContent = adapterRef.current?.getContent?.() || latestContentRef.current.html || ''
 
-    console.log('[DocumentShell] Applying AI edit:', {
-      originalLen: original.length,
+    console.log('[DocumentShell] Applying AI edit (line-based):', {
+      startLine,
+      endLine,
+      anchor: anchor.slice(0, 50),
       replacementLen: replacement.length,
       contentLen: currentContent.length,
-      originalPreview: original.slice(0, 80),
-      contentPreview: currentContent.slice(0, 80),
-      hasGetContent: !!adapterRef.current?.getContent,
     })
 
-    // Helper to apply the edit
-    const applyEdit = (oldContent: string, newContent: string) => {
-      const didChange = oldContent !== newContent
-      console.log('[DocumentShell] applyEdit:', {
-        didChange,
-        oldLen: oldContent.length,
-        newLen: newContent.length,
-        diff: newContent.length - oldContent.length,
+    // Split content into lines (1-indexed in UI, 0-indexed in array)
+    const lines = currentContent.split('\n')
+    const totalLines = lines.length
+
+    // Validate line numbers
+    if (startLine < 1 || endLine < startLine || startLine > totalLines) {
+      console.warn('[DocumentShell] Invalid line range:', {
+        startLine,
+        endLine,
+        totalLines,
       })
-
-      if (!didChange) {
-        console.warn('[DocumentShell] No change detected - replacement may have failed')
-        return false
-      }
-
-      adapterRef.current?.setContent?.(newContent, { overwriteRealtime: true })
-      setLastHtml(newContent)
-      const nextJson = isLatex
-        ? { authoring_mode: 'latex', latex_source: newContent }
-        : latestContentRef.current.json
-      updateLatestContent(newContent, nextJson)
-      requestAutosave('ai-edit-applied')
-      return true
+      return false
     }
 
-    // Try exact match first
-    if (currentContent.includes(original)) {
-      const newContent = currentContent.replace(original, replacement)
-      return applyEdit(currentContent, newContent)
-    }
+    // Convert to 0-indexed
+    const startIdx = startLine - 1
+    const endIdx = Math.min(endLine - 1, totalLines - 1)
 
-    // Try with trimmed whitespace on both ends
-    const trimmedOriginal = original.trim()
-    if (trimmedOriginal && currentContent.includes(trimmedOriginal)) {
-      const newContent = currentContent.replace(trimmedOriginal, replacement.trim())
-      return applyEdit(currentContent, newContent)
-    }
+    // Verify anchor matches (optional safety check)
+    if (anchor && anchor.trim()) {
+      const actualLineStart = lines[startIdx] || ''
+      const normalizedAnchor = anchor.trim().slice(0, 40).toLowerCase()
+      const normalizedActual = actualLineStart.trim().slice(0, 40).toLowerCase()
 
-    // Try normalizing line endings (AI might use different line endings)
-    const normalizedOriginal = original.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-    const normalizedContent = currentContent.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-
-    if (normalizedContent.includes(normalizedOriginal)) {
-      const newContent = normalizedContent.replace(normalizedOriginal, replacement)
-      return applyEdit(currentContent, newContent)
-    }
-
-    // Try fuzzy match - collapse multiple spaces/newlines
-    const fuzzyOriginal = original.replace(/\s+/g, ' ').trim()
-    const fuzzyContent = currentContent.replace(/\s+/g, ' ')
-
-    if (fuzzyContent.includes(fuzzyOriginal)) {
-      // Find where in the original content this fuzzy match occurs
-      // by searching for the first line of the original
-      const firstLine = original.split('\n')[0].trim()
-      if (firstLine.length > 10) {
-        const idx = currentContent.indexOf(firstLine)
-        if (idx !== -1) {
-          // Try to find the end of the original text
-          const lastLine = original.split('\n').filter(l => l.trim()).pop()?.trim() || ''
-          if (lastLine.length > 5) {
-            const endIdx = currentContent.indexOf(lastLine, idx)
-            if (endIdx !== -1) {
-              const actualEnd = endIdx + lastLine.length
-              const newContent = currentContent.slice(0, idx) + replacement + currentContent.slice(actualEnd)
-              return applyEdit(currentContent, newContent)
-            }
-          }
-        }
+      // Only warn if anchor doesn't match - still apply the edit
+      if (!normalizedActual.includes(normalizedAnchor.slice(0, 20)) &&
+          !normalizedAnchor.includes(normalizedActual.slice(0, 20))) {
+        console.warn('[DocumentShell] Anchor mismatch (proceeding anyway):', {
+          expected: normalizedAnchor,
+          actual: normalizedActual,
+        })
       }
     }
 
-    console.warn('[DocumentShell] Could not find text to replace:', {
-      original: original.slice(0, 150),
-      contentSample: currentContent.slice(0, 300),
+    // Apply the edit by replacing lines
+    const before = lines.slice(0, startIdx)
+    const after = lines.slice(endIdx + 1)
+    const newLines = [...before, replacement, ...after]
+    const newContent = newLines.join('\n')
+
+    // Check if content actually changed
+    if (newContent === currentContent) {
+      console.warn('[DocumentShell] No change after line replacement')
+      return false
+    }
+
+    console.log('[DocumentShell] Line edit applied:', {
+      removedLines: endIdx - startIdx + 1,
+      beforeLen: currentContent.length,
+      afterLen: newContent.length,
+      diff: newContent.length - currentContent.length,
     })
-    return false
+
+    // Apply to editor
+    adapterRef.current?.setContent?.(newContent, { overwriteRealtime: true })
+    setLastHtml(newContent)
+    const nextJson = isLatex
+      ? { authoring_mode: 'latex', latex_source: newContent }
+      : latestContentRef.current.json
+    updateLatestContent(newContent, nextJson)
+    requestAutosave('ai-edit-applied')
+    return true
   }, [isLatex, readOnly, requestAutosave, updateLatestContent])
 
   const rootCls = fullBleed
@@ -819,12 +804,21 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
       </div>
 
       {!readOnly && !aiChatOpen && (
-        <button
-          onClick={() => setAiChatOpen(true)}
-          className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-lg transition hover:-translate-y-0.5 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
-        >
-          <span className="rounded-full bg-indigo-600 px-3 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white">AI CHAT</span>
-        </button>
+        <div className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2">
+          <button
+            onClick={() => { setAiChatBetaMode(false); setAiChatOpen(true) }}
+            className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-lg transition hover:-translate-y-0.5 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
+          >
+            <span className="rounded-full bg-indigo-600 px-3 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white">AI CHAT</span>
+          </button>
+          <button
+            onClick={() => { setAiChatBetaMode(true); setAiChatOpen(true) }}
+            className="flex items-center gap-2 rounded-full border border-purple-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-lg transition hover:-translate-y-0.5 hover:bg-purple-50 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:border-purple-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-purple-900/20"
+            title="Multi-model AI chat (Beta) - choose from GPT-5.2, Claude, Gemini, DeepSeek"
+          >
+            <span className="rounded-full bg-gradient-to-r from-purple-600 to-indigo-600 px-3 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white">BETA</span>
+          </button>
+        </div>
       )}
 
       <div
@@ -1014,14 +1008,29 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
         isLatexMode={isLatex}
       />
 
-      <EditorAIChat
-        paperId={paperId}
-        projectId={projectId}
-        documentText={lastHtml}
-        open={!readOnly && aiChatOpen}
-        onOpenChange={(next) => setAiChatOpen(readOnly ? false : next)}
-        onApplyEdit={handleApplyAiEdit}
-      />
+      {/* Standard AI Chat */}
+      {!aiChatBetaMode && (
+        <EditorAIChat
+          paperId={paperId}
+          projectId={projectId}
+          documentText={lastHtml}
+          open={!readOnly && aiChatOpen}
+          onOpenChange={(next) => setAiChatOpen(readOnly ? false : next)}
+          onApplyEdit={handleApplyAiEdit}
+        />
+      )}
+
+      {/* Beta AI Chat with multi-model support via OpenRouter */}
+      {aiChatBetaMode && (
+        <EditorAIChatOR
+          paperId={paperId}
+          projectId={projectId}
+          documentText={lastHtml}
+          open={!readOnly && aiChatOpen}
+          onOpenChange={(next) => setAiChatOpen(readOnly ? false : next)}
+          onApplyEdit={handleApplyAiEdit}
+        />
+      )}
     </div>
   )
 }
