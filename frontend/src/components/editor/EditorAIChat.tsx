@@ -3,11 +3,13 @@ import { Bot, Brain, Check, ChevronDown, ChevronUp, Edit3, Loader2, Send, Sparkl
 import ReactMarkdown from 'react-markdown'
 import { projectReferencesAPI, buildApiUrl, buildAuthHeaders } from '../../services/api'
 
-/** Proposed edit from AI */
+/** Proposed edit from AI - now line-based for reliable matching */
 interface EditProposal {
   id: string
   description: string
-  original: string
+  startLine: number
+  endLine: number
+  anchor: string
   proposed: string
   status: 'pending' | 'approved' | 'rejected'
 }
@@ -18,8 +20,8 @@ interface EditorAIChatProps {
   documentText: string
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** Callback to apply an approved edit to the document */
-  onApplyEdit?: (original: string, replacement: string) => boolean
+  /** Callback to apply an approved edit to the document (line-based) */
+  onApplyEdit?: (startLine: number, endLine: number, anchor: string, replacement: string) => boolean
 }
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string; proposals?: EditProposal[] }
@@ -32,6 +34,190 @@ interface ReferenceItem {
 
 const MAX_DOC_CONTEXT_CHARS = 4000
 
+/**
+ * Context limits for the standard agent (uses OpenAI directly)
+ * GPT-5.2 has 256k context, GPT-4o has 128k
+ * Reserve 8k tokens for system prompt + response
+ */
+const STANDARD_MODEL_CONTEXT = 256000 // GPT-5.2
+const RESERVED_TOKENS = 8000
+const CHARS_PER_TOKEN = 4
+
+// Dynamic limit: (256k - 8k reserved) * 4 chars = ~992k, capped at 500k
+const MAX_DOC_CHARS = Math.min(
+  (STANDARD_MODEL_CONTEXT - RESERVED_TOKENS) * CHARS_PER_TOKEN,
+  500000
+)
+
+/**
+ * Query-focused document preparation for LaTeX documents.
+ *
+ * Instead of sending everything, we analyze what the user is asking about
+ * and send only relevant parts:
+ *
+ * 1. ALWAYS: Preamble (needed for LaTeX structure)
+ * 2. ALWAYS: Document outline (section headers) for navigation
+ * 3. TARGETED: Full content of sections matching the query
+ * 4. MINIMAL: Just headers for unrelated sections
+ *
+ * This is much more efficient and gives better results since AI can focus.
+ */
+
+// Common section name mappings for query matching
+const SECTION_ALIASES: Record<string, string[]> = {
+  'abstract': ['abstract', 'summary', 'overview'],
+  'introduction': ['introduction', 'intro', 'background', 'motivation'],
+  'methodology': ['methodology', 'methods', 'method', 'approach', 'technique', 'algorithm'],
+  'related': ['related work', 'related', 'literature', 'prior work', 'background'],
+  'results': ['results', 'experiments', 'evaluation', 'findings', 'analysis'],
+  'discussion': ['discussion', 'analysis', 'interpretation'],
+  'conclusion': ['conclusion', 'conclusions', 'summary', 'future work', 'concluding'],
+  'references': ['references', 'bibliography', 'citations'],
+}
+
+function detectTargetSections(query: string): Set<string> {
+  const queryLower = query.toLowerCase()
+  const targets = new Set<string>()
+
+  // Check for explicit section mentions
+  for (const [key, aliases] of Object.entries(SECTION_ALIASES)) {
+    if (aliases.some(alias => queryLower.includes(alias))) {
+      targets.add(key)
+    }
+  }
+
+  // Check for action words that imply full document
+  const fullDocActions = ['review', 'check', 'proofread', 'evaluate', 'assess', 'feedback', 'overall']
+  if (fullDocActions.some(action => queryLower.includes(action))) {
+    targets.add('__full__')
+  }
+
+  // Check for specific content mentions (equations, figures, tables)
+  if (queryLower.includes('equation') || queryLower.includes('formula') || queryLower.includes('math')) {
+    targets.add('methodology')
+    targets.add('results')
+  }
+  if (queryLower.includes('figure') || queryLower.includes('table') || queryLower.includes('graph')) {
+    targets.add('results')
+  }
+  if (queryLower.includes('cite') || queryLower.includes('citation') || queryLower.includes('reference')) {
+    targets.add('references')
+    targets.add('related')
+  }
+
+  return targets
+}
+
+function prepareDocumentForAI(doc: string, query: string, maxChars: number = MAX_DOC_CHARS): string {
+  // For small documents, send everything
+  if (!doc || doc.length <= maxChars * 0.5) {
+    return doc
+  }
+
+  const isLatex = doc.includes('\\documentclass') || doc.includes('\\begin{document}')
+  if (!isLatex) {
+    // For non-LaTeX, simple truncation with context around query keywords
+    return doc.slice(0, maxChars) + '\n\n[...document truncated...]'
+  }
+
+  // Detect what sections the user is asking about
+  const targetSections = detectTargetSections(query)
+  const needsFullDoc = targetSections.has('__full__') || targetSections.size === 0
+
+  // Extract preamble (always include - usually small)
+  const preambleMatch = doc.match(/^([\s\S]*?\\begin\{document\})/m)
+  const preamble = preambleMatch ? preambleMatch[1] : ''
+  const afterPreamble = preambleMatch ? doc.slice(preambleMatch[0].length) : doc
+
+  // Extract abstract separately (special handling - often before sections)
+  const abstractMatch = afterPreamble.match(/\\begin\{abstract\}([\s\S]*?)\\end\{abstract\}/m)
+  const abstractContent = abstractMatch ? abstractMatch[1].trim() : null
+
+  // Extract sections
+  const sectionRegex = /\\(section|subsection|subsubsection)\*?\{([^}]+)\}([\s\S]*?)(?=\\(?:section|subsection|subsubsection)\*?\{|\\end\{document\}|$)/g
+  const sections: Array<{ type: string; title: string; content: string; isTarget: boolean }> = []
+  let match
+
+  while ((match = sectionRegex.exec(afterPreamble)) !== null) {
+    const [, type, title, content] = match
+    const titleLower = title.toLowerCase()
+
+    // Check if this section matches any target
+    let isTarget = needsFullDoc
+    if (!isTarget) {
+      for (const [key, aliases] of Object.entries(SECTION_ALIASES)) {
+        if (targetSections.has(key) && aliases.some(alias => titleLower.includes(alias))) {
+          isTarget = true
+          break
+        }
+      }
+    }
+
+    // Also check if query keywords appear in section content (fuzzy match)
+    if (!isTarget) {
+      const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 4)
+      const contentLower = content.toLowerCase()
+      const matchCount = queryWords.filter(w => contentLower.includes(w)).length
+      if (matchCount >= 2 || (queryWords.length === 1 && matchCount === 1)) {
+        isTarget = true
+      }
+    }
+
+    sections.push({ type, title, content: content.trim(), isTarget })
+  }
+
+  // Build focused document
+  let result = preamble + '\n\n'
+
+  // Add abstract if it exists and is relevant (or if asking about abstract/summary)
+  if (abstractContent) {
+    const includeAbstract = needsFullDoc ||
+      targetSections.has('abstract') ||
+      query.toLowerCase().includes('abstract') ||
+      query.toLowerCase().includes('summary')
+
+    if (includeAbstract) {
+      result += `\\begin{abstract}\n${abstractContent}\n\\end{abstract}\n\n`
+    } else {
+      result += `\\begin{abstract}\n[Abstract: ${abstractContent.slice(0, 100)}...]\n\\end{abstract}\n\n`
+    }
+  }
+
+  // Add document structure comment for AI orientation
+  if (sections.length > 0) {
+    result += `% Document structure: ${sections.map(s => s.title).join(' → ')}\n\n`
+  }
+
+  // Add sections - full content for targets, headers only for others
+  let currentLength = result.length
+  for (const section of sections) {
+    if (section.isTarget) {
+      const sectionText = `\\${section.type}{${section.title}}\n${section.content}\n\n`
+      if (currentLength + sectionText.length < maxChars * 0.9) {
+        result += sectionText
+        currentLength += sectionText.length
+      } else {
+        // Even target sections need truncation if too long
+        const available = maxChars * 0.9 - currentLength - 200
+        if (available > 500) {
+          result += `\\${section.type}{${section.title}}\n${section.content.slice(0, available)}...\n[...section continues, ${section.content.length} chars total...]\n\n`
+          currentLength = maxChars * 0.9
+        }
+      }
+    } else {
+      // Just header + brief indicator
+      result += `\\${section.type}{${section.title}}\n[...${section.content.length} chars - not included, ask if needed...]\n\n`
+      currentLength += 100
+    }
+  }
+
+  if (doc.includes('\\end{document}')) {
+    result += '\\end{document}'
+  }
+
+  return result
+}
+
 const EditorAIChat: React.FC<EditorAIChatProps> = ({
   paperId,
   projectId,
@@ -43,28 +229,37 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const [statusMessage, setStatusMessage] = useState<string>('Thinking')
   const [error, setError] = useState<string | null>(null)
   const [references, setReferences] = useState<ReferenceItem[]>([])
   const [reasoningMode, setReasoningMode] = useState(false)
+  const abortControllerRef = useRef<AbortController | null>(null)
   // Edit mode is now auto-detected by the backend based on user intent
   // No manual toggle needed - AI automatically proposes edits when appropriate
   const [expandedProposals, setExpandedProposals] = useState<Set<string>>(new Set())
   const listRef = useRef<HTMLDivElement | null>(null)
 
-  /** Parse edit proposals from AI response using special markers */
+  /** Parse edit proposals from AI response using line-based format */
   const parseEditProposals = useCallback((text: string): { cleanText: string; proposals: EditProposal[] } => {
     const proposals: EditProposal[] = []
-    // Match format: <<<EDIT>>> description <<<ORIGINAL>>> text <<<PROPOSED>>> text <<<END>>>
-    const editRegex = /<<<EDIT>>>\s*([\s\S]*?)<<<ORIGINAL>>>\s*([\s\S]*?)<<<PROPOSED>>>\s*([\s\S]*?)<<<END>>>/g
+    // Match new line-based format: <<<EDIT>>> description <<<LINES>>> start-end <<<ANCHOR>>> text <<<PROPOSED>>> text <<<END>>>
+    const editRegex = /<<<EDIT>>>\s*([\s\S]*?)<<<LINES>>>\s*([\s\S]*?)<<<ANCHOR>>>\s*([\s\S]*?)<<<PROPOSED>>>\s*([\s\S]*?)<<<END>>>/g
     let match
     let cleanText = text
 
     while ((match = editRegex.exec(text)) !== null) {
-      const [fullMatch, description, original, proposed] = match
+      const [fullMatch, description, linesStr, anchor, proposed] = match
+      // Parse lines like "15-20" or "15"
+      const linesParts = linesStr.trim().split('-')
+      const startLine = parseInt(linesParts[0], 10) || 1
+      const endLine = parseInt(linesParts[1] || linesParts[0], 10) || startLine
+
       proposals.push({
         id: `edit-${Date.now()}-${proposals.length}`,
         description: description.trim(),
-        original: original.trim(),
+        startLine,
+        endLine,
+        anchor: anchor.trim(),
         proposed: proposed.trim(),
         status: 'pending',
       })
@@ -84,15 +279,15 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
       const proposal = msg.proposals.find((p) => p.id === proposalId)
       if (!proposal || proposal.status !== 'pending') return prev
 
-      // Try to apply the edit
-      const success = onApplyEdit?.(proposal.original, proposal.proposed) ?? false
+      // Try to apply the edit using line numbers
+      const success = onApplyEdit?.(proposal.startLine, proposal.endLine, proposal.anchor, proposal.proposed) ?? false
 
       if (success) {
         msg.proposals = msg.proposals.map((p) =>
           p.id === proposalId ? { ...p, status: 'approved' as const } : p
         )
       } else {
-        setError('Could not find the text to replace. The document may have changed.')
+        setError('Could not apply the edit. The document may have changed or the lines are out of range.')
       }
 
       return copy
@@ -183,11 +378,12 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
 
   const missingPdfCount = useMemo(() => references.filter((r) => !r.pdfUrl).length, [references])
 
-  /** Document content stats for debugging */
+  /** Document content stats with smart context info */
   const docStats = useMemo(() => {
     const len = documentText?.length || 0
     const lines = documentText?.split('\n').length || 0
-    return { len, lines }
+    const isLarge = len > MAX_DOC_CHARS * 0.5
+    return { len, lines, isLarge }
   }, [documentText])
 
   const handleSend = useCallback(async () => {
@@ -195,23 +391,44 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
     const prompt = input.trim()
     setInput('')
     setSending(true)
+    setStatusMessage('Thinking')
     setError(null)
     setMessages((prev) => [...prev, { role: 'user', content: prompt }])
 
-    // Always send full document so AI can auto-detect when to propose edits
-    const MAX_DOC_CHARS = 50000
-    const docToSend = (documentText || '').slice(0, MAX_DOC_CHARS) || docContext || null
+    // Cycle through status messages for better UX
+    const statusMessages = [
+      { delay: 0, message: 'Thinking' },
+      { delay: 2000, message: 'Analyzing document' },
+      { delay: 4000, message: 'Processing request' },
+      { delay: 7000, message: 'Preparing response' },
+      { delay: 12000, message: 'Almost there' },
+    ]
+    const statusTimers: number[] = []
+    statusMessages.forEach(({ delay, message }) => {
+      const timer = window.setTimeout(() => setStatusMessage(message), delay)
+      statusTimers.push(timer)
+    })
+
+    // Smart document preparation - preserves structure for large docs
+    const rawDoc = documentText || ''
+    const docToSend = prepareDocumentForAI(rawDoc, prompt, MAX_DOC_CHARS) || docContext || null
 
     console.log('[EditorAIChat] Sending request:', {
       smartEditDetection: 'enabled',
       reasoningMode,
-      docLength: docToSend?.length || 0,
+      originalDocLength: rawDoc.length,
+      preparedDocLength: docToSend?.length || 0,
+      wasTruncated: rawDoc.length > MAX_DOC_CHARS,
       prompt: prompt.slice(0, 50),
     })
+
+    // Create abort controller for cancel functionality
+    abortControllerRef.current = new AbortController()
 
     try {
       // Use smart agent endpoint with automatic edit detection
       const res = await fetch(buildApiUrl('/agent/chat/stream'), {
+        signal: abortControllerRef.current.signal,
         method: 'POST',
         headers: buildAuthHeaders(),
         body: JSON.stringify({
@@ -280,6 +497,11 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
         })
       }
     } catch (e: any) {
+      // Don't show error for user-initiated cancellation
+      if (e?.name === 'AbortError') {
+        console.log('[EditorAIChat] Request cancelled by user')
+        return
+      }
       const msg = e?.response?.data?.detail || e?.message || 'Chat request failed.'
       setError(msg)
       setMessages((prev) => {
@@ -290,9 +512,28 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
         return copy
       })
     } finally {
+      // Clear status timers
+      statusTimers.forEach((t) => window.clearTimeout(t))
+      abortControllerRef.current = null
       setSending(false)
+      setStatusMessage('Thinking')
     }
   }, [docContext, documentText, input, paperId, parseEditProposals, projectId, reasoningMode, sending])
+
+  /** Cancel ongoing request */
+  const handleCancel = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      // Remove the pending user message
+      setMessages((prev) => {
+        const copy = [...prev]
+        if (copy.length >= 1 && copy[copy.length - 1].role === 'user') {
+          copy.pop()
+        }
+        return copy
+      })
+    }
+  }, [])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -347,7 +588,14 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
       {docStats.len > 0 && (
         <div className="mx-4 mt-3 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm shadow-sm dark:border-indigo-400/50 dark:bg-indigo-900/30 dark:text-indigo-100">
           <span className="text-indigo-800 dark:text-indigo-100">
-            Smart Mode — AI sees your draft ({docStats.lines} lines). Ask questions, request reviews, or ask for changes — edits will be proposed when needed.
+            Smart Mode — {docStats.lines} lines, {Math.round(docStats.len / 1000)}k chars.
+            {docStats.isLarge ? (
+              <span className="ml-1 text-indigo-600 dark:text-indigo-300">
+                Query-focused: AI sees sections relevant to your question.
+              </span>
+            ) : (
+              <span className="ml-1">Full document attached.</span>
+            )}
           </span>
         </div>
       )}
@@ -436,16 +684,18 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
                             {/* Expanded Diff View */}
                             {isExpanded && (
                               <div className="border-t border-slate-200 px-3 py-2 dark:border-slate-700">
-                                <div className="mb-2 grid grid-cols-2 gap-2 text-xs">
-                                  <div>
-                                    <div className="mb-1 font-semibold text-rose-600 dark:text-rose-400">Original</div>
-                                    <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded border border-rose-200 bg-rose-50 p-2 text-slate-700 dark:border-rose-800 dark:bg-rose-900/30 dark:text-slate-300">
-                                      {proposal.original}
-                                    </pre>
+                                <div className="mb-2 text-xs">
+                                  <div className="mb-2 flex items-center gap-2">
+                                    <span className="font-semibold text-rose-600 dark:text-rose-400">
+                                      Lines {proposal.startLine}-{proposal.endLine}
+                                    </span>
+                                    <span className="text-slate-500 dark:text-slate-400">
+                                      (starts with: "{proposal.anchor.slice(0, 40)}...")
+                                    </span>
                                   </div>
                                   <div>
-                                    <div className="mb-1 font-semibold text-emerald-600 dark:text-emerald-400">Proposed</div>
-                                    <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded border border-emerald-200 bg-emerald-50 p-2 text-slate-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-slate-300">
+                                    <div className="mb-1 font-semibold text-emerald-600 dark:text-emerald-400">Replacement</div>
+                                    <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded border border-emerald-200 bg-emerald-50 p-2 text-slate-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-slate-300">
                                       {proposal.proposed}
                                     </pre>
                                   </div>
@@ -495,10 +745,25 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
               <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 Assistant
               </div>
-              <div className="inline-flex items-center gap-1 rounded-full bg-slate-200 px-3 py-2 text-sm font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-100">
-                <span className="h-2 w-2 rounded-full bg-slate-500 animate-bounce" style={{ animationDelay: '0ms' }} />
-                <span className="h-2 w-2 rounded-full bg-slate-500 animate-bounce" style={{ animationDelay: '150ms' }} />
-                <span className="h-2 w-2 rounded-full bg-slate-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+              <div className="space-y-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex items-center gap-2 text-sm font-medium text-indigo-600 dark:text-indigo-300">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>{statusMessage}...</span>
+                  </div>
+                  <button
+                    onClick={handleCancel}
+                    className="ml-auto flex h-6 w-6 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
+                    title="Cancel request"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="h-1 w-1 animate-pulse rounded-full bg-indigo-400 dark:bg-indigo-500" style={{ animationDelay: '0ms' }} />
+                  <div className="h-1 w-1 animate-pulse rounded-full bg-indigo-400 dark:bg-indigo-500" style={{ animationDelay: '150ms' }} />
+                  <div className="h-1 w-1 animate-pulse rounded-full bg-indigo-400 dark:bg-indigo-500" style={{ animationDelay: '300ms' }} />
+                </div>
               </div>
             </div>
           )}

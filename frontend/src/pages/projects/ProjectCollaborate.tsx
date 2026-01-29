@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
-import { MessageCircle, Video, Sparkles } from 'lucide-react'
+import { Video, Sparkles } from 'lucide-react'
 import ProjectDiscussion from './ProjectDiscussion'
 import ProjectDiscussionOR from './ProjectDiscussionOR'
 import ProjectSyncSpace from './ProjectSyncSpace'
