@@ -1,7 +1,7 @@
 """
 Smart Agent API - Tiered routing for fast + quality responses
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -14,6 +14,7 @@ from app.api.deps import get_current_user
 from app.models.user import User
 from app.services.smart_agent_service import SmartAgentService
 from app.services.smart_agent_service_v2 import SmartAgentServiceV2
+from app.services.subscription_service import SubscriptionService
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,23 @@ async def agent_chat(
     - Paper queries → gpt-4o-mini + doc excerpt (~800ms)
     - Research queries → gpt-4o/gpt-5-mini + RAG (~2-3s)
     """
+    # Check subscription limit (shares limit with Discussion AI)
+    allowed, current, limit = SubscriptionService.check_feature_limit(
+        db, current_user.id, "discussion_ai_calls"
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "error": "AI usage limit reached",
+                "current": current,
+                "limit": limit,
+                "message": f"You've used {current}/{limit} AI calls this month. "
+                           "Add your OpenRouter API key in Settings for unlimited usage, "
+                           "or upgrade to Pro for more calls."
+            }
+        )
+
     start_time = time.time()
 
     try:
@@ -69,6 +87,9 @@ async def agent_chat(
         )
 
         processing_time = int((time.time() - start_time) * 1000)
+
+        # Increment usage after successful call
+        SubscriptionService.increment_usage(db, current_user.id, "discussion_ai_calls")
 
         return AgentChatResponse(
             response=result["response"],
@@ -92,32 +113,56 @@ async def agent_chat_stream(
     Streaming version of smart agent chat.
     Uses tool-based orchestration (V2) when enabled.
     """
+    # Check subscription limit (shares limit with Discussion AI)
+    allowed, current, limit = SubscriptionService.check_feature_limit(
+        db, current_user.id, "discussion_ai_calls"
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "error": "AI usage limit reached",
+                "current": current,
+                "limit": limit,
+                "message": f"You've used {current}/{limit} AI calls this month. "
+                           "Add your OpenRouter API key in Settings for unlimited usage, "
+                           "or upgrade to Pro for more calls."
+            }
+        )
+
     try:
         def generate():
-            if USE_TOOL_BASED_AGENT:
-                # V2: Tool-based orchestration - AI decides what action to take
-                for chunk in agent_service_v2.stream_query(
-                    db=db,
-                    user_id=str(current_user.id),
-                    query=request.query,
-                    paper_id=request.paper_id,
-                    document_excerpt=request.document_excerpt,
-                    reasoning_mode=request.reasoning_mode,
-                ):
-                    yield chunk
-            else:
-                # V1: Keyword-based routing
-                for chunk in agent_service.stream_query(
-                    db=db,
-                    user_id=str(current_user.id),
-                    query=request.query,
-                    paper_id=request.paper_id,
-                    project_id=request.project_id,
-                    document_excerpt=request.document_excerpt,
-                    reasoning_mode=request.reasoning_mode,
-                    edit_mode=request.edit_mode
-                ):
-                    yield chunk
+            try:
+                if USE_TOOL_BASED_AGENT:
+                    # V2: Tool-based orchestration - AI decides what action to take
+                    for chunk in agent_service_v2.stream_query(
+                        db=db,
+                        user_id=str(current_user.id),
+                        query=request.query,
+                        paper_id=request.paper_id,
+                        document_excerpt=request.document_excerpt,
+                        reasoning_mode=request.reasoning_mode,
+                    ):
+                        yield chunk
+                else:
+                    # V1: Keyword-based routing
+                    for chunk in agent_service.stream_query(
+                        db=db,
+                        user_id=str(current_user.id),
+                        query=request.query,
+                        paper_id=request.paper_id,
+                        project_id=request.project_id,
+                        document_excerpt=request.document_excerpt,
+                        reasoning_mode=request.reasoning_mode,
+                        edit_mode=request.edit_mode
+                    ):
+                        yield chunk
+            finally:
+                # Increment usage after streaming
+                try:
+                    SubscriptionService.increment_usage(db, current_user.id, "discussion_ai_calls")
+                except Exception as e:
+                    logger.warning(f"Failed to increment usage for user {current_user.id}: {e}")
 
         return StreamingResponse(
             generate(),

@@ -4,7 +4,7 @@ OpenRouter Agent API - Multi-model LaTeX Editor AI (Beta)
 Provides the same capabilities as the standard agent API, but allows
 model selection from various providers via OpenRouter.
 """
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -15,6 +15,7 @@ from app.database import get_db
 from app.api.deps import get_current_user
 from app.models.user import User
 from app.services.smart_agent_service_v2_or import SmartAgentServiceV2OR
+from app.services.subscription_service import SubscriptionService
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +108,24 @@ async def agent_chat_stream_or(
     # Get user's OpenRouter API key if configured
     user_api_key = getattr(current_user, 'openrouter_api_key', None)
 
+    # Check subscription limit (shares limit with Discussion AI)
+    # BYOK users have unlimited (-1), others have tier limits
+    allowed, current, limit = SubscriptionService.check_feature_limit(
+        db, current_user.id, "discussion_ai_calls"
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "error": "AI usage limit reached",
+                "current": current,
+                "limit": limit,
+                "message": f"You've used {current}/{limit} AI calls this month. "
+                           "Add your OpenRouter API key in Settings for unlimited usage, "
+                           "or upgrade to Pro for more calls."
+            }
+        )
+
     logger.info(f"[agent-or] User {current_user.id} using model {model}")
 
     agent_service = SmartAgentServiceV2OR(
@@ -115,15 +134,22 @@ async def agent_chat_stream_or(
     )
 
     def generate():
-        for chunk in agent_service.stream_query(
-            db=db,
-            user_id=str(current_user.id),
-            query=request.query,
-            paper_id=request.paper_id,
-            document_excerpt=request.document_excerpt,
-            reasoning_mode=request.reasoning_mode,
-        ):
-            yield chunk
+        try:
+            for chunk in agent_service.stream_query(
+                db=db,
+                user_id=str(current_user.id),
+                query=request.query,
+                paper_id=request.paper_id,
+                document_excerpt=request.document_excerpt,
+                reasoning_mode=request.reasoning_mode,
+            ):
+                yield chunk
+        finally:
+            # Increment usage after streaming (counts even if interrupted)
+            try:
+                SubscriptionService.increment_usage(db, current_user.id, "discussion_ai_calls")
+            except Exception as e:
+                logger.warning(f"Failed to increment usage for user {current_user.id}: {e}")
 
     return StreamingResponse(
         generate(),
