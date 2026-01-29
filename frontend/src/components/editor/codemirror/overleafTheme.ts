@@ -34,19 +34,19 @@ export const overleafLatexTheme: Extension = [
       overflow: 'auto',
       fontFamily: 'var(--latex-editor-font-family)',
       lineHeight: '1.58',
-      // Scroller background is gutter color - extends full height
-      backgroundColor: 'var(--latex-editor-gutter-bg)',
+      // Scroller has content background - selection layer is inside so this is fine
+      backgroundColor: 'var(--latex-editor-bg)',
       minHeight: '100%',
     },
     '.cm-content': {
-      padding: '12px 16px',
+      padding: '4px 16px',
       minHeight: '100%',
       maxHeight: 'none',
       fontFamily: 'var(--latex-editor-font-family)',
-      backgroundColor: 'var(--latex-editor-bg)',
+      // NO backgroundColor - it would cover the selection layer!
     },
     '.cm-gutters': {
-      backgroundColor: 'transparent',
+      backgroundColor: 'var(--latex-editor-gutter-bg)',
       color: 'var(--latex-editor-gutter-fg)',
       borderRight: '1px solid var(--latex-editor-gutter-border)',
     },
@@ -62,12 +62,17 @@ export const overleafLatexTheme: Extension = [
     },
     '.cm-activeLine': {
       backgroundColor: 'var(--latex-editor-active-line-bg)',
+      // Extend highlight using box-shadow (doesn't shift text like margin does)
+      boxShadow: '-16px 0 0 var(--latex-editor-active-line-bg), 16px 0 0 var(--latex-editor-active-line-bg)',
     },
     '&.cm-has-selection .cm-activeLine': {
       backgroundColor: 'transparent',
+      boxShadow: 'none',
     },
     '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
       backgroundColor: 'var(--latex-editor-selection-bg) !important',
+      // Extend selection to cover the gap on left/right
+      boxShadow: '-16px 0 0 var(--latex-editor-selection-bg), 16px 0 0 var(--latex-editor-selection-bg)',
     },
     '&.cm-editor.cm-focused': {
       outline: '1px solid var(--latex-editor-focus-ring)',

@@ -51,7 +51,7 @@
   --latex-editor-active-line-bg: #e8f1ff;
   --latex-editor-active-line-gutter-bg: #e8f1ff;
   --latex-editor-active-line-fg: #1b2330;
-  --latex-editor-selection-bg: #9fc2ff;
+  --latex-editor-selection-bg: #a8d1ff;
   --latex-editor-focus-ring: #4c8bf5;
   --latex-editor-fold-bg: #eef3ff;
   --latex-editor-fold-fg: #3f4a6b;
@@ -383,3 +383,4 @@ body.dark, [data-theme='dark'], :root.dark {
 .dark .overflow-y-auto::-webkit-scrollbar-thumb:hover {
   background-color: #64748b;
 }
+
