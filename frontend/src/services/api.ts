@@ -96,6 +96,7 @@ const api = axios.create({
 
 // Track if we're currently refreshing tokens to avoid concurrent refreshes
 let isRefreshing = false
+let refreshPromise: Promise<string> | null = null
 let failedQueue: Array<{
   resolve: (value?: any) => void
   reject: (error?: any) => void
@@ -110,23 +111,45 @@ const processQueue = (error: unknown, token: string | null = null) => {
       resolve(token)
     }
   })
-  
+
   failedQueue = []
 }
 
-// Function to refresh token
+// Internal function that actually performs the refresh
+const doRefresh = async (): Promise<string> => {
+  const response = await api.post<{ access_token: string; refresh_token?: string }>('/refresh')
+  const { access_token } = response.data
+  localStorage.setItem('access_token', access_token)
+  return access_token
+}
+
+// Function to refresh token - ensures only one refresh happens at a time
 export const refreshAuthToken = async (): Promise<string> => {
-  try {
-    const response = await api.post<{ access_token: string; refresh_token?: string }>('/refresh')
-    const { access_token } = response.data
-    localStorage.setItem('access_token', access_token)
-    setupTokenRefreshTimer()
-    return access_token
-  } catch (error) {
-    localStorage.removeItem('access_token')
-    localStorage.removeItem('user')
-    throw error
+  // If already refreshing, wait for the existing refresh to complete
+  if (isRefreshing && refreshPromise) {
+    return refreshPromise
   }
+
+  isRefreshing = true
+
+  refreshPromise = doRefresh()
+    .then((token) => {
+      processQueue(null, token)
+      setupTokenRefreshTimer()
+      return token
+    })
+    .catch((error) => {
+      processQueue(error, null)
+      localStorage.removeItem('access_token')
+      localStorage.removeItem('user')
+      throw error
+    })
+    .finally(() => {
+      isRefreshing = false
+      refreshPromise = null
+    })
+
+  return refreshPromise
 }
 
 const base64Decode = (input: string): string => {
@@ -272,52 +295,27 @@ api.interceptors.response.use(
     }
 
     if (error?.response?.status === 401 && !originalRequest._retry && !isAuthEndpoint) {
-      if (isRefreshing) {
-        // If already refreshing, queue this request
-        return new Promise((resolve, reject) => {
-          failedQueue.push({ resolve, reject })
-        }).then(token => {
-          if (token) {
-            originalRequest.headers = {
-              ...(originalRequest.headers ?? {}),
-              Authorization: `Bearer ${token}`,
-            }
-          }
-          return api(originalRequest as any)
-        }).catch(err => {
-          return Promise.reject(err)
-        })
-      }
-
       originalRequest._retry = true
-      isRefreshing = true
 
       try {
+        // refreshAuthToken handles deduplication - only one refresh happens even if called multiple times
         const newToken = await refreshAuthToken()
-        
+
         ;(api.defaults.headers.common as Record<string, string>)['Authorization'] = `Bearer ${newToken}`
         originalRequest.headers = {
           ...(originalRequest.headers ?? {}),
           Authorization: `Bearer ${newToken}`,
         }
-        
-        // Process queued requests
-        processQueue(null, newToken)
-        
-        // Retry the original request
+
+        // Retry the original request with new token
         return api(originalRequest as any)
       } catch (refreshError) {
-        // Process queued requests with error
-        processQueue(refreshError, null)
-        
-        // Redirect to login
+        // Redirect to login on refresh failure
         localStorage.removeItem('access_token')
         localStorage.removeItem('user')
         window.location.href = '/login'
-        
+
         return Promise.reject(refreshError)
-      } finally {
-        isRefreshing = false
       }
     }
     
