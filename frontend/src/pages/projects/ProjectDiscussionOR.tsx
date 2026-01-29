@@ -1347,52 +1347,39 @@ const ProjectDiscussionOR = () => {
 
   // ========== WEBSOCKET SETUP ==========
 
+  // Connect to WebSocket for real-time updates
   useEffect(() => {
     if (!project.id || !activeChannelId) return
 
     const token = localStorage.getItem('access_token') || ''
     discussionWebsocket.connect(project.id, activeChannelId, token)
+  }, [project.id, activeChannelId])
 
-    const handleNewMessage = (event: CustomEvent) => {
-      const message = event.detail as DiscussionMessage
-      if (message.channel_id !== activeChannelId) return
-      queryClient.invalidateQueries({ queryKey: ['projectDiscussion', project.id, activeChannelId] })
-    }
-
-    const handleMessageUpdated = (event: CustomEvent) => {
-      const message = event.detail as DiscussionMessage
-      if (message.channel_id !== activeChannelId) return
-      queryClient.invalidateQueries({ queryKey: ['projectDiscussion', project.id, activeChannelId] })
-    }
-
-    const handleMessageDeleted = (event: CustomEvent) => {
-      const { message_id, channel_id } = event.detail
-      if (channel_id !== activeChannelId) return
-      queryClient.setQueryData<DiscussionThreadType[] | undefined>(
-        ['projectDiscussion', project.id, activeChannelId],
-        (threads) => {
-          if (!threads) return threads
-          return threads.filter((t) => t.message.id !== message_id)
-        }
-      )
-    }
-
-    window.addEventListener('discussion:new_message', handleNewMessage as EventListener)
-    window.addEventListener('discussion:message_updated', handleMessageUpdated as EventListener)
-    window.addEventListener('discussion:message_deleted', handleMessageDeleted as EventListener)
-
-    return () => {
-      window.removeEventListener('discussion:new_message', handleNewMessage as EventListener)
-      window.removeEventListener('discussion:message_updated', handleMessageUpdated as EventListener)
-      window.removeEventListener('discussion:message_deleted', handleMessageDeleted as EventListener)
-    }
-  }, [project.id, activeChannelId, queryClient])
-
-  // Handle discussion events from WebSocket (for assistant processing/status/reply)
+  // Handle discussion events from WebSocket (messages + assistant events)
   const handleDiscussionEvent = useCallback(
     (payload: any) => {
       if (!payload || payload.project_id !== project.id) return
       if (!activeChannelId || payload.channel_id !== activeChannelId) return
+
+      // Handle real-time message events (new messages from other users)
+      if (payload.event === 'message_created' || payload.event === 'message_updated') {
+        queryClient.invalidateQueries({ queryKey: ['projectDiscussion', project.id, activeChannelId] })
+        return
+      }
+
+      if (payload.event === 'message_deleted') {
+        const messageId = payload.message_id
+        if (messageId) {
+          queryClient.setQueryData<DiscussionThreadType[] | undefined>(
+            ['projectDiscussion', project.id, activeChannelId],
+            (threads) => {
+              if (!threads) return threads
+              return threads.filter((t) => t.message.id !== messageId)
+            }
+          )
+        }
+        return
+      }
 
       // Handle assistant processing started (restores state after channel switch/refresh)
       if (payload.event === 'assistant_processing') {
