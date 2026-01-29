@@ -1652,10 +1652,7 @@ const ProjectDiscussionOR = () => {
         alert('Select a channel before asking Scholar AI.')
         return
       }
-      if (assistantMutation.isPending) {
-        alert('Scholar AI is still generating a response. Please wait for it to complete.')
-        return
-      }
+      if (assistantMutation.isPending) return
 
       const commandBody = trimmed.slice(1).trim()
       if (!commandBody) {
@@ -2627,6 +2624,7 @@ const ProjectDiscussionOR = () => {
                 onToggleReasoning={() => setAssistantReasoning((prev) => !prev)}
                 reasoningPending={assistantMutation.isPending}
                 reasoningSupported={modelSupportsReasoning(selectedModel)}
+                aiGenerating={assistantMutation.isPending}
               />
             </>
           ) : (

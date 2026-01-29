@@ -13,6 +13,7 @@ interface MessageInputProps {
   onToggleReasoning?: () => void
   reasoningPending?: boolean
   reasoningSupported?: boolean // Whether the current model supports reasoning
+  aiGenerating?: boolean // Whether AI is currently generating a response
 }
 
 const MessageInput = ({
@@ -27,9 +28,14 @@ const MessageInput = ({
   onToggleReasoning,
   reasoningPending = false,
   reasoningSupported = true,
+  aiGenerating = false,
 }: MessageInputProps) => {
   const [content, setContent] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Check if trying to send a slash command while AI is generating
+  const isSlashCommand = content.trim().startsWith('/')
+  const slashCommandBlocked = isSlashCommand && aiGenerating
 
   useEffect(() => {
     if (editingMessage) {
@@ -56,7 +62,7 @@ const MessageInput = ({
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault()
     const trimmed = content.trim()
-    if (!trimmed || isSubmitting) return
+    if (!trimmed || isSubmitting || slashCommandBlocked) return
     onSend(trimmed)
     setContent('')
     if (textareaRef.current) {
@@ -125,14 +131,22 @@ const MessageInput = ({
         )}
         <button
           type="submit"
-          disabled={!content.trim() || isSubmitting}
+          disabled={!content.trim() || isSubmitting || slashCommandBlocked}
           className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-gray-300 dark:disabled:bg-slate-700"
         >
           <Send className="h-4 w-4" />
         </button>
       </form>
       <p className="mt-1 text-[10px] sm:text-xs text-gray-500 dark:text-slate-400">
-        <span className="hidden sm:inline">Press <kbd className="rounded bg-gray-100 px-1 py-0.5 dark:bg-slate-700 dark:text-slate-100">Enter</kbd> to send, <kbd className="rounded bg-gray-100 px-1 py-0.5 dark:bg-slate-700 dark:text-slate-100">Shift+Enter</kbd> for new line. </span>Start with <span className="font-semibold">/</span> to ask AI{onToggleReasoning && reasoningSupported && <span className="hidden sm:inline">; use the bulb for reasoning</span>}.
+        {slashCommandBlocked ? (
+          <span className="text-amber-600 dark:text-amber-400">
+            Wait for AI to finish generating before sending another command...
+          </span>
+        ) : (
+          <>
+            <span className="hidden sm:inline">Press <kbd className="rounded bg-gray-100 px-1 py-0.5 dark:bg-slate-700 dark:text-slate-100">Enter</kbd> to send, <kbd className="rounded bg-gray-100 px-1 py-0.5 dark:bg-slate-700 dark:text-slate-100">Shift+Enter</kbd> for new line. </span>Start with <span className="font-semibold">/</span> to ask AI{onToggleReasoning && reasoningSupported && <span className="hidden sm:inline">; use the bulb for reasoning</span>}.
+          </>
+        )}
       </p>
     </div>
   )
