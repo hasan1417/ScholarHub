@@ -1,5 +1,5 @@
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
 sqlalchemy==2.0.23
 psycopg2-binary==2.9.9
 alembic==1.12.1
@@ -10,12 +10,16 @@ bcrypt==4.1.2
 python-dotenv==1.0.0
 httpx==0.28.1
 PyJWT==2.8.0
-openai==2.8.1
+openai==1.109.1
 redis==5.0.1
-websockets==12.0
-pydantic==2.5.0
-pydantic-settings==2.1.0
+websockets==14.0
+pydantic==2.10.0
+pydantic-settings==2.6.0
 PyPDF2==3.0.1
+pdfplumber==0.10.3
+PyMuPDF==1.26.6
+pymupdf4llm==0.2.9
+# marker-pdf==1.10.1  # Disabled - requires GPU, using pymupdf4llm instead
 python-docx==1.1.0
 aiofiles==23.2.1
 email-validator==2.1.0

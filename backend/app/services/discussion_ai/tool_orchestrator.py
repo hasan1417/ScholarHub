@@ -2146,9 +2146,8 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         template: str = "generic",
     ) -> Dict:
         """Create a new paper in the project (always in LaTeX mode)."""
-        from app.models import ResearchPaper, PaperMember, PaperRole
-        from datetime import datetime, timezone
-        import re
+        from app.services.paper_service import create_paper
+        from app.utils.slugify import slugify, generate_short_id
 
         project = ctx["project"]
         # Use the current user (who prompted the AI) as owner, not project creator
@@ -2169,15 +2168,15 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         keywords = self._generate_keywords(title, abstract, content)
 
         # Generate slug and short_id for URL-friendly paper links
-        from app.utils.slugify import slugify, generate_short_id
         paper_slug = slugify(title) if title else None
         paper_short_id = generate_short_id()
 
-        new_paper = ResearchPaper(
+        # Use centralized paper service for creation + member + snapshot
+        new_paper = create_paper(
+            db=self.db,
             title=title,
-            slug=paper_slug,
-            short_id=paper_short_id,
-            content=None,
+            owner_id=owner_id,
+            project_id=project.id,
             content_json={
                 "authoring_mode": "latex",
                 "latex_source": latex_source,
@@ -2185,25 +2184,11 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             abstract=abstract,
             paper_type=paper_type,
             status="draft",
-            project_id=project.id,
-            owner_id=owner_id,
+            slug=paper_slug,
+            short_id=paper_short_id,
             keywords=keywords,
+            snapshot_label="AI-generated initial version",
         )
-
-        self.db.add(new_paper)
-        self.db.commit()
-        self.db.refresh(new_paper)
-
-        # Add owner as a paper member with OWNER role
-        owner_member = PaperMember(
-            paper_id=new_paper.id,
-            user_id=owner_id,
-            role=PaperRole.OWNER,
-            status="accepted",
-            joined_at=datetime.now(timezone.utc),
-        )
-        self.db.add(owner_member)
-        self.db.commit()
 
         # Link cited references to paper and project library
         ref_result = self._link_cited_references(ctx, str(new_paper.id), latex_source)
@@ -2569,17 +2554,36 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 
     def _ensure_latex_document(self, content: str, title: str, abstract: str = None, bibliography_entries: list = None, template: str = "generic") -> str:
         """Ensure content is wrapped in a proper LaTeX document structure."""
+        import re
+
         # Sanitize content first
         content = self._sanitize_latex_content(content)
 
         if '\\documentclass' in content:
             return content
 
+        # Check if content already has an abstract section to avoid duplicates
+        content_abstract_match = re.search(r'\\begin\{abstract\}(.*?)\\end\{abstract\}', content, re.DOTALL)
+
         abstract_section = ""
         if abstract:
+            # Explicit abstract parameter provided - use it and remove any from content
+            if content_abstract_match:
+                # Remove the abstract from content since we'll add it separately
+                content = re.sub(r'\\begin\{abstract\}.*?\\end\{abstract\}\s*', '', content, flags=re.DOTALL)
             abstract_section = f"""
 \\begin{{abstract}}
 {abstract}
+\\end{{abstract}}
+"""
+        elif content_abstract_match:
+            # No explicit abstract but content has one - extract it and remove from content
+            # so we can place it in the correct position (after maketitle, before sections)
+            extracted_abstract = content_abstract_match.group(1).strip()
+            content = re.sub(r'\\begin\{abstract\}.*?\\end\{abstract\}\s*', '', content, flags=re.DOTALL)
+            abstract_section = f"""
+\\begin{{abstract}}
+{extracted_abstract}
 \\end{{abstract}}
 """
 

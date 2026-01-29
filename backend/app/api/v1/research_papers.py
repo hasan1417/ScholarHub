@@ -186,25 +186,24 @@ async def create_research_paper(
     ):
         raise _duplicate_title_error(paper_data.project_id)
 
-    paper = ResearchPaper(
-        **paper_data.dict(),
+    # Use centralized paper service for creation + member + initial snapshot
+    from app.services.paper_service import create_paper
+
+    # Extract fields from paper_data for the service
+    paper_dict = paper_data.dict()
+    paper_dict.pop('title', None)  # Will pass separately
+    paper_dict.pop('project_id', None)  # Will pass separately
+
+    paper = create_paper(
+        db=db,
+        title=normalized_title,
         owner_id=current_user.id,
+        project_id=paper_data.project_id,
         slug=slugify(normalized_title) if normalized_title else None,
         short_id=generate_short_id(),
+        snapshot_label="Initial version",
+        extra_fields=paper_dict,
     )
-    
-    db.add(paper)
-    db.commit()
-    db.refresh(paper)
-
-    # Add owner as member with owner role and accepted status
-    owner_member = PaperMember(
-        paper_id=paper.id,
-        user_id=current_user.id,
-        role=PaperRole.OWNER,
-        status="accepted"  # Owners should automatically be accepted
-    )
-    db.add(owner_member)
 
     if project:
         record_project_activity(
@@ -219,8 +218,7 @@ async def create_research_paper(
                 "paper_title": preview_text(paper.title, 160) if getattr(paper, "title", None) else None,
             },
         )
-
-    db.commit()
+        db.commit()
 
     return paper
 

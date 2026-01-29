@@ -2104,30 +2104,23 @@ def _handle_create_paper(
                 content = "# " + title + "\n\n"
                 content_json = {"authoring_mode": "rich"}
 
-    paper = ResearchPaper(
+    # Use centralized paper service for creation + member + initial snapshot
+    from app.services.paper_service import create_paper
+
+    paper = create_paper(
+        db=db,
         title=title,
-        abstract=abstract if abstract else None,
+        owner_id=user.id,
+        project_id=project.id,
         content=content,
         content_json=content_json,
+        abstract=abstract if abstract else None,
         paper_type=paper_type,
-        project_id=project.id,
-        owner_id=user.id,
         status="draft",
         objectives=objectives if objectives else None,
         keywords=keywords if keywords else None,
+        snapshot_label="AI-generated initial version",
     )
-    db.add(paper)
-    db.commit()
-    db.refresh(paper)
-
-    # Add user as paper member (owner)
-    member = PaperMember(
-        paper_id=paper.id,
-        user_id=user.id,
-        role="owner"
-    )
-    db.add(member)
-    db.commit()
 
     logger.info(
         "Paper created via discussion AI: paper_id=%s title=%s type=%s mode=%s",

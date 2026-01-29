@@ -38,6 +38,7 @@ const ProjectReferences = () => {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+  const [ingestFailedIds, setIngestFailedIds] = useState<Set<string>>(new Set())
   const [toast, setToast] = useState<{
     message: string
     actionLabel?: string
@@ -170,9 +171,17 @@ const ProjectReferences = () => {
       setReindexingId(referenceId)
       await referencesAPI.ingestPdf(referenceId)
       await queryClient.invalidateQueries({ queryKey: ['project', project.id, 'relatedReferences'] })
+      // On success, remove from failed set if it was there
+      setIngestFailedIds((prev) => {
+        const next = new Set(prev)
+        next.delete(referenceId)
+        return next
+      })
     } catch (error) {
       console.error('Failed to ingest existing PDF', error)
-      alert('Unable to ingest the existing PDF. Please try again or upload a new file.')
+      // Mark this reference as needing manual upload
+      setIngestFailedIds((prev) => new Set(prev).add(referenceId))
+      alert('Unable to fetch the PDF automatically. Please upload the PDF manually.')
     } finally {
       setReindexingId(null)
     }
@@ -384,10 +393,18 @@ const ProjectReferences = () => {
               const isPdfProcessed = Boolean(ref?.pdf_processed)
               const hasPdfUrl = Boolean(ref?.pdf_url)
               const isOpenAccess = Boolean(ref?.is_open_access)
-              // Show "Analyze PDF" only if there's a stored PDF, OR if there's a pdf_url AND it's open access (likely downloadable)
-              const showIngestButton = Boolean(canManageReferences && referenceId && (hasPdfStored || (hasPdfUrl && isOpenAccess)) && !isPdfProcessed)
-              // Show "Upload PDF" if no PDF is stored (user can always manually upload)
-              const showUploadButton = Boolean(canManageReferences && referenceId && !hasPdfStored && !isPdfProcessed)
+              // Can auto-fetch: OA paper with pdf_url but no stored PDF yet
+              const canAutoFetch = hasPdfUrl && isOpenAccess && !hasPdfStored
+              const ingestFailed = referenceId ? ingestFailedIds.has(referenceId) : false
+              // Show "Analyze PDF" when:
+              // - has stored PDF (and not yet processed), OR
+              // - can auto-fetch (OA + pdf_url) and hasn't failed yet
+              const showIngestButton = Boolean(canManageReferences && referenceId && !isPdfProcessed && (hasPdfStored || (canAutoFetch && !ingestFailed)))
+              // Show "Upload PDF" when:
+              // - no PDF stored AND either:
+              //   - can't auto-fetch (not OA or no pdf_url), OR
+              //   - OA but auto-fetch failed
+              const showUploadButton = Boolean(canManageReferences && referenceId && !hasPdfStored && !isPdfProcessed && (!canAutoFetch || ingestFailed))
 
               return (
                 <li
@@ -403,17 +420,29 @@ const ProjectReferences = () => {
 
                       {/* Actions - always visible on mobile, hover on desktop */}
                       <div className="relative flex items-center gap-2 flex-shrink-0">
-                        {/* PDF Status/Upload Button */}
+                        {/* PDF Status/Action Button */}
                         {isPdfProcessed ? (
                           <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-200">
                             <CheckCircle2 className="h-3.5 w-3.5" />
                             PDF analyzed
                           </span>
-                        ) : hasPdfStored ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 dark:border-blue-400/40 dark:bg-blue-500/20 dark:text-blue-200">
-                            <FileText className="h-3.5 w-3.5" />
-                            PDF available
-                          </span>
+                        ) : showIngestButton && referenceId ? (
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-emerald-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-200 dark:hover:bg-emerald-500/30"
+                            onClick={() => handleIngestExisting(referenceId)}
+                            disabled={!!reindexingId}
+                            title={canAutoFetch ? 'Fetch PDF from source and analyze' : 'Analyze stored PDF'}
+                          >
+                            {reindexingId === referenceId ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Sparkles className="h-3.5 w-3.5" />
+                            )}
+                            {reindexingId === referenceId
+                              ? (canAutoFetch ? 'Fetching…' : 'Analyzing…')
+                              : (canAutoFetch ? 'Fetch & Analyze' : 'Analyze PDF')}
+                          </button>
                         ) : showUploadButton ? (
                           <button
                             type="button"
@@ -514,8 +543,8 @@ const ProjectReferences = () => {
 
                     {/* Status badges and links row */}
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-1 border-t border-gray-100 dark:border-slate-800">
-                      {/* Analysis status - only show if not pending (no PDF) */}
-                      {analysisBadge && ref?.status !== 'pending' && (
+                      {/* Analysis status - only show if processing (not pending and not already showing "PDF analyzed" in header) */}
+                      {analysisBadge && ref?.status === 'processing' && (
                         <Badge label={analysisBadge.label} tone={analysisBadge.tone} icon={analysisBadge.icon} />
                       )}
                       {confidencePercent !== null && (
@@ -525,20 +554,8 @@ const ProjectReferences = () => {
                           icon={<Sparkles className="h-3 w-3" />}
                         />
                       )}
-                      {showIngestButton && referenceId && (
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-200 dark:hover:bg-emerald-500/30"
-                          disabled={!!reindexingId}
-                          onClick={() => handleIngestExisting(referenceId)}
-                        >
-                          <Sparkles className="h-3 w-3" />
-                          {reindexingId === referenceId ? 'Analyzing…' : 'Analyze PDF'}
-                        </button>
-                      )}
-
                       {/* Divider */}
-                      {(analysisBadge || confidencePercent !== null || showIngestButton) && (ref?.doi || ref?.url || decidedAt) && (
+                      {((analysisBadge && ref?.status === 'processing') || confidencePercent !== null) && (ref?.doi || ref?.url || decidedAt) && (
                         <span className="text-gray-300 dark:text-slate-700">|</span>
                       )}
 

@@ -12,6 +12,7 @@ import time
 from sqlalchemy import text
 from typing import Dict
 from app.services.latex_warmup import warmup_latex_cache
+from app.services.document_processing_service import warmup_marker_background
 try:
     import redis as redis_lib
 except Exception:  # pragma: no cover
@@ -129,6 +130,10 @@ app.include_router(ai.router, prefix="/api/v1/ai", tags=["ai features"])
 from app.api.v1 import agent  # noqa: F401
 app.include_router(agent.router, prefix="/api/v1/agent", tags=["smart agent"])
 
+# Smart Agent OpenRouter (Beta - multi-model support)
+from app.api.v1 import agent_openrouter  # noqa: F401
+app.include_router(agent_openrouter.router, prefix="/api/v1/agent-or", tags=["smart agent openrouter"])
+
 app.include_router(team.router, prefix="/api/v1/team", tags=["team management"])
 app.include_router(branches.router, prefix="/api/v1/branches", tags=["branch management"])
 app.include_router(discovery.router, prefix="/api/v1/discovery", tags=["paper discovery & literature review"])
@@ -150,9 +155,15 @@ app.include_router(subscription.router, prefix="/api/v1/subscription", tags=["su
 
 
 @app.on_event("startup")
-async def latex_warmup_event() -> None:
+async def startup_warmup_event() -> None:
+    """Warm up services on startup (non-blocking)."""
+    # LaTeX cache warmup (async task)
     if settings.LATEX_WARMUP_ON_STARTUP:
         asyncio.create_task(warmup_latex_cache())
+
+    # Marker PDF converter warmup (background thread - doesn't block event loop)
+    # This loads the ML models so first PDF request doesn't timeout
+    warmup_marker_background()
 
 if __name__ == "__main__":
     import uvicorn

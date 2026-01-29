@@ -37,6 +37,10 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Note: Marker ML models (~1.5GB) are downloaded on first PDF processing.
+# pdfplumber is used as fallback until models are ready.
+# To pre-download: docker exec backend python -c "from marker.models import create_model_dict; create_model_dict()"
+
 # Copy project
 COPY . .
 

@@ -192,6 +192,7 @@ const ProjectDiscovery = () => {
   const [selectedResults, setSelectedResults] = useState<string[]>([])
   const [promotingIds, setPromotingIds] = useState<Set<string>>(new Set())
   const [dismissingIds, setDismissingIds] = useState<Set<string>>(new Set())
+  const [isClearingResults, setIsClearingResults] = useState(false)
   const [resultsLimit, setResultsLimit] = useState(20)
   const [discoveryCooldown, setDiscoveryCooldown] = useState(0) // Seconds remaining
   const [lastSourceStats, setLastSourceStats] = useState<SourceStatsItem[] | null>(null)
@@ -213,12 +214,15 @@ const ProjectDiscovery = () => {
   useEffect(() => {
     if (isViewer) return
     const clearOnMount = async () => {
+      setIsClearingResults(true)
       try {
         await projectDiscoveryAPI.clearResults(project.id)
         queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryResults'] })
         queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingCount'] })
       } catch {
         // Silently ignore errors on clear
+      } finally {
+        setIsClearingResults(false)
       }
     }
     clearOnMount()
@@ -571,6 +575,10 @@ const ProjectDiscovery = () => {
 
   const promoteResult = useMutation({
     mutationFn: async (resultId: string) => {
+      // Block promotion while results are being cleared (prevents race condition)
+      if (isClearingResults) {
+        throw new Error('Please wait for page to finish loading')
+      }
       setPromotingIds((prev) => new Set(prev).add(resultId))
       const response = await projectDiscoveryAPI.promoteResult(project.id, resultId)
       return { data: response.data, resultId }
@@ -586,13 +594,23 @@ const ProjectDiscovery = () => {
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'referenceSuggestions'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoverySettings'] })
     },
-    onError: (_error, resultId) => {
+    onError: (error, resultId) => {
       setPromotingIds((prev) => {
         const next = new Set(prev)
         next.delete(resultId)
         return next
       })
+      // Show error to user
+      const axiosError = error as { response?: { status?: number; data?: { detail?: string } } }
+      const status = axiosError?.response?.status
+      if (status === 404) {
+        setActiveErrorMessage('Paper no longer available. Please refresh and try again.')
+      } else {
+        const message = axiosError?.response?.data?.detail || 'Failed to add paper to library'
+        setActiveErrorMessage(message)
+      }
     },
+    retry: false, // Don't retry on error - avoids hammering server
   })
 
   const dismissResult = useMutation({
@@ -1388,6 +1406,7 @@ const ProjectDiscovery = () => {
                   isDeleteMode={isDeleteMode}
                   isSelected={selectedResults.includes(item.id)}
                   onToggleSelect={toggleResultSelection}
+                  isDisabled={isClearingResults}
                 />
               ))}
 
@@ -1837,6 +1856,7 @@ const ProjectDiscovery = () => {
                     onDismiss={(id) => dismissResult.mutate(id)}
                     isPromoting={promotingIds.has(item.id)}
                     isDismissing={dismissingIds.has(item.id)}
+                    isDisabled={isClearingResults}
                   />
                 ))}
 

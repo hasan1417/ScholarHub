@@ -112,6 +112,7 @@ services:
       - COLLAB_WS_URL=${COLLAB_WS_URL:-ws://collab:3001}
       - COLLAB_JWT_EXPIRE_SECONDS=${COLLAB_JWT_EXPIRE_SECONDS:-300}
       - LATEX_WARMUP_ON_STARTUP=${LATEX_WARMUP_ON_STARTUP:-true}
+      - DISABLE_MARKER=true  # Marker requires GPU, using pdfplumber instead
       # Google OAuth
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
@@ -135,6 +136,7 @@ services:
     volumes:
       - ./uploads:/app/uploads
       - ./backend/app:/app/app  # Mount app code for hot reload
+      - marker_models:/root/.cache/datalab/models  # Persist Marker ML models
     networks:
       - default
       - meet.jitsi
@@ -369,6 +371,7 @@ volumes:
   redis_data:
   onlyoffice_data:
   onlyoffice_logs:
+  marker_models:  # Persist Marker ML models for PDF extraction
 
 networks:
   meet.jitsi:

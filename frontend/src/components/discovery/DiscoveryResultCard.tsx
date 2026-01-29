@@ -14,6 +14,8 @@ interface DiscoveryResultCardProps {
   onToggleSelect?: (id: string) => void
   // Compact mode for lists
   compact?: boolean
+  // Disable all actions (e.g., while bulk operations are in progress)
+  isDisabled?: boolean
 }
 
 // Relevance bar component
@@ -91,6 +93,7 @@ export const DiscoveryResultCard = ({
   isSelected = false,
   onToggleSelect,
   compact = false,
+  isDisabled = false,
 }: DiscoveryResultCardProps) => {
   const [isExpanded, setIsExpanded] = useState(false)
 
@@ -98,7 +101,7 @@ export const DiscoveryResultCard = ({
   const isOpenAccess = Boolean(item.is_open_access)
   const pdfUrl = item.pdf_url ?? undefined
   const isDeletable = item.status !== 'promoted'
-  const isActionDisabled = isPromoting || isDismissing
+  const isActionDisabled = isPromoting || isDismissing || isDisabled
   const isPending = item.status === 'pending'
 
   // Truncate abstract for preview
