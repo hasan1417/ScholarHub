@@ -16,6 +16,7 @@ from app.api.deps import get_current_user
 from app.models.user import User
 from app.services.smart_agent_service_v2_or import SmartAgentServiceV2OR
 from app.services.subscription_service import SubscriptionService
+from app.api.utils.openrouter_keys import decrypt_openrouter_key_or_400
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +107,11 @@ async def agent_chat_stream_or(
         reasoning_mode: Enable reasoning mode for supported models
     """
     # Get user's OpenRouter API key if configured
-    user_api_key = getattr(current_user, 'openrouter_api_key', None)
+    user_api_key = decrypt_openrouter_key_or_400(
+        getattr(current_user, "openrouter_api_key", None),
+        error_detail="Your OpenRouter API key is invalid. Please re-enter it in Settings.",
+        log_context=f"user {current_user.id}",
+    )
 
     # Check subscription limit (shares limit with Discussion AI)
     # BYOK users have unlimited (-1), others have tier limits

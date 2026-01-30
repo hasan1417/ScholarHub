@@ -2,6 +2,8 @@ from pydantic_settings import BaseSettings
 from typing import List, Optional
 import os
 
+DEFAULT_SECRET_KEY = "your-super-secret-key-change-this-in-production"
+
 class Settings(BaseSettings):
     # API Configuration
     API_V1_STR: str = "/api/v1"
@@ -14,7 +16,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379"
     
     # Security
-    SECRET_KEY: str = "your-super-secret-key-change-this-in-production"
+    SECRET_KEY: str = DEFAULT_SECRET_KEY
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60  # 60 minutes for better UX
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7  # Refresh token expires in 7 days
@@ -71,6 +73,7 @@ class Settings(BaseSettings):
 
     # OpenRouter (optional, for multi-model AI access)
     OPENROUTER_API_KEY: Optional[str] = None
+    OPENROUTER_KEY_ENCRYPTION_KEY: Optional[str] = None
     # Model for Rich→LaTeX conversion (optional override)
     OPENAI_CONVERSION_MODEL: Optional[str] = None
     OPENAI_PLANNER_MODEL: Optional[str] = "gpt-5.2"
@@ -162,3 +165,15 @@ class Settings(BaseSettings):
         extra = 'ignore'
 
 settings = Settings()
+
+def _validate_security_settings() -> None:
+    if not settings.SECRET_KEY or settings.SECRET_KEY == DEFAULT_SECRET_KEY:
+        raise RuntimeError(
+            "SECRET_KEY must be explicitly set and must not use the default placeholder value."
+        )
+    if not settings.OPENROUTER_KEY_ENCRYPTION_KEY:
+        raise RuntimeError(
+            "OPENROUTER_KEY_ENCRYPTION_KEY must be set to enable encryption of stored API keys."
+        )
+
+_validate_security_settings()

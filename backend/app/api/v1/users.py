@@ -11,6 +11,7 @@ from app.api.deps import get_current_user
 from app.models.user import User as UserModel
 from app.schemas.user import UserUpdate, UserResponse
 from app.core.security import get_password_hash, verify_password
+from app.core.encryption import decrypt_openrouter_key, encrypt_openrouter_key, mask_openrouter_key
 from app.services.subscription_service import SubscriptionService
 from typing import List
 from pydantic import BaseModel
@@ -246,11 +247,19 @@ async def get_api_keys(
     current_user: UserModel = Depends(get_current_user),
 ):
     """Get user's API key status (not the actual keys for security)."""
+    masked_key = None
+    if current_user.openrouter_api_key:
+        try:
+            decrypted = decrypt_openrouter_key(current_user.openrouter_api_key)
+            masked_key = mask_openrouter_key(decrypted)
+        except ValueError:
+            logger.error("Failed to decrypt stored OpenRouter API key for user %s", current_user.id)
+            masked_key = None
     return {
         "openrouter": {
             "configured": bool(current_user.openrouter_api_key),
             # Return masked key if present (last 4 chars)
-            "masked_key": f"sk-or-...{current_user.openrouter_api_key[-4:]}" if current_user.openrouter_api_key else None,
+            "masked_key": masked_key,
         }
     }
 
@@ -287,8 +296,8 @@ async def set_openrouter_key(
                 detail=error_message
             )
 
-        # Key is valid - save it
-        current_user.openrouter_api_key = request.api_key
+        # Key is valid - save it encrypted
+        current_user.openrouter_api_key = encrypt_openrouter_key(request.api_key)
 
         # Auto-assign BYOK tier
         subscription = SubscriptionService.assign_byok_tier(db, current_user.id)

@@ -47,6 +47,7 @@ from app.services.discussion_ai.openrouter_orchestrator import (
     OpenRouterOrchestrator,
     get_available_models,
 )
+from app.api.utils.openrouter_keys import decrypt_openrouter_key_or_400
 from app.services.subscription_service import SubscriptionService
 from app.services.websocket_manager import connection_manager
 
@@ -126,10 +127,18 @@ def invoke_openrouter_assistant(
     project_owner = db.query(User).filter(User.id == project.created_by).first()
     api_key_to_use = None
     if project_owner and project_owner.openrouter_api_key:
-        api_key_to_use = project_owner.openrouter_api_key
+        api_key_to_use = decrypt_openrouter_key_or_400(
+            project_owner.openrouter_api_key,
+            error_detail="Project owner OpenRouter API key is invalid. Please re-enter it in Settings.",
+            log_context=f\"project owner {project_owner.id}\",
+        )
         logger.info(f"Using project owner's API key for Discussion AI")
     elif current_user.openrouter_api_key:
-        api_key_to_use = current_user.openrouter_api_key
+        api_key_to_use = decrypt_openrouter_key_or_400(
+            current_user.openrouter_api_key,
+            error_detail="Your OpenRouter API key is invalid. Please re-enter it in Settings.",
+            log_context=f\"user {current_user.id}\",
+        )
         logger.info(f"Using current user's API key for Discussion AI")
 
     if not api_key_to_use:
