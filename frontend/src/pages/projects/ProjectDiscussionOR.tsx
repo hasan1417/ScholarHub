@@ -72,7 +72,7 @@ import ChannelArtifactsPanel from '../../components/discussion/ChannelArtifactsP
 import { DiscoveredPaper, IngestionStatus } from '../../components/discussion/DiscoveredPaperCard'
 import { DiscoveryQueuePanel, PaperIngestionState, IngestionStatesMap } from '../../components/discussion/DiscoveryQueuePanel'
 import { getProjectUrlId } from '../../utils/urlId'
-import { OPENROUTER_MODELS, modelSupportsReasoning } from '../../components/discussion/ModelSelector'
+import { modelSupportsReasoning, useOpenRouterModels } from '../../components/discussion/ModelSelector'
 
 // Types
 type AssistantExchange = {
@@ -151,6 +151,7 @@ const ProjectDiscussionOR = () => {
   const historyChannelRef = useRef<string | null>(null)
   const assistantAbortController = useRef<AbortController | null>(null)
   const STORAGE_PREFIX = `assistantHistory:${project.id}`
+  const { models: openrouterModels } = useOpenRouterModels(project.id)
 
   const buildStorageKey = useCallback(
     (channelId: string | null) => {
@@ -171,16 +172,18 @@ const ProjectDiscussionOR = () => {
   })
 
   // Get model from project settings (read-only for non-owners)
-  const selectedModel = discussionSettingsQuery.data?.model || OPENROUTER_MODELS[0].id
+  const selectedModel =
+    openrouterModels.find((model) => model.id === discussionSettingsQuery.data?.model)?.id ||
+    openrouterModels[0]?.id
   const discussionEnabled = discussionSettingsQuery.data?.enabled ?? true
   const ownerHasApiKey = discussionSettingsQuery.data?.owner_has_api_key ?? false
 
   // Turn off reasoning when model doesn't support it
   useEffect(() => {
-    if (!modelSupportsReasoning(selectedModel)) {
+    if (!modelSupportsReasoning(selectedModel, openrouterModels)) {
       setAssistantReasoning(false)
     }
-  }, [selectedModel])
+  }, [selectedModel, openrouterModels])
 
   // Core state
   const [replyingTo, setReplyingTo] = useState<{ id: string; userName: string } | null>(null)
@@ -577,8 +580,8 @@ const ProjectDiscussionOR = () => {
 
   // Get current model info
   const currentModelInfo = useMemo(
-    () => OPENROUTER_MODELS.find((m) => m.id === selectedModel) || OPENROUTER_MODELS[0],
-    [selectedModel]
+    () => openrouterModels.find((m) => m.id === selectedModel) || openrouterModels[0],
+    [selectedModel, openrouterModels]
   )
 
   const [showArchivedChannels, setShowArchivedChannels] = useState(false)
@@ -1986,7 +1989,9 @@ const ProjectDiscussionOR = () => {
             const isExecutingTools = displayedMessage && exchange.isWaitingForTools && exchange.status !== 'complete'
             const authorLabel = resolveAuthorLabel(exchange.author)
             const avatarText = authorLabel.trim().charAt(0).toUpperCase() || 'U'
-            const modelName = exchange.model ? OPENROUTER_MODELS.find((m) => m.id === exchange.model)?.name || exchange.model : currentModelInfo.name
+            const modelName = exchange.model
+              ? openrouterModels.find((m) => m.id === exchange.model)?.name || exchange.model
+              : currentModelInfo.name
 
             const promptBubbleClass = 'inline-block max-w-full sm:max-w-fit rounded-xl sm:rounded-2xl bg-purple-50/70 px-3 py-1.5 sm:px-4 sm:py-2 shadow-sm ring-2 ring-purple-200 transition dark:bg-purple-500/15 dark:ring-purple-400/40 dark:shadow-purple-900/30'
             const responseBubbleClass = 'inline-block max-w-full sm:max-w-fit rounded-xl sm:rounded-2xl bg-white px-3 py-1.5 sm:px-4 sm:py-2 transition dark:bg-slate-800/70 dark:ring-1 dark:ring-slate-700'
@@ -2624,7 +2629,7 @@ const ProjectDiscussionOR = () => {
                 reasoningEnabled={assistantReasoning}
                 onToggleReasoning={discussionEnabled && ownerHasApiKey ? () => setAssistantReasoning((prev) => !prev) : undefined}
                 reasoningPending={assistantMutation.isPending}
-                reasoningSupported={discussionEnabled && ownerHasApiKey && modelSupportsReasoning(selectedModel)}
+                reasoningSupported={discussionEnabled && ownerHasApiKey && modelSupportsReasoning(selectedModel, openrouterModels)}
                 aiGenerating={assistantMutation.isPending}
               />
             </>

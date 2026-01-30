@@ -56,6 +56,7 @@ import {
   DiscussionAssistantRequest,
   DiscussionAssistantResponse,
   DiscussionAssistantHistoryItem,
+  OpenRouterModel,
 } from '../types'
 
 const deduceRuntimeOrigin = () => {
@@ -905,9 +906,7 @@ export const projectDiscussionAPI = {
 // OpenRouter Discussion API endpoints
 export const openRouterDiscussionAPI = {
   listModels: (projectId: string) =>
-    api.get<Array<{ id: string; name: string; provider: string }>>(
-      `/projects/${projectId}/discussion-or/models`
-    ),
+    api.get<OpenRouterModel[]>(`/projects/${projectId}/discussion-or/models`),
 
   invokeAssistant: (
     projectId: string,
@@ -920,6 +919,11 @@ export const openRouterDiscussionAPI = {
       payload,
       { params: { model } }
     ),
+}
+
+// OpenRouter Agent API endpoints
+export const openRouterAgentAPI = {
+  listModels: () => api.get<OpenRouterModel[]>('/agent-openrouter/models'),
 }
 
 // Research Papers API endpoints

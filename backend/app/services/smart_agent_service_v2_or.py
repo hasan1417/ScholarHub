@@ -19,28 +19,11 @@ from app.services.smart_agent_service_v2 import (
     SYSTEM_PROMPT,
     _resolve_paper_id,
 )
+from app.services.discussion_ai.openrouter_orchestrator import model_supports_reasoning
 from app.constants.paper_templates import CONFERENCE_TEMPLATES
 
 logger = logging.getLogger(__name__)
 
-
-# Models that support reasoning_effort parameter via OpenRouter
-REASONING_MODELS = {
-    "openai/gpt-5.2-20251211",
-    "openai/gpt-5.2-codex-20260114",
-    "openai/gpt-5.1-20251113",
-    "anthropic/claude-4.5-opus-20251124",
-    "anthropic/claude-4.5-sonnet-20250929",
-    "anthropic/claude-4.5-haiku-20251001",
-    "google/gemini-3-pro-preview-20251117",
-    "google/gemini-3-flash-preview-20251217",
-    "google/gemini-2.5-pro",
-    "google/gemini-2.5-flash",
-    "deepseek/deepseek-v3.2-20251201",
-    "deepseek/deepseek-chat-v3.1",
-    "deepseek/deepseek-r1",
-    "deepseek/deepseek-r1:free",
-}
 
 # Tool for searching attached references (RAG)
 SEARCH_REFERENCES_TOOL = {
@@ -141,7 +124,7 @@ class SmartAgentServiceV2OR:
 
         full_context = "\n\n".join(context_parts) if context_parts else "No document provided."
 
-        use_reasoning = reasoning_mode and self.model in REASONING_MODELS
+        use_reasoning = reasoning_mode and model_supports_reasoning(self.model)
 
         logger.info(f"[SmartAgentV2OR] model={self.model}, reasoning={use_reasoning}, doc_size={doc_size}")
 

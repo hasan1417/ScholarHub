@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Bot, Brain, Check, ChevronDown, ChevronUp, Edit3, FlaskConical, Loader2, Send, Sparkles, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { projectReferencesAPI, buildApiUrl, buildAuthHeaders } from '../../services/api'
-import { ModelSelector, OPENROUTER_MODELS, modelSupportsReasoning } from '../discussion/ModelSelector'
+import { ModelSelector, modelSupportsReasoning, useOpenRouterModels } from '../discussion/ModelSelector'
 
 /** Proposed edit from AI - line-based for reliable matching */
 interface EditProposal {
@@ -64,21 +64,29 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
   const [error, setError] = useState<string | null>(null)
   const [references, setReferences] = useState<ReferenceItem[]>([])
   const [reasoningMode, setReasoningMode] = useState(false)
-  const [selectedModel, setSelectedModel] = useState(OPENROUTER_MODELS[0].id)
+  const { models: openrouterModels } = useOpenRouterModels()
+  const [selectedModel, setSelectedModel] = useState(openrouterModels[0]?.id)
   const abortControllerRef = useRef<AbortController | null>(null)
   const [expandedProposals, setExpandedProposals] = useState<Set<string>>(new Set())
   const listRef = useRef<HTMLDivElement | null>(null)
 
+  useEffect(() => {
+    if (openrouterModels.length === 0) return
+    if (!selectedModel || !openrouterModels.find((model) => model.id === selectedModel)) {
+      setSelectedModel(openrouterModels[0].id)
+    }
+  }, [openrouterModels, selectedModel])
+
   // Get current model info
   const currentModel = useMemo(
-    () => OPENROUTER_MODELS.find((m) => m.id === selectedModel) || OPENROUTER_MODELS[0],
-    [selectedModel]
+    () => openrouterModels.find((m) => m.id === selectedModel) || openrouterModels[0],
+    [selectedModel, openrouterModels]
   )
 
   // Check if current model supports reasoning
   const supportsReasoning = useMemo(
-    () => modelSupportsReasoning(selectedModel),
-    [selectedModel]
+    () => modelSupportsReasoning(selectedModel, openrouterModels),
+    [selectedModel, openrouterModels]
   )
 
   /** Parse edit proposals from AI response using line-based format */
@@ -415,6 +423,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
             value={selectedModel}
             onChange={setSelectedModel}
             disabled={sending}
+            models={openrouterModels}
           />
 
           {/* Reasoning Mode Toggle - only show for supported models */}

@@ -71,6 +71,7 @@ class OpenRouterModelInfo(BaseModel):
     id: str
     name: str
     provider: str
+    supports_reasoning: bool = False
 
 
 @router.get("/projects/{project_id}/discussion-or/models")
@@ -83,7 +84,7 @@ def list_openrouter_models(
     project = get_project_or_404(db, project_id)
     ensure_project_member(db, project, current_user)
 
-    return [OpenRouterModelInfo(**m) for m in get_available_models()]
+    return [OpenRouterModelInfo(**m) for m in get_available_models(include_reasoning=True)]
 
 
 @router.post(
@@ -130,14 +131,14 @@ def invoke_openrouter_assistant(
         api_key_to_use = decrypt_openrouter_key_or_400(
             project_owner.openrouter_api_key,
             error_detail="Project owner OpenRouter API key is invalid. Please re-enter it in Settings.",
-            log_context=f\"project owner {project_owner.id}\",
+            log_context=f"project owner {project_owner.id}",
         )
         logger.info(f"Using project owner's API key for Discussion AI")
     elif current_user.openrouter_api_key:
         api_key_to_use = decrypt_openrouter_key_or_400(
             current_user.openrouter_api_key,
             error_detail="Your OpenRouter API key is invalid. Please re-enter it in Settings.",
-            log_context=f\"user {current_user.id}\",
+            log_context=f"user {current_user.id}",
         )
         logger.info(f"Using current user's API key for Discussion AI")
 

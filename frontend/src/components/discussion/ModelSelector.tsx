@@ -1,6 +1,10 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { ChevronDown, Sparkles, Check } from 'lucide-react'
 import clsx from 'clsx'
+
+import { openRouterAgentAPI, openRouterDiscussionAPI } from '../../services/api'
+import { OpenRouterModel } from '../../types'
 
 export interface OpenRouterModelOption {
   id: string
@@ -9,8 +13,7 @@ export interface OpenRouterModelOption {
   supportsReasoning: boolean
 }
 
-// Available OpenRouter models with pricing info (January 2026)
-// Must match backend OPENROUTER_MODELS in openrouter_orchestrator.py
+// Fallback OpenRouter models (used if API is unavailable)
 // supportsReasoning: true if the model supports OpenRouter's reasoning parameter
 export const OPENROUTER_MODELS: OpenRouterModelOption[] = [
   // OpenAI (GPT-5.2 series - latest) - All GPT-5+ support reasoning via reasoning.effort
@@ -40,20 +43,15 @@ export const OPENROUTER_MODELS: OpenRouterModelOption[] = [
   { id: 'qwen/qwen-2.5-72b-instruct', name: 'Qwen 2.5 72B', provider: 'Qwen', supportsReasoning: false },
 ]
 
+const REASONING_MODEL_IDS = new Set(
+  OPENROUTER_MODELS.filter((model) => model.supportsReasoning).map((model) => model.id)
+)
+
 // Helper function to check if a model supports reasoning
-export function modelSupportsReasoning(modelId: string): boolean {
-  const model = OPENROUTER_MODELS.find((m) => m.id === modelId)
+export function modelSupportsReasoning(modelId: string, models: OpenRouterModelOption[] = OPENROUTER_MODELS): boolean {
+  const model = models.find((m) => m.id === modelId)
   return model?.supportsReasoning ?? false
 }
-
-// Group models by provider
-const MODEL_GROUPS = OPENROUTER_MODELS.reduce((acc, model) => {
-  if (!acc[model.provider]) {
-    acc[model.provider] = []
-  }
-  acc[model.provider].push(model)
-  return acc
-}, {} as Record<string, OpenRouterModelOption[]>)
 
 const PROVIDER_ORDER = ['OpenAI', 'Anthropic', 'Google', 'DeepSeek', 'Meta', 'Qwen']
 
@@ -62,13 +60,66 @@ interface ModelSelectorProps {
   onChange: (modelId: string) => void
   disabled?: boolean
   className?: string
+  models?: OpenRouterModelOption[]
 }
 
-export function ModelSelector({ value, onChange, disabled = false, className }: ModelSelectorProps) {
+const normalizeModels = (models: OpenRouterModel[]): OpenRouterModelOption[] =>
+  models.map((model) => ({
+    id: model.id,
+    name: model.name,
+    provider: model.provider,
+    supportsReasoning:
+      typeof model.supports_reasoning === 'boolean' ? model.supports_reasoning : REASONING_MODEL_IDS.has(model.id),
+  }))
+
+export function useOpenRouterModels(projectId?: string, enabled: boolean = true) {
+  const query = useQuery({
+    queryKey: ['openrouter-models', 'v3', projectId ?? 'agent'],
+    queryFn: async () => {
+      const response = projectId
+        ? await openRouterDiscussionAPI.listModels(projectId)
+        : await openRouterAgentAPI.listModels()
+      return response.data
+    },
+    staleTime: 24 * 60 * 60 * 1000,
+    gcTime: 24 * 60 * 60 * 1000,
+    enabled,
+  })
+
+  const models =
+    query.data && query.data.length > 0 ? normalizeModels(query.data) : OPENROUTER_MODELS
+
+  return {
+    models,
+    isLoading: query.isLoading,
+    error: query.error,
+  }
+}
+
+export function ModelSelector({ value, onChange, disabled = false, className, models }: ModelSelectorProps) {
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
-  const selectedModel = OPENROUTER_MODELS.find((m) => m.id === value) || OPENROUTER_MODELS[0]
+  const shouldFetch = !models || models.length === 0
+  const { models: fetchedModels } = useOpenRouterModels(undefined, shouldFetch)
+  const resolvedModels = models && models.length > 0 ? models : fetchedModels
+
+  const selectedModel = resolvedModels.find((m) => m.id === value) || resolvedModels[0]
+  const modelGroups = useMemo(() => {
+    return resolvedModels.reduce((acc, model) => {
+      if (!acc[model.provider]) {
+        acc[model.provider] = []
+      }
+      acc[model.provider].push(model)
+      return acc
+    }, {} as Record<string, OpenRouterModelOption[]>)
+  }, [resolvedModels])
+
+  const orderedProviders = useMemo(() => {
+    const known = PROVIDER_ORDER.filter((provider) => modelGroups[provider])
+    const extras = Object.keys(modelGroups).filter((provider) => !PROVIDER_ORDER.includes(provider)).sort()
+    return [...known, ...extras]
+  }, [modelGroups])
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -130,12 +181,12 @@ export function ModelSelector({ value, onChange, disabled = false, className }: 
             </div>
           </div>
           <div className="max-h-80 overflow-y-auto">
-            {PROVIDER_ORDER.filter((p) => MODEL_GROUPS[p]).map((provider) => (
+            {orderedProviders.map((provider) => (
               <div key={provider}>
                 <div className="sticky top-0 bg-white px-3 py-1.5 text-xs font-semibold text-gray-400 dark:bg-slate-800 dark:text-slate-500">
                   {provider}
                 </div>
-                {MODEL_GROUPS[provider].map((model) => (
+                {modelGroups[provider].map((model) => (
                   <button
                     key={model.id}
                     type="button"

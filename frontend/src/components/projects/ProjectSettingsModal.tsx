@@ -1,17 +1,9 @@
+import { useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { X, Bot, AlertCircle, CheckCircle } from 'lucide-react'
 import { projectsAPI } from '../../services/api'
 import { ProjectDetail } from '../../types'
-import { OPENROUTER_MODELS } from '../discussion/ModelSelector'
-
-// Group models by provider for the dropdown
-const MODEL_GROUPS = OPENROUTER_MODELS.reduce((acc, model) => {
-  if (!acc[model.provider]) {
-    acc[model.provider] = []
-  }
-  acc[model.provider].push(model)
-  return acc
-}, {} as Record<string, typeof OPENROUTER_MODELS>)
+import { useOpenRouterModels } from '../discussion/ModelSelector'
 
 const PROVIDER_ORDER = ['OpenAI', 'Anthropic', 'Google', 'DeepSeek', 'Meta', 'Qwen']
 
@@ -23,6 +15,20 @@ interface ProjectSettingsModalProps {
 
 export default function ProjectSettingsModal({ project, isOpen, onClose }: ProjectSettingsModalProps) {
   const queryClient = useQueryClient()
+  const { models: openrouterModels } = useOpenRouterModels(project.id)
+
+  const modelGroups = openrouterModels.reduce((acc, model) => {
+    if (!acc[model.provider]) {
+      acc[model.provider] = []
+    }
+    acc[model.provider].push(model)
+    return acc
+  }, {} as Record<string, typeof openrouterModels>)
+  const orderedProviders = useMemo(() => {
+    const known = PROVIDER_ORDER.filter((provider) => modelGroups[provider])
+    const extras = Object.keys(modelGroups).filter((provider) => !PROVIDER_ORDER.includes(provider)).sort()
+    return [...known, ...extras]
+  }, [modelGroups])
 
   // Fetch current AI settings
   const settingsQuery = useQuery({
@@ -36,7 +42,7 @@ export default function ProjectSettingsModal({ project, isOpen, onClose }: Proje
   })
 
   const settings = settingsQuery.data
-  const aiModel = settings?.model || OPENROUTER_MODELS[0].id
+  const aiModel = settings?.model || openrouterModels[0]?.id
   const ownerHasApiKey = settings?.owner_has_api_key ?? false
 
   // Update settings mutation
@@ -114,9 +120,9 @@ export default function ProjectSettingsModal({ project, isOpen, onClose }: Proje
                 disabled={updateSettingsMutation.isPending}
                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
               >
-                {PROVIDER_ORDER.filter((p) => MODEL_GROUPS[p]).map((provider) => (
+                {orderedProviders.map((provider) => (
                   <optgroup key={provider} label={provider}>
-                    {MODEL_GROUPS[provider].map((model) => (
+                    {modelGroups[provider].map((model) => (
                       <option key={model.id} value={model.id}>
                         {model.name}
                       </option>

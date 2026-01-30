@@ -801,6 +801,7 @@ export interface OpenRouterModel {
   id: string
   name: string
   provider: string
+  supports_reasoning?: boolean
 }
 
 // Subscription types

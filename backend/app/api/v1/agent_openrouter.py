@@ -16,6 +16,7 @@ from app.api.deps import get_current_user
 from app.models.user import User
 from app.services.smart_agent_service_v2_or import SmartAgentServiceV2OR
 from app.services.subscription_service import SubscriptionService
+from app.services.discussion_ai.openrouter_orchestrator import get_available_models
 from app.api.utils.openrouter_keys import decrypt_openrouter_key_or_400
 
 logger = logging.getLogger(__name__)
@@ -41,37 +42,6 @@ class ModelInfo(BaseModel):
     supports_reasoning: bool = False
 
 
-# Available models through OpenRouter
-# Must match frontend's OPENROUTER_MODELS in ModelSelector.tsx
-AVAILABLE_MODELS: List[ModelInfo] = [
-    # OpenAI
-    ModelInfo(id="openai/gpt-5.2-20251211", name="GPT-5.2", provider="OpenAI", supports_reasoning=True),
-    ModelInfo(id="openai/gpt-5.2-codex-20260114", name="GPT-5.2 Codex", provider="OpenAI", supports_reasoning=True),
-    ModelInfo(id="openai/gpt-5.1-20251113", name="GPT-5.1", provider="OpenAI", supports_reasoning=True),
-    ModelInfo(id="openai/gpt-4o", name="GPT-4o", provider="OpenAI"),
-    ModelInfo(id="openai/gpt-4o-mini", name="GPT-4o Mini", provider="OpenAI"),
-    # Anthropic
-    ModelInfo(id="anthropic/claude-4.5-opus-20251124", name="Claude 4.5 Opus", provider="Anthropic", supports_reasoning=True),
-    ModelInfo(id="anthropic/claude-4.5-sonnet-20250929", name="Claude 4.5 Sonnet", provider="Anthropic", supports_reasoning=True),
-    ModelInfo(id="anthropic/claude-4.5-haiku-20251001", name="Claude 4.5 Haiku", provider="Anthropic", supports_reasoning=True),
-    ModelInfo(id="anthropic/claude-3.5-sonnet", name="Claude 3.5 Sonnet", provider="Anthropic"),
-    # Google
-    ModelInfo(id="google/gemini-3-pro-preview-20251117", name="Gemini 3 Pro", provider="Google", supports_reasoning=True),
-    ModelInfo(id="google/gemini-3-flash-preview-20251217", name="Gemini 3 Flash", provider="Google", supports_reasoning=True),
-    ModelInfo(id="google/gemini-2.5-pro", name="Gemini 2.5 Pro", provider="Google", supports_reasoning=True),
-    ModelInfo(id="google/gemini-2.5-flash", name="Gemini 2.5 Flash", provider="Google", supports_reasoning=True),
-    # DeepSeek
-    ModelInfo(id="deepseek/deepseek-v3.2-20251201", name="DeepSeek V3.2", provider="DeepSeek", supports_reasoning=True),
-    ModelInfo(id="deepseek/deepseek-chat-v3.1", name="DeepSeek V3.1", provider="DeepSeek", supports_reasoning=True),
-    ModelInfo(id="deepseek/deepseek-r1", name="DeepSeek R1", provider="DeepSeek", supports_reasoning=True),
-    ModelInfo(id="deepseek/deepseek-r1:free", name="DeepSeek R1 (Free)", provider="DeepSeek", supports_reasoning=True),
-    # Meta
-    ModelInfo(id="meta-llama/llama-3.3-70b-instruct", name="Llama 3.3 70B", provider="Meta"),
-    # Qwen
-    ModelInfo(id="qwen/qwen-2.5-72b-instruct", name="Qwen 2.5 72B", provider="Qwen"),
-]
-
-
 @router.get("/models", response_model=List[ModelInfo])
 def list_available_models():
     """
@@ -79,7 +49,16 @@ def list_available_models():
 
     Returns all models that can be used with the multi-model chat.
     """
-    return AVAILABLE_MODELS
+    models = get_available_models(include_reasoning=True)
+    return [
+        ModelInfo(
+            id=model["id"],
+            name=model.get("name", model["id"]),
+            provider=model.get("provider", "Unknown"),
+            supports_reasoning=model.get("supports_reasoning", False),
+        )
+        for model in models
+    ]
 
 
 @router.post("/chat/stream")
@@ -176,7 +155,7 @@ async def get_agent_info():
         "name": "LaTeX Editor AI (Beta)",
         "description": "Multi-model LaTeX editor assistant powered by OpenRouter",
         "default_model": "openai/gpt-5.2-20251211",
-        "available_models": len(AVAILABLE_MODELS),
+        "available_models": len(get_available_models(include_reasoning=False)),
         "tools": [
             {
                 "name": "answer_question",

@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
 import openai
+import httpx
 
 from app.core.config import settings
 from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator, DISCUSSION_TOOLS
@@ -80,6 +82,166 @@ REASONING_SUPPORTED_MODELS = {
     "deepseek/deepseek-r1:free",
 }
 
+MODEL_CACHE_TTL_SECONDS = 24 * 60 * 60  # 24 hours
+REDIS_CACHE_KEY = "openrouter_available_models:v3"
+_model_cache: Dict[str, Any] = {"timestamp": 0.0, "models": None}
+_redis_client = None
+_redis_initialized = False
+REASONING_PARAM_KEYS = {
+    "reasoning",
+    "include_reasoning",
+    "reasoning_effort",
+    "reasoning_mode",
+    "thinking",
+    "thinking_level",
+}
+TOOLS_PARAM_KEYS = {"tools", "tool_choice"}
+
+
+def _get_redis_client():
+    global _redis_client, _redis_initialized
+    if _redis_initialized:
+        return _redis_client
+    _redis_initialized = True
+    try:
+        import redis as redis_lib
+        client = redis_lib.Redis.from_url(settings.REDIS_URL, socket_connect_timeout=1, socket_timeout=1)
+        client.ping()
+        _redis_client = client
+    except Exception:
+        _redis_client = None
+    return _redis_client
+
+
+def _provider_display_name(raw_provider: str) -> str:
+    if not raw_provider:
+        return "Unknown"
+    normalized = raw_provider.strip().lower()
+    mapping = {
+        "openai": "OpenAI",
+        "anthropic": "Anthropic",
+        "google": "Google",
+        "deepseek": "DeepSeek",
+        "meta": "Meta",
+        "meta-llama": "Meta",
+        "qwen": "Qwen",
+    }
+    return mapping.get(normalized, normalized.replace("-", " ").title())
+
+
+def _fallback_models(include_reasoning: bool = False) -> List[Dict[str, Any]]:
+    models = [{"id": model_id, **info} for model_id, info in OPENROUTER_MODELS.items()]
+    if include_reasoning:
+        for model in models:
+            model["supports_reasoning"] = model["id"] in REASONING_SUPPORTED_MODELS
+    for model in models:
+        model.setdefault("supports_tools", True)
+    return models
+
+
+def _get_cached_models() -> Optional[List[Dict[str, Any]]]:
+    now = time.time()
+    cached_models = _model_cache.get("models")
+    cached_at = _model_cache.get("timestamp", 0.0)
+    if cached_models and (now - cached_at) < MODEL_CACHE_TTL_SECONDS:
+        return cached_models
+
+    client = _get_redis_client()
+    if not client:
+        return None
+
+    try:
+        raw = client.get(REDIS_CACHE_KEY)
+        if not raw:
+            return None
+        models = json.loads(raw)
+        if isinstance(models, list) and models:
+            _model_cache["models"] = models
+            _model_cache["timestamp"] = now
+            return models
+    except Exception:
+        return None
+    return None
+
+
+def _cache_models(models: List[Dict[str, Any]]) -> None:
+    _model_cache["models"] = models
+    _model_cache["timestamp"] = time.time()
+
+    client = _get_redis_client()
+    if not client:
+        return
+    try:
+        client.setex(REDIS_CACHE_KEY, MODEL_CACHE_TTL_SECONDS, json.dumps(models))
+    except Exception:
+        pass
+
+
+def _fetch_openrouter_models() -> List[Dict[str, Any]]:
+    headers = {
+        "HTTP-Referer": "https://scholarhub.space",
+        "X-Title": "ScholarHub",
+        "Accept": "application/json",
+    }
+    if settings.OPENROUTER_API_KEY:
+        headers["Authorization"] = f"Bearer {settings.OPENROUTER_API_KEY}"
+    else:
+        return []
+
+    try:
+        with httpx.Client(timeout=3.0) as client:
+            resp = client.get("https://openrouter.ai/api/v1/models", headers=headers)
+        if resp.status_code != 200:
+            logger.warning("OpenRouter models API returned %s", resp.status_code)
+            return []
+        payload = resp.json() or {}
+        items = payload.get("data", [])
+        models: List[Dict[str, Any]] = []
+        for item in items:
+            model_id = item.get("id")
+            if not model_id:
+                continue
+            model_type = item.get("type")
+            if model_type and model_type != "chat":
+                continue
+            name = item.get("name") or item.get("display_name") or model_id
+            provider_raw = item.get("provider") or item.get("owned_by") or model_id.split("/", 1)[0]
+            provider = _provider_display_name(provider_raw)
+            supported_params = item.get("supported_parameters") or []
+            supports_reasoning = None
+            supports_tools = None
+            if isinstance(supported_params, list):
+                if any(param in supported_params for param in REASONING_PARAM_KEYS):
+                    supports_reasoning = True
+                if any(param in supported_params for param in TOOLS_PARAM_KEYS):
+                    supports_tools = True
+            models.append(
+                {
+                    "id": model_id,
+                    "name": name,
+                    "provider": provider,
+                    "supports_reasoning": supports_reasoning,
+                    "supports_tools": supports_tools,
+                }
+            )
+        return models
+    except Exception as exc:
+        logger.warning("Failed to fetch OpenRouter models: %s", exc)
+        return []
+
+
+def model_supports_reasoning(model_id: str) -> bool:
+    """Check whether a model supports OpenRouter reasoning parameters."""
+    cached = _get_cached_models()
+    if cached:
+        for model in cached:
+            if model.get("id") == model_id:
+                supports = model.get("supports_reasoning")
+                if supports is not None:
+                    return bool(supports)
+                break
+    return model_id in REASONING_SUPPORTED_MODELS
+
 
 class OpenRouterOrchestrator(ToolOrchestrator):
     """
@@ -122,7 +284,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
 
     def _model_supports_reasoning(self) -> bool:
         """Check if the current model supports OpenRouter reasoning parameter."""
-        return self._model in REASONING_SUPPORTED_MODELS
+        return model_supports_reasoning(self._model)
 
     def _get_reasoning_params(self) -> dict:
         """Get reasoning parameters for the API call if enabled and supported."""
@@ -636,9 +798,32 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             return f"Completed: {', '.join(tools_called)}."
 
 
-def get_available_models() -> List[Dict[str, str]]:
+def get_available_models(include_reasoning: bool = False, require_tools: bool = False) -> List[Dict[str, Any]]:
     """Return list of available models for the frontend."""
-    return [
-        {"id": model_id, **info}
-        for model_id, info in OPENROUTER_MODELS.items()
-    ]
+    cached = _get_cached_models()
+    if cached:
+        models = cached
+    else:
+        models = _fetch_openrouter_models()
+        if models:
+            # Merge fallback models to keep curated set if API omits them
+            merged = {model["id"]: model for model in models}
+            for fallback in _fallback_models(include_reasoning=False):
+                if fallback["id"] not in merged:
+                    merged[fallback["id"]] = fallback
+                elif include_reasoning and merged[fallback["id"]].get("supports_reasoning") is None:
+                    merged[fallback["id"]]["supports_reasoning"] = fallback["id"] in REASONING_SUPPORTED_MODELS
+            models = list(merged.values())
+            _cache_models(models)
+        else:
+            models = _fallback_models(include_reasoning=False)
+
+    if include_reasoning:
+        for model in models:
+            if model.get("supports_reasoning") is not True:
+                model["supports_reasoning"] = model["id"] in REASONING_SUPPORTED_MODELS
+
+    if require_tools:
+        models = [model for model in models if model.get("supports_tools") is True]
+
+    return models
