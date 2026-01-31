@@ -16,6 +16,7 @@ from app.models import Project, ProjectMember, ProjectRole, User, ResearchPaper,
 from app.services.activity_feed import record_project_activity, preview_text
 from app.services.subscription_service import SubscriptionService
 from app.services.email_service import send_project_invitation_email
+from app.core.config import settings
 from app.schemas.pending_invitation import (
     PendingInvitationResponse,
     ProjectInviteRequest,
@@ -858,10 +859,14 @@ class DiscussionSettingsResponse(BaseModel):
     enabled: bool
     model: str
     owner_has_api_key: bool  # Whether project owner has configured their API key
+    viewer_has_api_key: bool  # Whether current user has configured their API key
+    server_key_available: bool  # Whether server key can be used for this user
+    use_owner_key_for_team: bool  # Whether owner key is shared with team members
 
 class DiscussionSettingsUpdate(BaseModel):
     enabled: Optional[bool] = None
     model: Optional[str] = None
+    use_owner_key_for_team: Optional[bool] = None
 
 
 @router.get("/{project_id}/discussion-settings", response_model=DiscussionSettingsResponse)
@@ -886,13 +891,22 @@ def get_project_discussion_settings(
     # Get project owner to check if they have an API key
     owner = db.query(User).filter(User.id == project.created_by).first()
     owner_has_api_key = bool(owner and owner.openrouter_api_key)
+    viewer_has_api_key = bool(current_user.openrouter_api_key)
+    server_key_available = bool(settings.OPENROUTER_API_KEY) and SubscriptionService.allows_server_key(db, current_user.id)
 
-    settings = project.discussion_settings or {"enabled": True, "model": "openai/gpt-5.2-20251211"}
+    discussion_settings = project.discussion_settings or {
+        "enabled": True,
+        "model": "openai/gpt-5.2-20251211",
+    }
+    use_owner_key_for_team = bool(discussion_settings.get("use_owner_key_for_team", False))
 
     return DiscussionSettingsResponse(
-        enabled=settings.get("enabled", True),
-        model=settings.get("model", "openai/gpt-5.2-20251211"),
+        enabled=discussion_settings.get("enabled", True),
+        model=discussion_settings.get("model", "openai/gpt-5.2-20251211"),
         owner_has_api_key=owner_has_api_key,
+        viewer_has_api_key=viewer_has_api_key,
+        server_key_available=server_key_available,
+        use_owner_key_for_team=use_owner_key_for_team,
     )
 
 
@@ -911,25 +925,37 @@ def update_project_discussion_settings(
         raise HTTPException(status_code=403, detail="Only project owner can update discussion settings")
 
     # Get current settings
-    settings = dict(project.discussion_settings or {"enabled": True, "model": "openai/gpt-5.2-20251211"})
+    discussion_settings = dict(
+        project.discussion_settings or {"enabled": True, "model": "openai/gpt-5.2-20251211"}
+    )
 
     # Update fields
     if update.enabled is not None:
-        settings["enabled"] = update.enabled
+        discussion_settings["enabled"] = update.enabled
     if update.model is not None:
-        settings["model"] = update.model
+        discussion_settings["model"] = update.model
+    if update.use_owner_key_for_team is not None:
+        discussion_settings["use_owner_key_for_team"] = update.use_owner_key_for_team
 
     # Save
-    project.discussion_settings = settings
+    project.discussion_settings = discussion_settings
     db.commit()
     db.refresh(project)
 
     # Get owner API key status
     owner = db.query(User).filter(User.id == project.created_by).first()
     owner_has_api_key = bool(owner and owner.openrouter_api_key)
+    viewer_has_api_key = bool(current_user.openrouter_api_key)
+    server_key_available = bool(settings.OPENROUTER_API_KEY) and SubscriptionService.allows_server_key(
+        db, current_user.id
+    )
+    use_owner_key_for_team = bool(discussion_settings.get("use_owner_key_for_team", False))
 
     return DiscussionSettingsResponse(
-        enabled=settings.get("enabled", True),
-        model=settings.get("model", "openai/gpt-5.2-20251211"),
+        enabled=discussion_settings.get("enabled", True),
+        model=discussion_settings.get("model", "openai/gpt-5.2-20251211"),
         owner_has_api_key=owner_has_api_key,
+        viewer_has_api_key=viewer_has_api_key,
+        server_key_available=server_key_available,
+        use_owner_key_for_team=use_owner_key_for_team,
     )

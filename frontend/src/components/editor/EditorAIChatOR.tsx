@@ -64,7 +64,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
   const [error, setError] = useState<string | null>(null)
   const [references, setReferences] = useState<ReferenceItem[]>([])
   const [reasoningMode, setReasoningMode] = useState(false)
-  const { models: openrouterModels } = useOpenRouterModels()
+  const { models: openrouterModels, warning: openrouterWarning } = useOpenRouterModels()
   const [selectedModel, setSelectedModel] = useState(openrouterModels[0]?.id)
   const abortControllerRef = useRef<AbortController | null>(null)
   const [expandedProposals, setExpandedProposals] = useState<Set<string>>(new Set())
@@ -450,6 +450,12 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
           </button>
         </div>
       </div>
+
+      {openrouterWarning && (
+        <div className="mx-4 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 shadow-sm dark:border-amber-400/40 dark:bg-amber-900/30 dark:text-amber-100">
+          {openrouterWarning}
+        </div>
+      )}
 
       {/* Model info banner */}
       {docStats.len > 0 && (

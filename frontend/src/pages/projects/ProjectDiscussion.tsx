@@ -169,6 +169,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     papers: DiscoveredPaper[]
     query: string
     isSearching: boolean
+    searchId?: string
   }>>({})
 
   // Ingestion state - managed here, passed to DiscoveryQueuePanel
@@ -265,7 +266,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
 
   // Helper to set search results for a specific channel
   const setReferenceSearchResults = useCallback((
-    value: { exchangeId: string; channelId: string; papers: DiscoveredPaper[]; query: string; isSearching: boolean } | null
+    value: { exchangeId: string; channelId: string; papers: DiscoveredPaper[]; query: string; isSearching: boolean; searchId?: string } | null
   ) => {
     if (!value) {
       // Clear results for current channel
@@ -286,6 +287,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         papers: value.papers,
         query: value.query,
         isSearching: value.isSearching,
+        searchId: value.searchId,
       }
     }))
   }, [activeChannelId])
@@ -296,6 +298,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     query: string
     isSearching: boolean
     notification: string | null
+    searchId?: string
   }>>({})
 
   // Track channels where user has dismissed the notification (prevents re-showing from history)
@@ -379,6 +382,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       query: string
       isSearching: boolean
       notification: string | null
+      searchId?: string
     }>
   ) => {
     if (!activeChannelId) return
@@ -387,7 +391,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       const newQueue = typeof value === 'function' ? value(currentQueue) : value
       return {
         ...prev,
-        [activeChannelId]: newQueue
+        [activeChannelId]: { ...currentQueue, ...newQueue }
       }
     })
   }, [activeChannelId])
@@ -1196,6 +1200,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         papers: currentResults?.exchangeId === params.exchangeId ? currentResults.papers : [],
         query: params.query,
         isSearching: true,
+        searchId: params.exchangeId,
       })
       // Also update discovery queue - auto-clear with notification
       setDiscoveryQueue((prev) => {
@@ -1207,6 +1212,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           notification: previousCount > 0
             ? `Cleared ${previousCount} previous ${previousCount === 1 ? 'discovery' : 'discoveries'}. Searching...`
             : null,
+          searchId: params.exchangeId,
         }
       })
       // Return context with original channel ID
@@ -1223,6 +1229,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         papers: papers,
         query: data.query,
         isSearching: false,
+        searchId: data.exchangeId,
       })
       // Also replace discovery queue for the original channel
       // Clear old ingestion status when new search results arrive
@@ -1238,6 +1245,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           query: data.query,
           isSearching: false,
           notification: `Found ${papers.length} paper${papers.length !== 1 ? 's' : ''} for "${data.query}"`,
+          searchId: data.exchangeId,
         })
       } else {
         // Store in the original channel's discovery queue
@@ -1248,6 +1256,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
             query: data.query,
             isSearching: false,
             notification: `Found ${papers.length} paper${papers.length !== 1 ? 's' : ''} for "${data.query}"`,
+            searchId: data.exchangeId,
           }
         }))
       }
@@ -1262,6 +1271,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         papers: currentResults?.exchangeId === params.exchangeId ? (currentResults.papers || []) : [],
         query: params.query,
         isSearching: false,
+        searchId: params.exchangeId,
       })
       // Also update discovery queue on error
       setDiscoveryQueue((prev) => ({
@@ -1435,6 +1445,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       reasoning: boolean
       scope: string[]
       recentSearchResults?: Array<{ title: string; authors?: string; year?: number; source?: string }>
+      recentSearchId?: string
       conversationHistory?: Array<{ role: string; content: string }>
     }) => {
       if (!activeChannelId) throw new Error('Channel not selected')
@@ -1457,6 +1468,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         reasoning: variables.reasoning,
         scope: variables.scope,
         recent_search_results: variables.recentSearchResults,
+        recent_search_id: variables.recentSearchId,
         conversation_history: variables.conversationHistory,
       })
 
@@ -1768,9 +1780,10 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         (action: DiscussionAssistantSuggestedAction) => action.action_type === 'search_results'
       )
       if (searchResultsAction && originalChannelId) {
-        const payload = searchResultsAction.payload as { query?: string; papers?: DiscoveredPaper[] } | undefined
+        const payload = searchResultsAction.payload as { query?: string; papers?: DiscoveredPaper[]; search_id?: string } | undefined
         const papers = payload?.papers || []
         const query = payload?.query || ''
+        const searchId = payload?.search_id || entryId
         if (papers.length > 0) {
           // Clear old ingestion status when new search results arrive
           setIngestionStatesByChannel(prev => {
@@ -1785,6 +1798,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
               papers: papers,
               query: query,
               isSearching: false,
+              searchId,
             }
           }))
           setDiscoveryQueueByChannel(prev => ({
@@ -1794,6 +1808,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
               query: query,
               isSearching: false,
               notification: `Found ${papers.length} paper${papers.length !== 1 ? 's' : ''} for "${query}"`,
+              searchId,
             }
           }))
         }
@@ -1804,9 +1819,11 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         (action: DiscussionAssistantSuggestedAction) => action.action_type === 'library_update'
       )
       if (libraryUpdateAction && originalChannelId) {
-        const payload = libraryUpdateAction.payload as { updates?: { index: number; reference_id: string; ingestion_status: string }[] } | undefined
+        const payload = libraryUpdateAction.payload as { updates?: { index: number; reference_id: string; ingestion_status: string }[]; search_id?: string } | undefined
         const updates = payload?.updates || []
-        if (updates.length > 0) {
+        const currentSearchId = discoveryQueueByChannel[originalChannelId]?.searchId
+        const shouldApply = !(payload?.search_id && currentSearchId && payload.search_id !== currentSearchId)
+        if (shouldApply && updates.length > 0) {
           // Clear dismissed state so notification shows
           setDismissedNotificationChannels(prev => {
             const next = new Set(prev)
@@ -1960,9 +1977,10 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
 
         // Handle search_results - papers already fetched by backend, just display them
         if (action.action_type === 'search_results') {
-          const payload = action.payload as { query?: string; papers?: DiscoveredPaper[]; total_found?: number } | undefined
+          const payload = action.payload as { query?: string; papers?: DiscoveredPaper[]; total_found?: number; search_id?: string } | undefined
           const papers = payload?.papers || []
           const query = payload?.query || ''
+          const searchId = payload?.search_id || exchange.id
           if (papers.length === 0) continue
 
           // Only process if exchange belongs to current channel
@@ -1987,6 +2005,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                 papers: papers,
                 query: query,
                 isSearching: false,
+                searchId,
               })
               // Populate discoveryQueue so papers show in drawer (notification bar stays hidden)
               setDiscoveryQueue({
@@ -1994,6 +2013,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                 query: query,
                 isSearching: false,
                 notification: null, // No notification since channel is dismissed
+                searchId,
               })
               continue
             } else {
@@ -2023,6 +2043,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
             papers: papers,
             query: query,
             isSearching: false,
+            searchId,
           })
 
           // Restore discoveryQueue.papers so notification bar shows them
@@ -2031,6 +2052,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
             query: query,
             isSearching: false,
             notification: `Found ${papers.length} papers`,
+            searchId,
           })
           // Continue to process all actions - React batches state updates
           continue
@@ -2039,7 +2061,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         // Handle library_update - auto-apply ingestion status from AI's add_to_library
         if (action.action_type === 'library_update') {
           console.log('[ProjectDiscussion] Found library_update action:', action)
-          const payload = action.payload as { updates?: { index: number; reference_id: string; ingestion_status: string }[] } | undefined
+          const payload = action.payload as { updates?: { index: number; reference_id: string; ingestion_status: string }[]; search_id?: string } | undefined
           const updates = payload?.updates || []
 
           // Only process if exchange belongs to current channel
@@ -2049,6 +2071,15 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           }
           if (exchange.channelId && exchange.channelId !== activeChannelId) {
             console.log('[ProjectDiscussion] Skipping - channel mismatch:', exchange.channelId, 'vs', activeChannelId)
+            continue
+          }
+          const currentSearchId = discoveryQueueByChannel[activeChannelId]?.searchId
+          if (payload?.search_id && currentSearchId && payload.search_id !== currentSearchId) {
+            markActionApplied(exchange.id, actionKey)
+            continue
+          }
+          if (!payload?.search_id && exchange.fromHistory) {
+            markActionApplied(exchange.id, actionKey)
             continue
           }
 
@@ -2158,12 +2189,14 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
             papers: [],
             query: batchQuery,
             isSearching: true,
+            searchId: exchange.id,
           })
           setDiscoveryQueue(() => ({
             papers: [],
             query: batchQuery,
             isSearching: true,
             notification: `Searching ${queries.length} topics...`,
+            searchId: exchange.id,
           }))
 
           // Execute batch search
@@ -2183,6 +2216,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                 papers: allPapers,
                 query: batchQuery,
                 isSearching: false,
+                searchId: exchange.id,
               })
               // Update discovery queue - replace, not accumulate
               setDiscoveryQueue({
@@ -2190,6 +2224,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                 query: batchQuery,
                 isSearching: false,
                 notification: `Found ${allPapers.length} paper${allPapers.length !== 1 ? 's' : ''} across ${queries.length} topics`,
+                searchId: exchange.id,
               })
             })
             .catch((error) => {
@@ -2202,6 +2237,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                   papers: currentResults.papers,
                   query: currentResults.query,
                   isSearching: false,
+                  searchId: exchange.id,
                 })
               }
               setDiscoveryQueue(prev => ({
@@ -2374,12 +2410,14 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         papers: [],
         query: batchQuery,
         isSearching: true,
+        searchId: exchange.id,
       })
       setDiscoveryQueue(() => ({
         papers: [],
         query: batchQuery,
         isSearching: true,
         notification: `Searching ${queries.length} topics...`,
+        searchId: exchange.id,
       }))
 
       // Execute batch search
@@ -2399,6 +2437,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
             papers: allPapers,
             query: batchQuery,
             isSearching: false,
+            searchId: exchange.id,
           })
           // Update discovery queue - replace, not accumulate
           setDiscoveryQueue({
@@ -2406,6 +2445,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
             query: batchQuery,
             isSearching: false,
             notification: `Found ${allPapers.length} paper${allPapers.length !== 1 ? 's' : ''} across ${queries.length} topics`,
+            searchId: exchange.id,
           })
         })
         .catch((error) => {
@@ -2418,6 +2458,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
               papers: currentResults.papers,
               query: currentResults.query,
               isSearching: false,
+              searchId: exchange.id,
             })
           }
           setDiscoveryQueue(prev => ({
@@ -2441,9 +2482,10 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
 
     // Handle search_results - papers already fetched, just display them
     if (action.action_type === 'search_results') {
-      const payload = action.payload as { query?: string; papers?: DiscoveredPaper[]; total_found?: number } | undefined
+      const payload = action.payload as { query?: string; papers?: DiscoveredPaper[]; total_found?: number; search_id?: string } | undefined
       const papers = payload?.papers || []
       const query = payload?.query || ''
+      const searchId = payload?.search_id || exchange.id
       markActionApplied(exchange.id, actionKey)
 
       // Display results in Discovery Queue panel - replace, not accumulate
@@ -2455,6 +2497,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           papers: papers,  // Replace with new papers
           query: query,
           isSearching: false,
+          searchId,
         })
         // Also replace discoveryQueue (not accumulate)
         setDiscoveryQueue({
@@ -2462,6 +2505,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           query: query,
           isSearching: false,
           notification: `Found ${papers.length} papers`,
+          searchId,
         })
       }
       return
@@ -2469,10 +2513,14 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
 
     // Handle library_update - ingestion status updates from AI's add_to_library tool
     if (action.action_type === 'library_update') {
-      const payload = action.payload as { updates?: { index: number; reference_id: string; ingestion_status: string }[] } | undefined
+      const payload = action.payload as { updates?: { index: number; reference_id: string; ingestion_status: string }[]; search_id?: string } | undefined
       const updates = payload?.updates || []
       markActionApplied(exchange.id, actionKey)
 
+      const currentSearchId = activeChannelId ? discoveryQueueByChannel[activeChannelId]?.searchId : undefined
+      if (payload?.search_id && currentSearchId && payload.search_id !== currentSearchId) {
+        return
+      }
       if (updates.length > 0 && activeChannelId) {
         // Convert index-based updates to paper ID-based ingestion states
         const channelPapers = discoveryQueue.papers.length > 0
@@ -2728,6 +2776,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         pdf_url: p.pdf_url,
         is_open_access: p.is_open_access,
       }))
+      const recentSearchId = referenceSearchResults?.searchId ?? discoveryQueue.searchId
       // Build conversation history from previous exchanges
       const conversationHistory: Array<{ role: string; content: string }> = []
       for (const exchange of assistantHistory) {
@@ -2738,7 +2787,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           conversationHistory.push({ role: 'assistant', content: exchange.response.message })
         }
       }
-      assistantMutation.mutate({ id: entryId, question, reasoning, scope: assistantScope, recentSearchResults, conversationHistory })
+      assistantMutation.mutate({ id: entryId, question, reasoning, scope: assistantScope, recentSearchResults, recentSearchId, conversationHistory })
       // Don't clear search results here - they will be replaced when new search results arrive
       // This keeps previous search results visible until a new paper search completes
       return

@@ -1,9 +1,11 @@
 import { useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { X, Bot, AlertCircle, CheckCircle } from 'lucide-react'
 import { projectsAPI } from '../../services/api'
 import { ProjectDetail } from '../../types'
 import { useOpenRouterModels } from '../discussion/ModelSelector'
+import { useAuth } from '../../contexts/AuthContext'
 
 const PROVIDER_ORDER = ['OpenAI', 'Anthropic', 'Google', 'DeepSeek', 'Meta', 'Qwen']
 
@@ -15,7 +17,8 @@ interface ProjectSettingsModalProps {
 
 export default function ProjectSettingsModal({ project, isOpen, onClose }: ProjectSettingsModalProps) {
   const queryClient = useQueryClient()
-  const { models: openrouterModels } = useOpenRouterModels(project.id)
+  const { user } = useAuth()
+  const { models: openrouterModels, warning: openrouterWarning } = useOpenRouterModels(project.id)
 
   const modelGroups = openrouterModels.reduce((acc, model) => {
     if (!acc[model.provider]) {
@@ -42,8 +45,15 @@ export default function ProjectSettingsModal({ project, isOpen, onClose }: Proje
   })
 
   const settings = settingsQuery.data
+  const settingsLoaded = Boolean(settings)
   const aiModel = settings?.model || openrouterModels[0]?.id
   const ownerHasApiKey = settings?.owner_has_api_key ?? false
+  const viewerHasApiKey = settings?.viewer_has_api_key ?? false
+  const serverKeyAvailable = settings?.server_key_available ?? false
+  const useOwnerKeyForTeam = settings?.use_owner_key_for_team ?? false
+  const isOwner = user?.id === project.created_by
+  const ownerKeyAvailableForViewer = isOwner ? ownerHasApiKey : ownerHasApiKey && useOwnerKeyForTeam
+  const hasAnyApiKey = settingsLoaded && (viewerHasApiKey || serverKeyAvailable || ownerKeyAvailableForViewer)
 
   // Update settings mutation
   const updateSettingsMutation = useMutation({
@@ -59,8 +69,8 @@ export default function ProjectSettingsModal({ project, isOpen, onClose }: Proje
 
   if (!isOpen) return null
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-sm">
       <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-900">
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
@@ -88,26 +98,82 @@ export default function ProjectSettingsModal({ project, isOpen, onClose }: Proje
           </div>
         ) : (
           <div className="space-y-5">
+            {settingsQuery.isError && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-700 dark:border-amber-400/40 dark:bg-amber-900/30 dark:text-amber-300">
+                <AlertCircle className="mr-2 inline-block h-4 w-4" />
+                Unable to load AI settings. Please refresh and try again.
+              </div>
+            )}
             {/* API Key Status */}
-            <div className={`rounded-xl p-4 ${ownerHasApiKey ? 'bg-green-50 dark:bg-green-500/10' : 'bg-amber-50 dark:bg-amber-500/10'}`}>
+            <div className={`rounded-xl p-4 ${hasAnyApiKey ? 'bg-green-50 dark:bg-green-500/10' : 'bg-amber-50 dark:bg-amber-500/10'}`}>
               <div className="flex items-start gap-3">
-                {ownerHasApiKey ? (
+                {hasAnyApiKey ? (
                   <CheckCircle className="h-5 w-5 text-green-500 mt-0.5" />
                 ) : (
                   <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5" />
                 )}
                 <div>
-                  <p className={`text-sm font-medium ${ownerHasApiKey ? 'text-green-800 dark:text-green-300' : 'text-amber-800 dark:text-amber-300'}`}>
-                    {ownerHasApiKey ? 'API key configured' : 'No API key configured'}
+                  <p className={`text-sm font-medium ${hasAnyApiKey ? 'text-green-800 dark:text-green-300' : 'text-amber-800 dark:text-amber-300'}`}>
+                    {settingsLoaded ? (hasAnyApiKey ? 'API key configured' : 'No API key configured') : 'API status unavailable'}
                   </p>
                   <p className="text-xs text-gray-600 dark:text-slate-400 mt-1">
-                    {ownerHasApiKey
-                      ? 'Your API key will be used for all AI features in this project.'
-                      : 'Configure your OpenRouter API key in Settings → API Keys to enable AI features.'}
+                    {settingsLoaded
+                      ? viewerHasApiKey
+                        ? 'Your API key will be used for AI features in this project.'
+                        : serverKeyAvailable
+                          ? 'Your subscription allows the platform key to be used for AI features.'
+                          : ownerKeyAvailableForViewer
+                            ? isOwner
+                              ? 'Your API key will be used for AI features in this project.'
+                              : 'The project owner has shared their API key with the team.'
+                            : ownerHasApiKey && !isOwner
+                              ? "The project owner has a key but hasn't enabled sharing. Add your own key or ask them to enable sharing."
+                              : 'Configure your OpenRouter API key in Settings → API Keys to enable AI features.'
+                      : 'We could not load your AI key status. Refresh or check your connection.'}
                   </p>
                 </div>
               </div>
             </div>
+            {hasAnyApiKey && openrouterWarning && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-700 dark:border-amber-400/40 dark:bg-amber-900/30 dark:text-amber-300">
+                <AlertCircle className="mr-2 inline-block h-4 w-4" />
+                {openrouterWarning}
+              </div>
+            )}
+
+            {isOwner && settingsLoaded && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-200">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-medium">Share your API key with team members</p>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      When enabled, members without their own key can use yours.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!ownerHasApiKey || updateSettingsMutation.isPending}
+                    onClick={() =>
+                      updateSettingsMutation.mutate({ use_owner_key_for_team: !useOwnerKeyForTeam })
+                    }
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition ${
+                      useOwnerKeyForTeam ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-600'
+                    } ${!ownerHasApiKey ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    <span
+                      className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${
+                        useOwnerKeyForTeam ? 'translate-x-5' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+                {!ownerHasApiKey && (
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                    Add your OpenRouter API key first to enable sharing.
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* AI Model Selection */}
             <div>
@@ -148,6 +214,7 @@ export default function ProjectSettingsModal({ project, isOpen, onClose }: Proje
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

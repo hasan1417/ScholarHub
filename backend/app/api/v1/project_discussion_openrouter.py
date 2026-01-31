@@ -13,7 +13,7 @@ import logging
 import queue
 import threading
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from uuid import UUID, uuid4
 
 from fastapi import (
@@ -45,9 +45,9 @@ from app.schemas.project_discussion import (
 from app.services.ai_service import AIService
 from app.services.discussion_ai.openrouter_orchestrator import (
     OpenRouterOrchestrator,
-    get_available_models,
+    get_available_models_with_meta,
 )
-from app.api.utils.openrouter_keys import decrypt_openrouter_key_or_400
+from app.api.utils.openrouter_access import resolve_openrouter_key_for_project
 from app.services.subscription_service import SubscriptionService
 from app.services.websocket_manager import connection_manager
 
@@ -74,17 +74,50 @@ class OpenRouterModelInfo(BaseModel):
     supports_reasoning: bool = False
 
 
+class OpenRouterModelListResponse(BaseModel):
+    models: List[OpenRouterModelInfo]
+    source: str
+    warning: Optional[str] = None
+    key_source: Optional[str] = None
+
+
 @router.get("/projects/{project_id}/discussion-or/models")
 def list_openrouter_models(
     project_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> List[OpenRouterModelInfo]:
+    include_meta: bool = Query(False),
+) -> Union[List[OpenRouterModelInfo], OpenRouterModelListResponse]:
     """List available OpenRouter models."""
     project = get_project_or_404(db, project_id)
     ensure_project_member(db, project, current_user)
 
-    return [OpenRouterModelInfo(**m) for m in get_available_models(include_reasoning=True)]
+    discussion_settings = project.discussion_settings or {"enabled": True, "model": "openai/gpt-5.2-20251211"}
+    use_owner_key_for_team = bool(discussion_settings.get("use_owner_key_for_team", False))
+    resolution = resolve_openrouter_key_for_project(
+        db,
+        current_user,
+        project,
+        use_owner_key_for_team=use_owner_key_for_team,
+    )
+
+    meta = get_available_models_with_meta(
+        include_reasoning=True,
+        api_key=resolution.get("api_key"),
+        use_env_key=False,
+    )
+    models = [OpenRouterModelInfo(**m) for m in meta["models"]]
+    warning = resolution.get("warning") or meta.get("warning")
+
+    if include_meta:
+        return OpenRouterModelListResponse(
+            models=models,
+            source=meta.get("source") or "fallback",
+            warning=warning,
+            key_source=resolution.get("source") or "none",
+        )
+
+    return models
 
 
 @router.post(
@@ -124,32 +157,36 @@ def invoke_openrouter_assistant(
     # Use model from project settings
     model = discussion_settings.get("model", "openai/gpt-5.2-20251211")
 
-    # Determine API key: prefer project owner's key, fallback to current user's key
-    project_owner = db.query(User).filter(User.id == project.created_by).first()
-    api_key_to_use = None
-    if project_owner and project_owner.openrouter_api_key:
-        api_key_to_use = decrypt_openrouter_key_or_400(
-            project_owner.openrouter_api_key,
-            error_detail="Project owner OpenRouter API key is invalid. Please re-enter it in Settings.",
-            log_context=f"project owner {project_owner.id}",
+    # Determine API key based on user tier + project settings
+    use_owner_key_for_team = bool(discussion_settings.get("use_owner_key_for_team", False))
+    resolution = resolve_openrouter_key_for_project(
+        db,
+        current_user,
+        project,
+        use_owner_key_for_team=use_owner_key_for_team,
+    )
+    api_key_to_use = resolution.get("api_key")
+    key_source = resolution.get("source") or "none"
+
+    if resolution.get("error_status"):
+        raise HTTPException(
+            status_code=int(resolution["error_status"]),
+            detail={
+                "error": "no_api_key" if resolution["error_status"] == 402 else "invalid_api_key",
+                "message": resolution.get("error_detail") or "OpenRouter API key issue.",
+            },
         )
-        logger.info(f"Using project owner's API key for Discussion AI")
-    elif current_user.openrouter_api_key:
-        api_key_to_use = decrypt_openrouter_key_or_400(
-            current_user.openrouter_api_key,
-            error_detail="Your OpenRouter API key is invalid. Please re-enter it in Settings.",
-            log_context=f"user {current_user.id}",
-        )
-        logger.info(f"Using current user's API key for Discussion AI")
 
     if not api_key_to_use:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail={
                 "error": "no_api_key",
-                "message": "No API key available. The project owner needs to configure their OpenRouter API key in Settings.",
+                "message": "No API key available. Add your OpenRouter key or ask the project owner to enable key sharing.",
             },
         )
+
+    logger.info(f"Using {key_source} OpenRouter API key for Discussion AI")
 
     # Check subscription limit for discussion AI calls
     allowed, current_usage, limit = SubscriptionService.check_feature_limit(
@@ -305,6 +342,7 @@ def invoke_openrouter_assistant(
                     thread_channel,
                     question_text,
                     recent_search_results=search_results_list,
+                    recent_search_id=payload.recent_search_id,
                     previous_state_dict=previous_state_dict,
                     conversation_history=conversation_history,
                     reasoning_mode=reasoning_enabled,
@@ -490,6 +528,7 @@ def invoke_openrouter_assistant(
         channel,
         payload.question,
         recent_search_results=search_results_list,
+        recent_search_id=payload.recent_search_id,
         previous_state_dict=previous_state_dict,
         conversation_history=conversation_history,
         reasoning_mode=payload.reasoning or False,

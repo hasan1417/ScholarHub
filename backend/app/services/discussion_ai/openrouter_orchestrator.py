@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
@@ -28,35 +29,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Available OpenRouter models with pricing info
-# Model IDs from https://openrouter.ai/models (January 2026)
-OPENROUTER_MODELS = {
-    # OpenAI (GPT-5.2 series - latest)
-    "openai/gpt-5.2-20251211": {"name": "GPT-5.2", "provider": "OpenAI"},
-    "openai/gpt-5.2-codex-20260114": {"name": "GPT-5.2 Codex", "provider": "OpenAI"},
-    "openai/gpt-5.1-20251113": {"name": "GPT-5.1", "provider": "OpenAI"},
-    "openai/gpt-4o": {"name": "GPT-4o", "provider": "OpenAI"},
-    "openai/gpt-4o-mini": {"name": "GPT-4o Mini", "provider": "OpenAI"},
-    # Anthropic (Claude 4.5 series - latest)
-    "anthropic/claude-4.5-opus-20251124": {"name": "Claude 4.5 Opus", "provider": "Anthropic"},
-    "anthropic/claude-4.5-sonnet-20250929": {"name": "Claude 4.5 Sonnet", "provider": "Anthropic"},
-    "anthropic/claude-4.5-haiku-20251001": {"name": "Claude 4.5 Haiku", "provider": "Anthropic"},
-    "anthropic/claude-3.5-sonnet": {"name": "Claude 3.5 Sonnet", "provider": "Anthropic"},
-    # Google (Gemini 3 series - latest)
-    "google/gemini-3-pro-preview-20251117": {"name": "Gemini 3 Pro", "provider": "Google"},
-    "google/gemini-3-flash-preview-20251217": {"name": "Gemini 3 Flash", "provider": "Google"},
-    "google/gemini-2.5-pro": {"name": "Gemini 2.5 Pro", "provider": "Google"},
-    "google/gemini-2.5-flash": {"name": "Gemini 2.5 Flash", "provider": "Google"},
-    # DeepSeek (V3.2 series - latest)
-    "deepseek/deepseek-v3.2-20251201": {"name": "DeepSeek V3.2", "provider": "DeepSeek"},
-    "deepseek/deepseek-chat-v3.1": {"name": "DeepSeek V3.1", "provider": "DeepSeek"},
-    "deepseek/deepseek-r1": {"name": "DeepSeek R1", "provider": "DeepSeek"},
-    "deepseek/deepseek-r1:free": {"name": "DeepSeek R1 (Free)", "provider": "DeepSeek"},
-    # Meta
-    "meta-llama/llama-3.3-70b-instruct": {"name": "Llama 3.3 70B", "provider": "Meta"},
-    # Qwen
-    "qwen/qwen-2.5-72b-instruct": {"name": "Qwen 2.5 72B", "provider": "Qwen"},
-}
+# Fallback model catalog (override path via OPENROUTER_FALLBACK_MODELS_PATH)
+DEFAULT_FALLBACK_MODELS_PATH = os.path.join(os.path.dirname(__file__), "openrouter_models_fallback.json")
+BUILTIN_FALLBACK_MODELS = [
+    {"id": "openai/gpt-5.2-20251211", "name": "GPT-5.2", "provider": "OpenAI"},
+    {"id": "anthropic/claude-4.5-sonnet-20250929", "name": "Claude 4.5 Sonnet", "provider": "Anthropic"},
+]
 
 
 # Models that support OpenRouter's reasoning parameter
@@ -87,6 +65,7 @@ REDIS_CACHE_KEY = "openrouter_available_models:v3"
 _model_cache: Dict[str, Any] = {"timestamp": 0.0, "models": None}
 _redis_client = None
 _redis_initialized = False
+_fallback_models_cache: Dict[str, Any] = {"path": None, "mtime": None, "models": None}
 REASONING_PARAM_KEYS = {
     "reasoning",
     "include_reasoning",
@@ -129,13 +108,81 @@ def _provider_display_name(raw_provider: str) -> str:
     return mapping.get(normalized, normalized.replace("-", " ").title())
 
 
-def _fallback_models(include_reasoning: bool = False) -> List[Dict[str, Any]]:
-    models = [{"id": model_id, **info} for model_id, info in OPENROUTER_MODELS.items()]
+def _normalize_fallback_models(raw: Any) -> List[Dict[str, Any]]:
+    if isinstance(raw, dict):
+        items = [{"id": model_id, **(info if isinstance(info, dict) else {})} for model_id, info in raw.items()]
+    elif isinstance(raw, list):
+        items = [item for item in raw if isinstance(item, dict)]
+    else:
+        return []
+
+    models: List[Dict[str, Any]] = []
+    for item in items:
+        model_id = item.get("id")
+        if not model_id:
+            continue
+        name = item.get("name") or item.get("display_name") or model_id
+        provider = item.get("provider") or item.get("owned_by") or model_id.split("/", 1)[0]
+        normalized = {
+            "id": model_id,
+            "name": name,
+            "provider": _provider_display_name(provider),
+        }
+        if "supports_reasoning" in item:
+            normalized["supports_reasoning"] = item.get("supports_reasoning")
+        if "supports_tools" in item:
+            normalized["supports_tools"] = item.get("supports_tools")
+        models.append(normalized)
+    return models
+
+
+def _load_fallback_models_from_file(path: str) -> Optional[List[Dict[str, Any]]]:
+    if not path:
+        return None
+
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return None
+
+    cache = _fallback_models_cache
+    if cache.get("path") == path and cache.get("mtime") == stat.st_mtime and cache.get("models"):
+        return cache["models"]
+
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            raw = json.load(handle)
+    except Exception as exc:
+        logger.warning("Failed to load OpenRouter fallback models from %s: %s", path, exc)
+        return None
+
+    models = _normalize_fallback_models(raw)
+    if not models:
+        return None
+
+    cache["path"] = path
+    cache["mtime"] = stat.st_mtime
+    cache["models"] = models
+    return models
+
+
+def _fallback_models_with_source(include_reasoning: bool = False) -> tuple[List[Dict[str, Any]], str]:
+    fallback_path = settings.OPENROUTER_FALLBACK_MODELS_PATH or DEFAULT_FALLBACK_MODELS_PATH
+    models = _load_fallback_models_from_file(fallback_path)
+    source = "fallback" if models else "builtin"
+    if not models:
+        models = _normalize_fallback_models(BUILTIN_FALLBACK_MODELS)
     if include_reasoning:
         for model in models:
-            model["supports_reasoning"] = model["id"] in REASONING_SUPPORTED_MODELS
+            if model.get("supports_reasoning") is None:
+                model["supports_reasoning"] = model["id"] in REASONING_SUPPORTED_MODELS
     for model in models:
         model.setdefault("supports_tools", True)
+    return models, source
+
+
+def _fallback_models(include_reasoning: bool = False) -> List[Dict[str, Any]]:
+    models, _source = _fallback_models_with_source(include_reasoning=include_reasoning)
     return models
 
 
@@ -177,14 +224,14 @@ def _cache_models(models: List[Dict[str, Any]]) -> None:
         pass
 
 
-def _fetch_openrouter_models() -> List[Dict[str, Any]]:
+def _fetch_openrouter_models(api_key: Optional[str]) -> List[Dict[str, Any]]:
     headers = {
         "HTTP-Referer": "https://scholarhub.space",
         "X-Title": "ScholarHub",
         "Accept": "application/json",
     }
-    if settings.OPENROUTER_API_KEY:
-        headers["Authorization"] = f"Bearer {settings.OPENROUTER_API_KEY}"
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     else:
         return []
 
@@ -798,25 +845,45 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             return f"Completed: {', '.join(tools_called)}."
 
 
-def get_available_models(include_reasoning: bool = False, require_tools: bool = False) -> List[Dict[str, Any]]:
-    """Return list of available models for the frontend."""
-    cached = _get_cached_models()
-    if cached:
-        models = cached
-    else:
-        models = _fetch_openrouter_models()
-        if models:
-            # Merge fallback models to keep curated set if API omits them
-            merged = {model["id"]: model for model in models}
+def get_available_models_with_meta(
+    *,
+    include_reasoning: bool = False,
+    require_tools: bool = False,
+    api_key: Optional[str] = None,
+    use_env_key: bool = True,
+) -> Dict[str, Any]:
+    """Return available models with metadata about the source and warnings."""
+    resolved_key = api_key or (settings.OPENROUTER_API_KEY if use_env_key else None)
+    use_cache = api_key is None and use_env_key
+    source = None
+    warning = None
+
+    models: Optional[List[Dict[str, Any]]] = None
+    if use_cache:
+        cached = _get_cached_models()
+        if cached:
+            models = cached
+            source = "cache"
+
+    if models is None:
+        fetched = _fetch_openrouter_models(resolved_key)
+        if fetched:
+            merged = {model["id"]: model for model in fetched}
             for fallback in _fallback_models(include_reasoning=False):
                 if fallback["id"] not in merged:
                     merged[fallback["id"]] = fallback
                 elif include_reasoning and merged[fallback["id"]].get("supports_reasoning") is None:
                     merged[fallback["id"]]["supports_reasoning"] = fallback["id"] in REASONING_SUPPORTED_MODELS
             models = list(merged.values())
-            _cache_models(models)
+            source = "remote"
+            if use_cache:
+                _cache_models(models)
         else:
-            models = _fallback_models(include_reasoning=False)
+            models, source = _fallback_models_with_source(include_reasoning=False)
+            if resolved_key:
+                warning = "OpenRouter models API unavailable; using fallback list."
+            else:
+                warning = "OpenRouter API key not configured; using fallback list."
 
     if include_reasoning:
         for model in models:
@@ -826,4 +893,15 @@ def get_available_models(include_reasoning: bool = False, require_tools: bool = 
     if require_tools:
         models = [model for model in models if model.get("supports_tools") is True]
 
-    return models
+    return {"models": models, "source": source, "warning": warning}
+
+
+def get_available_models(include_reasoning: bool = False, require_tools: bool = False) -> List[Dict[str, Any]]:
+    """Return list of available models for the frontend."""
+    meta = get_available_models_with_meta(
+        include_reasoning=include_reasoning,
+        require_tools=require_tools,
+        api_key=None,
+        use_env_key=True,
+    )
+    return meta["models"]

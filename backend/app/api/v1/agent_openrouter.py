@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Union
 import logging
 
 from app.database import get_db
@@ -16,8 +16,8 @@ from app.api.deps import get_current_user
 from app.models.user import User
 from app.services.smart_agent_service_v2_or import SmartAgentServiceV2OR
 from app.services.subscription_service import SubscriptionService
-from app.services.discussion_ai.openrouter_orchestrator import get_available_models
-from app.api.utils.openrouter_keys import decrypt_openrouter_key_or_400
+from app.services.discussion_ai.openrouter_orchestrator import get_available_models, get_available_models_with_meta
+from app.api.utils.openrouter_access import resolve_openrouter_key_for_user
 
 logger = logging.getLogger(__name__)
 
@@ -42,23 +42,48 @@ class ModelInfo(BaseModel):
     supports_reasoning: bool = False
 
 
-@router.get("/models", response_model=List[ModelInfo])
-def list_available_models():
+class ModelListResponse(BaseModel):
+    models: List[ModelInfo]
+    source: str
+    warning: Optional[str] = None
+    key_source: Optional[str] = None
+
+
+@router.get("/models")
+def list_available_models(
+    current_user: User = Depends(get_current_user),
+    include_meta: bool = Query(False),
+) -> Union[List[ModelInfo], ModelListResponse]:
     """
     List available OpenRouter models for the LaTeX editor.
 
     Returns all models that can be used with the multi-model chat.
     """
-    models = get_available_models(include_reasoning=True)
-    return [
+    resolution = resolve_openrouter_key_for_user(db, current_user)
+    api_key = resolution.get("api_key")
+    key_source = resolution.get("source") or "none"
+
+    meta = get_available_models_with_meta(include_reasoning=True, api_key=api_key, use_env_key=False)
+    models = [
         ModelInfo(
             id=model["id"],
             name=model.get("name", model["id"]),
             provider=model.get("provider", "Unknown"),
             supports_reasoning=model.get("supports_reasoning", False),
         )
-        for model in models
+        for model in meta["models"]
     ]
+    warning = resolution.get("warning") or meta.get("warning")
+
+    if include_meta:
+        return ModelListResponse(
+            models=models,
+            source=meta.get("source") or "fallback",
+            warning=warning,
+            key_source=key_source,
+        )
+
+    return models
 
 
 @router.post("/chat/stream")
@@ -86,11 +111,24 @@ async def agent_chat_stream_or(
         reasoning_mode: Enable reasoning mode for supported models
     """
     # Get user's OpenRouter API key if configured
-    user_api_key = decrypt_openrouter_key_or_400(
-        getattr(current_user, "openrouter_api_key", None),
-        error_detail="Your OpenRouter API key is invalid. Please re-enter it in Settings.",
-        log_context=f"user {current_user.id}",
-    )
+    resolution = resolve_openrouter_key_for_user(db, current_user)
+    user_api_key = resolution.get("api_key")
+    if resolution.get("error_status"):
+        raise HTTPException(
+            status_code=int(resolution["error_status"]),
+            detail={
+                "error": "no_api_key" if resolution["error_status"] == 402 else "invalid_api_key",
+                "message": resolution.get("error_detail") or "OpenRouter API key issue.",
+            },
+        )
+    if not user_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "error": "no_api_key",
+                "message": "No API key available. Add your OpenRouter key or upgrade to Pro.",
+            },
+        )
 
     # Check subscription limit (shares limit with Discussion AI)
     # BYOK users have unlimited (-1), others have tier limits

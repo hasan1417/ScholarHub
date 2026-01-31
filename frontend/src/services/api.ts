@@ -57,6 +57,7 @@ import {
   DiscussionAssistantResponse,
   DiscussionAssistantHistoryItem,
   OpenRouterModel,
+  OpenRouterModelsResponse,
 } from '../types'
 
 const deduceRuntimeOrigin = () => {
@@ -465,15 +466,27 @@ export const projectsAPI = {
 
   // Discussion AI Settings
   getDiscussionSettings: (projectId: string) =>
-    api.get<{ enabled: boolean; model: string; owner_has_api_key: boolean }>(
-      `/projects/${projectId}/discussion-settings`
-    ),
+    api.get<{
+      enabled: boolean
+      model: string
+      owner_has_api_key: boolean
+      viewer_has_api_key: boolean
+      server_key_available: boolean
+      use_owner_key_for_team: boolean
+    }>(`/projects/${projectId}/discussion-settings`),
 
-  updateDiscussionSettings: (projectId: string, settings: { enabled?: boolean; model?: string }) =>
-    api.patch<{ enabled: boolean; model: string; owner_has_api_key: boolean }>(
-      `/projects/${projectId}/discussion-settings`,
-      settings
-    ),
+  updateDiscussionSettings: (
+    projectId: string,
+    settings: { enabled?: boolean; model?: string; use_owner_key_for_team?: boolean }
+  ) =>
+    api.patch<{
+      enabled: boolean
+      model: string
+      owner_has_api_key: boolean
+      viewer_has_api_key: boolean
+      server_key_available: boolean
+      use_owner_key_for_team: boolean
+    }>(`/projects/${projectId}/discussion-settings`, settings),
 }
 
 export const projectReferencesAPI = {
@@ -905,8 +918,11 @@ export const projectDiscussionAPI = {
 
 // OpenRouter Discussion API endpoints
 export const openRouterDiscussionAPI = {
-  listModels: (projectId: string) =>
-    api.get<OpenRouterModel[]>(`/projects/${projectId}/discussion-or/models`),
+  listModels: (projectId: string, includeMeta: boolean = true) =>
+    api.get<OpenRouterModel[] | OpenRouterModelsResponse>(
+      `/projects/${projectId}/discussion-or/models`,
+      { params: { include_meta: includeMeta } }
+    ),
 
   invokeAssistant: (
     projectId: string,
@@ -923,7 +939,11 @@ export const openRouterDiscussionAPI = {
 
 // OpenRouter Agent API endpoints
 export const openRouterAgentAPI = {
-  listModels: () => api.get<OpenRouterModel[]>('/agent-openrouter/models'),
+  listModels: (includeMeta: boolean = true) =>
+    api.get<OpenRouterModel[] | OpenRouterModelsResponse>(
+      '/agent-openrouter/models',
+      { params: { include_meta: includeMeta } }
+    ),
 }
 
 // Research Papers API endpoints

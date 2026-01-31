@@ -14,6 +14,7 @@ from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.constants.paper_templates import CONFERENCE_TEMPLATES
+from app.services.discussion_ai.tools import build_tool_registry
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -25,462 +26,8 @@ logger = logging.getLogger(__name__)
 # Available template IDs for create_paper tool
 AVAILABLE_TEMPLATES = list(CONFERENCE_TEMPLATES.keys())
 
-# Tool definitions for OpenAI function calling
-DISCUSSION_TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_recent_search_results",
-            "description": "Get papers from the most recent search. Use this FIRST when user says 'these papers', 'these references', 'the 5 papers', 'use them', or refers to papers that were just searched/found. This contains the papers from the last search action.",
-            "parameters": {
-                "type": "object",
-                "properties": {}
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_project_references",
-            "description": "Get papers/references from the user's project library (permanently saved papers). Use when user mentions 'my library', 'saved papers', 'my collection'. Returns total_count (TOTAL papers in library), returned_count (papers in this response), ingested_pdf_count, has_pdf_available_count, and paper details. For ingested PDFs, includes summary, key_findings, methodology, limitations. For detailed info about a single paper, use get_reference_details instead.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "topic_filter": {
-                        "type": "string",
-                        "description": "Optional keyword to filter references by topic"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of references to return. Omit or set high to get all references."
-                    }
-                }
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_reference_details",
-            "description": "Get detailed information about a specific reference from the library by ID. Use when user asks about a specific paper's content, what it's about, key findings, methodology, or wants a summary. Returns full analysis data if PDF was ingested (summary, key_findings, methodology, limitations, page_count).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "reference_id": {
-                        "type": "string",
-                        "description": "The ID of the reference to get details for"
-                    }
-                },
-                "required": ["reference_id"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "analyze_reference",
-            "description": "Re-analyze a reference to generate/update its summary, key_findings, methodology, and limitations. Use when get_reference_details returns empty analysis fields (null summary/key_findings) for an ingested PDF, or when user asks to 'analyze', 're-analyze', or 'summarize' a specific reference. Requires the reference to have an ingested PDF.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "reference_id": {
-                        "type": "string",
-                        "description": "The ID of the reference to analyze"
-                    }
-                },
-                "required": ["reference_id"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "search_papers",
-            "description": "Search for academic papers online. Returns papers matching the query. Papers with PDF available are marked with 'OA' (Open Access) and can be ingested for AI analysis.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Search query (e.g., 'machine learning transformers'). For recent papers, add year terms like '2023 2024'."
-                    },
-                    "count": {
-                        "type": "integer",
-                        "description": "Number of papers to find",
-                        "default": 5
-                    },
-                    "open_access_only": {
-                        "type": "boolean",
-                        "description": "If true, only return papers with PDF available (Open Access). Use when user asks for 'only open access', 'only OA', 'papers with PDF', 'papers I can ingest', etc.",
-                        "default": False
-                    }
-                },
-                "required": ["query"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_project_papers",
-            "description": "Get the user's own draft papers/documents in this project. Use when user mentions 'my paper', 'my draft', 'the paper I'm writing'. When displaying content to user, output it directly as markdown (NOT in a code block) so it renders nicely.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "include_content": {
-                        "type": "boolean",
-                        "description": "Whether to include full paper content",
-                        "default": False
-                    }
-                }
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_project_info",
-            "description": "Get information about the current research project (title, description, goals, keywords). Use when user asks about 'the project', 'project goals', or needs project context.",
-            "parameters": {
-                "type": "object",
-                "properties": {}
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "update_project_info",
-            "description": """Update project description, objectives, and/or keywords. IMPORTANT: NEVER ask user about 'replace' vs 'append' modes - these are internal parameters. Instead, infer the mode from user intent:
-- User says 'add keyword X' or 'also include Y' → use append mode
-- User says 'set keywords to X,Y,Z' or 'change keywords to...' or project is empty → use replace mode
-- User says 'remove keyword X' → use remove mode
-For new/empty projects, just use replace mode and apply the content directly without asking for confirmation.""",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "description": {
-                        "type": "string",
-                        "description": "New project description (replaces existing). Omit to keep unchanged."
-                    },
-                    "objectives": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of objectives. Each should be concise (max 150 chars)."
-                    },
-                    "objectives_mode": {
-                        "type": "string",
-                        "enum": ["replace", "append", "remove"],
-                        "description": "Internal: infer from user intent. 'add' → append, 'set/change to' → replace, 'remove' → remove.",
-                        "default": "replace"
-                    },
-                    "keywords": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of keywords/tags. Each should be 1-3 words."
-                    },
-                    "keywords_mode": {
-                        "type": "string",
-                        "enum": ["replace", "append", "remove"],
-                        "description": "Internal: infer from user intent. 'add' → append, 'set/change to' → replace, 'remove' → remove.",
-                        "default": "replace"
-                    }
-                }
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_channel_resources",
-            "description": "Get files/documents specifically attached to this discussion channel (uploaded PDFs, etc). NOT for papers added to library via this channel.",
-            "parameters": {
-                "type": "object",
-                "properties": {}
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_channel_papers",
-            "description": "Get papers that were added to the library through this discussion channel. Use when user asks 'how many papers added to/through this channel', 'papers we discussed', 'references added here'.",
-            "parameters": {
-                "type": "object",
-                "properties": {}
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "create_paper",
-            "description": "Create a new paper/document in the project. Use when user asks to 'create a paper', 'write a literature review', 'start a new document'. The paper will be available in the LaTeX editor. IMPORTANT: Content MUST be in LaTeX format, NOT Markdown! CRITICAL: Before calling this, ensure you have papers to cite - either from recent search, library, or call search_papers first!",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Title of the paper. Use a proper academic title WITHOUT metadata like '(5 References)' or counts. Example: 'Federated Learning for Healthcare: A Literature Review'"
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "Content in LATEX FORMAT ONLY. Use ONLY basic LaTeX: \\section{}, \\subsection{}, \\textbf{}, \\textit{}, \\begin{itemize}, \\cite{}. Do NOT use Markdown. MUST INCLUDE CITATIONS: Use \\cite{authorYYYYword} format where author=first author's last name (lowercase), YYYY=year, word=first significant word from title (lowercase). Example: \\cite{mcmahan2017communication} for 'Communication-Efficient Learning' by McMahan (2017). Every academic paper needs citations - do not create papers without \\cite{} commands! Do NOT add References section - it's auto-generated from your citations."
-                    },
-                    "paper_type": {
-                        "type": "string",
-                        "description": "Type of paper: 'literature_review', 'research', 'summary', 'notes'",
-                        "default": "research"
-                    },
-                    "abstract": {
-                        "type": "string",
-                        "description": "Optional abstract/summary of the paper"
-                    },
-                    "template": {
-                        "type": "string",
-                        "enum": ["generic", "ieee", "acl", "neurips", "icml", "iclr", "aaai", "cvpr", "iccv", "eccv", "nature", "elsevier", "acm", "lncs", "jmlr", "ijcai", "kdd", "pnas"],
-                        "description": "Conference/journal template format. Use when user specifies a format like 'IEEE format', 'ACL style', 'Nature template'. Default is 'generic' (simple article).",
-                        "default": "generic"
-                    }
-                },
-                "required": ["title", "content"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "update_paper",
-            "description": "Update an existing paper's content. Content MUST be in LaTeX format! Use section_name to replace a SPECIFIC section (e.g., 'Conclusion'), or append=True to add NEW sections at the end.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "paper_id": {
-                        "type": "string",
-                        "description": "ID of the paper to update (get from get_project_papers)"
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "New content in LATEX FORMAT. Use \\section{}, \\subsection{}, \\textbf{}, \\cite{}, etc. NOT Markdown. NEVER include \\end{document} or a References/Bibliography section - both are handled automatically."
-                    },
-                    "section_name": {
-                        "type": "string",
-                        "description": "Name of section to REPLACE (e.g., 'Conclusion', 'Introduction', 'Methods'). Content should be the section only (from \\section{Name} to the content, NOT including \\end{document} or bibliography). Use for 'extend/expand/rewrite section X' requests."
-                    },
-                    "append": {
-                        "type": "boolean",
-                        "description": "True = add content at end (for NEW sections). Ignored if section_name is provided.",
-                        "default": True
-                    }
-                },
-                "required": ["paper_id", "content"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "create_artifact",
-            "description": "Create a downloadable artifact (document, summary, review) that doesn't get saved to the project. Use when user wants content they can download without cluttering their project papers. Good for literature reviews, summaries, exports.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Title/filename for the artifact"
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "Content of the artifact (markdown or LaTeX format)"
-                    },
-                    "format": {
-                        "type": "string",
-                        "description": "Format of the artifact: 'markdown', 'latex', 'text', or 'pdf'. Use 'pdf' when user asks for PDF.",
-                        "enum": ["markdown", "latex", "text", "pdf"],
-                        "default": "markdown"
-                    },
-                    "artifact_type": {
-                        "type": "string",
-                        "description": "Type of artifact: 'literature_review', 'summary', 'notes', 'export', 'report'",
-                        "default": "document"
-                    }
-                },
-                "required": ["title", "content"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_created_artifacts",
-            "description": "Get artifacts (PDFs, documents) that were created in this discussion channel. Use when user asks about 'the PDF I created', 'the file you generated', 'my artifacts', or refers to previously created downloadable content.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of artifacts to return",
-                        "default": 10
-                    }
-                }
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "discover_topics",
-            "description": "Search the web to discover what specific topics/algorithms/methods exist for a broad area. Use when user asks about 'recent X', 'latest trends', 'new algorithms in Y', or vague topics where you don't know what specific things to search for. Returns a list of specific topics you can then search papers for.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "area": {
-                        "type": "string",
-                        "description": "The broad area to discover topics in (e.g., 'AI algorithms 2025', 'computer vision advances 2025', 'NLP breakthroughs')"
-                    }
-                },
-                "required": ["area"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "batch_search_papers",
-            "description": "Search for papers on MULTIPLE specific topics at once. Use after discover_topics to search for papers on each discovered topic. Returns papers grouped by topic.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "topics": {
-                        "type": "array",
-                        "description": "List of topics to search for",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "topic": {"type": "string", "description": "Display name for the topic"},
-                                "query": {"type": "string", "description": "Academic search query for this topic"},
-                                "max_results": {"type": "integer", "description": "Max papers per topic", "default": 5}
-                            },
-                            "required": ["topic", "query"]
-                        }
-                    }
-                },
-                "required": ["topics"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "add_to_library",
-            "description": "Add papers from recent search results to the project library AND ingest their PDFs for full-text AI analysis. IMPORTANT: Use this BEFORE creating a paper so you have full PDF content, not just abstracts. Returns which papers were added and their ingestion status.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "paper_indices": {
-                        "type": "array",
-                        "items": {"type": "integer"},
-                        "description": "Indices of papers from recent search results to add (0-based). Use [0,1,2,3,4] to add first 5 papers."
-                    },
-                    "ingest_pdfs": {
-                        "type": "boolean",
-                        "description": "Whether to download and ingest PDFs for AI analysis. Default true.",
-                        "default": True
-                    }
-                },
-                "required": ["paper_indices"]
-            }
-        }
-    },
-    # ========== DEEP SEARCH & PAPER FOCUS TOOLS ==========
-    {
-        "type": "function",
-        "function": {
-            "name": "deep_search_papers",
-            "description": "Search papers and synthesize an answer to a complex research question. Returns synthesized answer with supporting papers. Use this for questions like 'What are the main approaches to X?', 'How do researchers typically handle Y?', 'What's the state of the art in Z?'",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "research_question": {
-                        "type": "string",
-                        "description": "The research question to answer (e.g., 'What are the main approaches to attention in transformers?')"
-                    },
-                    "max_papers": {
-                        "type": "integer",
-                        "description": "Maximum number of papers to analyze",
-                        "default": 10
-                    }
-                },
-                "required": ["research_question"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "focus_on_papers",
-            "description": "Load specific papers into focus for detailed discussion. For SEARCH RESULTS use paper_indices (0-based). For LIBRARY papers, you MUST first call get_project_references to get real UUIDs, then pass those UUIDs to reference_ids. NEVER invent or guess IDs.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "paper_indices": {
-                        "type": "array",
-                        "items": {"type": "integer"},
-                        "description": "Indices from recent search results (0-based). 'paper 1' = index 0, 'paper 2' = index 1, etc."
-                    },
-                    "reference_ids": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "REAL UUID reference IDs from get_project_references. NEVER make up IDs like 'ref1' or 'paper1' - always get real UUIDs first!"
-                    }
-                }
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "analyze_across_papers",
-            "description": "Analyze a topic across all focused papers, finding patterns, agreements, and disagreements. Use when user asks to compare papers, find commonalities, or synthesize findings across multiple papers. Requires papers to be focused first.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "analysis_question": {
-                        "type": "string",
-                        "description": "The analysis question (e.g., 'How do their methodologies compare?', 'What are the common findings?', 'Where do they disagree?')"
-                    }
-                },
-                "required": ["analysis_question"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "generate_section_from_discussion",
-            "description": "Generate a paper section based on the discussion insights and focused papers. Use when user asks to 'write a methodology section', 'create related work', 'draft an introduction based on our discussion'.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "section_type": {
-                        "type": "string",
-                        "enum": ["methodology", "related_work", "introduction", "results", "discussion", "conclusion", "abstract"],
-                        "description": "Type of section to generate"
-                    },
-                    "target_paper_id": {
-                        "type": "string",
-                        "description": "Optional: ID of paper to add section to. If not provided, creates an artifact."
-                    },
-                    "custom_instructions": {
-                        "type": "string",
-                        "description": "Optional: Custom instructions for the section (e.g., 'focus on transformer methods', 'emphasize practical applications')"
-                    }
-                },
-                "required": ["section_type"]
-            }
-        }
-    }
-]
+DISCUSSION_TOOL_REGISTRY = build_tool_registry()
+DISCUSSION_TOOLS = DISCUSSION_TOOL_REGISTRY.get_schema_list()
 
 # System prompt with adaptive workflow based on request clarity
 BASE_SYSTEM_PROMPT = """You are a research assistant helping with academic papers.
@@ -726,6 +273,7 @@ class ToolOrchestrator:
     def __init__(self, ai_service: "AIService", db: "Session"):
         self.ai_service = ai_service
         self.db = db
+        self._tool_registry = DISCUSSION_TOOL_REGISTRY
 
     @property
     def model(self) -> str:
@@ -740,6 +288,7 @@ class ToolOrchestrator:
         channel: "ProjectDiscussionChannel",
         message: str,
         recent_search_results: Optional[List[Dict]] = None,
+        recent_search_id: Optional[str] = None,
         previous_state_dict: Optional[Dict[str, Any]] = None,
         conversation_history: Optional[List[Dict[str, str]]] = None,
         reasoning_mode: bool = False,
@@ -749,7 +298,14 @@ class ToolOrchestrator:
         try:
             # Build request context (thread-safe - local variable)
             ctx = self._build_request_context(
-                project, channel, message, recent_search_results, reasoning_mode, conversation_history, current_user
+                project,
+                channel,
+                message,
+                recent_search_results,
+                recent_search_id,
+                reasoning_mode,
+                conversation_history,
+                current_user,
             )
 
             # Build messages for LLM
@@ -768,6 +324,7 @@ class ToolOrchestrator:
         channel: "ProjectDiscussionChannel",
         message: str,
         recent_search_results: Optional[List[Dict]] = None,
+        recent_search_id: Optional[str] = None,
         previous_state_dict: Optional[Dict[str, Any]] = None,
         conversation_history: Optional[List[Dict[str, str]]] = None,
         reasoning_mode: bool = False,
@@ -783,7 +340,14 @@ class ToolOrchestrator:
         try:
             # Build request context (thread-safe - local variable)
             ctx = self._build_request_context(
-                project, channel, message, recent_search_results, reasoning_mode, conversation_history, current_user
+                project,
+                channel,
+                message,
+                recent_search_results,
+                recent_search_id,
+                reasoning_mode,
+                conversation_history,
+                current_user,
             )
 
             # Build messages for LLM
@@ -802,6 +366,7 @@ class ToolOrchestrator:
         channel: "ProjectDiscussionChannel",
         message: str,
         recent_search_results: Optional[List[Dict]],
+        recent_search_id: Optional[str],
         reasoning_mode: bool,
         conversation_history: Optional[List[Dict[str, str]]] = None,
         current_user: Optional["User"] = None,
@@ -818,6 +383,7 @@ class ToolOrchestrator:
             "channel": channel,
             "current_user": current_user,  # User who sent the prompt
             "recent_search_results": recent_search_results or [],
+            "recent_search_id": recent_search_id,
             "reasoning_mode": reasoning_mode,
             "max_papers": extracted_count if extracted_count else 999,
             "papers_requested": 0,
@@ -1319,7 +885,7 @@ class ToolOrchestrator:
 
         for tc in tool_calls:
             name = tc["name"]
-            args = tc["arguments"]
+            args = tc.get("arguments") or {}
 
             logger.info(f"Executing tool: {name} with args: {args}")
 
@@ -1360,56 +926,14 @@ class ToolOrchestrator:
                         results.append({"name": name, "result": cached_result})
                         continue
 
-                # Route to appropriate tool handler
-                if name == "get_recent_search_results":
-                    result = self._tool_get_recent_search_results(ctx)
-                elif name == "get_project_references":
-                    result = self._tool_get_project_references(ctx, **args)
-                    # Don't cache - library can change frequently and stale cache causes wrong counts
-                elif name == "get_reference_details":
-                    result = self._tool_get_reference_details(ctx, **args)
-                elif name == "analyze_reference":
-                    result = self._tool_analyze_reference(ctx, **args)
-                elif name == "search_papers":
-                    result = self._tool_search_papers(ctx, **args)
-                elif name == "get_project_papers":
-                    result = self._tool_get_project_papers(ctx, **args)
-                    # Cache the result
-                    if channel and result.get("count", 0) > 0:
-                        self.cache_tool_result(channel, name, result)
-                elif name == "get_project_info":
-                    result = self._tool_get_project_info(ctx)
-                elif name == "get_channel_resources":
-                    result = self._tool_get_channel_resources(ctx)
-                elif name == "get_channel_papers":
-                    result = self._tool_get_channel_papers(ctx)
-                elif name == "create_paper":
-                    result = self._tool_create_paper(ctx, **args)
-                elif name == "update_paper":
-                    result = self._tool_update_paper(ctx, **args)
-                elif name == "create_artifact":
-                    result = self._tool_create_artifact(ctx, **args)
-                elif name == "get_created_artifacts":
-                    result = self._tool_get_created_artifacts(ctx, **args)
-                elif name == "discover_topics":
-                    result = self._tool_discover_topics(**args)
-                elif name == "batch_search_papers":
-                    result = self._tool_batch_search_papers(**args)
-                elif name == "add_to_library":
-                    result = self._tool_add_to_library(ctx, **args)
-                elif name == "update_project_info":
-                    result = self._tool_update_project_info(ctx, **args)
-                # Deep search & paper focus tools
-                elif name == "deep_search_papers":
-                    result = self._tool_deep_search_papers(ctx, **args)
-                elif name == "focus_on_papers":
-                    result = self._tool_focus_on_papers(ctx, **args)
-                elif name == "analyze_across_papers":
-                    result = self._tool_analyze_across_papers(ctx, **args)
-                elif name == "generate_section_from_discussion":
-                    result = self._tool_generate_section_from_discussion(ctx, **args)
-                else:
+                try:
+                    result = self._tool_registry.execute(name, self, ctx, args)
+                except KeyError:
                     result = {"error": f"Unknown tool: {name}"}
+
+                # Cache the result for get_project_papers
+                if name == "get_project_papers" and channel and result.get("count", 0) > 0:
+                    self.cache_tool_result(channel, name, result)
 
                 results.append({"name": name, "result": result})
 
@@ -1710,11 +1234,14 @@ Respond ONLY with valid JSON, no markdown or explanation."""
     def _tool_search_papers(self, ctx: Dict[str, Any], query: str, count: int = 5, open_access_only: bool = False) -> Dict:
         """Search for papers online and return results directly."""
         import asyncio
+        from uuid import uuid4
         from app.services.paper_discovery_service import PaperDiscoveryService
         from app.models import Reference, ProjectReference
 
         oa_note = " (Open Access only)" if open_access_only else ""
         project = ctx.get("project")
+        search_id = str(uuid4())
+        ctx["last_search_id"] = search_id
 
         # Build lightweight lookup for existing library references (just DOIs and titles)
         library_dois = set()
@@ -1802,6 +1329,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                         "query": query,
                         "papers": papers,
                         "total_found": len(result.papers),
+                        "search_id": search_id,
                     },
                 },
             }
@@ -3300,6 +2828,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         no_pdf_count = sum(1 for p in added_papers if p.get("ingestion_status") == "no_pdf_available")
         already_existed_count = sum(1 for p in added_papers if p.get("already_in_library"))
         newly_added_count = len(added_papers) - already_existed_count
+        search_id = ctx.get("recent_search_id") or ctx.get("last_search_id")
 
         message_parts = []
         if newly_added_count > 0:
@@ -3352,6 +2881,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             "action": {
                 "type": "library_update",
                 "payload": {
+                    "search_id": search_id,
                     "updates": library_updates,
                 },
             },

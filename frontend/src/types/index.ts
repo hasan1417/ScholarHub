@@ -757,6 +757,7 @@ export interface DiscussionAssistantRequest {
   reasoning?: boolean
   scope?: Array<'transcripts' | 'papers' | 'references'>
   recent_search_results?: RecentSearchResultItem[]
+  recent_search_id?: string
 }
 
 export type DiscussionAssistantOrigin = 'resource' | 'message'
@@ -802,6 +803,13 @@ export interface OpenRouterModel {
   name: string
   provider: string
   supports_reasoning?: boolean
+}
+
+export interface OpenRouterModelsResponse {
+  models: OpenRouterModel[]
+  source: 'remote' | 'cache' | 'fallback' | 'builtin'
+  warning?: string
+  key_source?: 'project_owner' | 'current_user' | 'server' | 'none'
 }
 
 // Subscription types

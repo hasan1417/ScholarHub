@@ -151,7 +151,7 @@ const ProjectDiscussionOR = () => {
   const historyChannelRef = useRef<string | null>(null)
   const assistantAbortController = useRef<AbortController | null>(null)
   const STORAGE_PREFIX = `assistantHistory:${project.id}`
-  const { models: openrouterModels } = useOpenRouterModels(project.id)
+  const { models: openrouterModels, warning: openrouterWarning } = useOpenRouterModels(project.id)
 
   const buildStorageKey = useCallback(
     (channelId: string | null) => {
@@ -177,6 +177,17 @@ const ProjectDiscussionOR = () => {
     openrouterModels[0]?.id
   const discussionEnabled = discussionSettingsQuery.data?.enabled ?? true
   const ownerHasApiKey = discussionSettingsQuery.data?.owner_has_api_key ?? false
+  const viewerHasApiKey = discussionSettingsQuery.data?.viewer_has_api_key ?? false
+  const serverKeyAvailable = discussionSettingsQuery.data?.server_key_available ?? false
+  const useOwnerKeyForTeam = discussionSettingsQuery.data?.use_owner_key_for_team ?? false
+  const isOwner = user?.id === project.created_by
+  const ownerKeyAvailableForViewer = isOwner ? ownerHasApiKey : ownerHasApiKey && useOwnerKeyForTeam
+  const hasAnyApiKey = viewerHasApiKey || serverKeyAvailable || ownerKeyAvailableForViewer
+  const noKeyMessage = isOwner
+    ? 'AI commands require an API key. Add your OpenRouter key in Settings.'
+    : ownerHasApiKey && !ownerKeyAvailableForViewer
+      ? 'AI commands require an API key. The project owner has a key but has not enabled sharing. Add your own key or ask them to enable sharing.'
+      : 'AI commands require an API key. Add your OpenRouter key or ask the project owner to enable key sharing.'
 
   // Turn off reasoning when model doesn't support it
   useEffect(() => {
@@ -2607,17 +2618,23 @@ const ProjectDiscussionOR = () => {
                   Discussion AI is disabled for this project. Contact the project owner to enable it.
                 </div>
               )}
-              {discussionEnabled && !ownerHasApiKey && (
+              {discussionEnabled && !hasAnyApiKey && (
                 <div className="mx-3 mb-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
                   <AlertCircle className="mr-1.5 inline-block h-3.5 w-3.5" />
-                  AI commands require an API key. The project owner needs to configure their OpenRouter key in Settings.
+                  {noKeyMessage}
+                </div>
+              )}
+              {discussionEnabled && hasAnyApiKey && openrouterWarning && (
+                <div className="mx-3 mb-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                  <AlertCircle className="mr-1.5 inline-block h-3.5 w-3.5" />
+                  {openrouterWarning}
                 </div>
               )}
 
               {/* Message input */}
               <MessageInput
                 onSend={handleSendMessage}
-                placeholder={discussionEnabled && ownerHasApiKey
+                placeholder={discussionEnabled && hasAnyApiKey
                   ? `Type a message… use / to ask ${currentModelInfo.name} for help`
                   : 'Type a message…'
                 }
@@ -2627,9 +2644,9 @@ const ProjectDiscussionOR = () => {
                 onCancelEdit={handleCancelEdit}
                 isSubmitting={createMessageMutation.isPending || updateMessageMutation.isPending}
                 reasoningEnabled={assistantReasoning}
-                onToggleReasoning={discussionEnabled && ownerHasApiKey ? () => setAssistantReasoning((prev) => !prev) : undefined}
+                onToggleReasoning={discussionEnabled && hasAnyApiKey ? () => setAssistantReasoning((prev) => !prev) : undefined}
                 reasoningPending={assistantMutation.isPending}
-                reasoningSupported={discussionEnabled && ownerHasApiKey && modelSupportsReasoning(selectedModel, openrouterModels)}
+                reasoningSupported={discussionEnabled && hasAnyApiKey && modelSupportsReasoning(selectedModel, openrouterModels)}
                 aiGenerating={assistantMutation.isPending}
               />
             </>

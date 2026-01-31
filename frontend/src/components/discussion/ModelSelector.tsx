@@ -4,7 +4,7 @@ import { ChevronDown, Sparkles, Check } from 'lucide-react'
 import clsx from 'clsx'
 
 import { openRouterAgentAPI, openRouterDiscussionAPI } from '../../services/api'
-import { OpenRouterModel } from '../../types'
+import { OpenRouterModel, OpenRouterModelsResponse } from '../../types'
 
 export interface OpenRouterModelOption {
   id: string
@@ -86,13 +86,25 @@ export function useOpenRouterModels(projectId?: string, enabled: boolean = true)
     enabled,
   })
 
-  const models =
-    query.data && query.data.length > 0 ? normalizeModels(query.data) : OPENROUTER_MODELS
+  const resolvedData = query.data
+  const payload = Array.isArray(resolvedData)
+    ? resolvedData
+    : (resolvedData as OpenRouterModelsResponse | undefined)?.models
+  const warning = Array.isArray(resolvedData)
+    ? undefined
+    : (resolvedData as OpenRouterModelsResponse | undefined)?.warning
+  const source = Array.isArray(resolvedData)
+    ? undefined
+    : (resolvedData as OpenRouterModelsResponse | undefined)?.source
+
+  const models = payload && payload.length > 0 ? normalizeModels(payload) : OPENROUTER_MODELS
 
   return {
     models,
     isLoading: query.isLoading,
     error: query.error,
+    warning,
+    source,
   }
 }
 
