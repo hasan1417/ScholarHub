@@ -48,6 +48,7 @@ from app.services.discussion_ai.openrouter_orchestrator import (
     get_available_models_with_meta,
 )
 from app.api.utils.openrouter_access import resolve_openrouter_key_for_project
+from app.api.utils.request_dedup import check_and_set_request, clear_request
 from app.services.subscription_service import SubscriptionService
 from app.services.websocket_manager import connection_manager
 
@@ -269,6 +270,28 @@ def invoke_openrouter_assistant(
     if stream:
         exchange_id = str(uuid4())
         exchange_created_at = datetime.utcnow().isoformat() + "Z"
+
+        # Check for duplicate request using idempotency key
+        if payload.idempotency_key:
+            is_new, existing_exchange_id = check_and_set_request(
+                payload.idempotency_key,
+                exchange_id,
+            )
+            if not is_new and existing_exchange_id:
+                logger.info(f"Duplicate request detected, returning existing exchange: {existing_exchange_id}")
+                # Return a streaming response that just sends the duplicate status
+                def duplicate_response():
+                    yield f"data: {json.dumps({'type': 'duplicate', 'exchange_id': existing_exchange_id})}\n\n"
+                return StreamingResponse(
+                    duplicate_response(),
+                    media_type="text/event-stream",
+                    headers={
+                        "Cache-Control": "no-cache",
+                        "Connection": "keep-alive",
+                        "X-Duplicate-Request": "true",
+                        "X-Existing-Exchange-Id": existing_exchange_id,
+                    },
+                )
 
         # Save exchange immediately with status="processing"
         initial_response = DiscussionAssistantResponse(
@@ -520,7 +543,11 @@ def invoke_openrouter_assistant(
                 logger.exception("Streaming error", exc_info=exc)
                 yield "data: " + json.dumps({"type": "error", "message": "Stream error"}) + "\n\n"
 
-        return StreamingResponse(stream_events(), media_type="text/event-stream")
+        return StreamingResponse(
+            stream_events(),
+            media_type="text/event-stream",
+            headers={"X-Exchange-Id": exchange_id},
+        )
 
     # Non-streaming mode
     result = orchestrator.handle_message(

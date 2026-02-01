@@ -29,7 +29,26 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Fallback model catalog (override path via OPENROUTER_FALLBACK_MODELS_PATH)
+# =============================================================================
+# MODEL CATALOG FALLBACK STRATEGY
+# =============================================================================
+# When fetching available models, we use a three-tier fallback:
+#
+# 1. REMOTE: Fetch from OpenRouter API (cached for 24 hours)
+#    - Best source: real-time model availability and capabilities
+#    - Merged with fallback to ensure known models are always available
+#
+# 2. FALLBACK FILE: JSON file with curated model list
+#    - Path: openrouter_models_fallback.json (or OPENROUTER_FALLBACK_MODELS_PATH env)
+#    - Updated periodically with known working models
+#    - Used when API is unavailable or no API key configured
+#
+# 3. BUILTIN: Hardcoded minimal list (last resort)
+#    - Only GPT-5.2 and Claude 4.5 Sonnet
+#    - Used if fallback file is missing or corrupted
+#
+# This ensures the model selector always has options, even offline.
+# =============================================================================
 DEFAULT_FALLBACK_MODELS_PATH = os.path.join(os.path.dirname(__file__), "openrouter_models_fallback.json")
 BUILTIN_FALLBACK_MODELS = [
     {"id": "openai/gpt-5.2-20251211", "name": "GPT-5.2", "provider": "OpenAI"},
@@ -520,6 +539,9 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         iteration = 0
         all_tool_results = []
         final_content_chunks = []
+        # Track paper content detection for auto-create and resume logic
+        # See _detect_paper_content docstring for threshold rationale
+        latex_detected = False
 
         recent_results = ctx.get("recent_search_results", [])
         logger.info(f"[OpenRouter Streaming] Starting with model: {self.model}, recent_search_results: {len(recent_results)} papers")
@@ -532,7 +554,6 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             tool_calls = []
             iteration_content = []
             has_tool_call = False
-            latex_detected = False
             content_buffer = ""  # Buffer to detect LaTeX early
 
             for event in self._call_ai_with_tools_streaming(messages):
@@ -540,13 +561,13 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     iteration_content.append(event["content"])
                     content_buffer += event["content"]
 
-                    # Early LaTeX detection - check after accumulating some content
-                    if not latex_detected and len(content_buffer) > 50:
-                        if self._detect_paper_content(content_buffer):
+                    # Early LaTeX detection - check after accumulating enough content
+                    # Use higher threshold (200 chars) to reduce false positives
+                    if not latex_detected and len(content_buffer) > 200:
+                        if self._detect_paper_content(content_buffer, min_length=500):
                             latex_detected = True
                             logger.info("[OpenRouter Streaming] LaTeX/paper content detected early - stopping token stream")
-                            # Send status message to show loading state
-                            yield {"type": "status", "tool": "create_paper", "message": "Creating paper"}
+                            # Don't emit "Creating paper" status yet - wait for tool call or final detection
 
                     # Stream tokens to client UNLESS tool call or LaTeX detected
                     if not has_tool_call and not latex_detected:
@@ -621,12 +642,18 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         # AUTO-FIX: Detect if model output paper content but didn't call create_paper tool
         # Some models (e.g., DeepSeek) output content directly instead of calling tools
         create_paper_called = any(t.get("name") == "create_paper" for t in all_tool_results)
+        auto_create_succeeded = False
+
         if not create_paper_called:
             paper_format = self._detect_paper_content(final_message)
             if paper_format:
                 logger.info(f"[OpenRouter] Detected {paper_format} paper content without create_paper call - auto-invoking tool")
+                # NOW emit "Creating paper" status - we're confident this is paper content
+                yield {"type": "status", "tool": "create_paper", "message": "Creating paper"}
+
                 auto_result = self._auto_create_paper_from_content(ctx, final_message, paper_format)
                 if auto_result and auto_result.get("status") == "success":
+                    auto_create_succeeded = True
                     # Use proper tool result structure for _extract_actions
                     all_tool_results.append({"name": "create_paper", "result": auto_result})
                     # Update message to match normal Discussion AI format
@@ -635,6 +662,15 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     refs_linked = auto_result.get("references_linked", 0)
                     ref_msg = f" Linked {refs_linked} references." if refs_linked > 0 else ""
                     final_message = f"Created a new literature review paper in your project:\n\n**{paper_title}**\n(paper id: {paper_id})\n\n{ref_msg}"
+                else:
+                    logger.warning("[OpenRouter] Auto-create paper failed, streaming original content as fallback")
+
+        # RESUME: If early LaTeX detection suppressed streaming but NO paper was created
+        # (neither via tool call nor auto-create), stream the content so user sees the response
+        # Do NOT resume if create_paper was called via tool - that's the expected flow
+        if latex_detected and not create_paper_called and not auto_create_succeeded and final_message:
+            logger.info("[OpenRouter] Resuming stream - early detection didn't result in paper creation")
+            yield {"type": "token", "content": final_message}
 
         # AUTO-FIX: Generate message when model returns empty content after tool execution
         # Some models (e.g., DeepSeek) don't provide a summary message after executing tools
@@ -673,23 +709,68 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             }
         }
 
-    def _detect_paper_content(self, content: str) -> Optional[str]:
-        """Detect if content contains paper content (LaTeX or Markdown). Returns format or None."""
+    def _detect_paper_content(self, content: str, min_length: int = 0) -> Optional[str]:
+        """Detect if content contains paper content (LaTeX or Markdown). Returns format or None.
+
+        This is used for "auto-create paper" when models output paper content directly
+        instead of calling the create_paper tool (common with DeepSeek and some others).
+
+        DESIGN DECISIONS (see ACTION_PLAN_OPENROUTER.md P1):
+        =====================================================
+        1. min_length parameter: Prevents false positives on short snippets. Use 500+
+           for early detection during streaming to avoid premature "Creating paper" status.
+
+        2. LaTeX detection requires STRONG signals:
+           - 1 primary indicator (\\documentclass, \\begin{document}) + 1 secondary, OR
+           - 3+ secondary indicators (\\section, \\title, etc.)
+           This prevents false positives when AI just mentions LaTeX commands in chat.
+
+        3. Markdown detection requires:
+           - A title heading (# Title)
+           - Plus academic section headings (## Abstract, ## Introduction, etc.)
+           Simple markdown formatting won't trigger this.
+
+        4. Resume mechanism: If early detection triggers but auto-create fails,
+           the content is streamed to chat as fallback (no silent failures).
+
+        Args:
+            content: The text content to analyze
+            min_length: Minimum content length required for detection (0 = no minimum)
+
+        Returns:
+            "latex" | "markdown" | None
+        """
         import re
         if not content:
             return None
 
-        # Check for LaTeX patterns
-        latex_indicators = [
+        # Enforce minimum length to avoid false positives on short snippets
+        if min_length > 0 and len(content) < min_length:
+            return None
+
+        # Check for LaTeX patterns - require stronger signals
+        # Primary indicators (document structure)
+        primary_latex = [
             r'\\documentclass',
             r'\\begin\{document\}',
+        ]
+        # Secondary indicators (content structure)
+        secondary_latex = [
             r'\\title\{',
             r'\\section\{',
             r'\\subsection\{',
             r'\\usepackage',
+            r'\\author\{',
+            r'\\abstract',
+            r'\\maketitle',
         ]
-        latex_matches = sum(1 for pattern in latex_indicators if re.search(pattern, content))
-        if latex_matches >= 2:
+        primary_matches = sum(1 for pattern in primary_latex if re.search(pattern, content))
+        secondary_matches = sum(1 for pattern in secondary_latex if re.search(pattern, content))
+
+        # Require at least one primary indicator OR 3+ secondary indicators
+        if primary_matches >= 1 and secondary_matches >= 1:
+            return "latex"
+        if secondary_matches >= 3:
             return "latex"
 
         # Check for Markdown paper patterns (structured academic content)

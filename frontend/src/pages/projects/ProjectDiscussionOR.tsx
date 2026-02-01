@@ -287,6 +287,7 @@ const ProjectDiscussionOR = () => {
         papers: DiscoveredPaper[]
         query: string
         isSearching: boolean
+        searchId?: string  // Track search_id for correlation with library_update
       }
     >
   >({})
@@ -384,6 +385,7 @@ const ProjectDiscussionOR = () => {
         papers: DiscoveredPaper[]
         query: string
         isSearching: boolean
+        searchId?: string  // Track search_id for correlation with library_update
       } | null
     ) => {
       if (!value) {
@@ -403,6 +405,7 @@ const ProjectDiscussionOR = () => {
           papers: value.papers,
           query: value.query,
           isSearching: value.isSearching,
+          searchId: value.searchId,
         },
       }))
     },
@@ -1065,6 +1068,7 @@ const ProjectDiscussionOR = () => {
       reasoning,
       scope,
       recentSearchResults,
+      recentSearchId,
       conversationHistory,
     }: {
       id: string
@@ -1082,6 +1086,7 @@ const ProjectDiscussionOR = () => {
         pdf_url?: string
         is_open_access?: boolean
       }>
+      recentSearchId?: string  // Track search_id for library_update correlation
       conversationHistory?: Array<{ role: string; content: string }>
     }) => {
       if (!activeChannelId) throw new Error('No channel selected')
@@ -1126,6 +1131,7 @@ const ProjectDiscussionOR = () => {
           pdf_url: paper.pdf_url,
           is_open_access: paper.is_open_access,
         })),
+        recent_search_id: recentSearchId,  // For library_update correlation
       })
 
       // OpenRouter endpoint with streaming (model is determined by project settings)
@@ -1539,6 +1545,28 @@ const ProjectDiscussionOR = () => {
 
   // Process search_results and library_update actions
   useEffect(() => {
+    // Track latest search_id per channel within this loop
+    // This ensures we only show ingestion states for the LATEST search
+    const latestSearchIdByChannel: Record<string, string> = {}
+
+    // First pass: Find the latest search_id for each channel
+    for (const exchange of assistantHistory) {
+      if (exchange.status !== 'complete') continue
+      if (!exchange.response?.suggested_actions) continue
+      const channelId = exchange.channelId || activeChannelId
+      if (!channelId) continue
+
+      for (const action of exchange.response.suggested_actions) {
+        if (action.action_type === 'search_results') {
+          const payload = action.payload as { search_id?: string } | undefined
+          if (payload?.search_id) {
+            latestSearchIdByChannel[channelId] = payload.search_id
+          }
+        }
+      }
+    }
+
+    // Second pass: Process actions
     for (const exchange of assistantHistory) {
       if (exchange.status !== 'complete') continue
       if (!exchange.response?.suggested_actions) continue
@@ -1550,9 +1578,10 @@ const ProjectDiscussionOR = () => {
 
         // Handle search_results action
         if (action.action_type === 'search_results') {
-          const payload = action.payload as { query?: string; papers?: DiscoveredPaper[]; total_found?: number } | undefined
+          const payload = action.payload as { query?: string; papers?: DiscoveredPaper[]; total_found?: number; search_id?: string } | undefined
           const papers = payload?.papers || []
           const query = payload?.query || ''
+          const searchId = payload?.search_id
 
           if (!activeChannelId) continue
           if (exchange.channelId && exchange.channelId !== activeChannelId) continue
@@ -1575,6 +1604,7 @@ const ProjectDiscussionOR = () => {
               papers: papers,
               query: query,
               isSearching: false,
+              searchId: searchId,
             })
             setDiscoveryQueue({
               papers: papers,
@@ -1588,11 +1618,20 @@ const ProjectDiscussionOR = () => {
 
         // Handle library_update action
         if (action.action_type === 'library_update') {
-          const payload = action.payload as { updates?: { index: number; reference_id: string; ingestion_status: string }[] } | undefined
+          const payload = action.payload as { search_id?: string; updates?: { index: number; reference_id: string; ingestion_status: string }[] } | undefined
           const updates = payload?.updates || []
+          const searchId = payload?.search_id
 
           if (!activeChannelId) continue
           if (exchange.channelId && exchange.channelId !== activeChannelId) continue
+
+          // SKIP if this library_update is for an OLD search (not the latest)
+          // This prevents stale ingestion notifications from previous searches
+          const latestSearchId = latestSearchIdByChannel[activeChannelId]
+          if (searchId && latestSearchId && searchId !== latestSearchId) {
+            markActionApplied(exchange.id, actionKey)
+            continue  // Skip this library_update - it's from an old search
+          }
 
           // For history entries, skip if user dismissed notifications
           if (exchange.fromHistory && dismissedNotificationChannels.has(activeChannelId)) continue
@@ -1609,8 +1648,33 @@ const ProjectDiscussionOR = () => {
           markActionApplied(exchange.id, actionKey)
 
           // Convert AI updates to ingestion state keyed by paper ID
+          // Find papers from matching search_results action (using search_id), not from React state
+          // This ensures it works on page refresh when state hasn't been updated yet
           if (updates.length > 0) {
-            const queuePapers = discoveryQueueByChannel[activeChannelId]?.papers || []
+            let queuePapers: DiscoveredPaper[] = []
+
+            // First try to find papers from history using search_id
+            if (searchId) {
+              for (const hist of assistantHistory) {
+                if (hist.status !== 'complete' || !hist.response?.suggested_actions) continue
+                for (const act of hist.response.suggested_actions) {
+                  if (act.action_type === 'search_results') {
+                    const srPayload = act.payload as { search_id?: string; papers?: DiscoveredPaper[] } | undefined
+                    if (srPayload?.search_id === searchId && srPayload?.papers) {
+                      queuePapers = srPayload.papers
+                      break
+                    }
+                  }
+                }
+                if (queuePapers.length > 0) break
+              }
+            }
+
+            // Fallback to React state if history lookup failed
+            if (queuePapers.length === 0) {
+              queuePapers = discoveryQueueByChannel[activeChannelId]?.papers || []
+            }
+
             setIngestionStatesByChannel((prev) => {
               const channelStates = { ...(prev[activeChannelId] || {}) }
               for (const u of updates) {
@@ -1714,6 +1778,7 @@ const ProjectDiscussionOR = () => {
         reasoning,
         scope: assistantScope,
         recentSearchResults,
+        recentSearchId: referenceSearchResults?.searchId,  // For library_update correlation
         conversationHistory,
       })
       return
@@ -2120,26 +2185,15 @@ const ProjectDiscussionOR = () => {
                             .filter(a => a.action_type === 'paper_created' || a.action_type === 'paper_updated')
                             .map((action, idx) => {
                               const urlId = action.payload?.url_id || action.payload?.paper_id
-                              const title = action.payload?.title || 'Paper'
                               return (
-                                <div key={idx} className="inline-flex items-center gap-1.5 sm:gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1.5 sm:px-3 sm:py-2 dark:border-emerald-400/30 dark:bg-emerald-500/10">
-                                  <FileText className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
-                                  <span className="text-xs sm:text-sm font-medium text-emerald-700 dark:text-emerald-300 truncate max-w-[100px] sm:max-w-[200px]">{title}</span>
-                                  <div className="ml-1 sm:ml-2 flex gap-0.5 sm:gap-1 flex-shrink-0">
-                                    <button
-                                      onClick={() => navigate(`/projects/${getProjectUrlId(project)}/papers/${urlId}`)}
-                                      className="rounded px-1.5 py-0.5 text-[10px] sm:text-xs font-medium text-emerald-600 hover:bg-emerald-100 dark:text-emerald-400 dark:hover:bg-emerald-500/20"
-                                    >
-                                      View
-                                    </button>
-                                    <button
-                                      onClick={() => navigate(`/projects/${getProjectUrlId(project)}/papers/${urlId}/editor`)}
-                                      className="rounded px-1.5 py-0.5 text-[10px] sm:text-xs font-medium text-emerald-600 hover:bg-emerald-100 dark:text-emerald-400 dark:hover:bg-emerald-500/20"
-                                    >
-                                      Write
-                                    </button>
-                                  </div>
-                                </div>
+                                <button
+                                  key={idx}
+                                  onClick={() => navigate(`/projects/${getProjectUrlId(project)}/papers/${urlId}`)}
+                                  className="inline-flex items-center gap-1.5 sm:gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm font-medium text-emerald-700 hover:bg-emerald-100 dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20 transition-colors"
+                                >
+                                  <FileText className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-600 dark:text-emerald-400" />
+                                  View Paper
+                                </button>
                               )
                             })}
                         </div>

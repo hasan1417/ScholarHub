@@ -141,15 +141,14 @@ class SubscriptionService:
     def allows_server_key(db: Session, user_id: UUID) -> bool:
         """
         Return True if the user is entitled to use the server OpenRouter key.
-        BYOK users are excluded to avoid charging the platform.
+        All tiers (free, pro) can use the server key.
+        BYOK users are excluded - they must use their own key.
         """
         subscription = SubscriptionService.get_or_create_subscription(db, user_id)
         if subscription.tier_id == "byok":
             return False
-        if subscription.tier_id == "pro":
-            return True
-        limits = SubscriptionService.get_user_limits(db, user_id)
-        return limits.get("discussion_ai_calls") == -1
+        # All other tiers can use server key
+        return True
 
     @staticmethod
     def increment_usage(

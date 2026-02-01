@@ -76,6 +76,7 @@ uploads/
 
 # Sensitive files - NEVER commit
 CLAUDE.md
+.credentials/
 ops/jitsi/jitsi.env
 ops/jitsi/config/prosody/certs/*.key
 *.pem

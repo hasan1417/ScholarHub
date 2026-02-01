@@ -256,6 +256,7 @@ class DiscussionAssistantRequest(BaseModel):
     recent_search_results: Optional[List[RecentSearchResultItem]] = None  # Papers from last search
     recent_search_id: Optional[str] = None  # Search session ID for recent_search_results
     conversation_history: Optional[List[ConversationHistoryItem]] = None  # Previous messages for context
+    idempotency_key: Optional[str] = None  # Client-generated key to prevent duplicate requests
 
     @field_validator("scope")
     @classmethod

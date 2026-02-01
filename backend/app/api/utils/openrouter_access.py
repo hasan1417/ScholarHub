@@ -135,15 +135,8 @@ def resolve_openrouter_key_for_project(
             "error_status": None,
         }
 
-    if SubscriptionService.allows_server_key(db, current_user.id) and settings.OPENROUTER_API_KEY:
-        return {
-            "api_key": settings.OPENROUTER_API_KEY,
-            "source": "server",
-            "warning": warning,
-            "error_detail": None,
-            "error_status": None,
-        }
-
+    # Priority: owner key (if enabled) > server key
+    # Check owner key first if project owner has enabled sharing
     if use_owner_key_for_team:
         owner = db.query(User).filter(User.id == project.created_by).first()
         if owner and owner.openrouter_api_key:
@@ -168,6 +161,16 @@ def resolve_openrouter_key_for_project(
                     "error_detail": owner_warning,
                     "error_status": 400,
                 }
+
+    # Fall back to server key for all non-BYOK tiers
+    if SubscriptionService.allows_server_key(db, current_user.id) and settings.OPENROUTER_API_KEY:
+        return {
+            "api_key": settings.OPENROUTER_API_KEY,
+            "source": "server",
+            "warning": warning,
+            "error_detail": None,
+            "error_status": None,
+        }
 
     return {
         "api_key": None,

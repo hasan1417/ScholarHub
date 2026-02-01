@@ -969,7 +969,7 @@ class ToolOrchestrator:
                 "authors": p.get("authors", "Unknown"),
                 "year": p.get("year"),
                 "source": p.get("source", ""),
-                "abstract": p.get("abstract", "")[:500] if p.get("abstract") else "",
+                "abstract": p.get("abstract", ""),
                 "doi": p.get("doi"),
                 "url": p.get("url"),
                 "has_pdf_available": bool(p.get("pdf_url") or p.get("is_open_access")),
@@ -1051,7 +1051,7 @@ class ToolOrchestrator:
                 "title": ref.title,
                 "authors": ref.authors if isinstance(ref.authors, str) else ", ".join(ref.authors or []),
                 "year": ref.year,
-                "abstract": (ref.abstract or "")[:300],
+                "abstract": ref.abstract or "",
                 "source": ref.source,
                 "has_pdf": bool(ref.pdf_url),
                 "is_open_access": bool(ref.is_open_access),
@@ -1065,7 +1065,7 @@ class ToolOrchestrator:
                 if ref.key_findings:
                     paper_info["key_findings"] = ref.key_findings
                 if ref.methodology:
-                    paper_info["methodology"] = ref.methodology[:500] if ref.methodology else None
+                    paper_info["methodology"] = ref.methodology
                 if ref.limitations:
                     paper_info["limitations"] = ref.limitations
 
@@ -1310,7 +1310,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                     "title": p.title,
                     "authors": authors_list,  # Array, not string
                     "year": p.year,
-                    "abstract": p.abstract[:300] + "..." if p.abstract and len(p.abstract) > 300 else p.abstract,
+                    "abstract": p.abstract,
                     "doi": p.doi,
                     "url": p.url or p.pdf_url,
                     "pdf_url": p.pdf_url,
