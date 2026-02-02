@@ -2382,7 +2382,7 @@ async def search_references(
     from app.services.paper_discovery_service import PaperDiscoveryService
 
     # Default sources for discussion AI search (fast, reliable sources)
-    sources = request.sources or ["arxiv", "semantic_scholar", "openalex", "crossref"]
+    sources = request.sources or ["arxiv", "semantic_scholar", "openalex", "crossref", "pubmed", "europe_pmc"]
     max_results = min(request.max_results, 20)  # Cap at 20 results
 
     # Create discovery service and search
@@ -2495,7 +2495,7 @@ async def batch_search_references(
 
     # Limit to 5 topics max per request
     queries = request.queries[:5]
-    sources = ["arxiv", "semantic_scholar", "openalex", "crossref"]
+    sources = ["arxiv", "semantic_scholar", "openalex", "crossref", "pubmed", "europe_pmc"]
 
     results: List[TopicResult] = []
     total_found = 0

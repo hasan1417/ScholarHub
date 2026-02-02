@@ -1400,7 +1400,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         try:
             # Create discovery service (needs event loop to exist)
             discovery_service = PaperDiscoveryService()
-            sources = ["arxiv", "semantic_scholar", "openalex", "crossref"]
+            sources = ["arxiv", "semantic_scholar", "openalex", "crossref", "pubmed", "europe_pmc"]
             max_results = min(count, 20)  # Cap at 20 results
 
             # Request more to account for filtering (open access + library duplicates)
