@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set
 from urllib.parse import urlencode, urlparse, urljoin
