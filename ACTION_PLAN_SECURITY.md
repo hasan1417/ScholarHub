@@ -434,9 +434,20 @@ Replaced all 17 `print()` statements with `logger.debug()` and sanitized sensiti
 - 2026-02-02: L3 skipped. VCR-style tests not suitable for AI (non-deterministic, streaming). Current 92+ unit tests provide sufficient coverage.
 - 2026-02-02: Backlog - Spinner fix completed. Update displayMessage immediately on first token to hide spinner during tool calling.
 - 2026-02-02: Phase 4.1 completed. Added `get_related_papers` tool with Semantic Scholar priority and OpenAlex fallback. Supports similar/citing/references relations.
+- 2026-02-02: Phase 4.2 completed. Full semantic search infrastructure:
+  - EmbeddingService with SentenceTransformers + OpenAI providers
+  - paper_embeddings table with pgvector HNSW index
+  - CrossEncoderReranker for two-stage retrieval
+  - SemanticRanker combining lexical + semantic scoring
+  - EmbeddingWorker for background embedding generation
+  - semantic_search_library AI tool for library search
+- 2026-02-02: Phase 4.2 stability fixes:
+  - Fixed cross-thread lock issue: replaced asyncio.Lock with threading.Lock
+  - Fixed duplicate job processing: atomic UPDATE...RETURNING for job claiming
+  - Wired embedding queue to paper approval endpoint (UI integration)
 
 ## Next Steps
-All planned items complete. Only Phase 4.2 (Semantic Search with embeddings) remains as future work.
+All planned items complete. Search quality enhancement and semantic search fully implemented.
 
 ## Backlog (Deferred)
 
@@ -572,11 +583,50 @@ logger.info(f"[Discovery] query='{query}' → enhanced='{best_query}' | papers={
   - Permission: viewer level (read-only)
 - **Status:** Completed (2026-02-02)
 
-**4.2 Semantic Search (Embeddings)**
-- Generate query embeddings
-- Compare against paper embeddings
-- Requires embedding storage/indexing
-- **Status:** Not started
+**4.2 Semantic Search (Embeddings)** ✅ COMPLETED
+**Goal:** Improve recall and ranking for conceptual queries; enable semantic search inside the library.
+
+**Implementation:** Option C + Option D (unified EmbeddingService + cross-encoder rerank)
+
+**Components built:**
+1. **EmbeddingService** (`services/embedding_service.py`)
+   - SentenceTransformerProvider (all-MiniLM-L6-v2, 384 dims)
+   - OpenAIEmbeddingProvider (text-embedding-3-small, 1536 dims)
+   - Content hashing, batch processing, in-memory caching
+
+2. **Database migration** (`alembic/versions/20260202_add_paper_embeddings.py`)
+   - `paper_embeddings` table with pgvector VECTOR(384) column
+   - HNSW index for fast approximate nearest neighbor search
+   - `embedding_jobs` table for async processing queue
+
+3. **CrossEncoderReranker** (`services/paper_discovery/reranker.py`)
+   - Two-stage retrieval: bi-encoder filtering → cross-encoder scoring
+   - Model: cross-encoder/ms-marco-MiniLM-L-6-v2
+   - Score combination: 40% bi-encoder + 60% cross-encoder
+
+4. **SemanticRanker** (`services/paper_discovery/rankers.py`)
+   - Combines lexical + semantic scoring
+   - Formula: 30% lexical + 30% bi-encoder + 40% cross-encoder
+   - Enable via `USE_SEMANTIC_RANKER=true` environment variable
+
+5. **EmbeddingWorker** (`services/embedding_worker.py`)
+   - Background job processing for library paper embeddings
+   - Thread-safe: uses `threading.Lock` (not asyncio.Lock) for cross-thread safety
+   - Atomic job claiming: `UPDATE...RETURNING` prevents duplicate processing
+   - Respects `job.max_attempts` with fallback to `MAX_RETRIES` constant
+   - Triggered on paper approval (UI) and `add_to_library` tool (AI)
+   - Supports bulk reindexing
+
+6. **semantic_search_library tool** (`tools/search_tools.py`)
+   - AI tool for semantic search within project library
+   - Uses pgvector cosine similarity
+   - Returns papers ranked by semantic relevance
+
+7. **API Integration** (`api/v1/project_references.py`)
+   - Wired `queue_library_paper_embedding_sync` to paper approval endpoint
+   - Papers approved via UI now automatically get embeddings
+
+**Status:** Completed (2026-02-02)
 
 ---
 
