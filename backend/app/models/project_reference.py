@@ -80,6 +80,7 @@ class ProjectReference(Base):
     added_by = relationship("User", foreign_keys=[added_by_user_id])
     discovery_run = relationship("ProjectDiscoveryRun", back_populates="promoted_references")
     added_via_channel = relationship("ProjectDiscussionChannel", foreign_keys=[added_via_channel_id])
+    embedding = relationship("PaperEmbedding", back_populates="project_reference", uselist=False, cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<ProjectReference(project_id={self.project_id}, reference_id={self.reference_id}, status={self.status})>"

@@ -58,6 +58,10 @@ from .project_discussion_embedding import (
     ProjectDiscussionEmbedding,
     DiscussionEmbeddingOrigin,
 )
+from .paper_embedding import (
+    PaperEmbedding,
+    EmbeddingJob,
+)
 from .subscription import (
     SubscriptionTier,
     UserSubscription,
@@ -123,6 +127,8 @@ __all__ = [
     "DiscussionArtifactFormat",
     "ProjectDiscussionEmbedding",
     "DiscussionEmbeddingOrigin",
+    "PaperEmbedding",
+    "EmbeddingJob",
     "SubscriptionTier",
     "UserSubscription",
     "UsageTracking",

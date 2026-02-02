@@ -423,4 +423,141 @@ class GptRanker(PaperRanker):
         return output
 
 
+class SemanticRanker(PaperRanker):
+    """
+    Combined lexical + semantic ranker using two-stage retrieval.
+
+    Scoring formula:
+    - 30% lexical (SimpleRanker: title overlap + citations + recency)
+    - 30% bi-encoder similarity (embedding cosine similarity)
+    - 40% cross-encoder relevance (precise query-document scoring)
+
+    This provides the best ranking quality by combining:
+    1. Fast lexical matching for exact term overlap
+    2. Semantic understanding for conceptual similarity
+    3. Cross-encoder precision for final ordering
+    """
+
+    def __init__(self, config: DiscoveryConfig):
+        self.config = config
+        self._embedding_service = None
+        self._reranker = None
+        self._simple_ranker = SimpleRanker(config)
+
+    def _get_embedding_service(self):
+        """Lazy load embedding service."""
+        if self._embedding_service is None:
+            from app.services.embedding_service import get_embedding_service
+            self._embedding_service = get_embedding_service()
+        return self._embedding_service
+
+    def _get_reranker(self):
+        """Lazy load reranker."""
+        if self._reranker is None:
+            from app.services.paper_discovery.reranker import CrossEncoderReranker
+            self._reranker = CrossEncoderReranker(self._get_embedding_service())
+        return self._reranker
+
+    async def rank(
+        self,
+        papers: List[DiscoveredPaper],
+        query: str,
+        target_text: Optional[str] = None,
+        target_keywords: Optional[List[str]] = None,
+        **kwargs
+    ) -> List[DiscoveredPaper]:
+        """
+        Rank papers using combined lexical + semantic scoring.
+
+        Falls back to SimpleRanker if semantic ranking fails.
+        """
+        if not papers:
+            return []
+
+        # First, get lexical scores using SimpleRanker
+        try:
+            lexical_ranked = await self._simple_ranker.rank(
+                papers, query, target_text, target_keywords, **kwargs
+            )
+            lexical_scores = {p.get_unique_key(): p.relevance_score for p in lexical_ranked}
+        except Exception as e:
+            logger.warning(f"[SemanticRanker] Lexical ranking failed: {e}")
+            lexical_scores = {p.get_unique_key(): 0.5 for p in papers}
+
+        # Convert papers to dicts for reranker
+        paper_dicts = []
+        paper_map = {}  # Map back to original papers
+        for p in papers:
+            paper_id = p.get_unique_key()
+            paper_dict = {
+                "id": paper_id,
+                "doi": p.doi,
+                "title": p.title,
+                "abstract": p.abstract,
+                "lexical_score": lexical_scores.get(paper_id, 0.5)
+            }
+            paper_dicts.append(paper_dict)
+            paper_map[paper_id] = p
+
+        # Try semantic reranking
+        try:
+            reranker = self._get_reranker()
+            reranked = await reranker.rerank(
+                query=query,
+                papers=paper_dicts,
+                top_k_bi_encoder=min(50, len(papers)),
+                top_k_final=len(papers),  # Keep all, just reorder
+                title_key="title",
+                abstract_key="abstract",
+                id_key="id"
+            )
+
+            # Combine all three signals
+            result_papers = []
+            for result in reranked:
+                paper_id = result.paper.get("id")
+                original_paper = paper_map.get(paper_id)
+
+                if original_paper:
+                    lexical = result.paper.get("lexical_score", 0.5)
+
+                    # Final weighted score:
+                    # 30% lexical + 30% bi-encoder + 40% cross-encoder
+                    bi_score = result.bi_encoder_score
+                    cross_score_normalized = 1.0 / (1.0 + (2.71828 ** -result.cross_encoder_score))
+
+                    final_score = (
+                        0.30 * lexical +
+                        0.30 * bi_score +
+                        0.40 * cross_score_normalized
+                    )
+
+                    original_paper.relevance_score = float(min(1.0, max(0.0, final_score)))
+                    result_papers.append(original_paper)
+
+            # Add any papers that weren't in reranker results (shouldn't happen)
+            reranked_ids = {r.paper.get("id") for r in reranked}
+            for p in papers:
+                paper_id = p.get_unique_key()
+                if paper_id not in reranked_ids:
+                    p.relevance_score = lexical_scores.get(paper_id, 0.0)
+                    result_papers.append(p)
+
+            # Sort by final score
+            result_papers.sort(key=lambda p: p.relevance_score, reverse=True)
+
+            top_score = result_papers[0].relevance_score if result_papers else 0
+            logger.info(
+                f"[SemanticRanker] Ranked {len(result_papers)} papers, "
+                f"top_score={top_score:.3f}"
+            )
+
+            return result_papers
+
+        except Exception as e:
+            logger.warning(f"[SemanticRanker] Semantic ranking failed, using lexical only: {e}")
+            # Fall back to lexical-only ranking
+            return sorted(papers, key=lambda p: lexical_scores.get(p.get_unique_key(), 0), reverse=True)
+
+
 # ============= Orchestrator Service =============

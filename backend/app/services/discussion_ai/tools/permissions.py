@@ -36,6 +36,7 @@ TOOL_MIN_ROLE: Dict[str, str] = {
     "get_reference_details": "viewer",
     "search_papers": "viewer",
     "get_related_papers": "viewer",
+    "semantic_search_library": "viewer",  # Semantic search within project library
     "discover_topics": "viewer",
     "batch_search_papers": "viewer",
     "deep_search_papers": "viewer",

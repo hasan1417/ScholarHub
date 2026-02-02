@@ -49,6 +49,7 @@ from app.services.paper_discovery.enrichers import (
 from app.services.paper_discovery.rankers import (
     GptRanker,
     LexicalRanker,
+    SemanticRanker,
     SimpleRanker,
 )
 
@@ -337,9 +338,14 @@ class PaperDiscoveryServiceFactory:
         if unpaywall_email:
             enrichers.append(UnpaywallEnricher(session, config, unpaywall_email))
         
-        # Create ranker: GPT-based when OPENAI_API_KEY is set, else SimpleRanker
+        # Create ranker based on environment configuration
+        # Priority: SemanticRanker (if enabled) > GptRanker (if API key) > SimpleRanker
         service_ranker: PaperRanker
-        if os.getenv("OPENAI_API_KEY"):
+        use_semantic = os.getenv("USE_SEMANTIC_RANKER", "").lower() in ("true", "1", "yes")
+        if use_semantic:
+            logger.info("[Discovery] Using SemanticRanker (bi-encoder + cross-encoder)")
+            service_ranker = SemanticRanker(config)
+        elif os.getenv("OPENAI_API_KEY"):
             service_ranker = GptRanker(config)
         else:
             service_ranker = SimpleRanker(config)
@@ -463,8 +469,12 @@ class PaperDiscoveryService:
                 enrichers.append(UnpaywallEnricher(self.session, self.config, email))
 
             # Create ranker per env
+            # Priority: SemanticRanker (if enabled) > GptRanker (if API key) > SimpleRanker
             ranker_for_env: PaperRanker
-            if os.getenv("OPENAI_API_KEY"):
+            use_semantic = os.getenv("USE_SEMANTIC_RANKER", "").lower() in ("true", "1", "yes")
+            if use_semantic:
+                ranker_for_env = SemanticRanker(self.config)
+            elif os.getenv("OPENAI_API_KEY"):
                 ranker_for_env = GptRanker(self.config)
             else:
                 ranker_for_env = SimpleRanker(self.config)

@@ -166,6 +166,25 @@ async def startup_warmup_event() -> None:
     # This loads the ML models so first PDF request doesn't timeout
     warmup_marker_background()
 
+    # Start embedding worker for semantic search (background thread)
+    try:
+        from app.services.embedding_worker import start_embedding_worker
+        start_embedding_worker()
+    except Exception as e:
+        # Don't fail startup if embedding worker fails
+        import logging
+        logging.getLogger(__name__).warning(f"Failed to start embedding worker: {e}")
+
+
+@app.on_event("shutdown")
+async def shutdown_event() -> None:
+    """Cleanup on shutdown."""
+    try:
+        from app.services.embedding_worker import stop_embedding_worker
+        stop_embedding_worker()
+    except Exception:
+        pass
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

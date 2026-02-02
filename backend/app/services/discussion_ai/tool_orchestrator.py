@@ -1802,8 +1802,8 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 project_ref = ProjectReference(
                     project_id=project.id,
                     reference_id=existing_ref.id,
-                    status=ProjectReferenceStatus.ACCEPTED,
-                    origin=ProjectReferenceOrigin.AI_SUGGESTED,
+                    status=ProjectReferenceStatus.APPROVED,
+                    origin=ProjectReferenceOrigin.AUTO_DISCOVERY,
                 )
                 self.db.add(project_ref)
 
@@ -3152,6 +3152,184 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             },
         }
 
+    def _tool_semantic_search_library(
+        self,
+        ctx: Dict[str, Any],
+        query: str,
+        count: int = 10,
+        similarity_threshold: float = 0.5,
+    ) -> Dict:
+        """
+        Search the project library using semantic similarity.
+
+        Uses embeddings to find papers that match the query conceptually,
+        not just by keyword overlap.
+        """
+        from app.models import ProjectReference, Reference, PaperEmbedding
+
+        project = ctx["project"]
+
+        # Check if we have any embeddings for this project's papers
+        embeddings_count = (
+            self.db.query(PaperEmbedding)
+            .join(ProjectReference, PaperEmbedding.project_reference_id == ProjectReference.id)
+            .filter(ProjectReference.project_id == project.id)
+            .count()
+        )
+
+        if embeddings_count == 0:
+            # Check how many papers are in the library
+            library_count = (
+                self.db.query(ProjectReference)
+                .filter(ProjectReference.project_id == project.id)
+                .count()
+            )
+
+            if library_count == 0:
+                return {
+                    "status": "empty_library",
+                    "message": "Your project library is empty. Add papers using 'search_papers' and 'add_to_library' first.",
+                    "papers": [],
+                }
+            else:
+                return {
+                    "status": "no_embeddings",
+                    "message": f"Semantic search is not yet available for your library ({library_count} papers). Embeddings are being generated. Try 'get_project_references' for keyword search instead.",
+                    "papers": [],
+                }
+
+        # Get embedding service and embed the query
+        try:
+            import asyncio
+            from app.services.embedding_service import get_embedding_service
+
+            embedding_service = get_embedding_service()
+
+            # Run async embedding in sync context
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                query_embedding = loop.run_until_complete(embedding_service.embed(query))
+            finally:
+                loop.close()
+
+        except Exception as e:
+            logger.error(f"[SemanticSearch] Failed to embed query: {e}")
+            return {
+                "status": "error",
+                "message": "Failed to process query for semantic search. Try 'get_project_references' for keyword search instead.",
+                "papers": [],
+            }
+
+        # Query pgvector for similar papers
+        # Note: This requires raw SQL for the vector similarity operator
+        from sqlalchemy import text
+
+        # pgvector cosine distance: 1 - (embedding <=> query_embedding) = similarity
+        sql = text("""
+            SELECT
+                pe.project_reference_id,
+                r.title,
+                r.authors,
+                r.year,
+                r.doi,
+                r.abstract,
+                r.journal,
+                r.pdf_url,
+                r.is_open_access,
+                1 - (pe.embedding <=> :query_embedding) as similarity
+            FROM paper_embeddings pe
+            JOIN project_references pr ON pe.project_reference_id = pr.id
+            JOIN "references" r ON pr.reference_id = r.id
+            WHERE pr.project_id = :project_id
+                AND 1 - (pe.embedding <=> :query_embedding) > :threshold
+            ORDER BY pe.embedding <=> :query_embedding
+            LIMIT :limit
+        """)
+
+        try:
+            # Convert embedding to pgvector format
+            embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
+
+            result = self.db.execute(
+                sql,
+                {
+                    "query_embedding": embedding_str,
+                    "project_id": str(project.id),
+                    "threshold": similarity_threshold,
+                    "limit": count,
+                }
+            )
+            rows = result.fetchall()
+
+        except Exception as e:
+            logger.error(f"[SemanticSearch] Vector query failed: {e}")
+            return {
+                "status": "error",
+                "message": f"Semantic search query failed. Try 'get_project_references' for keyword search instead.",
+                "papers": [],
+            }
+
+        if not rows:
+            return {
+                "status": "no_matches",
+                "message": f"No papers in your library match '{query}' semantically (threshold: {similarity_threshold}). Try lowering the threshold or use different terms.",
+                "papers": [],
+            }
+
+        # Format results
+        papers = []
+        for row in rows:
+            # Handle both tuple and row object access
+            if hasattr(row, "_mapping"):
+                # SQLAlchemy 2.0 Row object
+                r = row._mapping
+            else:
+                # Named tuple or similar
+                r = row._asdict() if hasattr(row, "_asdict") else {
+                    "project_reference_id": row[0],
+                    "title": row[1],
+                    "authors": row[2],
+                    "year": row[3],
+                    "doi": row[4],
+                    "abstract": row[5],
+                    "journal": row[6],
+                    "pdf_url": row[7],
+                    "is_open_access": row[8],
+                    "similarity": row[9],
+                }
+
+            # Format authors
+            authors = r.get("authors", [])
+            if isinstance(authors, list):
+                authors_str = ", ".join(authors[:3])
+                if len(authors) > 3:
+                    authors_str += " et al."
+            else:
+                authors_str = str(authors) if authors else "Unknown"
+
+            paper = {
+                "reference_id": str(r.get("project_reference_id", "")),
+                "title": r.get("title", ""),
+                "authors": authors_str,
+                "year": r.get("year"),
+                "doi": r.get("doi"),
+                "journal": r.get("journal"),
+                "has_pdf": bool(r.get("pdf_url")),
+                "is_open_access": r.get("is_open_access", False),
+                "similarity_score": round(float(r.get("similarity", 0)), 3),
+                "abstract": (r.get("abstract") or "")[:300] + "..." if r.get("abstract") and len(r.get("abstract", "")) > 300 else r.get("abstract", ""),
+            }
+            papers.append(paper)
+
+        return {
+            "status": "success",
+            "message": f"Found {len(papers)} papers in your library matching '{query}'",
+            "query": query,
+            "similarity_threshold": similarity_threshold,
+            "papers": papers,
+        }
+
     def _tool_add_to_library(
         self,
         ctx: Dict[str, Any],
@@ -3297,6 +3475,25 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 self.db.commit()
                 # Refresh to ensure the object is attached to the session after commit
                 self.db.refresh(existing_ref)
+
+                # Queue embedding job for new library additions
+                if not existing_project_ref:
+                    try:
+                        from app.services.embedding_worker import queue_library_paper_embedding_sync
+                        # Get the project_ref we just created
+                        new_project_ref = self.db.query(ProjectReference).filter(
+                            ProjectReference.project_id == project.id,
+                            ProjectReference.reference_id == existing_ref.id
+                        ).first()
+                        if new_project_ref:
+                            queue_library_paper_embedding_sync(
+                                reference_id=new_project_ref.id,
+                                project_id=project.id,
+                                db=self.db
+                            )
+                    except Exception as e:
+                        # Don't fail the add_to_library if embedding queue fails
+                        logger.warning(f"[AddToLibrary] Failed to queue embedding job: {e}")
 
                 # Generate citation key for this paper
                 cite_key = self._generate_citation_key(paper)
