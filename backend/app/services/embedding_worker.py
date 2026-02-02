@@ -31,7 +31,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import select, update, text
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
@@ -103,23 +103,13 @@ class EmbeddingWorker:
         """Process pending embedding jobs. Returns number of jobs processed."""
         db = SessionLocal()
         try:
-            # Fetch pending jobs with row locking to prevent concurrent processing
-            # FOR UPDATE SKIP LOCKED: lock rows, skip any already locked by other workers
-            stmt = (
-                select(EmbeddingJob)
-                .where(EmbeddingJob.status == "pending")
-                .order_by(EmbeddingJob.created_at)
-                .limit(self.BATCH_SIZE)
-                .with_for_update(skip_locked=True)
-            )
-            jobs = db.execute(stmt).scalars().all()
-
+            jobs = self._claim_pending_jobs(db)
             if not jobs:
                 return 0
 
             processed = 0
             for job in jobs:
-                success = self._process_job(db, job)
+                success = self._process_job(db, job, already_processing=True)
                 if success:
                     processed += 1
 
@@ -127,12 +117,39 @@ class EmbeddingWorker:
         finally:
             db.close()
 
-    def _process_job(self, db: Session, job: EmbeddingJob) -> bool:
+    def _claim_pending_jobs(self, db: Session) -> list[EmbeddingJob]:
+        """Atomically claim pending jobs and mark them as processing."""
+        now = datetime.now(timezone.utc)
+        stmt = text("""
+            UPDATE embedding_jobs
+            SET status = 'processing',
+                started_at = :now,
+                attempts = attempts + 1
+            WHERE id IN (
+                SELECT id FROM embedding_jobs
+                WHERE status = 'pending'
+                ORDER BY created_at
+                LIMIT :limit
+                FOR UPDATE SKIP LOCKED
+            )
+            RETURNING id
+        """)
+        rows = db.execute(stmt, {"now": now, "limit": self.BATCH_SIZE}).fetchall()
+        db.commit()
+
+        if not rows:
+            return []
+
+        job_ids = [row[0] for row in rows]
+        return db.query(EmbeddingJob).filter(EmbeddingJob.id.in_(job_ids)).all()
+
+    def _process_job(self, db: Session, job: EmbeddingJob, *, already_processing: bool = False) -> bool:
         """Process a single embedding job. Returns True if completed successfully."""
         logger.debug(f"[EmbeddingWorker] Processing job {job.id} (type={job.job_type})")
 
-        # Mark as processing and increment attempts
-        self._mark_job_processing(db, job)
+        # Mark as processing and increment attempts unless already claimed
+        if not already_processing:
+            self._mark_job_processing(db, job)
 
         try:
             if job.job_type == "library_paper":
@@ -146,10 +163,11 @@ class EmbeddingWorker:
             return True
 
         except Exception as e:
-            # Check attempts (already incremented in _mark_job_processing)
-            if job.attempts < self.MAX_RETRIES:
+            # Check attempts (already incremented when claimed/processing)
+            max_attempts = job.max_attempts or self.MAX_RETRIES
+            if job.attempts < max_attempts:
                 # Retry later - mark as pending, don't raise
-                logger.warning(f"[EmbeddingWorker] Job {job.id} failed (attempt {job.attempts}/{self.MAX_RETRIES}): {e}")
+                logger.warning(f"[EmbeddingWorker] Job {job.id} failed (attempt {job.attempts}/{max_attempts}): {e}")
                 self._mark_job_pending(db, job)
                 return False
             else:

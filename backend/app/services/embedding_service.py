@@ -16,6 +16,7 @@ from typing import List, Optional, Dict, Any
 import hashlib
 import logging
 import asyncio
+import threading
 
 import numpy as np
 
@@ -64,7 +65,8 @@ class SentenceTransformerProvider(EmbeddingProvider):
 
     def __init__(self):
         self._model = None
-        self._lock = asyncio.Lock()
+        # Thread-safe lock for model load + encode (used inside executor threads)
+        self._lock = threading.Lock()
 
     def _load_model(self):
         """Lazy load the model on first use."""
@@ -85,28 +87,30 @@ class SentenceTransformerProvider(EmbeddingProvider):
 
     async def embed(self, text: str) -> List[float]:
         """Generate embedding for a single text."""
-        async with self._lock:
-            model = self._load_model()
-            loop = asyncio.get_event_loop()
-            embedding = await loop.run_in_executor(
-                None,
-                lambda: model.encode(text, normalize_embeddings=True)
-            )
-            return embedding.tolist()
+        loop = asyncio.get_event_loop()
+
+        def _encode():
+            with self._lock:
+                model = self._load_model()
+                return model.encode(text, normalize_embeddings=True)
+
+        embedding = await loop.run_in_executor(None, _encode)
+        return embedding.tolist()
 
     async def embed_batch(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for multiple texts in batch."""
         if not texts:
             return []
 
-        async with self._lock:
-            model = self._load_model()
-            loop = asyncio.get_event_loop()
-            embeddings = await loop.run_in_executor(
-                None,
-                lambda: model.encode(texts, normalize_embeddings=True, batch_size=32)
-            )
-            return embeddings.tolist()
+        loop = asyncio.get_event_loop()
+
+        def _encode_batch():
+            with self._lock:
+                model = self._load_model()
+                return model.encode(texts, normalize_embeddings=True, batch_size=32)
+
+        embeddings = await loop.run_in_executor(None, _encode_batch)
+        return embeddings.tolist()
 
 
 class OpenAIEmbeddingProvider(EmbeddingProvider):
