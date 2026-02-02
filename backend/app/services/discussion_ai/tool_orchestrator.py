@@ -2772,6 +2772,386 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             },
         }
 
+    def _tool_get_related_papers(
+        self,
+        ctx: Dict[str, Any],
+        paper_identifier: str,
+        relation_type: str = "similar",
+        count: int = 10,
+    ) -> Dict:
+        """
+        Find papers related to a specific paper.
+
+        Prioritizes Semantic Scholar, falls back to OpenAlex.
+
+        Args:
+            paper_identifier: DOI, Semantic Scholar ID, OpenAlex ID, or paper title
+            relation_type: 'similar' | 'citing' | 'references'
+            count: Maximum number of papers to return
+        """
+        import asyncio
+        import aiohttp
+        import urllib.parse
+        from uuid import uuid4
+
+        logger.info(f"get_related_papers: identifier='{paper_identifier}', type={relation_type}, count={count}")
+
+        # Normalize relation_type
+        relation_type = relation_type.lower() if relation_type else "similar"
+        if relation_type not in ("similar", "citing", "references"):
+            relation_type = "similar"
+
+        count = min(count, 20)  # Cap at 20
+
+        # Helper to extract DOI from various formats
+        def extract_doi(identifier: str) -> Optional[str]:
+            if "/" in identifier and (
+                identifier.startswith("10.") or "doi.org" in identifier.lower()
+            ):
+                doi = identifier
+                if "doi.org/" in doi.lower():
+                    doi = doi.split("doi.org/")[-1]
+                return doi
+            return None
+
+        # Helper to format Semantic Scholar paper
+        def format_ss_paper(p: Dict) -> Dict:
+            authors = []
+            for auth in (p.get("authors") or [])[:5]:
+                name = auth.get("name")
+                if name:
+                    authors.append(name)
+
+            ext_ids = p.get("externalIds") or {}
+            doi = ext_ids.get("DOI", "")
+
+            pdf_url = None
+            oa_pdf = p.get("openAccessPdf")
+            if oa_pdf:
+                pdf_url = oa_pdf.get("url")
+
+            return {
+                "id": p.get("paperId", ""),
+                "title": p.get("title", "Unknown"),
+                "authors": authors,
+                "year": p.get("year"),
+                "abstract": (p.get("abstract") or "")[:500],
+                "doi": doi,
+                "url": p.get("url") or (f"https://doi.org/{doi}" if doi else ""),
+                "pdf_url": pdf_url,
+                "source": "semantic_scholar",
+                "is_open_access": p.get("isOpenAccess", False),
+                "journal": p.get("venue") or p.get("journal", {}).get("name") if p.get("journal") else None,
+                "citations": p.get("citationCount", 0),
+            }
+
+        # Helper to format OpenAlex paper
+        def format_oa_paper(p: Dict) -> Dict:
+            authors = []
+            for auth in p.get("authorships", [])[:5]:
+                author_name = auth.get("author", {}).get("display_name")
+                if author_name:
+                    authors.append(author_name)
+
+            doi = p.get("doi", "")
+            if doi and doi.startswith("https://doi.org/"):
+                doi = doi.replace("https://doi.org/", "")
+
+            pdf_url = None
+            oa_info = p.get("open_access", {})
+            if oa_info.get("is_oa"):
+                pdf_url = oa_info.get("oa_url")
+
+            venue = None
+            primary_location = p.get("primary_location", {})
+            if primary_location:
+                source = primary_location.get("source", {})
+                if source:
+                    venue = source.get("display_name")
+
+            return {
+                "id": p.get("id", "").split("/")[-1],
+                "title": p.get("title", "Unknown"),
+                "authors": authors,
+                "year": p.get("publication_year"),
+                "abstract": (p.get("abstract") or "")[:500],
+                "doi": doi,
+                "url": p.get("doi") or p.get("id"),
+                "pdf_url": pdf_url,
+                "source": "openalex",
+                "is_open_access": oa_info.get("is_oa", False),
+                "journal": venue,
+                "citations": p.get("cited_by_count", 0),
+            }
+
+        async def try_semantic_scholar(session: aiohttp.ClientSession) -> Optional[Dict]:
+            """Try Semantic Scholar API. Returns None if failed/rate-limited."""
+            SS_FIELDS = "paperId,title,year,authors,venue,url,externalIds,abstract,citationCount,isOpenAccess,openAccessPdf,journal"
+            headers = {"User-Agent": "ScholarHub/1.0"}
+
+            # Step 1: Resolve paper identifier to Semantic Scholar paper ID
+            ss_paper_id = None
+            source_title = paper_identifier
+
+            # Check if it looks like a Semantic Scholar ID (40-char hex)
+            if len(paper_identifier) == 40 and all(c in "0123456789abcdef" for c in paper_identifier.lower()):
+                ss_paper_id = paper_identifier
+            else:
+                # Try DOI lookup first
+                doi = extract_doi(paper_identifier)
+                if doi:
+                    url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}?fields={SS_FIELDS}"
+                    try:
+                        async with session.get(url, headers=headers, timeout=10) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                ss_paper_id = data.get("paperId")
+                                source_title = data.get("title", paper_identifier)
+                            elif resp.status == 429:
+                                logger.warning("Semantic Scholar rate limited on DOI lookup")
+                                return None
+                    except Exception as e:
+                        logger.warning(f"SS DOI lookup failed: {e}")
+
+                # If DOI lookup failed, try title search
+                if not ss_paper_id:
+                    encoded_query = urllib.parse.quote(paper_identifier)
+                    url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={encoded_query}&limit=1&fields={SS_FIELDS}"
+                    try:
+                        async with session.get(url, headers=headers, timeout=10) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                results = data.get("data", [])
+                                if results:
+                                    ss_paper_id = results[0].get("paperId")
+                                    source_title = results[0].get("title", paper_identifier)
+                            elif resp.status == 429:
+                                logger.warning("Semantic Scholar rate limited on title search")
+                                return None
+                    except Exception as e:
+                        logger.warning(f"SS title search failed: {e}")
+
+            if not ss_paper_id:
+                return None
+
+            # Step 2: Fetch related papers based on relation_type
+            papers = []
+
+            if relation_type == "similar":
+                # Use recommendations API for similar papers
+                url = f"https://api.semanticscholar.org/recommendations/v1/papers/forpaper/{ss_paper_id}?limit={count}&fields={SS_FIELDS}"
+                try:
+                    async with session.get(url, headers=headers, timeout=15) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            papers = data.get("recommendedPapers", [])[:count]
+                        elif resp.status == 429:
+                            logger.warning("Semantic Scholar rate limited on recommendations")
+                            return None
+                except Exception as e:
+                    logger.warning(f"SS recommendations failed: {e}")
+
+            elif relation_type == "citing":
+                # Papers that cite this work
+                url = f"https://api.semanticscholar.org/graph/v1/paper/{ss_paper_id}/citations?limit={count}&fields={SS_FIELDS}"
+                try:
+                    async with session.get(url, headers=headers, timeout=15) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            # Citations API returns {"citingPaper": {...}}
+                            papers = [item.get("citingPaper", {}) for item in data.get("data", [])][:count]
+                        elif resp.status == 429:
+                            logger.warning("Semantic Scholar rate limited on citations")
+                            return None
+                except Exception as e:
+                    logger.warning(f"SS citations failed: {e}")
+
+            elif relation_type == "references":
+                # Papers this work cites
+                url = f"https://api.semanticscholar.org/graph/v1/paper/{ss_paper_id}/references?limit={count}&fields={SS_FIELDS}"
+                try:
+                    async with session.get(url, headers=headers, timeout=15) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            # References API returns {"citedPaper": {...}}
+                            papers = [item.get("citedPaper", {}) for item in data.get("data", [])][:count]
+                        elif resp.status == 429:
+                            logger.warning("Semantic Scholar rate limited on references")
+                            return None
+                except Exception as e:
+                    logger.warning(f"SS references failed: {e}")
+
+            if not papers:
+                return None
+
+            return {
+                "source": "semantic_scholar",
+                "source_title": source_title,
+                "papers": [format_ss_paper(p) for p in papers if p],
+            }
+
+        async def try_openalex(session: aiohttp.ClientSession) -> Optional[Dict]:
+            """Fall back to OpenAlex API."""
+            work_id = None
+            work_data = None
+
+            # Check if it's already an OpenAlex ID
+            if paper_identifier.upper().startswith("W") and paper_identifier[1:].isdigit():
+                work_id = paper_identifier.upper()
+            elif paper_identifier.startswith("https://openalex.org/"):
+                work_id = paper_identifier.split("/")[-1].upper()
+            else:
+                # Try DOI lookup or title search
+                doi = extract_doi(paper_identifier)
+                if doi:
+                    encoded_doi = urllib.parse.quote(f"https://doi.org/{doi}", safe="")
+                    url = f"https://api.openalex.org/works?filter=doi:{encoded_doi}&per_page=1"
+                else:
+                    encoded_query = urllib.parse.quote(paper_identifier, safe="")
+                    url = f"https://api.openalex.org/works?filter=title.search:{encoded_query}&per_page=1"
+
+                try:
+                    async with session.get(url, timeout=10) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            results = data.get("results", [])
+                            if results:
+                                work_id = results[0]["id"].split("/")[-1]
+                                work_data = results[0]
+                except Exception as e:
+                    logger.warning(f"OpenAlex lookup failed: {e}")
+
+            if not work_id:
+                return None
+
+            # Fetch work data if needed
+            if not work_data:
+                try:
+                    async with session.get(f"https://api.openalex.org/works/{work_id}", timeout=10) as resp:
+                        if resp.status == 200:
+                            work_data = await resp.json()
+                except Exception as e:
+                    logger.warning(f"OpenAlex work fetch failed: {e}")
+
+            if not work_data:
+                return None
+
+            source_title = work_data.get("title", paper_identifier)
+            papers = []
+
+            if relation_type == "similar":
+                related_ids = work_data.get("related_works", [])[:count * 2]
+                if related_ids:
+                    ids_filter = "|".join([r.split("/")[-1] for r in related_ids[:count * 2]])
+                    url = f"https://api.openalex.org/works?filter=openalex_id:{ids_filter}&per_page={count}"
+                    try:
+                        async with session.get(url, timeout=15) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                papers = data.get("results", [])[:count]
+                    except Exception as e:
+                        logger.warning(f"OpenAlex related works failed: {e}")
+
+            elif relation_type == "citing":
+                url = f"https://api.openalex.org/works?filter=cites:{work_id}&sort=cited_by_count:desc&per_page={count}"
+                try:
+                    async with session.get(url, timeout=15) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            papers = data.get("results", [])[:count]
+                except Exception as e:
+                    logger.warning(f"OpenAlex citing papers failed: {e}")
+
+            elif relation_type == "references":
+                ref_ids = work_data.get("referenced_works", [])[:count * 2]
+                if ref_ids:
+                    ids_filter = "|".join([r.split("/")[-1] for r in ref_ids[:count * 2]])
+                    url = f"https://api.openalex.org/works?filter=openalex_id:{ids_filter}&per_page={count}"
+                    try:
+                        async with session.get(url, timeout=15) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                papers = data.get("results", [])[:count]
+                    except Exception as e:
+                        logger.warning(f"OpenAlex references failed: {e}")
+
+            if not papers:
+                return None
+
+            return {
+                "source": "openalex",
+                "source_title": source_title,
+                "papers": [format_oa_paper(p) for p in papers],
+            }
+
+        async def fetch_related() -> Dict:
+            async with aiohttp.ClientSession() as session:
+                # Try Semantic Scholar first
+                result = await try_semantic_scholar(session)
+                if result and result.get("papers"):
+                    logger.info(f"get_related_papers: using Semantic Scholar ({len(result['papers'])} papers)")
+                    return result
+
+                # Fall back to OpenAlex
+                logger.info("get_related_papers: falling back to OpenAlex")
+                result = await try_openalex(session)
+                if result and result.get("papers"):
+                    logger.info(f"get_related_papers: using OpenAlex ({len(result['papers'])} papers)")
+                    return result
+
+                return {"source": None, "source_title": paper_identifier, "papers": []}
+
+        # Run async function
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(fetch_related())
+        finally:
+            loop.close()
+
+        papers_data = result.get("papers", [])
+        source_title = result.get("source_title", paper_identifier)
+        api_source = result.get("source", "unknown")
+
+        if not papers_data:
+            relation_desc = {
+                "similar": "similar papers",
+                "citing": "papers citing this work",
+                "references": "references cited by this paper",
+            }.get(relation_type, "related papers")
+            return {
+                "status": "success",
+                "message": f"No {relation_desc} found for '{source_title[:60]}...'",
+                "papers": [],
+            }
+
+        # Cache results for potential add_to_library
+        search_id = str(uuid4())
+        ctx["last_search_id"] = search_id
+        from app.services.discussion_ai.search_cache import store_search_results
+        store_search_results(search_id, papers_data)
+        ctx["recent_search_results"] = papers_data
+
+        relation_desc = {
+            "similar": "similar to",
+            "citing": "citing",
+            "references": "cited by",
+        }.get(relation_type, "related to")
+
+        return {
+            "status": "success",
+            "message": f"Found {len(papers_data)} papers {relation_desc} '{source_title[:50]}...' (via {api_source})",
+            "action": {
+                "type": "search_results",
+                "payload": {
+                    "query": f"{relation_type} papers for: {source_title[:50]}",
+                    "papers": papers_data,
+                    "search_id": search_id,
+                    "total_found": len(papers_data),
+                },
+            },
+        }
+
     def _tool_add_to_library(
         self,
         ctx: Dict[str, Any],

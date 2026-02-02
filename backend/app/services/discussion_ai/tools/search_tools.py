@@ -78,6 +78,35 @@ BATCH_SEARCH_PAPERS_SCHEMA = {
     },
 }
 
+GET_RELATED_PAPERS_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "get_related_papers",
+        "description": "Find papers related to a specific paper. Use when user asks 'find similar papers to X', 'what papers cite X', 'what does X cite', 'related work to paper X'. Requires a paper identifier (DOI, OpenAlex ID, or title from recent search results). Can return: (1) similar papers algorithmically related, (2) citing papers that cite this work, (3) references that this paper cites.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "paper_identifier": {
+                    "type": "string",
+                    "description": "DOI (e.g., '10.1038/s41586-021-03819-2'), OpenAlex ID (e.g., 'W3177828909'), or paper title from recent search results.",
+                },
+                "relation_type": {
+                    "type": "string",
+                    "enum": ["similar", "citing", "references"],
+                    "description": "'similar' = algorithmically related papers, 'citing' = papers that cite this work, 'references' = papers this work cites.",
+                    "default": "similar",
+                },
+                "count": {
+                    "type": "integer",
+                    "description": "Maximum number of related papers to return.",
+                    "default": 10,
+                },
+            },
+            "required": ["paper_identifier"],
+        },
+    },
+}
+
 
 def _handle_search_papers(orchestrator: Any, ctx: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
     return orchestrator._tool_search_papers(ctx, **args)
@@ -89,6 +118,10 @@ def _handle_discover_topics(orchestrator: Any, ctx: Dict[str, Any], args: Dict[s
 
 def _handle_batch_search_papers(orchestrator: Any, ctx: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
     return orchestrator._tool_batch_search_papers(**args)
+
+
+def _handle_get_related_papers(orchestrator: Any, ctx: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
+    return orchestrator._tool_get_related_papers(ctx, **args)
 
 
 TOOL_SPECS: List[ToolSpec] = [
@@ -106,6 +139,11 @@ TOOL_SPECS: List[ToolSpec] = [
         name="batch_search_papers",
         schema=BATCH_SEARCH_PAPERS_SCHEMA,
         handler=_handle_batch_search_papers,
+    ),
+    ToolSpec(
+        name="get_related_papers",
+        schema=GET_RELATED_PAPERS_SCHEMA,
+        handler=_handle_get_related_papers,
     ),
 ]
 

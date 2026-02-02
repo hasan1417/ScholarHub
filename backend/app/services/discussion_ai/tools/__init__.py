@@ -12,6 +12,7 @@ ORDERED_TOOL_NAMES: List[str] = [
     "get_reference_details",
     "analyze_reference",
     "search_papers",
+    "get_related_papers",
     "get_project_papers",
     "get_project_info",
     "update_project_info",

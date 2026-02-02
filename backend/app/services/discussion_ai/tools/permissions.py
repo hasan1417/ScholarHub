@@ -35,6 +35,7 @@ TOOL_MIN_ROLE: Dict[str, str] = {
     "get_project_references": "viewer",
     "get_reference_details": "viewer",
     "search_papers": "viewer",
+    "get_related_papers": "viewer",
     "discover_topics": "viewer",
     "batch_search_papers": "viewer",
     "deep_search_papers": "viewer",
