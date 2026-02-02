@@ -114,7 +114,15 @@ class ArxivSearcher(SearcherBase):
                 pdf_url = None
                 if url and 'arxiv.org/abs/' in url:
                     pdf_url = url.replace('/abs/', '/pdf/') + '.pdf'
-                
+
+                # Extract primary category as venue (e.g., "arXiv:cs.LG")
+                primary_category = None
+                category_elem = entry.find('{http://arxiv.org/schemas/atom}primary_category')
+                if category_elem is not None:
+                    term = category_elem.get('term')
+                    if term:
+                        primary_category = f"arXiv:{term}"
+
                 papers.append(DiscoveredPaper(
                     title=title,
                     authors=authors,
@@ -124,7 +132,8 @@ class ArxivSearcher(SearcherBase):
                     url=url,
                     source=self.get_source_name(),
                     is_open_access=True,
-                    pdf_url=pdf_url
+                    pdf_url=pdf_url,
+                    journal=primary_category,
                 ))
         except Exception as e:
             logger.error(f"Error parsing ArXiv response: {e}")
@@ -466,8 +475,24 @@ class CrossrefSearcher(SearcherBase):
                 except Exception:
                     year = None
                 abstract = it.get('abstract') or ''
+
+                # Extract journal/venue with fallbacks
                 journal_list = it.get('container-title') or []
                 journal = journal_list[0] if journal_list else None
+
+                # Fallback: conference/event name for proceedings
+                if not journal:
+                    event = it.get('event') or {}
+                    if isinstance(event, dict):
+                        journal = event.get('name')
+
+                # Fallback: publisher for books/reports
+                if not journal:
+                    publisher = it.get('publisher')
+                    doc_type = it.get('type', '')
+                    if publisher and doc_type in ('book', 'report', 'monograph', 'posted-content'):
+                        journal = publisher
+
                 citations = it.get('is-referenced-by-count')
 
                 # Quick PDF check from metadata only (no HTTP requests)
