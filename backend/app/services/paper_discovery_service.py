@@ -22,7 +22,7 @@ from app.services.paper_discovery.interfaces import (
     PaperSearcher,
 )
 from app.services.paper_discovery.models import DiscoveredPaper, PaperSource
-from app.services.paper_discovery.query import QueryEnhancer
+from app.services.paper_discovery.query import QueryEnhancer, extract_core_terms
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +60,9 @@ class SourceStats:
     """Per-source statistics from a discovery run."""
     source: str
     count: int = 0
-    status: str = "pending"  # pending, success, timeout, error
+    status: str = "pending"  # pending, success, timeout, rate_limited, error
     error: Optional[str] = None
+    elapsed_ms: int = 0  # milliseconds
 
 
 @dataclass
@@ -94,10 +95,11 @@ class SearchOrchestrator:
         sources: Optional[List[str]] = None,
         *,
         fast_mode: bool = False,
+        core_terms: Optional[Set[str]] = None,
     ) -> DiscoveryResult:
         """Orchestrate paper discovery and return results with per-source stats."""
-
-        logger.info(f"SearchOrchestrator.discover_papers called with query='{query}', sources={sources}")
+        search_start_time = time.time()
+        logger.info(f"[Search] START query='{query}' | max_results={max_results} | sources={sources} | fast_mode={fast_mode} | core_terms={core_terms or 'none'}")
 
         active_searchers = self.searchers
         if sources is not None and len(sources) > 0:
@@ -139,9 +141,10 @@ class SearchOrchestrator:
         # Phase 1: Concurrent search with stats tracking
         sem = asyncio.Semaphore(self.config.max_concurrent_searches)
 
-        async def limited_search(searcher: PaperSearcher) -> tuple[str, List[DiscoveredPaper], str, Optional[str]]:
-            """Returns (source_name, papers, status, error)"""
+        async def limited_search(searcher: PaperSearcher) -> tuple[str, List[DiscoveredPaper], str, Optional[str], int]:
+            """Returns (source_name, papers, status, error, elapsed_ms)"""
             source_name = searcher.get_source_name()
+            source_start = time.time()
             async with sem:
                 timeout = self.config.search_timeout
                 if fast_mode:
@@ -154,17 +157,21 @@ class SearchOrchestrator:
                         searcher.search(query, max_results),
                         timeout=timeout
                     )
-                    return (source_name, papers, "success", None)
+                    elapsed_ms = int((time.time() - source_start) * 1000)
+                    return (source_name, papers, "success", None, elapsed_ms)
                 except asyncio.TimeoutError:
-                    logger.warning(f"{source_name} timed out")
-                    return (source_name, [], "timeout", "Request timed out")
+                    elapsed_ms = int((time.time() - source_start) * 1000)
+                    logger.warning(f"{source_name} timed out after {elapsed_ms}ms")
+                    return (source_name, [], "timeout", "Request timed out", elapsed_ms)
                 except RateLimitError as e:
-                    logger.warning(f"{source_name} rate limited: {e}")
-                    return (source_name, [], "rate_limited", "API rate limited")
+                    elapsed_ms = int((time.time() - source_start) * 1000)
+                    logger.warning(f"{source_name} rate limited after {elapsed_ms}ms: {e}")
+                    return (source_name, [], "rate_limited", "API rate limited", elapsed_ms)
                 except Exception as e:  # pragma: no cover - network variability
+                    elapsed_ms = int((time.time() - source_start) * 1000)
                     error_msg = str(e)[:100]
-                    logger.error(f"{source_name} failed: {e}")
-                    return (source_name, [], "error", error_msg)
+                    logger.error(f"{source_name} failed after {elapsed_ms}ms: {e}")
+                    return (source_name, [], "error", error_msg, elapsed_ms)
 
         tasks = [asyncio.create_task(limited_search(s)) for s in active_searchers]
 
@@ -192,12 +199,13 @@ class SearchOrchestrator:
         try:
             for fut in asyncio.as_completed(tasks):
                 try:
-                    source_name, papers, status, error = await fut
+                    source_name, papers, status, error, elapsed_ms = await fut
                     # Update source stats
                     if source_name in source_stats_map:
                         source_stats_map[source_name].count = len(papers)
                         source_stats_map[source_name].status = status
                         source_stats_map[source_name].error = error
+                        source_stats_map[source_name].elapsed_ms = elapsed_ms
                 except asyncio.CancelledError:
                     continue
                 except Exception as exc:  # pragma: no cover - defensive
@@ -234,12 +242,30 @@ class SearchOrchestrator:
         ]
         await asyncio.gather(*enrichment_tasks, return_exceptions=True)
 
-        # Phase 3: Ranking
+        # Phase 3: Ranking (pass core_terms for boost)
         ranked_papers = await self.ranker.rank(
             all_papers,
             query,
             target_text=target_text,
-            target_keywords=target_keywords
+            target_keywords=target_keywords,
+            core_terms=core_terms or set(),
+        )
+
+        # Telemetry: comprehensive search summary
+        search_elapsed = time.time() - search_start_time
+        source_counts = {s.source: s.count for s in source_stats_map.values()}
+        source_times = {s.source: s.elapsed_ms for s in source_stats_map.values()}
+        rate_limited = [s.source for s in source_stats_map.values() if s.status == "rate_limited"]
+        degraded = [s.source for s in source_stats_map.values() if s.status in ("timeout", "rate_limited", "error")]
+
+        logger.info(
+            f"[Search] COMPLETE query='{query}' | "
+            f"results={len(ranked_papers[:max_results])}/{len(all_papers)} (returned/deduped) | "
+            f"counts={source_counts} | "
+            f"times_ms={source_times} | "
+            f"rate_limited={rate_limited or 'none'} | "
+            f"degraded={degraded or 'none'} | "
+            f"total_elapsed={search_elapsed:.2f}s"
         )
 
         return DiscoveryResult(
@@ -466,6 +492,10 @@ class PaperDiscoveryService:
         logger.info(f"PaperDiscoveryService.discover_papers called with query='{query}', research_topic='{research_topic}', sources={sources}")
 
         try:
+            # Extract core terms from original query BEFORE enhancement (Phase 1.3)
+            core_terms = extract_core_terms(query)
+            logger.info(f"[CoreTerms] Extracted from '{query}': {core_terms}")
+
             # Enhance query
             phase_start = time.time()
             enhanced_queries = await self.query_enhancer.enhance_query(
@@ -488,6 +518,7 @@ class PaperDiscoveryService:
                 target_keywords=target_keywords,
                 sources=sources,
                 fast_mode=fast_mode,
+                core_terms=core_terms,
             )
             papers = result.papers
             await self._augment_pdf_links(papers, fast_mode=fast_mode)
@@ -506,6 +537,34 @@ class PaperDiscoveryService:
                 'papers_found': len(papers),
                 'timestamp': datetime.utcnow().isoformat()
             }
+
+            # Telemetry: comprehensive discovery summary
+            source_summary = {s.source: f"{s.count}({s.status})" for s in result.source_stats}
+            rate_limit_pct = (
+                sum(1 for s in result.source_stats if s.status == "rate_limited") / len(result.source_stats) * 100
+                if result.source_stats else 0
+            )
+            # Calculate core term presence in results
+            core_term_hits = 0
+            if core_terms and papers:
+                for p in papers:
+                    title_lower = (p.title or '').lower()
+                    abstract_lower = (p.abstract or '').lower()
+                    if any(term in title_lower or term in abstract_lower for term in core_terms):
+                        core_term_hits += 1
+                core_term_pct = (core_term_hits / len(papers)) * 100
+            else:
+                core_term_pct = 0.0
+
+            logger.info(
+                f"[Discovery] query='{query}' → enhanced='{best_query}' | "
+                f"core_terms={core_terms} | "
+                f"papers={len(papers)} | "
+                f"core_term_presence={core_term_pct:.1f}% ({core_term_hits}/{len(papers)}) | "
+                f"sources={source_summary} | "
+                f"rate_limit_pct={rate_limit_pct:.1f}% | "
+                f"timings={{enhance={timings.get('query_enhancement', 0):.2f}s, search={timings.get('discovery', 0):.2f}s, total={timings['total']:.2f}s}}"
+            )
 
             if debug:
                 logger.info(f"Discovery metrics: {self._metrics}")

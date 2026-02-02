@@ -39,6 +39,9 @@ class DiscoveryConfig:
             "citations_max": 0.08,
             "pdf_bonus": 0.01,
             "oa_bonus": 0.02,
+            # Core term boosts (Phase 1.3) - boost papers containing original query terms
+            "core_term_title_boost": 0.20,    # +20% if core term in title
+            "core_term_abstract_boost": 0.10,  # +10% if core term in abstract
         }
     )
 

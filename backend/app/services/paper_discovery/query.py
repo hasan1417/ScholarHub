@@ -4,12 +4,67 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import List, Optional
+import re
+from typing import List, Optional, Set
 
 from app.services.paper_discovery.cache import LRUCache
 
 
 logger = logging.getLogger(__name__)
+
+
+# Common stopwords to exclude from core terms
+_STOPWORDS = frozenset({
+    'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of',
+    'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been', 'be', 'have',
+    'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may',
+    'might', 'must', 'shall', 'can', 'need', 'about', 'into', 'through', 'during',
+    'before', 'after', 'above', 'below', 'between', 'under', 'again', 'further',
+    'then', 'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all', 'each',
+    'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only',
+    'own', 'same', 'so', 'than', 'too', 'very', 'just', 'also', 'now', 'using',
+    'based', 'study', 'research', 'paper', 'papers', 'approach', 'method', 'methods',
+    'analysis', 'results', 'review', 'new', 'novel', 'recent', 'latest',
+})
+
+
+def extract_core_terms(query: str) -> Set[str]:
+    """Extract core terms from the original query for relevance boosting.
+
+    Core terms are:
+    - Individual meaningful words (not stopwords, length > 2)
+    - Quoted phrases preserved as single terms
+
+    Returns a set of lowercase terms.
+    """
+    if not query:
+        return set()
+
+    query = query.strip()
+    core_terms: Set[str] = set()
+
+    # Extract quoted phrases first (preserve as single terms)
+    quoted_pattern = r'"([^"]+)"'
+    quoted_phrases = re.findall(quoted_pattern, query)
+    for phrase in quoted_phrases:
+        phrase_clean = phrase.strip().lower()
+        if phrase_clean and len(phrase_clean) > 2:
+            core_terms.add(phrase_clean)
+
+    # Remove quoted phrases from query for word extraction
+    query_without_quotes = re.sub(quoted_pattern, ' ', query)
+
+    # Extract individual words
+    query_clean = re.sub(r'[^a-zA-Z0-9\s]', ' ', query_without_quotes).lower()
+    words = query_clean.split()
+
+    for word in words:
+        word = word.strip()
+        if len(word) > 2 and word not in _STOPWORDS:
+            core_terms.add(word)
+
+    logger.debug(f"[CoreTerms] query='{query}' → terms={core_terms}")
+    return core_terms
 
 
 class QueryEnhancer:

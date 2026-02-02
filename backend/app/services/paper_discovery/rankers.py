@@ -101,7 +101,7 @@ class LexicalRanker(PaperRanker):
 
 
 class SimpleRanker(PaperRanker):
-    """Minimal scoring: title-token overlap with the query only."""
+    """Minimal scoring: title-token overlap with the query only, plus core term boosts."""
 
     def __init__(self, config: DiscoveryConfig):
         self.config = config
@@ -114,6 +114,9 @@ class SimpleRanker(PaperRanker):
         target_keywords: Optional[List[str]] = None,
         **kwargs
     ) -> List[DiscoveredPaper]:
+        # Extract core_terms from kwargs (passed from orchestrator)
+        core_terms: Set[str] = kwargs.get('core_terms', set())
+
         def tokenize(text: str) -> Set[str]:
             import re
             text = (text or '').lower()
@@ -121,10 +124,13 @@ class SimpleRanker(PaperRanker):
             return set(w for w in text.split() if len(w) > 2)
 
         query_tokens = tokenize(target_text or query)
+        weights = self.config.ranking_weights
         raw_scores: List[float] = []
 
         for paper in papers:
             title_tokens = tokenize(paper.title)
+            abstract_tokens = tokenize(paper.abstract) if paper.abstract else set()
+
             if not title_tokens:
                 raw_scores.append(0.0)
                 continue
@@ -133,7 +139,26 @@ class SimpleRanker(PaperRanker):
             title_ratio = hits / max(1, len(title_tokens))
             query_ratio = hits / max(1, len(query_tokens)) if query_tokens else 0.0
             combined = 0.6 * title_ratio + 0.4 * query_ratio if query_tokens else title_ratio
-            raw_scores.append(max(0.0, combined))
+
+            # Apply core term boosts (Phase 1.3)
+            # Check if any core term appears in title or abstract
+            core_boost = 0.0
+            if core_terms:
+                # Check title for core terms (including phrase matching)
+                title_text = (paper.title or '').lower()
+                abstract_text = (paper.abstract or '').lower()
+
+                for term in core_terms:
+                    if term in title_text or term in title_tokens:
+                        core_boost += weights.get('core_term_title_boost', 0.20)
+                        break  # Only apply title boost once
+
+                for term in core_terms:
+                    if term in abstract_text or term in abstract_tokens:
+                        core_boost += weights.get('core_term_abstract_boost', 0.10)
+                        break  # Only apply abstract boost once
+
+            raw_scores.append(max(0.0, combined + core_boost))
 
         max_score = max(raw_scores, default=0.0)
         min_score = min(raw_scores, default=0.0)
