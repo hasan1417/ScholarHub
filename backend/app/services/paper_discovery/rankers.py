@@ -101,7 +101,13 @@ class LexicalRanker(PaperRanker):
 
 
 class SimpleRanker(PaperRanker):
-    """Minimal scoring: title-token overlap with the query only, plus core term boosts."""
+    """Enhanced scoring: relevance + citations + recency, plus core term boosts.
+
+    Scoring formula (Phase 2.1):
+    - 50% relevance (title/query overlap + core term boosts)
+    - 30% citations (log-scaled, recency-adjusted)
+    - 20% recency (papers from last 5 years get bonus)
+    """
 
     def __init__(self, config: DiscoveryConfig):
         self.config = config
@@ -114,8 +120,11 @@ class SimpleRanker(PaperRanker):
         target_keywords: Optional[List[str]] = None,
         **kwargs
     ) -> List[DiscoveredPaper]:
+        import math
+
         # Extract core_terms from kwargs (passed from orchestrator)
         core_terms: Set[str] = kwargs.get('core_terms', set())
+        current_year = datetime.now().year
 
         def tokenize(text: str) -> Set[str]:
             import re
@@ -125,54 +134,97 @@ class SimpleRanker(PaperRanker):
 
         query_tokens = tokenize(target_text or query)
         weights = self.config.ranking_weights
-        raw_scores: List[float] = []
+
+        # Collect scores for normalization
+        relevance_scores: List[float] = []
+        citation_scores: List[float] = []
+        recency_scores: List[float] = []
 
         for paper in papers:
             title_tokens = tokenize(paper.title)
             abstract_tokens = tokenize(paper.abstract) if paper.abstract else set()
 
+            # --- Relevance score (title overlap + core term boosts) ---
             if not title_tokens:
-                raw_scores.append(0.0)
+                relevance_scores.append(0.0)
+                citation_scores.append(0.0)
+                recency_scores.append(0.0)
                 continue
 
             hits = len(title_tokens & query_tokens)
             title_ratio = hits / max(1, len(title_tokens))
             query_ratio = hits / max(1, len(query_tokens)) if query_tokens else 0.0
-            combined = 0.6 * title_ratio + 0.4 * query_ratio if query_tokens else title_ratio
+            relevance = 0.6 * title_ratio + 0.4 * query_ratio if query_tokens else title_ratio
 
             # Apply core term boosts (Phase 1.3)
-            # Check if any core term appears in title or abstract
             core_boost = 0.0
             if core_terms:
-                # Check title for core terms (including phrase matching)
                 title_text = (paper.title or '').lower()
                 abstract_text = (paper.abstract or '').lower()
 
                 for term in core_terms:
                     if term in title_text or term in title_tokens:
                         core_boost += weights.get('core_term_title_boost', 0.20)
-                        break  # Only apply title boost once
+                        break
 
                 for term in core_terms:
                     if term in abstract_text or term in abstract_tokens:
                         core_boost += weights.get('core_term_abstract_boost', 0.10)
-                        break  # Only apply abstract boost once
+                        break
 
-            raw_scores.append(max(0.0, combined + core_boost))
+            relevance_scores.append(max(0.0, relevance + core_boost))
 
-        max_score = max(raw_scores, default=0.0)
-        min_score = min(raw_scores, default=0.0)
-        span = max_score - min_score
-
-        for paper, raw in zip(papers, raw_scores):
-            if max_score <= 0:
-                paper.relevance_score = 0.0
-                continue
-            if span > 0:
-                normalized = (raw - min_score) / span
+            # --- Citation score (log-scaled, recency-adjusted) ---
+            citations = paper.citations_count or 0
+            if citations > 0 and paper.year:
+                years_since = max(1, current_year - paper.year + 1)
+                # Recency-adjusted: citations / log(years + 1)
+                # This prevents old highly-cited papers from dominating
+                adjusted_citations = citations / math.log(years_since + 1)
+                # Log scale to prevent mega-papers from dominating
+                citation_score = math.log10(1 + adjusted_citations) / 4  # ~10000 adjusted = 1.0
+            elif citations > 0:
+                citation_score = math.log10(1 + citations) / 4
             else:
-                normalized = 1.0
-            paper.relevance_score = float(min(1.0, max(0.0, normalized)))
+                citation_score = 0.0
+            citation_scores.append(min(1.0, citation_score))
+
+            # --- Recency score (papers from last 5 years get bonus) ---
+            if paper.year:
+                years_old = current_year - paper.year
+                if years_old <= 0:
+                    recency = 1.0  # Current year
+                elif years_old <= 5:
+                    recency = 1.0 - (years_old / 5) * 0.5  # 50% decay over 5 years
+                else:
+                    recency = 0.5 - min(0.5, (years_old - 5) / 20)  # Slower decay after 5 years
+            else:
+                recency = 0.3  # Unknown year gets neutral score
+            recency_scores.append(max(0.0, recency))
+
+        # Normalize each component to 0-1 range
+        def normalize_scores(scores: List[float]) -> List[float]:
+            if not scores:
+                return []
+            max_s = max(scores, default=0.0)
+            min_s = min(scores, default=0.0)
+            span = max_s - min_s
+            if span <= 0:
+                return [1.0 if max_s > 0 else 0.0] * len(scores)
+            return [(s - min_s) / span for s in scores]
+
+        norm_relevance = normalize_scores(relevance_scores)
+        norm_citations = normalize_scores(citation_scores)
+        norm_recency = normalize_scores(recency_scores)
+
+        # Combine with weights: 50% relevance, 30% citations, 20% recency
+        for i, paper in enumerate(papers):
+            combined = (
+                0.50 * norm_relevance[i] +
+                0.30 * norm_citations[i] +
+                0.20 * norm_recency[i]
+            )
+            paper.relevance_score = float(min(1.0, max(0.0, combined)))
 
         return sorted(papers, key=lambda p: p.relevance_score, reverse=True)
 
