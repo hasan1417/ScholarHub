@@ -18,6 +18,11 @@ from bs4 import BeautifulSoup
 from app.services.paper_discovery.config import DiscoveryConfig
 from app.services.paper_discovery.interfaces import PaperSearcher
 from app.services.paper_discovery.models import DiscoveredPaper, PaperSource
+from app.services.paper_discovery.query_builder import (
+    build_arxiv_query,
+    build_pubmed_query,
+    build_europe_pmc_query,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -44,14 +49,16 @@ class ArxivSearcher(SearcherBase):
     
     async def search(self, query: str, max_results: int) -> List[DiscoveredPaper]:
         try:
+            # Use optimized query builder for arXiv syntax
+            optimized_query = build_arxiv_query(query)
             params = {
-                'search_query': f'all:{query}',
+                'search_query': optimized_query,
                 'start': 0,
                 'max_results': max_results,
                 'sortBy': 'relevance',
                 'sortOrder': 'descending'
             }
-            
+
             url = f"http://export.arxiv.org/api/query?{urlencode(params)}"
             
             async with self.session.get(url) as response:
@@ -695,9 +702,11 @@ class PubMedSearcher(SearcherBase):
             return []
 
     async def _esearch(self, query: str, max_results: int) -> List[str]:
+        # Use optimized query builder for PubMed syntax
+        optimized_query = build_pubmed_query(query)
         params = {
             'db': 'pubmed',
-            'term': query.strip()[:400],
+            'term': optimized_query[:400],
             'retmode': 'json',
             'retmax': max(1, min(int(max_results or 20), 25)),
             'tool': 'ScholarHub',
@@ -1257,10 +1266,12 @@ class EuropePmcSearcher(SearcherBase):
 
     async def search(self, query: str, max_results: int) -> List[DiscoveredPaper]:
         try:
+            # Use optimized query builder for Europe PMC syntax
+            optimized_query = build_europe_pmc_query(query)
             # Europe PMC REST API
             url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
             params = {
-                'query': query,
+                'query': optimized_query,
                 'format': 'json',
                 'pageSize': min(max_results, 100),  # Max 100 per request
                 'resultType': 'core',  # Get full metadata
