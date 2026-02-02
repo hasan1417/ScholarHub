@@ -18,6 +18,7 @@ import time
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
 import openai
+from openai import APIStatusError, RateLimitError, APIConnectionError, APITimeoutError
 import httpx
 
 from app.core.config import settings
@@ -94,6 +95,11 @@ REASONING_PARAM_KEYS = {
     "thinking_level",
 }
 TOOLS_PARAM_KEYS = {"tools", "tool_choice"}
+
+# Retry configuration for transient API errors
+RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+MAX_RETRIES = 3
+INITIAL_BACKOFF_SECONDS = 1.0
 
 
 def _get_redis_client():
@@ -377,93 +383,157 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         """Set the model to use."""
         self._model = value
 
+    def _is_retryable_error(self, error: Exception) -> bool:
+        """Check if an error is retryable (transient)."""
+        if isinstance(error, RateLimitError):
+            return True
+        if isinstance(error, (APIConnectionError, APITimeoutError)):
+            return True
+        if isinstance(error, APIStatusError):
+            return error.status_code in RETRYABLE_STATUS_CODES
+        return False
+
     def _call_ai_with_tools(self, messages: List[Dict], ctx: Dict[str, Any]) -> Dict[str, Any]:
-        """Call OpenRouter with tool definitions (non-streaming)."""
-        try:
-            if not self.openrouter_client:
-                return {
-                    "content": "OpenRouter API not configured. Please check your OPENROUTER_API_KEY.",
-                    "tool_calls": []
+        """Call OpenRouter with tool definitions (non-streaming) with retry on transient errors."""
+        if not self.openrouter_client:
+            return {
+                "content": "OpenRouter API not configured. Please check your OPENROUTER_API_KEY.",
+                "tool_calls": []
+            }
+
+        reasoning_info = f" (reasoning: {self._reasoning_mode})" if self._reasoning_mode else ""
+        logger.info(f"Calling OpenRouter with model: {self.model}{reasoning_info}")
+
+        # Filter tools based on user's role
+        tools = self._get_tools_for_user(ctx)
+
+        # Build API call params
+        call_params = {
+            "model": self.model,
+            "messages": messages,
+            "tools": tools,
+            "tool_choice": "auto",
+        }
+
+        # Add reasoning params if enabled
+        reasoning_params = self._get_reasoning_params()
+        if reasoning_params.get("extra_body"):
+            call_params["extra_body"] = reasoning_params["extra_body"]
+
+        # Retry loop for transient errors
+        last_error: Optional[Exception] = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                response = self.openrouter_client.chat.completions.create(**call_params)
+
+                choice = response.choices[0]
+                message = choice.message
+
+                result = {
+                    "content": message.content or "",
+                    "tool_calls": [],
                 }
 
-            reasoning_info = f" (reasoning: {self._reasoning_mode})" if self._reasoning_mode else ""
-            logger.info(f"Calling OpenRouter with model: {self.model}{reasoning_info}")
+                if message.tool_calls:
+                    for tc in message.tool_calls:
+                        result["tool_calls"].append({
+                            "id": tc.id,
+                            "name": tc.function.name,
+                            "arguments": json.loads(tc.function.arguments),
+                        })
 
-            # Filter tools based on user's role
-            tools = self._get_tools_for_user(ctx)
+                return result
 
-            # Build API call params
-            call_params = {
-                "model": self.model,
-                "messages": messages,
-                "tools": tools,
-                "tool_choice": "auto",
-            }
+            except Exception as e:
+                last_error = e
+                if not self._is_retryable_error(e):
+                    # Non-retryable error (auth, invalid request, etc.) - fail immediately
+                    logger.error(f"Non-retryable error calling OpenRouter: {e}")
+                    return {"content": f"Error: {str(e)}", "tool_calls": []}
 
-            # Add reasoning params if enabled
-            reasoning_params = self._get_reasoning_params()
-            if reasoning_params.get("extra_body"):
-                call_params["extra_body"] = reasoning_params["extra_body"]
+                if attempt < MAX_RETRIES - 1:
+                    backoff = INITIAL_BACKOFF_SECONDS * (2 ** attempt)  # 1s, 2s, 4s
+                    logger.warning(
+                        f"Model {self.model} attempt {attempt + 1}/{MAX_RETRIES} failed: {e}. "
+                        f"Retrying in {backoff}s..."
+                    )
+                    time.sleep(backoff)
+                else:
+                    logger.error(
+                        f"Model {self.model} failed after {MAX_RETRIES} attempts. Last error: {e}"
+                    )
 
-            response = self.openrouter_client.chat.completions.create(**call_params)
-
-            choice = response.choices[0]
-            message = choice.message
-
-            result = {
-                "content": message.content or "",
-                "tool_calls": [],
-            }
-
-            if message.tool_calls:
-                for tc in message.tool_calls:
-                    result["tool_calls"].append({
-                        "id": tc.id,
-                        "name": tc.function.name,
-                        "arguments": json.loads(tc.function.arguments),
-                    })
-
-            return result
-
-        except Exception as e:
-            logger.exception(f"Error calling OpenRouter with model {self.model}")
-            return {"content": f"Error: {str(e)}", "tool_calls": []}
+        # All retries exhausted
+        error_msg = f"{self.model} is temporarily unavailable. Please try again or switch models."
+        return {"content": error_msg, "tool_calls": []}
 
     def _call_ai_with_tools_streaming(self, messages: List[Dict], ctx: Dict[str, Any]) -> Generator[Dict[str, Any], None, None]:
-        """Call OpenRouter with tool definitions (streaming).
+        """Call OpenRouter with tool definitions (streaming) with retry on transient errors.
 
         Yields:
         - {"type": "token", "content": str} for content tokens
         - {"type": "tool_call_detected"} when first tool call is detected (stop streaming tokens)
         - {"type": "result", "content": str, "tool_calls": list} at the end
         """
+        if not self.openrouter_client:
+            yield {"type": "result", "content": "OpenRouter API not configured.", "tool_calls": []}
+            return
+
+        reasoning_info = f" (reasoning: {self._reasoning_mode})" if self._reasoning_mode else ""
+        logger.info(f"Streaming from OpenRouter with model: {self.model}{reasoning_info}")
+
+        # Filter tools based on user's role
+        tools = self._get_tools_for_user(ctx)
+
+        # Build API call params
+        call_params = {
+            "model": self.model,
+            "messages": messages,
+            "tools": tools,
+            "tool_choice": "auto",
+            "stream": True,
+        }
+
+        # Add reasoning params if enabled
+        reasoning_params = self._get_reasoning_params()
+        if reasoning_params.get("extra_body"):
+            call_params["extra_body"] = reasoning_params["extra_body"]
+
+        # Retry loop for transient errors (only retries stream initialization, not mid-stream)
+        last_error: Optional[Exception] = None
+        stream = None
+
+        for attempt in range(MAX_RETRIES):
+            try:
+                stream = self.openrouter_client.chat.completions.create(**call_params)
+                break  # Successfully got stream
+            except Exception as e:
+                last_error = e
+                if not self._is_retryable_error(e):
+                    # Non-retryable error - fail immediately
+                    logger.error(f"Non-retryable error starting OpenRouter stream: {e}")
+                    yield {"type": "result", "content": f"Error: {str(e)}", "tool_calls": []}
+                    return
+
+                if attempt < MAX_RETRIES - 1:
+                    backoff = INITIAL_BACKOFF_SECONDS * (2 ** attempt)
+                    logger.warning(
+                        f"Model {self.model} stream attempt {attempt + 1}/{MAX_RETRIES} failed: {e}. "
+                        f"Retrying in {backoff}s..."
+                    )
+                    time.sleep(backoff)
+                else:
+                    logger.error(
+                        f"Model {self.model} stream failed after {MAX_RETRIES} attempts. Last error: {e}"
+                    )
+
+        if stream is None:
+            error_msg = f"{self.model} is temporarily unavailable. Please try again or switch models."
+            yield {"type": "result", "content": error_msg, "tool_calls": []}
+            return
+
+        # Process the stream
         try:
-            if not self.openrouter_client:
-                yield {"type": "result", "content": "OpenRouter API not configured.", "tool_calls": []}
-                return
-
-            reasoning_info = f" (reasoning: {self._reasoning_mode})" if self._reasoning_mode else ""
-            logger.info(f"Streaming from OpenRouter with model: {self.model}{reasoning_info}")
-
-            # Filter tools based on user's role
-            tools = self._get_tools_for_user(ctx)
-
-            # Build API call params
-            call_params = {
-                "model": self.model,
-                "messages": messages,
-                "tools": tools,
-                "tool_choice": "auto",
-                "stream": True,
-            }
-
-            # Add reasoning params if enabled
-            reasoning_params = self._get_reasoning_params()
-            if reasoning_params.get("extra_body"):
-                call_params["extra_body"] = reasoning_params["extra_body"]
-
-            stream = self.openrouter_client.chat.completions.create(**call_params)
-
             content_chunks = []
             tool_calls_data = {}  # {index: {"id": ..., "name": ..., "arguments": ...}}
             tool_call_signaled = False
@@ -521,7 +591,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             }
 
         except Exception as e:
-            logger.exception(f"Error in streaming OpenRouter call with model {self.model}")
+            logger.exception(f"Error processing OpenRouter stream with model {self.model}")
             yield {"type": "result", "content": f"Error: {str(e)}", "tool_calls": []}
 
     def _execute_with_tools_streaming(
@@ -551,7 +621,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
 
         while iteration < max_iterations:
             iteration += 1
-            print(f"\n[OpenRouter Streaming] Iteration {iteration}, messages count: {len(messages)}")
+            logger.debug(f"[OpenRouter Streaming] Iteration {iteration}, messages count: {len(messages)}")
 
             response_content = ""
             tool_calls = []
@@ -572,8 +642,8 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     response_content = event["content"]
                     tool_calls = event.get("tool_calls", [])
 
-            print(f"[OpenRouter Streaming] Got {len(tool_calls)} tool calls: {[tc.get('name') for tc in tool_calls]}")
-            print(f"[OpenRouter Streaming] Content preview: {response_content[:100] if response_content else 'empty'}...")
+            logger.debug(f"[OpenRouter Streaming] Got {len(tool_calls)} tool calls: {[tc.get('name') for tc in tool_calls]}")
+            logger.debug(f"[OpenRouter Streaming] Content length: {len(response_content)} chars")
 
             if not tool_calls:
                 # No tool calls - this was the final response
@@ -627,8 +697,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
 
         # Build final result
         final_message = "".join(final_content_chunks)
-        print(f"\n[OpenRouter DEBUG] Complete. Tools called: {[t['name'] for t in all_tool_results]}")
-        print(f"[OpenRouter DEBUG] Tool results: {all_tool_results[:2]}...")  # First 2 for brevity
+        logger.debug(f"[OpenRouter] Complete. Tools called: {[t['name'] for t in all_tool_results]}")
 
         # Generate message when model returns empty content after tool execution
         # Some models (e.g., DeepSeek) don't provide a summary message after executing tools
@@ -637,7 +706,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             logger.info(f"[OpenRouter] Generated summary for empty response: {final_message[:100]}...")
 
         actions = self._extract_actions(final_message, all_tool_results)
-        print(f"[OpenRouter DEBUG] Extracted actions: {actions}")
+        logger.debug(f"[OpenRouter] Extracted {len(actions)} actions: {[a.get('type') for a in actions]}")
 
         # Update AI memory after successful response
         contradiction_warning = None

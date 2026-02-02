@@ -419,7 +419,7 @@ class ToolOrchestrator:
 
         # Get user's role and owner status for permission checks
         user_role, is_owner = self._get_user_role_for_project(project, current_user)
-        print(f"[Permission DEBUG] User role for {current_user.email if current_user else 'None'}: {user_role}, is_owner: {is_owner}")
+        logger.debug(f"[Permission] User role: {user_role}, is_owner: {is_owner}")
 
         # Store role for use in _build_messages (for role-aware system prompts)
         self._current_user_role = user_role
@@ -508,7 +508,7 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
         system_tokens = sum(count_message_tokens(m, self.model) for m in messages)
         user_message_tokens = count_tokens(message, self.model) + 4  # +4 for message overhead
 
-        print(f"[TokenContext] System prompt: {system_tokens} tokens, User message: {user_message_tokens} tokens")
+        logger.debug(f"[TokenContext] System prompt: {system_tokens} tokens, User message: {user_message_tokens} tokens")
 
         # Add conversation history with TOKEN-BASED windowing
         if conversation_history:
@@ -532,9 +532,9 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
                 keep_newest=True,
             )
 
-            print(
+            logger.debug(
                 f"[TokenContext] History: {len(fitted_messages)}/{len(conversation_history)} messages, "
-                f"{tokens_used}/{history_budget} tokens (model: {self.model})"
+                f"{tokens_used}/{history_budget} tokens"
             )
 
             for msg in fitted_messages:
@@ -596,11 +596,11 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
         all_tool_results = []
         accumulated_content = []
 
-        print(f"\n[STREAMING] Starting tool execution with model: {self.model}\n")
+        logger.debug(f"[Streaming] Starting tool execution with model: {self.model}")
 
         while iteration < max_iterations:
             iteration += 1
-            print(f"\n[STREAMING] Tool orchestrator iteration {iteration}\n")
+            logger.debug(f"[Streaming] Iteration {iteration}")
 
             # Stream the AI response
             response_content = ""
@@ -614,11 +614,11 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
                     response_content = event["content"]
                     tool_calls = event.get("tool_calls", [])
 
-            print(f"\n[STREAMING] AI returned {len(tool_calls)} tool calls: {[tc.get('name') for tc in tool_calls]}\n")
+            logger.debug(f"[Streaming] AI returned {len(tool_calls)} tool calls: {[tc.get('name') for tc in tool_calls]}")
 
             if not tool_calls:
                 # No more tool calls, we're done
-                print("\n[STREAMING] No tool calls, finishing\n")
+                logger.debug("[Streaming] No tool calls, finishing")
                 break
 
             # Send status event for each tool call so frontend can show dynamic loading
@@ -660,9 +660,9 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
 
         # Build final result
         final_message = "".join(accumulated_content)
-        print(f"\n[STREAMING] All tool results: {all_tool_results}\n")
+        logger.debug(f"[Streaming] Complete. Tools called: {[t['name'] for t in all_tool_results]}")
         actions = self._extract_actions(final_message, all_tool_results)
-        print(f"\n[STREAMING] Extracted actions: {actions}\n")
+        logger.debug(f"[Streaming] Extracted {len(actions)} actions: {[a.get('type') for a in actions]}")
 
         # Update AI memory after successful response
         contradiction_warning = None
@@ -897,11 +897,11 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
 
         # Viewers get NO tools - they can only chat, not take actions
         if user_role == "viewer":
-            print(f"[Permission DEBUG] Viewer role - NO tools available (read-only chat only)")
+            logger.debug("[Permission] Viewer role - NO tools available")
             return []
 
         tools = DISCUSSION_TOOL_REGISTRY.get_schema_list_for_role(user_role, is_owner)
-        print(f"[Permission DEBUG] Filtering tools for role '{user_role}': {len(tools)} tools available (is_owner: {is_owner})")
+        logger.debug(f"[Permission] Role '{user_role}': {len(tools)} tools available")
         return tools
 
     def _call_ai_with_tools(self, messages: List[Dict], ctx: Dict[str, Any]) -> Dict[str, Any]:
