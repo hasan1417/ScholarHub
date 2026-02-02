@@ -1199,20 +1199,33 @@ const ProjectDiscussionOR = () => {
               const event = JSON.parse(jsonStr)
 
               if (event.type === 'token') {
+                const isFirstToken = accumulatedContent === ''
                 accumulatedContent += event.content || ''
-                // Throttle UI updates
-                if (typingTimers.current[id]) {
-                  clearTimeout(typingTimers.current[id])
-                }
-                typingTimers.current[id] = window.setTimeout(() => {
+
+                if (isFirstToken) {
+                  // Update immediately on first token to hide spinner and clear tool waiting state
                   setAssistantHistory((prev) =>
                     prev.map((e) =>
                       e.id === id
-                        ? { ...e, displayMessage: stripActionsBlock(accumulatedContent) }
+                        ? { ...e, displayMessage: stripActionsBlock(accumulatedContent), isWaitingForTools: false }
                         : e
                     )
                   )
-                }, 30)
+                } else {
+                  // Throttle subsequent UI updates
+                  if (typingTimers.current[id]) {
+                    clearTimeout(typingTimers.current[id])
+                  }
+                  typingTimers.current[id] = window.setTimeout(() => {
+                    setAssistantHistory((prev) =>
+                      prev.map((e) =>
+                        e.id === id
+                          ? { ...e, displayMessage: stripActionsBlock(accumulatedContent) }
+                          : e
+                      )
+                    )
+                  }, 30)
+                }
               } else if (event.type === 'status') {
                 // Tool is being executed - set status message and flag
                 setAssistantHistory((prev) =>

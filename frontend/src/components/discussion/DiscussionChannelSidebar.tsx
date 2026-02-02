@@ -216,14 +216,8 @@ const DiscussionChannelSidebar = ({
                             {channel.name}
                           </span>
 
-                          {/* Right side: timestamp + actions */}
+                          {/* Right side: actions + timestamp */}
                           <div className="flex items-center gap-1.5 flex-shrink-0">
-                            {lastActivity && !channel.is_archived && (
-                              <span className="text-[10px] text-gray-400 dark:text-slate-500">
-                                {lastActivity}
-                              </span>
-                            )}
-
                             {/* Action buttons - show on hover or when active */}
                             {onOpenSettings && !channel.is_default && (
                               <button
@@ -260,6 +254,13 @@ const DiscussionChannelSidebar = ({
                                   <Archive className="h-3.5 w-3.5" />
                                 )}
                               </button>
+                            )}
+
+                            {/* Timestamp - always at far right */}
+                            {lastActivity && !channel.is_archived && (
+                              <span className="text-[10px] text-gray-400 dark:text-slate-500">
+                                {lastActivity}
+                              </span>
                             )}
                           </div>
                         </div>
