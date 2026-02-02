@@ -25,6 +25,7 @@ from app.models.document import DocumentStatus
 from app.services.project_reference_service import ProjectReferenceSuggestionService
 from app.services.project_discovery_service import ProjectDiscoveryManager
 from app.services.activity_feed import record_project_activity, preview_text
+from app.services.embedding_worker import queue_library_paper_embedding_sync
 from pydantic import BaseModel
 
 
@@ -419,6 +420,11 @@ def approve_reference_suggestion(
         current_user=current_user,
         paper_id=paper_id,
     )
+    # Queue embedding job for semantic search
+    try:
+        queue_library_paper_embedding_sync(project_ref.id, project_ref.project_id, db)
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"Failed to queue embedding job: {e}")
     return {"id": str(project_ref.id), "status": project_ref.status.value}
 
 
