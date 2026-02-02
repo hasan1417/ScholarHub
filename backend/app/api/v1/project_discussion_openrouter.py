@@ -215,26 +215,23 @@ def invoke_openrouter_assistant(
         },
     }
     logger.info(f"OpenRouter AI Assistant - User: {current_user.email}, model: {model} (from project settings)")
-    logger.info(f"OpenRouter - recent_search_results received: {len(payload.recent_search_results) if payload.recent_search_results else 0} papers")
 
-    # Convert search results to list of dicts
+    # M2 Security Fix: Fetch search results from server cache instead of trusting client data
+    # This prevents prompt injection via crafted paper titles/abstracts
+    from app.services.discussion_ai.search_cache import get_search_results
+
     search_results_list = None
-    if payload.recent_search_results:
-        search_results_list = [
-            {
-                "title": r.title,
-                "authors": r.authors,
-                "year": r.year,
-                "source": r.source,
-                "abstract": getattr(r, "abstract", None),
-                "doi": getattr(r, "doi", None),
-                "url": getattr(r, "url", None),
-                "pdf_url": getattr(r, "pdf_url", None),
-                "is_open_access": getattr(r, "is_open_access", None),
-                "journal": getattr(r, "journal", None),
-            }
-            for r in payload.recent_search_results
-        ]
+    if payload.recent_search_id:
+        # Fetch from server-side cache (trusted source)
+        search_results_list = get_search_results(payload.recent_search_id)
+        if search_results_list:
+            logger.info(f"OpenRouter - Loaded {len(search_results_list)} papers from server cache (search_id={payload.recent_search_id})")
+        else:
+            logger.warning(f"OpenRouter - No cached results for search_id={payload.recent_search_id}, ignoring client data")
+
+    # Log if client sent results but we're ignoring them (security measure)
+    if payload.recent_search_results and not search_results_list:
+        logger.info(f"OpenRouter - Ignoring {len(payload.recent_search_results)} client-provided search results (not in server cache)")
 
     # Load previous conversation state
     previous_state_dict = None

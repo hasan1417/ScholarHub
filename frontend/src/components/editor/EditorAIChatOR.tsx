@@ -104,15 +104,23 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
       const startLine = parseInt(linesParts[0], 10) || 1
       const endLine = parseInt(linesParts[1] || linesParts[0], 10) || startLine
 
-      proposals.push({
+      const parsedProposal = {
         id: `edit-${Date.now()}-${proposals.length}`,
         description: description.trim(),
         startLine,
         endLine,
         anchor: anchor.trim(),
         proposed: proposed.trim(),
-        status: 'pending',
+        status: 'pending' as const,
+      }
+      console.log('[EditorAIChatOR] Parsed edit proposal:', {
+        startLine,
+        endLine,
+        anchor: parsedProposal.anchor,
+        anchorLength: parsedProposal.anchor.length,
+        description: parsedProposal.description.slice(0, 50),
       })
+      proposals.push(parsedProposal)
       cleanText = cleanText.replace(fullMatch, '')
     }
 
@@ -128,6 +136,14 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
 
       const proposal = msg.proposals.find((p) => p.id === proposalId)
       if (!proposal || proposal.status !== 'pending') return prev
+
+      console.log('[EditorAIChatOR] Approving edit proposal:', {
+        startLine: proposal.startLine,
+        endLine: proposal.endLine,
+        anchor: proposal.anchor,
+        anchorLength: proposal.anchor?.length,
+        proposedLength: proposal.proposed?.length,
+      })
 
       // Apply edit using line numbers
       const success = onApplyEdit?.(proposal.startLine, proposal.endLine, proposal.anchor, proposal.proposed) ?? false

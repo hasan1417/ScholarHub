@@ -8,7 +8,7 @@ interface DiscussionChannelSidebarProps {
   channels: DiscussionChannelSummary[]
   activeChannelId: string | null
   onSelectChannel: (channelId: string) => void
-  onCreateChannel: () => void
+  onCreateChannel?: () => void
   isCreating?: boolean
   onArchiveToggle?: (channel: DiscussionChannelSummary) => void
   onOpenSettings?: (channel: DiscussionChannelSummary) => void
@@ -143,15 +143,17 @@ const DiscussionChannelSidebar = ({
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={onCreateChannel}
-          disabled={isCreating}
-          className="inline-flex items-center gap-1 rounded-full border border-indigo-200 px-3 py-1 text-xs font-medium text-indigo-600 transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-400/40 dark:text-indigo-200 dark:hover:bg-indigo-500/10"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          New
-        </button>
+        {onCreateChannel && (
+          <button
+            type="button"
+            onClick={onCreateChannel}
+            disabled={isCreating}
+            className="inline-flex items-center gap-1 rounded-full border border-indigo-200 px-3 py-1 text-xs font-medium text-indigo-600 transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-400/40 dark:text-indigo-200 dark:hover:bg-indigo-500/10"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            New
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto">

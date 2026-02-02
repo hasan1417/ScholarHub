@@ -27,7 +27,8 @@ logger = logging.getLogger(__name__)
 AVAILABLE_TEMPLATES = list(CONFERENCE_TEMPLATES.keys())
 
 DISCUSSION_TOOL_REGISTRY = build_tool_registry()
-DISCUSSION_TOOLS = DISCUSSION_TOOL_REGISTRY.get_schema_list()
+# Note: Don't pre-filter tools at module level - filter at runtime based on user role
+DISCUSSION_TOOLS = DISCUSSION_TOOL_REGISTRY.get_schema_list()  # Full list for reference
 
 # System prompt with adaptive workflow based on request clarity
 BASE_SYSTEM_PROMPT = """You are a research assistant helping with academic papers.
@@ -206,16 +207,16 @@ GUIDELINES:
 
 **WHEN USER REQUESTS A SEARCH:**
 - Call the search_papers tool with the query
-- The tool searches and returns results that will be displayed as cards in the UI
-- Just confirm: "I found X papers on [topic]. You can review them below and click 'Add' to save any to your library."
-- Do NOT list all papers in your message - the UI shows them as interactive cards
+- The tool searches and returns results that will be displayed in a notification
+- Just confirm: "I found X papers on [topic]. Check the notification to review them and click 'Add' to save any to your library."
+- Do NOT list all papers in your message - the user can view them via the notification
 
 **AFTER showing topics + user confirms multiple searches:**
 User: "all 6 please" or "search all" or "yes"
 → Call batch_search_papers with the topics you listed
-→ Confirm: "I'm searching for papers on all topics. Results will appear as cards below."
+→ Confirm: "I'm searching for papers on all topics. Results will appear in a notification."
 
-IMPORTANT: Papers appear as visual cards with Add buttons - don't duplicate them in your text response.
+IMPORTANT: Papers appear in a notification with Add buttons - don't duplicate them in your text response.
 
 **CRITICAL: AFTER CALLING search_papers or batch_search_papers, YOU MUST STOP!**
 - Do NOT call get_recent_search_results in the same turn - it will be empty!
@@ -360,6 +361,44 @@ class ToolOrchestrator:
             logger.exception(f"Error in handle_message_streaming: {e}")
             yield {"type": "result", "data": self._error_response(str(e))}
 
+    def _get_user_role_for_project(
+        self,
+        project: "Project",
+        user: Optional["User"],
+    ) -> tuple[str, bool]:
+        """Get user's role and owner status for a project.
+
+        Returns:
+            (role: str, is_owner: bool) - role is normalized to 'viewer', 'editor', or 'admin'
+        """
+        from app.models import ProjectMember
+        from app.services.discussion_ai.tools.permissions import normalize_role
+
+        if user is None:
+            return ("viewer", False)
+
+        # Check if user is project creator (owner)
+        is_owner = project.created_by == user.id
+        if is_owner:
+            return ("admin", True)
+
+        # Look up membership
+        membership = (
+            self.db.query(ProjectMember)
+            .filter(
+                ProjectMember.project_id == project.id,
+                ProjectMember.user_id == user.id,
+                ProjectMember.status == "accepted",
+            )
+            .first()
+        )
+
+        if membership:
+            return (normalize_role(membership.role), False)
+
+        # No membership found - fail closed
+        return ("viewer", False)
+
     def _build_request_context(
         self,
         project: "Project",
@@ -378,10 +417,19 @@ class ToolOrchestrator:
         count_match = re.search(r"(\d+)\s*(?:papers?|references?|articles?)", message, re.IGNORECASE)
         extracted_count = int(count_match.group(1)) if count_match else None
 
+        # Get user's role and owner status for permission checks
+        user_role, is_owner = self._get_user_role_for_project(project, current_user)
+        print(f"[Permission DEBUG] User role for {current_user.email if current_user else 'None'}: {user_role}, is_owner: {is_owner}")
+
+        # Store role for use in _build_messages (for role-aware system prompts)
+        self._current_user_role = user_role
+
         return {
             "project": project,
             "channel": channel,
             "current_user": current_user,  # User who sent the prompt
+            "user_role": user_role,  # Normalized role for permission checks
+            "is_owner": is_owner,  # Explicit owner flag
             "recent_search_results": recent_search_results or [],
             "recent_search_id": recent_search_id,
             "reasoning_mode": reasoning_mode,
@@ -399,7 +447,14 @@ class ToolOrchestrator:
         recent_search_results: Optional[List[Dict]],
         conversation_history: Optional[List[Dict[str, str]]],
     ) -> List[Dict]:
-        """Build the messages array for the LLM with smart memory management."""
+        """Build the messages array for the LLM with smart token-based context management."""
+        from app.services.discussion_ai.token_utils import (
+            count_tokens,
+            count_message_tokens,
+            fit_messages_in_budget,
+            get_available_context,
+        )
+
         context_summary = self._build_context_summary(project, channel, recent_search_results)
 
         # Build memory context from AI memory (summary + facts)
@@ -423,15 +478,71 @@ class ToolOrchestrator:
 
         messages = [{"role": "system", "content": system_prompt}]
 
-        # Add conversation history with sliding window
+        # Add role-based permission notice for viewers
+        # Viewers have NO tools - they can only chat about existing content
+        user_role = getattr(self, '_current_user_role', None)
+        if user_role == "viewer":
+            viewer_notice = """
+CRITICAL - VIEWER ACCESS ONLY:
+You are assisting a VIEWER (read-only member) of this project.
+
+As a viewer, you have NO tools available. You CANNOT:
+- Search for papers
+- Add papers to the library
+- Create or edit papers/documents
+- Modify project settings
+- Take ANY actions
+
+You CAN ONLY:
+- Answer questions about the project based on the context provided above
+- Discuss papers that are already in the library (shown in context)
+- Have a general conversation
+
+If the user asks you to search, add, create, or modify ANYTHING, respond with:
+"As a viewer, I can only discuss existing content in this project. To search for papers, add to the library, or create content, you'll need editor or admin access. Please contact the project owner to upgrade your role."
+
+DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add...". Be direct about your limitations."""
+            messages.append({"role": "system", "content": viewer_notice})
+
+        # Calculate tokens used by system messages
+        system_tokens = sum(count_message_tokens(m, self.model) for m in messages)
+        user_message_tokens = count_tokens(message, self.model) + 4  # +4 for message overhead
+
+        print(f"[TokenContext] System prompt: {system_tokens} tokens, User message: {user_message_tokens} tokens")
+
+        # Add conversation history with TOKEN-BASED windowing
         if conversation_history:
-            # Use sliding window: keep last SLIDING_WINDOW_SIZE messages in full
-            window_messages = conversation_history[-self.SLIDING_WINDOW_SIZE:]
-            for msg in window_messages:
+            # Calculate available budget for history
+            # Use model-aware context limits with reserves for response and tools
+            available_for_history = get_available_context(
+                self.model,
+                system_tokens=system_tokens + user_message_tokens,
+                reserve_for_response=True,
+                reserve_for_tools=True,
+            )
+
+            # Cap at our explicit budget to prevent runaway context
+            history_budget = min(available_for_history, self.CONVERSATION_HISTORY_TOKEN_BUDGET)
+
+            # Fit messages within budget (keeping newest)
+            fitted_messages, tokens_used = fit_messages_in_budget(
+                conversation_history,
+                budget=history_budget,
+                model=self.model,
+                keep_newest=True,
+            )
+
+            print(
+                f"[TokenContext] History: {len(fitted_messages)}/{len(conversation_history)} messages, "
+                f"{tokens_used}/{history_budget} tokens (model: {self.model})"
+            )
+
+            for msg in fitted_messages:
                 messages.append({"role": msg["role"], "content": msg["content"]})
 
             # Add reminder after history to override old patterns
-            messages.append({"role": "system", "content": HISTORY_REMINDER})
+            if fitted_messages:
+                messages.append({"role": "system", "content": HISTORY_REMINDER})
 
         messages.append({"role": "user", "content": message})
         return messages
@@ -495,7 +606,7 @@ class ToolOrchestrator:
             response_content = ""
             tool_calls = []
 
-            for event in self._call_ai_with_tools_streaming(messages):
+            for event in self._call_ai_with_tools_streaming(messages, ctx):
                 if event["type"] == "token":
                     accumulated_content.append(event["content"])
                     yield event  # Stream token to client
@@ -597,7 +708,7 @@ class ToolOrchestrator:
                 iteration += 1
                 logger.info(f"Tool orchestrator iteration {iteration}")
 
-                response = self._call_ai_with_tools(messages)
+                response = self._call_ai_with_tools(messages, ctx)
                 tool_calls = response.get("tool_calls", [])
 
                 if not tool_calls:
@@ -773,7 +884,27 @@ class ToolOrchestrator:
 
         return "\n".join(lines)
 
-    def _call_ai_with_tools(self, messages: List[Dict]) -> Dict[str, Any]:
+    def _get_tools_for_user(self, ctx: Dict[str, Any]) -> List[Dict]:
+        """Get tools filtered by user's role.
+
+        This ensures the LLM only sees tools the user is allowed to use.
+        - Viewers: NO tools (read-only, can only chat about existing content)
+        - Editors: Read + write tools
+        - Admins: All tools including admin tools
+        """
+        user_role = ctx.get("user_role", "viewer")
+        is_owner = ctx.get("is_owner", False)
+
+        # Viewers get NO tools - they can only chat, not take actions
+        if user_role == "viewer":
+            print(f"[Permission DEBUG] Viewer role - NO tools available (read-only chat only)")
+            return []
+
+        tools = DISCUSSION_TOOL_REGISTRY.get_schema_list_for_role(user_role, is_owner)
+        print(f"[Permission DEBUG] Filtering tools for role '{user_role}': {len(tools)} tools available (is_owner: {is_owner})")
+        return tools
+
+    def _call_ai_with_tools(self, messages: List[Dict], ctx: Dict[str, Any]) -> Dict[str, Any]:
         """Call OpenAI with tool definitions (non-streaming)."""
         try:
             client = self.ai_service.openai_client
@@ -781,10 +912,13 @@ class ToolOrchestrator:
             if not client:
                 return {"content": "AI service not configured. Please check your OpenAI API key.", "tool_calls": []}
 
+            # Filter tools based on user's role
+            tools = self._get_tools_for_user(ctx)
+
             response = client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                tools=DISCUSSION_TOOLS,
+                tools=tools,
                 tool_choice="auto",
             )
 
@@ -810,7 +944,7 @@ class ToolOrchestrator:
             logger.exception("Error calling AI with tools")
             return {"content": f"Error: {str(e)}", "tool_calls": []}
 
-    def _call_ai_with_tools_streaming(self, messages: List[Dict]) -> Generator[Dict[str, Any], None, None]:
+    def _call_ai_with_tools_streaming(self, messages: List[Dict], ctx: Dict[str, Any]) -> Generator[Dict[str, Any], None, None]:
         """Call OpenAI with tool definitions (streaming)."""
         try:
             client = self.ai_service.openai_client
@@ -819,10 +953,13 @@ class ToolOrchestrator:
                 yield {"type": "result", "content": "AI service not configured.", "tool_calls": []}
                 return
 
+            # Filter tools based on user's role
+            tools = self._get_tools_for_user(ctx)
+
             stream = client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                tools=DISCUSSION_TOOLS,
+                tools=tools,
                 tool_choice="auto",
                 stream=True,
             )
@@ -1319,12 +1456,17 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                     "journal": getattr(p, 'journal', None) or getattr(p, 'venue', None),
                 })
 
-            # Return as action so frontend displays cards with Add buttons
+            # Cache search results server-side (M2 security fix)
+            # This prevents clients from injecting malicious search results
+            from app.services.discussion_ai.search_cache import store_search_results
+            store_search_results(search_id, papers)
+
+            # Return as action so frontend displays notification with Add buttons
             return {
                 "status": "success",
                 "message": f"Found {len(papers)} papers for: '{query}'{oa_note}",
                 "action": {
-                    "type": "search_results",  # Frontend will display as cards
+                    "type": "search_results",  # Frontend will display as notification
                     "payload": {
                         "query": query,
                         "papers": papers,
@@ -2757,12 +2899,14 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 channel = ctx.get("channel")
 
                 if not existing_project_ref:
+                    current_user = ctx.get("current_user")
                     project_ref = ProjectReference(
                         project_id=project.id,
                         reference_id=existing_ref.id,
                         status=ProjectReferenceStatus.APPROVED,
                         origin=ProjectReferenceOrigin.AUTO_DISCOVERY,
                         added_via_channel_id=channel.id if channel else None,
+                        added_by_user_id=current_user.id if current_user else None,
                     )
                     self.db.add(project_ref)
                 elif channel and not existing_project_ref.added_via_channel_id:
@@ -3828,12 +3972,16 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 
     # Token budget allocation (approximate)
     MEMORY_TOKEN_BUDGET = {
-        "working_memory": 4000,    # Last 20 messages (full text)
+        "working_memory": 4000,    # Last N messages (token-based, not count-based)
         "session_summary": 1000,   # Compressed older messages
         "research_facts": 500,     # Structured facts
         "key_quotes": 300,         # Important verbatim statements
     }
+    # Legacy: message-count based window (deprecated, kept for fallback)
     SLIDING_WINDOW_SIZE = 20  # Number of recent messages to keep in full
+
+    # Token-based context management
+    CONVERSATION_HISTORY_TOKEN_BUDGET = 16000  # Max tokens for conversation history
 
     # Research stages for state tracking
     RESEARCH_STAGES = [
@@ -4205,11 +4353,19 @@ Return ONLY valid JSON, no explanation:"""
             memory.get("key_quotes", [])
         )
 
-        # Check if we need to summarize (conversation exceeds sliding window)
-        total_messages = len(conversation_history) + 2  # +2 for current exchange
-        if total_messages > self.SLIDING_WINDOW_SIZE:
-            # Get messages that need to be summarized
-            messages_to_summarize = conversation_history[:-self.SLIDING_WINDOW_SIZE + 2]
+        # Check if we need to summarize (conversation exceeds token budget)
+        # Use token-based check instead of message count
+        from app.services.discussion_ai.token_utils import count_messages_tokens, should_summarize
+
+        if should_summarize(conversation_history, self.model):
+            # Get messages that exceed budget for summarization
+            # Keep the newest messages that fit in budget, summarize the rest
+            total_tokens = count_messages_tokens(conversation_history, self.model)
+            logger.info(f"[TokenContext] Conversation at {total_tokens} tokens - triggering summarization")
+
+            # Summarize older half of messages
+            midpoint = len(conversation_history) // 2
+            messages_to_summarize = conversation_history[:midpoint]
             if messages_to_summarize:
                 memory["summary"] = self._summarize_old_messages(
                     messages_to_summarize,

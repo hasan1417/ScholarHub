@@ -377,7 +377,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         """Set the model to use."""
         self._model = value
 
-    def _call_ai_with_tools(self, messages: List[Dict]) -> Dict[str, Any]:
+    def _call_ai_with_tools(self, messages: List[Dict], ctx: Dict[str, Any]) -> Dict[str, Any]:
         """Call OpenRouter with tool definitions (non-streaming)."""
         try:
             if not self.openrouter_client:
@@ -389,11 +389,14 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             reasoning_info = f" (reasoning: {self._reasoning_mode})" if self._reasoning_mode else ""
             logger.info(f"Calling OpenRouter with model: {self.model}{reasoning_info}")
 
+            # Filter tools based on user's role
+            tools = self._get_tools_for_user(ctx)
+
             # Build API call params
             call_params = {
                 "model": self.model,
                 "messages": messages,
-                "tools": DISCUSSION_TOOLS,
+                "tools": tools,
                 "tool_choice": "auto",
             }
 
@@ -426,7 +429,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             logger.exception(f"Error calling OpenRouter with model {self.model}")
             return {"content": f"Error: {str(e)}", "tool_calls": []}
 
-    def _call_ai_with_tools_streaming(self, messages: List[Dict]) -> Generator[Dict[str, Any], None, None]:
+    def _call_ai_with_tools_streaming(self, messages: List[Dict], ctx: Dict[str, Any]) -> Generator[Dict[str, Any], None, None]:
         """Call OpenRouter with tool definitions (streaming).
 
         Yields:
@@ -442,11 +445,14 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             reasoning_info = f" (reasoning: {self._reasoning_mode})" if self._reasoning_mode else ""
             logger.info(f"Streaming from OpenRouter with model: {self.model}{reasoning_info}")
 
+            # Filter tools based on user's role
+            tools = self._get_tools_for_user(ctx)
+
             # Build API call params
             call_params = {
                 "model": self.model,
                 "messages": messages,
-                "tools": DISCUSSION_TOOLS,
+                "tools": tools,
                 "tool_choice": "auto",
                 "stream": True,
             }
@@ -539,9 +545,6 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         iteration = 0
         all_tool_results = []
         final_content_chunks = []
-        # Track paper content detection for auto-create and resume logic
-        # See _detect_paper_content docstring for threshold rationale
-        latex_detected = False
 
         recent_results = ctx.get("recent_search_results", [])
         logger.info(f"[OpenRouter Streaming] Starting with model: {self.model}, recent_search_results: {len(recent_results)} papers")
@@ -554,23 +557,12 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             tool_calls = []
             iteration_content = []
             has_tool_call = False
-            content_buffer = ""  # Buffer to detect LaTeX early
 
-            for event in self._call_ai_with_tools_streaming(messages):
+            for event in self._call_ai_with_tools_streaming(messages, ctx):
                 if event["type"] == "token":
                     iteration_content.append(event["content"])
-                    content_buffer += event["content"]
-
-                    # Early LaTeX detection - check after accumulating enough content
-                    # Use higher threshold (200 chars) to reduce false positives
-                    if not latex_detected and len(content_buffer) > 200:
-                        if self._detect_paper_content(content_buffer, min_length=500):
-                            latex_detected = True
-                            logger.info("[OpenRouter Streaming] LaTeX/paper content detected early - stopping token stream")
-                            # Don't emit "Creating paper" status yet - wait for tool call or final detection
-
-                    # Stream tokens to client UNLESS tool call or LaTeX detected
-                    if not has_tool_call and not latex_detected:
+                    # Stream tokens to client unless tool call detected
+                    if not has_tool_call:
                         yield {"type": "token", "content": event["content"]}
                 elif event["type"] == "tool_call_detected":
                     # Tool call detected mid-stream - stop streaming, buffer the rest
@@ -593,8 +585,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 elif response_content:
                     final_content_chunks.append(response_content)
                     # Stream the content now since it wasn't streamed earlier
-                    if not latex_detected:
-                        yield {"type": "token", "content": response_content}
+                    yield {"type": "token", "content": response_content}
                 break
 
             # Tool calls present - send status messages
@@ -639,40 +630,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         print(f"\n[OpenRouter DEBUG] Complete. Tools called: {[t['name'] for t in all_tool_results]}")
         print(f"[OpenRouter DEBUG] Tool results: {all_tool_results[:2]}...")  # First 2 for brevity
 
-        # AUTO-FIX: Detect if model output paper content but didn't call create_paper tool
-        # Some models (e.g., DeepSeek) output content directly instead of calling tools
-        create_paper_called = any(t.get("name") == "create_paper" for t in all_tool_results)
-        auto_create_succeeded = False
-
-        if not create_paper_called:
-            paper_format = self._detect_paper_content(final_message)
-            if paper_format:
-                logger.info(f"[OpenRouter] Detected {paper_format} paper content without create_paper call - auto-invoking tool")
-                # NOW emit "Creating paper" status - we're confident this is paper content
-                yield {"type": "status", "tool": "create_paper", "message": "Creating paper"}
-
-                auto_result = self._auto_create_paper_from_content(ctx, final_message, paper_format)
-                if auto_result and auto_result.get("status") == "success":
-                    auto_create_succeeded = True
-                    # Use proper tool result structure for _extract_actions
-                    all_tool_results.append({"name": "create_paper", "result": auto_result})
-                    # Update message to match normal Discussion AI format
-                    paper_title = auto_result.get("action", {}).get("payload", {}).get("title", "paper")
-                    paper_id = auto_result.get("action", {}).get("payload", {}).get("paper_id", "")
-                    refs_linked = auto_result.get("references_linked", 0)
-                    ref_msg = f" Linked {refs_linked} references." if refs_linked > 0 else ""
-                    final_message = f"Created a new literature review paper in your project:\n\n**{paper_title}**\n(paper id: {paper_id})\n\n{ref_msg}"
-                else:
-                    logger.warning("[OpenRouter] Auto-create paper failed, streaming original content as fallback")
-
-        # RESUME: If early LaTeX detection suppressed streaming but NO paper was created
-        # (neither via tool call nor auto-create), stream the content so user sees the response
-        # Do NOT resume if create_paper was called via tool - that's the expected flow
-        if latex_detected and not create_paper_called and not auto_create_succeeded and final_message:
-            logger.info("[OpenRouter] Resuming stream - early detection didn't result in paper creation")
-            yield {"type": "token", "content": final_message}
-
-        # AUTO-FIX: Generate message when model returns empty content after tool execution
+        # Generate message when model returns empty content after tool execution
         # Some models (e.g., DeepSeek) don't provide a summary message after executing tools
         if not final_message.strip() and all_tool_results:
             final_message = self._generate_tool_summary_message(all_tool_results)
@@ -708,179 +666,6 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 "memory_warning": contradiction_warning,
             }
         }
-
-    def _detect_paper_content(self, content: str, min_length: int = 0) -> Optional[str]:
-        """Detect if content contains paper content (LaTeX or Markdown). Returns format or None.
-
-        This is used for "auto-create paper" when models output paper content directly
-        instead of calling the create_paper tool (common with DeepSeek and some others).
-
-        DESIGN DECISIONS (see ACTION_PLAN_OPENROUTER.md P1):
-        =====================================================
-        1. min_length parameter: Prevents false positives on short snippets. Use 500+
-           for early detection during streaming to avoid premature "Creating paper" status.
-
-        2. LaTeX detection requires STRONG signals:
-           - 1 primary indicator (\\documentclass, \\begin{document}) + 1 secondary, OR
-           - 3+ secondary indicators (\\section, \\title, etc.)
-           This prevents false positives when AI just mentions LaTeX commands in chat.
-
-        3. Markdown detection requires:
-           - A title heading (# Title)
-           - Plus academic section headings (## Abstract, ## Introduction, etc.)
-           Simple markdown formatting won't trigger this.
-
-        4. Resume mechanism: If early detection triggers but auto-create fails,
-           the content is streamed to chat as fallback (no silent failures).
-
-        Args:
-            content: The text content to analyze
-            min_length: Minimum content length required for detection (0 = no minimum)
-
-        Returns:
-            "latex" | "markdown" | None
-        """
-        import re
-        if not content:
-            return None
-
-        # Enforce minimum length to avoid false positives on short snippets
-        if min_length > 0 and len(content) < min_length:
-            return None
-
-        # Check for LaTeX patterns - require stronger signals
-        # Primary indicators (document structure)
-        primary_latex = [
-            r'\\documentclass',
-            r'\\begin\{document\}',
-        ]
-        # Secondary indicators (content structure)
-        secondary_latex = [
-            r'\\title\{',
-            r'\\section\{',
-            r'\\subsection\{',
-            r'\\usepackage',
-            r'\\author\{',
-            r'\\abstract',
-            r'\\maketitle',
-        ]
-        primary_matches = sum(1 for pattern in primary_latex if re.search(pattern, content))
-        secondary_matches = sum(1 for pattern in secondary_latex if re.search(pattern, content))
-
-        # Require at least one primary indicator OR 3+ secondary indicators
-        if primary_matches >= 1 and secondary_matches >= 1:
-            return "latex"
-        if secondary_matches >= 3:
-            return "latex"
-
-        # Check for Markdown paper patterns (structured academic content)
-        markdown_indicators = [
-            r'^#\s+.+',  # H1 heading (title)
-            r'^##\s+(?:Abstract|Introduction|Background|Methods|Results|Discussion|Conclusion|References)',  # Academic sections
-            r'^###\s+',  # H3 subsections
-            r'\*\*(?:Abstract|Keywords|Author).*?\*\*',  # Bold academic labels
-        ]
-        markdown_matches = sum(1 for pattern in markdown_indicators if re.search(pattern, content, re.MULTILINE | re.IGNORECASE))
-        # Need title + at least one academic section
-        has_title = bool(re.search(r'^#\s+.+', content, re.MULTILINE))
-        if has_title and markdown_matches >= 2:
-            return "markdown"
-
-        return None
-
-    def _auto_create_paper_from_content(self, ctx: Dict[str, Any], content: str, paper_format: str) -> Optional[Dict]:
-        """Extract paper content and auto-create paper when model didn't call tool."""
-        import re
-
-        try:
-            if paper_format == "latex":
-                return self._extract_and_create_latex_paper(ctx, content)
-            elif paper_format == "markdown":
-                return self._extract_and_create_markdown_paper(ctx, content)
-            return None
-        except Exception as e:
-            logger.error(f"[OpenRouter] Failed to auto-create paper: {e}")
-            return None
-
-    def _extract_and_create_latex_paper(self, ctx: Dict[str, Any], content: str) -> Optional[Dict]:
-        """Extract LaTeX content and create paper."""
-        import re
-
-        # Extract title from \title{...} if present
-        title_match = re.search(r'\\title\{([^}]+)\}', content)
-        title = title_match.group(1) if title_match else "Untitled Paper"
-        # Clean up title (remove LaTeX commands)
-        title = re.sub(r'\\[a-zA-Z]+\{([^}]*)\}', r'\1', title)
-        title = re.sub(r'\\\\', ' ', title).strip()
-
-        # Extract abstract if present
-        abstract_match = re.search(r'\\begin\{abstract\}(.*?)\\end\{abstract\}', content, re.DOTALL)
-        abstract = abstract_match.group(1).strip() if abstract_match else None
-
-        # Extract the LaTeX content (could be in code block or raw)
-        code_block_match = re.search(r'```(?:latex|tex)?\s*(.*?)```', content, re.DOTALL)
-        if code_block_match:
-            latex_content = code_block_match.group(1).strip()
-        else:
-            doc_match = re.search(r'(\\documentclass.*?\\end\{document\})', content, re.DOTALL)
-            if doc_match:
-                latex_content = doc_match.group(1)
-            else:
-                latex_content = content
-
-        logger.info(f"[OpenRouter] Auto-creating LaTeX paper: {title}")
-        return self._tool_create_paper(ctx, title=title, content=latex_content, abstract=abstract)
-
-    def _extract_and_create_markdown_paper(self, ctx: Dict[str, Any], content: str) -> Optional[Dict]:
-        """Extract Markdown content and convert to LaTeX for paper creation."""
-        import re
-
-        # Extract title from first H1
-        title_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
-        title = title_match.group(1).strip() if title_match else "Untitled Paper"
-
-        # Extract abstract if present
-        abstract_match = re.search(r'##\s*Abstract\s*\n+(.*?)(?=\n##|\Z)', content, re.DOTALL | re.IGNORECASE)
-        abstract = abstract_match.group(1).strip() if abstract_match else None
-
-        # Convert Markdown to LaTeX
-        latex_content = self._markdown_to_latex(content, title)
-
-        logger.info(f"[OpenRouter] Auto-creating paper from Markdown: {title}")
-        return self._tool_create_paper(ctx, title=title, content=latex_content, abstract=abstract)
-
-    def _markdown_to_latex(self, md_content: str, title: str) -> str:
-        """Convert Markdown paper content to LaTeX."""
-        import re
-
-        # Remove the title (we'll use \title{} instead)
-        content = re.sub(r'^#\s+.+\n*', '', md_content, count=1)
-
-        # Convert ## headings to \section{}
-        content = re.sub(r'^##\s+(.+)$', r'\\section{\1}', content, flags=re.MULTILINE)
-
-        # Convert ### headings to \subsection{}
-        content = re.sub(r'^###\s+(.+)$', r'\\subsection{\1}', content, flags=re.MULTILINE)
-
-        # Convert #### headings to \subsubsection{}
-        content = re.sub(r'^####\s+(.+)$', r'\\subsubsection{\1}', content, flags=re.MULTILINE)
-
-        # Convert **bold** to \textbf{}
-        content = re.sub(r'\*\*(.+?)\*\*', r'\\textbf{\1}', content)
-
-        # Convert *italic* to \textit{}
-        content = re.sub(r'\*(.+?)\*', r'\\textit{\1}', content)
-
-        # Convert bullet lists
-        content = re.sub(r'^[-*]\s+(.+)$', r'\\item \1', content, flags=re.MULTILINE)
-
-        # Wrap consecutive \item lines in itemize environment
-        def wrap_itemize(match):
-            items = match.group(0)
-            return '\\begin{itemize}\n' + items + '\\end{itemize}'
-        content = re.sub(r'((?:\\item .+\n?)+)', wrap_itemize, content)
-
-        return content.strip()
 
     def _generate_tool_summary_message(self, tool_results: List[Dict]) -> str:
         """Generate a summary message when model returns empty content after tool execution."""

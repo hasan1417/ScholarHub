@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react'
 import { Users, Shield, Edit, Eye, Trash2, Settings, Crown, Clock, ChevronDown, X, Mail } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
+import { useParams } from 'react-router-dom'
 
 import { useProjectContext } from '../../pages/projects/ProjectLayout'
 import { useAuth } from '../../contexts/AuthContext'
@@ -51,6 +52,7 @@ const ProjectTeamManager: React.FC = () => {
   const { project } = useProjectContext()
   const { user } = useAuth()
   const queryClient = useQueryClient()
+  const { projectId } = useParams<{ projectId: string }>()  // Get URL param for query key
 
   const [inviteOpen, setInviteOpen] = useState(false)
   const [activeMemberId, setActiveMemberId] = useState<string | null>(null)
@@ -119,8 +121,10 @@ const ProjectTeamManager: React.FC = () => {
     : sortedMembers.slice(0, VISIBLE_MEMBERS_COUNT)
   const hasMoreMembers = sortedMembers.length > VISIBLE_MEMBERS_COUNT
 
-  const invalidateProject = async () => {
-    await queryClient.invalidateQueries({ queryKey: ['project', project.id] })
+  const refreshProject = async () => {
+    // Use refetchQueries to wait for fresh data (invalidateQueries doesn't wait)
+    // Use projectId from URL params to match the query key in ProjectLayout
+    await queryClient.refetchQueries({ queryKey: ['project', projectId] })
     // Also refresh pending invitations
     try {
       const response = await projectsAPI.getPendingInvitations(project.id)
@@ -171,7 +175,7 @@ const ProjectTeamManager: React.FC = () => {
       })
 
       console.debug('Invite response:', response.data)
-      await invalidateProject()
+      await refreshProject()
     } catch (error: any) {
       const detail = error?.response?.data?.detail
       if (detail) {
@@ -189,13 +193,24 @@ const ProjectTeamManager: React.FC = () => {
   }
 
   const handleRoleChange = async (memberId: string, role: RoleOption) => {
-    if (!canManageTeam) return
-    const current = members.find((member) => member.id === memberId)
-    if (!current) return
-    if (current.user_id === project.created_by) {
+    if (!canManageTeam) {
+      console.warn('[ProjectTeamManager] Cannot manage team - permission denied')
       return
     }
-    if (normalizeRole(current.role) === role) {
+    const current = members.find((member) => member.id === memberId)
+    if (!current) {
+      console.warn('[ProjectTeamManager] Member not found:', memberId)
+      return
+    }
+    if (current.user_id === project.created_by) {
+      // Cannot change the project creator's role
+      console.debug('[ProjectTeamManager] Cannot change creator role')
+      return
+    }
+    const currentRole = normalizeRole(current.role)
+    if (currentRole === role) {
+      // Role unchanged
+      console.debug('[ProjectTeamManager] Role unchanged:', role)
       return
     }
     if (role === 'admin' && !canAssignAdmin) {
@@ -204,12 +219,29 @@ const ProjectTeamManager: React.FC = () => {
     }
     setActiveMemberId(memberId)
     try {
-      await projectsAPI.updateMember(project.id, memberId, { role })
-      await invalidateProject()
+      console.debug('[ProjectTeamManager] Updating role:', { memberId, from: currentRole, to: role })
+      const response = await projectsAPI.updateMember(project.id, memberId, { role })
+      const updatedMember = response.data as { role: string }
+
+      // Update the cache directly with the new member data
+      // Use projectId from URL params to match the query key in ProjectLayout
+      queryClient.setQueryData(['project', projectId], (oldData: any) => {
+        if (!oldData) return oldData
+        return {
+          ...oldData,
+          members: oldData.members.map((m: any) =>
+            m.id === memberId ? { ...m, role: updatedMember.role } : m
+          ),
+        }
+      })
+
+      // Also refetch to ensure consistency
+      await refreshProject()
     } catch (error: any) {
+      console.error('[ProjectTeamManager] Role update failed:', error)
       const detail = error?.response?.data?.detail
       if (detail) {
-        alert(detail)
+        alert(typeof detail === 'string' ? detail : JSON.stringify(detail))
       } else {
         alert('Unable to update member role right now.')
       }
@@ -225,7 +257,7 @@ const ProjectTeamManager: React.FC = () => {
     setActiveMemberId(memberId)
     try {
       await projectsAPI.removeMember(project.id, memberId)
-      await invalidateProject()
+      await refreshProject()
     } catch (error: any) {
       const detail = error?.response?.data?.detail
       if (detail) {

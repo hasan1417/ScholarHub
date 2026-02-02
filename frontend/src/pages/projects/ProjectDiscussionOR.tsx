@@ -181,6 +181,7 @@ const ProjectDiscussionOR = () => {
   const serverKeyAvailable = discussionSettingsQuery.data?.server_key_available ?? false
   const useOwnerKeyForTeam = discussionSettingsQuery.data?.use_owner_key_for_team ?? false
   const isOwner = user?.id === project.created_by
+  const isViewer = project.current_user_role === 'viewer'
   const ownerKeyAvailableForViewer = isOwner ? ownerHasApiKey : ownerHasApiKey && useOwnerKeyForTeam
   const hasAnyApiKey = viewerHasApiKey || serverKeyAvailable || ownerKeyAvailableForViewer
   const noKeyMessage = isOwner
@@ -1596,6 +1597,12 @@ const ProjectDiscussionOR = () => {
                 next.delete(activeChannelId)
                 return next
               })
+              // Clear previous ingestion states so new search notification takes priority
+              setIngestionStatesByChannel((prev) => {
+                const next = { ...prev }
+                delete next[activeChannelId]
+                return next
+              })
             }
 
             setReferenceSearchResults({
@@ -2307,10 +2314,10 @@ const ProjectDiscussionOR = () => {
               channels={channels}
               activeChannelId={activeChannelId}
               onSelectChannel={handleMobileChannelSelect}
-              onCreateChannel={handleOpenCreateChannel}
+              onCreateChannel={isViewer ? undefined : handleOpenCreateChannel}
               isCreating={createChannelMutation.isPending}
-              onArchiveToggle={handleToggleArchive}
-              onOpenSettings={(channel) => {
+              onArchiveToggle={isViewer ? undefined : handleToggleArchive}
+              onOpenSettings={isViewer ? undefined : (channel) => {
                 setSettingsChannel(channel)
                 setIsChannelSettingsOpen(true)
                 setIsMobileSidebarOpen(false)
@@ -2329,10 +2336,10 @@ const ProjectDiscussionOR = () => {
             channels={channels}
             activeChannelId={activeChannelId}
             onSelectChannel={setActiveChannelId}
-            onCreateChannel={handleOpenCreateChannel}
+            onCreateChannel={isViewer ? undefined : handleOpenCreateChannel}
             isCreating={createChannelMutation.isPending}
-            onArchiveToggle={handleToggleArchive}
-            onOpenSettings={(channel) => {
+            onArchiveToggle={isViewer ? undefined : handleToggleArchive}
+            onOpenSettings={isViewer ? undefined : (channel) => {
               setSettingsChannel(channel)
               setIsChannelSettingsOpen(true)
             }}

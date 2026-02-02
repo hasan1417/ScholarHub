@@ -48,7 +48,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
   const [outlineOpen, setOutlineOpen] = useState(false)
   const [sectionLocks, setSectionLocks] = useState<Record<string, { userName: string; expiresAt: string }>>({})
   const [lastHtml, setLastHtml] = useState('')
-  const [toast, setToast] = useState<{ visible: boolean; text: string }>({ visible: false, text: '' })
+  const [toast, setToast] = useState<{ visible: boolean; text: string; type?: 'success' | 'error' }>({ visible: false, text: '' })
   const [versionsOpen, setVersionsOpen] = useState(false)
   const [pendingVersion, setPendingVersion] = useState<string | null>(null)
   const [currentVersion, setCurrentVersion] = useState<string | null>(null)
@@ -80,9 +80,9 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
   const expectingCollab = collabFeatureEnabled && !readOnly
   const collabReady = collabEnabled && collabSynced
   const collabUnavailable = collabTimedOut || collabStatusMessage === 'Collaboration unavailable'
-  const showToast = (text: string) => {
-    setToast({ visible: true, text })
-    setTimeout(() => setToast({ visible: false, text: '' }), 3000)
+  const showToast = (text: string, type: 'success' | 'error' = 'success') => {
+    setToast({ visible: true, text, type })
+    setTimeout(() => setToast({ visible: false, text: '' }), type === 'error' ? 5000 : 3000)
   }
   const contentWrapRef = useRef<HTMLDivElement>(null)
   const [containerH, setContainerH] = useState<number>(600)
@@ -714,20 +714,47 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     const startIdx = startLine - 1
     const endIdx = Math.min(endLine - 1, totalLines - 1)
 
-    // Verify anchor matches (optional safety check)
+    // Verify anchor matches (required safety check - prevents corrupting wrong lines)
     if (anchor && anchor.trim()) {
       const actualLineStart = lines[startIdx] || ''
       const normalizedAnchor = anchor.trim().slice(0, 40).toLowerCase()
       const normalizedActual = actualLineStart.trim().slice(0, 40).toLowerCase()
 
-      // Only warn if anchor doesn't match - still apply the edit
-      if (!normalizedActual.includes(normalizedAnchor.slice(0, 20)) &&
-          !normalizedAnchor.includes(normalizedActual.slice(0, 20))) {
-        console.warn('[DocumentShell] Anchor mismatch (proceeding anyway):', {
-          expected: normalizedAnchor,
-          actual: normalizedActual,
+      // Log for debugging
+      console.log('[DocumentShell] Anchor verification:', {
+        line: startLine,
+        expectedAnchor: normalizedAnchor,
+        actualContent: normalizedActual,
+        actualLineRaw: actualLineStart.slice(0, 60),
+      })
+
+      // Check if anchor matches - require significant overlap
+      const substringMatch =
+        normalizedActual.includes(normalizedAnchor.slice(0, 15)) ||
+        normalizedAnchor.includes(normalizedActual.slice(0, 15))
+
+      const wordMatch = normalizedAnchor.split(/\s+/).filter(w => w.length > 2).slice(0, 3)
+        .every((word) => normalizedActual.includes(word))
+
+      const anchorMatches = substringMatch || wordMatch
+
+      console.log('[DocumentShell] Anchor match result:', {
+        substringMatch,
+        wordMatch,
+        anchorMatches,
+      })
+
+      if (!anchorMatches) {
+        console.error('[DocumentShell] Anchor mismatch - edit REJECTED to prevent document corruption:', {
+          line: startLine,
+          expectedAnchor: normalizedAnchor,
+          actualContent: normalizedActual,
         })
+        showToast(`Edit rejected: document changed at line ${startLine}. Please regenerate.`, 'error')
+        return false
       }
+    } else {
+      console.warn('[DocumentShell] No anchor provided - skipping verification')
     }
 
     // Apply the edit by replacing lines
@@ -758,7 +785,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     updateLatestContent(newContent, nextJson)
     requestAutosave('ai-edit-applied')
     return true
-  }, [isLatex, readOnly, requestAutosave, updateLatestContent])
+  }, [isLatex, readOnly, requestAutosave, showToast, updateLatestContent])
 
   const rootCls = fullBleed
     ? 'fixed inset-0 flex flex-col overflow-auto bg-slate-100 transition-colors duration-200 dark:bg-slate-900'
@@ -787,7 +814,11 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     <div className={rootCls}>
       <div className="pointer-events-none absolute top-20 right-4 z-30 flex flex-col items-end gap-2">
         {toast?.visible && (
-          <div className="pointer-events-auto rounded-md border border-green-300 bg-green-100 px-3 py-1 text-[11px] font-medium text-green-800 shadow dark:border-green-500/50 dark:bg-green-500/10 dark:text-green-200">
+          <div className={`pointer-events-auto rounded-md border px-3 py-1 text-[11px] font-medium shadow ${
+            toast.type === 'error'
+              ? 'border-red-300 bg-red-100 text-red-800 dark:border-red-500/50 dark:bg-red-500/10 dark:text-red-200'
+              : 'border-green-300 bg-green-100 text-green-800 dark:border-green-500/50 dark:bg-green-500/10 dark:text-green-200'
+          }`}>
             {toast.text}
           </div>
         )}

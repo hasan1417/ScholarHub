@@ -13,7 +13,7 @@ from app.models.research_paper import ResearchPaper
 from app.models.paper_version import PaperVersion
 from app.models.paper_member import PaperMember, PaperRole
 from app.models.project import Project
-from app.models.project_member import ProjectMember
+from app.models.project_member import ProjectMember, ProjectRole
 from app.schemas.research_paper import ResearchPaperCreate, ResearchPaperUpdate, ResearchPaperResponse, ResearchPaperList
 from app.core.config import settings
 from app.schemas.paper_member import PaperMemberCreate, PaperMemberResponse
@@ -157,6 +157,9 @@ async def create_research_paper(
             ).first()
             if not project_member:
                 raise HTTPException(status_code=403, detail="Project access denied")
+            # Viewers cannot create papers - require ADMIN or EDITOR role
+            if project_member.role not in (ProjectRole.ADMIN, ProjectRole.EDITOR):
+                raise HTTPException(status_code=403, detail="Insufficient permissions to create papers")
         if not objectives:
             raise HTTPException(status_code=400, detail="Please select or create at least one project objective for this paper.")
 

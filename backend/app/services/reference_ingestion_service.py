@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import io
+import ipaddress
 import logging
 import re
-from typing import Optional
-from urllib.parse import urljoin
+import socket
+from typing import Optional, Tuple
+from urllib.parse import urljoin, urlparse
 
 import requests
-from requests import Response
 from sqlalchemy.orm import Session
 
 from app.models.document import Document, DocumentStatus, DocumentType
@@ -19,6 +21,309 @@ from app.models.research_paper import ResearchPaper
 from app.services.document_service import DocumentService
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# SSRF Protection: Secure PDF Fetching
+# ============================================================================
+# This module fetches PDFs from untrusted URLs. To prevent SSRF attacks:
+# 1. Block private/internal IP ranges (IPv4 + IPv6)
+# 2. Manually follow redirects with validation at each hop
+# 3. Resolve DNS once per hop to prevent DNS rebinding
+# 4. Enforce size limits while streaming
+# ============================================================================
+
+MAX_PDF_SIZE = 50 * 1024 * 1024  # 50 MB
+MAX_REDIRECTS = 5
+REQUEST_TIMEOUT = 30
+
+# Private/internal IP ranges to block
+BLOCKED_IPV4_NETWORKS = [
+    ipaddress.ip_network('10.0.0.0/8'),        # Private
+    ipaddress.ip_network('172.16.0.0/12'),     # Private
+    ipaddress.ip_network('192.168.0.0/16'),    # Private
+    ipaddress.ip_network('127.0.0.0/8'),       # Loopback
+    ipaddress.ip_network('169.254.0.0/16'),    # Link-local / cloud metadata
+    ipaddress.ip_network('0.0.0.0/8'),         # "This" network
+    ipaddress.ip_network('100.64.0.0/10'),     # Carrier-grade NAT
+    ipaddress.ip_network('192.0.0.0/24'),      # IETF protocol assignments
+    ipaddress.ip_network('192.0.2.0/24'),      # TEST-NET-1
+    ipaddress.ip_network('198.51.100.0/24'),   # TEST-NET-2
+    ipaddress.ip_network('203.0.113.0/24'),    # TEST-NET-3
+    ipaddress.ip_network('224.0.0.0/4'),       # Multicast
+    ipaddress.ip_network('240.0.0.0/4'),       # Reserved
+]
+
+BLOCKED_IPV6_NETWORKS = [
+    ipaddress.ip_network('::1/128'),           # Loopback
+    ipaddress.ip_network('fc00::/7'),          # Unique local
+    ipaddress.ip_network('fe80::/10'),         # Link-local
+    ipaddress.ip_network('ff00::/8'),          # Multicast
+    ipaddress.ip_network('::ffff:0:0/96'),     # IPv4-mapped (check underlying IPv4)
+]
+
+
+class SSRFError(Exception):
+    """Raised when a URL fails SSRF validation."""
+    pass
+
+
+def _make_ip_pinned_request(
+    url: str,
+    resolved_ip: str,
+    hostname: str,
+    headers: dict,
+    timeout: int,
+) -> requests.Response:
+    """Make a request pinned to a specific IP address.
+
+    This prevents DNS rebinding by connecting to the resolved IP
+    while preserving the original hostname for Host header and TLS SNI.
+
+    For HTTPS: Uses server_hostname for proper SNI and cert validation.
+    For HTTP: Simply connects to the IP with Host header.
+    """
+    import ssl
+    import urllib3
+
+    parsed = urlparse(url)
+
+    # Build URL with IP instead of hostname
+    port = parsed.port
+    port_str = f":{port}" if port else ""
+
+    ip_obj = ipaddress.ip_address(resolved_ip)
+    ip_host = f"[{resolved_ip}]" if isinstance(ip_obj, ipaddress.IPv6Address) else resolved_ip
+
+    path = parsed.path or "/"
+    ip_url = f"{parsed.scheme}://{ip_host}{port_str}{path}"
+    if parsed.query:
+        ip_url += f"?{parsed.query}"
+
+    # Set Host header to original hostname (required for virtual hosts)
+    request_headers = headers.copy()
+    if port and ((parsed.scheme == 'https' and port != 443) or (parsed.scheme == 'http' and port != 80)):
+        request_headers['Host'] = f"{hostname}:{port}"
+    else:
+        request_headers['Host'] = hostname
+
+    if parsed.scheme == 'https':
+        # For HTTPS, we need to:
+        # 1. Connect to the resolved IP
+        # 2. Use original hostname for SNI (server_hostname in SSL context)
+        # 3. Verify certificate against original hostname
+
+        # Create SSL context with proper server_hostname
+        ctx = ssl.create_default_context()
+
+        # Use urllib3 directly for fine-grained control
+        http = urllib3.HTTPSConnectionPool(
+            resolved_ip,
+            port=port or 443,
+            cert_reqs='CERT_REQUIRED',
+            ca_certs=None,  # Use system CA
+            ssl_context=ctx,
+            server_hostname=hostname,  # Critical: SNI and cert validation
+            assert_hostname=hostname,
+            timeout=urllib3.Timeout(connect=timeout, read=timeout),
+        )
+
+        try:
+            request_path = path + (f"?{parsed.query}" if parsed.query else "")
+            response = http.request(
+                'GET',
+                request_path,
+                headers=request_headers,
+                preload_content=False,  # Enable streaming
+                redirect=False,
+            )
+
+            # Wrap in requests.Response for consistent interface
+            resp = requests.Response()
+            resp.status_code = response.status
+            resp.headers = requests.structures.CaseInsensitiveDict(response.headers)
+            resp.raw = response
+            resp._content_consumed = False
+            resp.request = requests.Request('GET', url, headers=request_headers).prepare()
+
+            return resp
+        except Exception as e:
+            logger.debug("HTTPS request to %s failed: %s", resolved_ip, e)
+            raise requests.RequestException(f"HTTPS request failed: {e}")
+    else:
+        # For HTTP, simple request with Host header is sufficient
+        return requests.get(
+            ip_url,
+            headers=request_headers,
+            timeout=timeout,
+            allow_redirects=False,
+            stream=True,
+        )
+
+
+def _is_ip_blocked(ip_str: str) -> bool:
+    """Check if an IP address is in a blocked range."""
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return True  # Invalid IP = blocked
+
+    if isinstance(ip, ipaddress.IPv4Address):
+        return any(ip in net for net in BLOCKED_IPV4_NETWORKS)
+    elif isinstance(ip, ipaddress.IPv6Address):
+        # Check IPv6 ranges
+        if any(ip in net for net in BLOCKED_IPV6_NETWORKS):
+            return True
+        # For IPv4-mapped IPv6 addresses, also check IPv4 ranges
+        if ip.ipv4_mapped:
+            return any(ip.ipv4_mapped in net for net in BLOCKED_IPV4_NETWORKS)
+        return False
+    return True  # Unknown type = blocked
+
+
+def _resolve_and_validate_host(hostname: str) -> str:
+    """Resolve hostname to IP and validate it's not blocked.
+
+    Returns the resolved IP address if safe.
+    Raises SSRFError if the host resolves to a blocked IP.
+    """
+    try:
+        # Get all address info (supports both IPv4 and IPv6)
+        addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        if not addr_info:
+            raise SSRFError(f"Could not resolve hostname: {hostname}")
+
+        # Check all resolved IPs - if any is blocked, reject
+        resolved_ips = set()
+        for _, _, _, _, sockaddr in addr_info:
+            ip = str(sockaddr[0])
+            resolved_ips.add(ip)
+            if _is_ip_blocked(ip):
+                raise SSRFError(f"Blocked IP address: {ip} (from {hostname})")
+
+        # Return first resolved IP for connection
+        return str(addr_info[0][4][0])
+    except socket.gaierror as e:
+        raise SSRFError(f"DNS resolution failed for {hostname}: {e}")
+
+
+def _validate_url_scheme(url: str) -> None:
+    """Ensure URL uses HTTPS or HTTP scheme."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ('http', 'https'):
+        raise SSRFError(f"Invalid URL scheme: {parsed.scheme}")
+    if not parsed.hostname:
+        raise SSRFError(f"No hostname in URL: {url}")
+
+
+def _fetch_pdf_secure(url: str) -> Optional[Tuple[bytes, str]]:
+    """Securely fetch a PDF with SSRF protection.
+
+    Returns (content_bytes, final_url) or None on failure.
+
+    Security measures:
+    - Validates URL scheme (http/https only)
+    - Resolves DNS once and pins connection to that IP (prevents DNS rebinding)
+    - Manually follows redirects with validation at each hop
+    - Streams response to BytesIO with size limit (prevents memory spikes)
+    - Validates content type
+    """
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/pdf,*/*",
+    }
+
+    current_url = url
+
+    for redirect_count in range(MAX_REDIRECTS + 1):
+        try:
+            # Validate URL scheme
+            _validate_url_scheme(current_url)
+            parsed = urlparse(current_url)
+            hostname = parsed.hostname
+            if not hostname:
+                # Should not happen - _validate_url_scheme checks this
+                raise SSRFError(f"No hostname in URL: {current_url}")
+
+            # Resolve DNS and validate IP before connecting
+            resolved_ip = _resolve_and_validate_host(hostname)
+            logger.debug("Resolved %s to %s (pinning connection)", hostname, resolved_ip)
+
+            # Make IP-pinned request (prevents DNS rebinding)
+            resp = _make_ip_pinned_request(
+                url=current_url,
+                resolved_ip=resolved_ip,
+                hostname=hostname,
+                headers=headers,
+                timeout=REQUEST_TIMEOUT,
+            )
+
+            # Handle redirects manually
+            if resp.status_code in (301, 302, 303, 307, 308):
+                if redirect_count >= MAX_REDIRECTS:
+                    logger.warning("Too many redirects for %s", url)
+                    return None
+
+                location = resp.headers.get('Location')
+                if not location:
+                    logger.warning("Redirect without Location header from %s", current_url)
+                    return None
+
+                # Resolve relative redirects
+                current_url = urljoin(current_url, location)
+                logger.debug("Following redirect to %s", current_url)
+                resp.close()
+                continue
+
+            if resp.status_code != 200:
+                logger.info("PDF download from %s returned status %s", current_url, resp.status_code)
+                resp.close()
+                return None
+
+            # Validate content type
+            content_type = (resp.headers.get("content-type") or "").lower()
+            is_pdf_content = "pdf" in content_type or "octet-stream" in content_type
+            is_pdf_url = current_url.lower().endswith(".pdf") or "download" in current_url.lower()
+
+            if not is_pdf_content and not is_pdf_url:
+                logger.info("Content from %s is not a PDF (content-type=%s)", current_url, content_type)
+                resp.close()
+                return None
+
+            # Stream to BytesIO with size limit (avoids memory spike from list + join)
+            buffer = io.BytesIO()
+            total_size = 0
+
+            for chunk in resp.iter_content(chunk_size=8192):
+                total_size += len(chunk)
+                if total_size > MAX_PDF_SIZE:
+                    logger.warning("PDF from %s exceeds size limit (%d bytes)", url, MAX_PDF_SIZE)
+                    resp.close()
+                    buffer.close()
+                    return None
+                buffer.write(chunk)
+
+            resp.close()
+            content = buffer.getvalue()
+            buffer.close()
+
+            if not content:
+                logger.info("Downloaded PDF from %s is empty", current_url)
+                return None
+
+            return (content, current_url)
+
+        except SSRFError as e:
+            logger.warning("SSRF protection blocked %s: %s", current_url, e)
+            return None
+        except requests.RequestException as e:
+            logger.warning("Failed to download PDF from %s: %s", current_url, e)
+            return None
+        except Exception as e:
+            logger.warning("Unexpected error fetching PDF from %s: %s", current_url, e)
+            return None
+
+    logger.warning("Redirect loop detected for %s", url)
+    return None
 
 
 def _run_async(coro):
@@ -71,35 +376,12 @@ def _resolve_owner_id(db: Session, reference: Reference, fallback_owner: Optiona
     raise ValueError("Unable to resolve owner for reference document ingestion")
 
 
-def _fetch_pdf(url: str) -> Optional[Response]:
-    # Use browser-like headers to avoid bot blocking by publishers
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/pdf,*/*",
-    }
-    try:
-        resp = requests.get(url, timeout=30, headers=headers, allow_redirects=True)
-    except Exception as exc:  # pragma: no cover - network variability
-        logger.warning("Failed to download PDF from %s: %s", url, exc)
+def _fetch_pdf(url: str) -> Optional[bytes]:
+    """Fetch PDF with SSRF protection. Returns content bytes or None."""
+    result = _fetch_pdf_secure(url)
+    if result is None:
         return None
-
-    if resp.status_code != 200:
-        logger.info("PDF download from %s returned status %s", url, resp.status_code)
-        return None
-
-    content_type = (resp.headers.get("content-type") or "").lower()
-    # Accept PDF content-type, octet-stream (common for downloads), or URLs ending in .pdf
-    is_pdf_content = "pdf" in content_type or "octet-stream" in content_type
-    is_pdf_url = url.lower().endswith(".pdf") or "download" in url.lower()
-    if not is_pdf_content and not is_pdf_url:
-        logger.info("Downloaded content from %s is not a PDF (content-type=%s)", url, content_type)
-        return None
-
-    if not resp.content:
-        logger.info("Downloaded PDF from %s is empty", url)
-        return None
-
-    return resp
+    return result[0]  # Return just the content bytes
 
 
 def ingest_reference_pdf(
@@ -133,14 +415,14 @@ def ingest_reference_pdf(
     if not existing_document:
         base_url = reference.url or ""
         pdf_url = urljoin(base_url, reference.pdf_url)
-        response = _fetch_pdf(pdf_url)
-        if response is None:
+        pdf_content = _fetch_pdf(pdf_url)
+        if pdf_content is None:
             return False
 
         filename = _sanitize_filename(reference.title)
 
         try:
-            file_path = _run_async(ds.save_uploaded_file(response.content, filename))
+            file_path = _run_async(ds.save_uploaded_file(pdf_content, filename))
         except Exception as exc:
             logger.error("Unable to persist downloaded PDF for reference %s: %s", reference.id, exc)
             return False
@@ -155,10 +437,10 @@ def ingest_reference_pdf(
             filename=filename,
             original_filename=filename,
             file_path=file_path,
-            file_size=len(response.content),
+            file_size=len(pdf_content),
             mime_type="application/pdf",
             document_type=DocumentType.PDF,
-            file_hash=ds.duplicate_detector.calculate_file_hash(response.content),
+            file_hash=ds.duplicate_detector.calculate_file_hash(pdf_content),
             title=reference.title,
             doi=reference.doi,
             journal=reference.journal,
@@ -178,7 +460,7 @@ def ingest_reference_pdf(
             logger.error("Failed to create document record for reference %s: %s", reference.id, exc)
             return False
 
-        document_bytes = response.content
+        document_bytes = pdf_content
     else:
         document = existing_document
         try:

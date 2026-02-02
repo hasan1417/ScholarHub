@@ -57,7 +57,7 @@ export default function ProjectSettingsModal({ project, isOpen, onClose }: Proje
 
   // Update settings mutation
   const updateSettingsMutation = useMutation({
-    mutationFn: async (updates: { model?: string }) => {
+    mutationFn: async (updates: { model?: string; use_owner_key_for_team?: boolean }) => {
       const response = await projectsAPI.updateDiscussionSettings(project.id, updates)
       return response.data
     },

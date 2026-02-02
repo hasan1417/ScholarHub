@@ -62,6 +62,12 @@ class ProjectReference(Base):
         ForeignKey("project_discussion_channels.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Track who added this reference (user who triggered add_to_library or manual add)
+    added_by_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     confidence = Column(Float)
     decided_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     decided_at = Column(DateTime(timezone=True))
@@ -70,7 +76,8 @@ class ProjectReference(Base):
 
     project = relationship("Project", back_populates="references")
     reference = relationship("Reference", back_populates="project_links")
-    decider = relationship("User")
+    decider = relationship("User", foreign_keys=[decided_by])
+    added_by = relationship("User", foreign_keys=[added_by_user_id])
     discovery_run = relationship("ProjectDiscoveryRun", back_populates="promoted_references")
     added_via_channel = relationship("ProjectDiscussionChannel", foreign_keys=[added_via_channel_id])
 

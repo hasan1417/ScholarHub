@@ -524,7 +524,7 @@ def create_discussion_message(
     current_user: User = Depends(get_current_user),
 ) -> DiscussionMessageResponse:
     project = get_project_or_404(db, project_id)
-    ensure_project_member(db, project, current_user)
+    ensure_project_member(db, project, current_user)  # Viewers can chat (AI tools are filtered separately)
 
     parent_message: Optional[ProjectDiscussionMessage] = None
     channel: Optional[ProjectDiscussionChannel] = None
@@ -586,7 +586,7 @@ def update_discussion_message(
     current_user: User = Depends(get_current_user),
 ) -> DiscussionMessageResponse:
     project = get_project_or_404(db, project_id)
-    ensure_project_member(db, project, current_user)
+    ensure_project_member(db, project, current_user)  # Author check below handles permissions
 
     message = (
         db.query(ProjectDiscussionMessage)
@@ -652,7 +652,7 @@ def delete_discussion_message(
     current_user: User = Depends(get_current_user),
 ) -> Response:
     project = get_project_or_404(db, project_id)
-    membership = ensure_project_member(db, project, current_user)
+    _membership, role = ensure_project_member(db, project, current_user)  # Author/admin check below
 
     message = (
         db.query(ProjectDiscussionMessage)
@@ -667,7 +667,7 @@ def delete_discussion_message(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
 
     is_author = message.user_id == current_user.id
-    is_admin = membership.role == ProjectRole.ADMIN
+    is_admin = role == ProjectRole.ADMIN
 
     if not (is_author or is_admin):
         raise HTTPException(
@@ -1212,24 +1212,22 @@ def invoke_discussion_assistant(
     }
     logger.info(f"🔍 AI Assistant - User: {current_user.email}, display_name: '{display_name}'")
 
-    # Convert search results to list of dicts
+    # M2 Security Fix: Fetch search results from server cache instead of trusting client data
+    # This prevents prompt injection via crafted paper titles/abstracts
+    from app.services.discussion_ai.search_cache import get_search_results
+
     search_results_list = None
-    if payload.recent_search_results:
-        search_results_list = [
-            {
-                "title": r.title,
-                "authors": r.authors,
-                "year": r.year,
-                "source": r.source,
-                "abstract": getattr(r, "abstract", None),
-                "doi": getattr(r, "doi", None),
-                "url": getattr(r, "url", None),
-                "pdf_url": getattr(r, "pdf_url", None),
-                "is_open_access": getattr(r, "is_open_access", None),
-                "journal": getattr(r, "journal", None),
-            }
-            for r in payload.recent_search_results
-        ]
+    if payload.recent_search_id:
+        # Fetch from server-side cache (trusted source)
+        search_results_list = get_search_results(payload.recent_search_id)
+        if search_results_list:
+            logger.info(f"AI Assistant - Loaded {len(search_results_list)} papers from server cache (search_id={payload.recent_search_id})")
+        else:
+            logger.warning(f"AI Assistant - No cached results for search_id={payload.recent_search_id}, ignoring client data")
+
+    # Log if client sent results but we're ignoring them (security measure)
+    if payload.recent_search_results and not search_results_list:
+        logger.info(f"AI Assistant - Ignoring {len(payload.recent_search_results)} client-provided search results (not in server cache)")
 
     # Load previous conversation state from the most recent exchange
     previous_state_dict = None
@@ -1878,7 +1876,7 @@ def create_discussion_task(
     current_user: User = Depends(get_current_user),
 ) -> DiscussionTaskResponse:
     project = get_project_or_404(db, project_id)
-    ensure_project_member(db, project, current_user)
+    ensure_project_member(db, project, current_user, roles=[ProjectRole.ADMIN, ProjectRole.EDITOR])
     channel = _get_channel_or_404(db, project, channel_id)
 
     if payload.message_id:
@@ -1924,7 +1922,7 @@ def update_discussion_task(
     current_user: User = Depends(get_current_user),
 ) -> DiscussionTaskResponse:
     project = get_project_or_404(db, project_id)
-    ensure_project_member(db, project, current_user)
+    ensure_project_member(db, project, current_user, roles=[ProjectRole.ADMIN, ProjectRole.EDITOR])
 
     task = (
         db.query(ProjectDiscussionTask)
@@ -1970,7 +1968,7 @@ def delete_discussion_task(
     current_user: User = Depends(get_current_user),
 ) -> Response:
     project = get_project_or_404(db, project_id)
-    ensure_project_member(db, project, current_user)
+    ensure_project_member(db, project, current_user, roles=[ProjectRole.ADMIN, ProjectRole.EDITOR])
 
     task = (
         db.query(ProjectDiscussionTask)
@@ -2016,7 +2014,7 @@ def execute_paper_action(
 ) -> PaperActionResponse:
     """Execute a paper action suggested by the discussion AI."""
     project = get_project_or_404(db, project_id)
-    ensure_project_member(db, project, current_user)
+    ensure_project_member(db, project, current_user, roles=[ProjectRole.ADMIN, ProjectRole.EDITOR])
 
     if request.action_type == "create_paper":
         return _handle_create_paper(db, project, current_user, request.payload)
@@ -2815,7 +2813,7 @@ async def delete_artifact(
 ):
     """Delete an artifact."""
     project = get_project_or_404(db, project_id)
-    ensure_project_member(db, project, current_user)
+    ensure_project_member(db, project, current_user, roles=[ProjectRole.ADMIN, ProjectRole.EDITOR])
 
     artifact = db.query(DiscussionArtifact).filter(
         DiscussionArtifact.id == artifact_id,

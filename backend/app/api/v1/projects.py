@@ -129,7 +129,8 @@ def _ensure_project_manager(db: Session, project: Project, user: User) -> None:
         )
         .first()
     )
-    if not membership or membership.role != ProjectRole.ADMIN:
+    # Allow both OWNER and ADMIN roles to manage the project
+    if not membership or membership.role not in (ProjectRole.OWNER, ProjectRole.ADMIN):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
 
 
@@ -306,6 +307,12 @@ def get_project(
         ProjectMemberResponse.model_validate(member, from_attributes=True)
         for member in project.members
     ]
+    # Add current user's role
+    membership = db.query(ProjectMember).filter(
+        ProjectMember.project_id == project.id,
+        ProjectMember.user_id == current_user.id,
+    ).first()
+    detail.current_user_role = membership.role.value if membership else None
     return detail
 
 
