@@ -227,7 +227,7 @@ def print_document_comparison(title: str, original: str, converted: str):
         print(f"  ... ({len(lines) - 60} more lines)")
 
 
-def test_conversion(doc_name: str, doc: str, target_template: str, service: SmartAgentServiceV2):
+def run_conversion(doc_name: str, doc: str, target_template: str, service: SmartAgentServiceV2):
     """Test converting a document and show before/after."""
     print(f"\n\n{'#'*80}")
     print(f"# TEST: {doc_name} → {target_template.upper()}")
@@ -341,7 +341,7 @@ def run_comprehensive_tests():
 
     for doc_name, doc, target in tests:
         try:
-            success, edits, converted = test_conversion(doc_name, doc, target, service)
+            success, edits, converted = run_conversion(doc_name, doc, target, service)
             results.append({
                 'name': f"{doc_name} → {target}",
                 'success': success,

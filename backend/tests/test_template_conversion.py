@@ -208,12 +208,17 @@ def test_editor_tools_include_template_tools():
         if tool['function']['name'] == 'apply_template':
             params = tool['function']['parameters']
             template_id_prop = params['properties']['template_id']
-            expected_enums = ['acl', 'ieee', 'neurips', 'aaai', 'icml', 'generic']
+            expected_enums = list(CONFERENCE_TEMPLATES.keys())
             assert template_id_prop['enum'] == expected_enums, f"Enum mismatch: {template_id_prop['enum']}"
             print(f"  ✓ apply_template enum values: {expected_enums}")
 
     print("\n✓ All template tools are correctly defined")
     return True
+
+
+def test_ask_clarification_tool_exists():
+    """Test that EDITOR_TOOLS includes ask_clarification."""
+    assert any(t["function"]["name"] == "ask_clarification" for t in EDITOR_TOOLS)
 
 
 def test_system_prompt_mentions_templates():

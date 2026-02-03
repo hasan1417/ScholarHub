@@ -15,6 +15,11 @@ interface EditProposal {
   status: 'pending' | 'approved' | 'rejected'
 }
 
+interface Clarification {
+  question: string
+  options: string[]
+}
+
 interface EditorAIChatORProps {
   paperId: string
   projectId?: string
@@ -23,9 +28,18 @@ interface EditorAIChatORProps {
   onOpenChange: (open: boolean) => void
   /** Callback to apply an approved edit to the document (line-based) */
   onApplyEdit?: (startLine: number, endLine: number, anchor: string, replacement: string) => boolean
+  /** Callback to apply a batch of edits against a snapshot */
+  onApplyEditsBatch?: (proposals: EditProposal[], sourceDocument: string) => boolean
 }
 
-type ChatMessage = { role: 'user' | 'assistant'; content: string; proposals?: EditProposal[] }
+type ChatMessage = {
+  role: 'user' | 'assistant'
+  content: string
+  proposals?: EditProposal[]
+  clarification?: Clarification
+  sourceDocument?: string
+  sourcePrompt?: string
+}
 
 interface ReferenceItem {
   id: string
@@ -56,6 +70,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
   open,
   onOpenChange,
   onApplyEdit,
+  onApplyEditsBatch,
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -69,6 +84,11 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
   const abortControllerRef = useRef<AbortController | null>(null)
   const [expandedProposals, setExpandedProposals] = useState<Set<string>>(new Set())
   const listRef = useRef<HTMLDivElement | null>(null)
+
+  const isReviewMessage = useCallback((content: string) => {
+    if (!content) return false
+    return content.includes('## Review') || content.includes('Suggested Improvements')
+  }, [])
 
   useEffect(() => {
     if (openrouterModels.length === 0) return
@@ -88,6 +108,42 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
     () => modelSupportsReasoning(selectedModel, openrouterModels),
     [selectedModel, openrouterModels]
   )
+
+  const parseClarification = useCallback((text: string): { cleanText: string; clarification?: Clarification } => {
+    const clarifyRegex = /<<<CLARIFY>>>\s*QUESTION:\s*([\s\S]*?)\s*OPTIONS:\s*([\s\S]*?)<<<END>>>/i
+    const match = clarifyRegex.exec(text)
+    if (!match) {
+      return { cleanText: text.trim() }
+    }
+
+    const question = match[1].trim()
+    const optionsRaw = match[2].trim()
+
+    const parseLines = (raw: string) =>
+      raw
+        .split('\n')
+        .map((line) => line.replace(/^[-*\s]+/, '').trim())
+        .filter(Boolean)
+
+    let options = optionsRaw
+      .split('|')
+      .map((opt) => opt.trim())
+      .filter(Boolean)
+
+    if (options.length <= 1) {
+      options = parseLines(optionsRaw)
+    }
+
+    const cleanText = text.replace(match[0], '').trim()
+
+    return {
+      cleanText,
+      clarification: {
+        question,
+        options,
+      },
+    }
+  }, [])
 
   /** Parse edit proposals from AI response using line-based format */
   const parseEditProposals = useCallback((text: string): { cleanText: string; proposals: EditProposal[] } => {
@@ -159,6 +215,22 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
       return copy
     })
   }, [onApplyEdit])
+
+  const handleApplyAllEdits = useCallback((messageIdx: number) => {
+    setMessages((prev) => {
+      const copy = [...prev]
+      const msg = copy[messageIdx]
+      if (!msg?.proposals || msg.proposals.length === 0 || !msg.sourceDocument) return prev
+
+      const success = onApplyEditsBatch?.(msg.proposals, msg.sourceDocument) ?? false
+      if (success) {
+        msg.proposals = msg.proposals.map((p) => ({ ...p, status: 'approved' as const }))
+      } else {
+        setError('Could not apply edits. The document may have changed. Please regenerate.')
+      }
+      return copy
+    })
+  }, [onApplyEditsBatch])
 
   /** Handle rejecting an edit proposal */
   const handleRejectEdit = useCallback((messageIdx: number, proposalId: string) => {
@@ -253,138 +325,196 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
     return { len, lines, isLarge }
   }, [documentText])
 
-  const handleSend = useCallback(async () => {
-    if (!input.trim() || sending) return
-    const prompt = input.trim()
-    setInput('')
-    setSending(true)
-    setStatusMessage('Thinking')
-    setError(null)
-    setMessages((prev) => [...prev, { role: 'user', content: prompt }])
-
-    // Cycle through status messages for better UX
-    const statusMessages = [
-      { delay: 0, message: 'Thinking' },
-      { delay: 2000, message: 'Analyzing document' },
-      { delay: 4000, message: 'Processing request' },
-      { delay: 7000, message: 'Preparing response' },
-      { delay: 12000, message: 'Almost there' },
-    ]
-    const statusTimers: number[] = []
-    statusMessages.forEach(({ delay, message }) => {
-      const timer = window.setTimeout(() => setStatusMessage(message), delay)
-      statusTimers.push(timer)
-    })
-
-    // BETA: Send full document - backend handles smart AI-driven extraction
-    const rawDoc = documentText || ''
-    const docToSend = rawDoc.slice(0, MAX_DOC_CHARS) || docContext || null
-
-    console.log('[EditorAIChatOR] BETA:', {
-      model: selectedModel,
-      reasoningMode,
-      docLength: docToSend?.length || 0,
-      mode: (docToSend?.length || 0) < 200000 ? 'full-document' : 'section-retrieval',
-      prompt: prompt.slice(0, 50),
-    })
-
-    // Create abort controller for cancel functionality
-    abortControllerRef.current = new AbortController()
-
-    try {
-      // Use OpenRouter agent endpoint with model selection
-      const res = await fetch(
-        buildApiUrl(`/agent-or/chat/stream?model=${encodeURIComponent(selectedModel)}`),
-        {
-          signal: abortControllerRef.current.signal,
-          method: 'POST',
-          headers: buildAuthHeaders(),
-          body: JSON.stringify({
-            query: prompt,
-            paper_id: paperId,
-            project_id: projectId || null,
-            document_excerpt: docToSend,
-            reasoning_mode: reasoningMode,
-          }),
-        }
-      )
-
-      if (!res.ok) {
-        const errText = await res.text()
-        throw new Error(errText || 'Chat request failed.')
+  const sendPrompt = useCallback(
+    async (prompt: string, clearInput: boolean = false) => {
+      if (!prompt.trim() || sending) return
+      if (clearInput) {
+        setInput('')
       }
+      setSending(true)
+      setStatusMessage('Thinking')
+      setError(null)
+      setMessages((prev) => [...prev, { role: 'user', content: prompt }])
 
-      const reader = res.body?.getReader()
-      const decoder = new TextDecoder()
-      let fullText = ''
+      // Cycle through status messages for better UX
+      const statusMessages = [
+        { delay: 0, message: 'Thinking' },
+        { delay: 2000, message: 'Analyzing document' },
+        { delay: 4000, message: 'Processing request' },
+        { delay: 7000, message: 'Preparing response' },
+        { delay: 12000, message: 'Almost there' },
+      ]
+      const statusTimers: number[] = []
+      statusMessages.forEach(({ delay, message }) => {
+        const timer = window.setTimeout(() => setStatusMessage(message), delay)
+        statusTimers.push(timer)
+      })
 
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          const chunk = decoder.decode(value || new Uint8Array(), { stream: true })
-          fullText += chunk
+      // BETA: Send full document - backend handles smart AI-driven extraction
+      const rawDoc = documentText || ''
+      const docSnapshot = rawDoc
+      const sourcePrompt = prompt
+      const docToSend = rawDoc.slice(0, MAX_DOC_CHARS) || docContext || null
+
+      console.log('[EditorAIChatOR] BETA:', {
+        model: selectedModel,
+        reasoningMode,
+        docLength: docToSend?.length || 0,
+        mode: (docToSend?.length || 0) < 200000 ? 'full-document' : 'section-retrieval',
+        prompt: prompt.slice(0, 50),
+      })
+
+      // Create abort controller for cancel functionality
+      abortControllerRef.current = new AbortController()
+
+      try {
+        // Use OpenRouter agent endpoint with model selection
+        const res = await fetch(
+          buildApiUrl(`/agent-or/chat/stream?model=${encodeURIComponent(selectedModel)}`),
+          {
+            signal: abortControllerRef.current.signal,
+            method: 'POST',
+            headers: buildAuthHeaders(),
+            body: JSON.stringify({
+              query: prompt,
+              paper_id: paperId,
+              project_id: projectId || null,
+              document_excerpt: docToSend,
+              reasoning_mode: reasoningMode,
+            }),
+          }
+        )
+
+        if (!res.ok) {
+          const errText = await res.text()
+          throw new Error(errText || 'Chat request failed.')
+        }
+
+        const reader = res.body?.getReader()
+        const decoder = new TextDecoder()
+        let fullText = ''
+
+        if (reader) {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            const chunk = decoder.decode(value || new Uint8Array(), { stream: true })
+            fullText += chunk
+            setMessages((prev) => {
+              const copy = [...prev]
+              const last = copy.length - 1
+              if (last >= 0 && copy[last].role === 'assistant') {
+                copy[last] = { ...copy[last], content: copy[last].content + chunk }
+              } else {
+                copy.push({ role: 'assistant', content: chunk })
+              }
+              return copy
+            })
+          }
+        }
+
+        // After streaming completes, parse clarification + edit proposals
+        let cleanText = fullText
+        let clarification: Clarification | undefined
+        let proposals: EditProposal[] = []
+
+        if (fullText.includes('<<<CLARIFY>>>')) {
+          const parsedClarification = parseClarification(fullText)
+          cleanText = parsedClarification.cleanText
+          clarification = parsedClarification.clarification
+        }
+
+        if (cleanText.includes('<<<EDIT>>>')) {
+          const parsedEdits = parseEditProposals(cleanText)
+          cleanText = parsedEdits.cleanText
+          proposals = parsedEdits.proposals
+        }
+
+        if (clarification || proposals.length > 0) {
           setMessages((prev) => {
             const copy = [...prev]
             const last = copy.length - 1
             if (last >= 0 && copy[last].role === 'assistant') {
-              copy[last] = { ...copy[last], content: copy[last].content + chunk }
-            } else {
-              copy.push({ role: 'assistant', content: chunk })
+              copy[last] = {
+                ...copy[last],
+                content: cleanText,
+                proposals,
+                clarification,
+                sourceDocument: docSnapshot,
+                sourcePrompt,
+              }
+              if (proposals.length > 0) {
+                setExpandedProposals(new Set([proposals[0].id]))
+              }
             }
             return copy
           })
         }
-      }
 
-      // After streaming completes, parse edit proposals
-      if (fullText.includes('<<<EDIT>>>')) {
-        const { cleanText, proposals } = parseEditProposals(fullText)
+        if (!fullText.trim() && !clarification && proposals.length === 0) {
+          setMessages((prev) => {
+            const last = prev.length - 1
+            if (last < 0 || prev[last].role !== 'assistant') {
+              return [...prev, { role: 'assistant', content: 'No response received.' }]
+            }
+            return prev
+          })
+        }
+      } catch (e: any) {
+        // Don't show error for user-initiated cancellation
+        if (e?.name === 'AbortError') {
+          console.log('[EditorAIChatOR] Request cancelled by user')
+          return
+        }
+        const msg = e?.response?.data?.detail || e?.message || 'Chat request failed.'
+        setError(msg)
         setMessages((prev) => {
           const copy = [...prev]
-          const last = copy.length - 1
-          if (last >= 0 && copy[last].role === 'assistant') {
-            copy[last] = { ...copy[last], content: cleanText, proposals }
-            if (proposals.length > 0) {
-              setExpandedProposals(new Set([proposals[0].id]))
-            }
+          if (copy.length >= 1 && copy[copy.length - 1].role === 'user' && copy[copy.length - 1].content === prompt) {
+            copy.pop()
           }
           return copy
         })
+      } finally {
+        // Clear status timers
+        statusTimers.forEach((t) => window.clearTimeout(t))
+        abortControllerRef.current = null
+        setSending(false)
+        setStatusMessage('Thinking')
       }
+    },
+    [
+      docContext,
+      documentText,
+      paperId,
+      parseClarification,
+      parseEditProposals,
+      projectId,
+      reasoningMode,
+      selectedModel,
+      sending,
+    ]
+  )
 
-      if (!fullText.trim()) {
-        setMessages((prev) => {
-          const last = prev.length - 1
-          if (last < 0 || prev[last].role !== 'assistant') {
-            return [...prev, { role: 'assistant', content: 'No response received.' }]
-          }
-          return prev
-        })
-      }
-    } catch (e: any) {
-      // Don't show error for user-initiated cancellation
-      if (e?.name === 'AbortError') {
-        console.log('[EditorAIChatOR] Request cancelled by user')
-        return
-      }
-      const msg = e?.response?.data?.detail || e?.message || 'Chat request failed.'
-      setError(msg)
-      setMessages((prev) => {
-        const copy = [...prev]
-        if (copy.length >= 1 && copy[copy.length - 1].role === 'user' && copy[copy.length - 1].content === prompt) {
-          copy.pop()
-        }
-        return copy
-      })
-    } finally {
-      // Clear status timers
-      statusTimers.forEach((t) => window.clearTimeout(t))
-      abortControllerRef.current = null
-      setSending(false)
-      setStatusMessage('Thinking')
-    }
-  }, [docContext, documentText, input, paperId, parseEditProposals, projectId, reasoningMode, selectedModel, sending])
+  const handleApplyReviewChanges = useCallback((mode: 'critical' | 'all') => {
+    const prompt = mode === 'critical'
+      ? 'Apply only the critical fixes from your last review. Focus on compilation blockers.'
+      : 'Apply all suggested changes from your last review.'
+    void sendPrompt(prompt, false)
+  }, [sendPrompt])
+
+  const handleRegenerateEdits = useCallback((messageIdx: number) => {
+    const msg = messages[messageIdx]
+    if (!msg?.sourcePrompt) return
+    const regeneratePrompt = `${msg.sourcePrompt}\n\nPlease regenerate the edits for the current document state.`
+    void sendPrompt(regeneratePrompt, false)
+  }, [messages, sendPrompt])
+
+  const handleSend = useCallback(() => {
+    const prompt = input.trim()
+    if (!prompt || sending) return
+    void sendPrompt(prompt, true)
+  }, [input, sendPrompt, sending])
 
   /** Cancel ongoing request */
   const handleCancel = useCallback(() => {
@@ -400,6 +530,15 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
       })
     }
   }, [])
+
+  const handleClarificationSelect = useCallback(
+    (question: string, option: string) => {
+      const prompt = `Clarification: ${option}`
+      console.log('[EditorAIChatOR] Clarification selected:', { question, option })
+      void sendPrompt(prompt, true)
+    },
+    [sendPrompt]
+  )
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -528,9 +667,74 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                       <ReactMarkdown>{m.content}</ReactMarkdown>
                     </div>
                   )}
+                  {m.content && isReviewMessage(m.content) && (!m.proposals || m.proposals.length === 0) && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => handleApplyReviewChanges('critical')}
+                        disabled={sending}
+                        className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-500/60 dark:bg-amber-900/30 dark:text-amber-100"
+                      >
+                        Apply critical fixes
+                      </button>
+                      <button
+                        onClick={() => handleApplyReviewChanges('all')}
+                        disabled={sending}
+                        className="rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Apply all suggestions
+                      </button>
+                    </div>
+                  )}
+                  {m.clarification && (
+                    <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-600/60 dark:bg-amber-900/30 dark:text-amber-100">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-200">
+                        Clarification needed
+                      </div>
+                      <div className="mt-1 font-medium">{m.clarification.question}</div>
+                      {m.clarification.options.length > 0 ? (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {m.clarification.options.map((option) => (
+                            <button
+                              key={option}
+                              onClick={() => handleClarificationSelect(m.clarification!.question, option)}
+                              disabled={sending}
+                              className="rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-500/60 dark:bg-amber-900/40 dark:text-amber-100 dark:hover:bg-amber-900/60"
+                            >
+                              {option}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="mt-1 text-xs text-amber-700 dark:text-amber-200">
+                          Reply with a bit more detail to continue.
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {/* Edit Proposals */}
                   {m.proposals && m.proposals.length > 0 && (
                     <div className="mt-3 space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                          {m.proposals.length} proposed edit{m.proposals.length > 1 ? 's' : ''}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleRegenerateEdits(idx)}
+                            disabled={sending}
+                            className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                          >
+                            Regenerate
+                          </button>
+                          <button
+                            onClick={() => handleApplyAllEdits(idx)}
+                            disabled={sending}
+                            className="rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Apply All
+                          </button>
+                        </div>
+                      </div>
                       {m.proposals.map((proposal) => {
                         const isExpanded = expandedProposals.has(proposal.id)
                         return (

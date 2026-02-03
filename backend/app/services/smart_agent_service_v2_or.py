@@ -94,6 +94,7 @@ class SmartAgentServiceV2OR:
         user_id: str,
         query: str,
         paper_id: Optional[str] = None,
+        project_id: Optional[str] = None,
         document_excerpt: Optional[str] = None,
         reasoning_mode: bool = False,
     ) -> Generator[str, None, None]:
@@ -128,27 +129,61 @@ class SmartAgentServiceV2OR:
 
         logger.info(f"[SmartAgentV2OR] model={self.model}, reasoning={use_reasoning}, doc_size={doc_size}")
 
+        history_messages = self._get_recent_history(
+            db=db,
+            user_id=user_id,
+            paper_id=paper_id,
+            project_id=project_id,
+            limit=8,
+        )
+
         # Build tools list (add reference search)
         tools = list(EDITOR_TOOLS) + [SEARCH_REFERENCES_TOOL]
+        effective_query = self._rewrite_affirmation(query, history_messages) or query
+        if effective_query.strip().lower().startswith("clarification:"):
+            tools = [tool for tool in tools if tool["function"]["name"] != "ask_clarification"]
 
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"{full_context}\n\n---\n\nUser request: {query}"}
-        ]
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages.extend(history_messages)
+        messages.append({"role": "user", "content": f"{full_context}\n\n---\n\nUser request: {effective_query}"})
 
         try:
             # Multi-turn for reference searches only
             max_turns = 3
             turn = 0
+            response_text = ""
+
+            def _collect_and_yield(gen: Generator[str, None, None]) -> Generator[str, None, None]:
+                nonlocal response_text
+                for chunk in gen:
+                    response_text += chunk
+                    yield chunk
+
+            clarification = self._build_clarification(effective_query, document_excerpt)
+            if clarification:
+                yield from _collect_and_yield(self._format_tool_response("ask_clarification", clarification))
+                self._store_chat_exchange(
+                    db=db,
+                    user_id=user_id,
+                    paper_id=paper_id,
+                    project_id=project_id,
+                    user_message=effective_query,
+                    assistant_message=response_text,
+                )
+                return
 
             while turn < max_turns:
                 turn += 1
+
+                tool_choice = "required" if turn == 1 else "auto"
+                if turn == 1 and not self._should_require_tool_choice(effective_query):
+                    tool_choice = "auto"
 
                 request_kwargs = {
                     "model": self.model,
                     "messages": messages,
                     "tools": tools,
-                    "tool_choice": "required" if turn == 1 else "auto",
+                    "tool_choice": tool_choice,
                     "max_tokens": 4000,
                 }
 
@@ -190,24 +225,304 @@ class SmartAgentServiceV2OR:
                         continue  # AI will call propose_edit next
 
                     # All other tools - format and return
-                    yield from self._format_tool_response(tool_name, tool_args)
+                    yield from _collect_and_yield(self._format_tool_response(tool_name, tool_args))
+                    self._store_chat_exchange(
+                        db=db,
+                        user_id=user_id,
+                        paper_id=paper_id,
+                        project_id=project_id,
+                        user_message=effective_query,
+                        assistant_message=response_text,
+                    )
                     return
 
                 elif choice.message.content:
+                    response_text = choice.message.content
                     yield choice.message.content
+                    self._store_chat_exchange(
+                        db=db,
+                        user_id=user_id,
+                        paper_id=paper_id,
+                        project_id=project_id,
+                        user_message=effective_query,
+                        assistant_message=response_text,
+                    )
                     return
 
-            yield "Could not complete the request. Please try again."
+            response_text = "Could not complete the request. Please try again."
+            yield response_text
+            self._store_chat_exchange(
+                db=db,
+                user_id=user_id,
+                paper_id=paper_id,
+                project_id=project_id,
+                user_message=effective_query,
+                assistant_message=response_text,
+            )
 
         except Exception as e:
             logger.error(f"[SmartAgentV2OR] Error: {e}")
             yield f"Sorry, an error occurred: {str(e)}"
+
+    def _build_clarification(self, query: str, document_excerpt: Optional[str]) -> Optional[Dict[str, Any]]:
+        q = (query or "").strip()
+        if not q:
+            return None
+        q_lower = q.lower()
+        if q_lower.startswith("clarification:"):
+            return None
+        if q_lower.endswith("?") and q_lower.split(" ", 1)[0] in ("what", "which", "how", "when", "where", "who", "why"):
+            return None
+        if self._is_convert_request(q_lower):
+            return None
+
+        operation = self._detect_operation(q_lower)
+        if not operation:
+            return None
+
+        target = self._detect_target(q_lower)
+        if not target and document_excerpt:
+            target = "document"
+
+        if self._has_explicit_replacement(q_lower, q):
+            return None
+
+        if not target:
+            return {
+                "question": "What should I change?",
+                "options": [
+                    "Title",
+                    "Abstract",
+                    "Specific section (tell me which)",
+                    "Entire document",
+                ],
+            }
+
+        if operation == "fix":
+            return None
+
+        if operation in ("improve", "rewrite", "shorten", "expand", "change") and not self._has_constraints(q_lower):
+            return {
+                "question": f"For the {target}, what should I optimize for?",
+                "options": [
+                    "Shorter/concise",
+                    "More specific focus",
+                    "More formal/academic",
+                    "Improve clarity/flow",
+                ],
+            }
+
+        return None
+
+    def _detect_operation(self, q_lower: str) -> Optional[str]:
+        if any(term in q_lower for term in ("fix grammar", "fix typos", "grammar", "typo", "proofread")):
+            return "fix"
+        if any(term in q_lower for term in ("shorten", "condense", "compress", "summarize", "trim", "cut", "reduce", "make shorter", "make concise")):
+            return "shorten"
+        if any(term in q_lower for term in ("expand", "elaborate", "add detail", "lengthen", "add more")):
+            return "expand"
+        if any(term in q_lower for term in ("rewrite", "rephrase", "paraphrase", "reword")):
+            return "rewrite"
+        if any(term in q_lower for term in ("improve", "make better", "enhance", "polish", "refine", "tighten", "clean up", "strengthen", "revise")):
+            return "improve"
+        if any(term in q_lower for term in ("change", "update")):
+            return "change"
+        return None
+
+    def _detect_target(self, q_lower: str) -> Optional[str]:
+        targets = (
+            "title",
+            "abstract",
+            "introduction",
+            "background",
+            "related work",
+            "literature review",
+            "method",
+            "methods",
+            "methodology",
+            "results",
+            "discussion",
+            "conclusion",
+            "limitations",
+            "section",
+            "paragraph",
+            "sentence",
+            "document",
+            "paper",
+            "manuscript",
+        )
+        for term in targets:
+            if term in q_lower:
+                return term
+        return None
+
+    def _has_constraints(self, q_lower: str) -> bool:
+        if re.search(r"\b\d+\s*(words?|pages?|sentences?)\b", q_lower):
+            return True
+        if any(term in q_lower for term in ("shorter", "longer", "concise", "brief", "detailed", "in depth")):
+            return True
+        if any(term in q_lower for term in ("focus", "emphasize", "highlight", "specifically", "scope", "about")):
+            return True
+        if any(term in q_lower for term in ("tone", "formal", "academic", "casual", "technical", "simple", "professional")):
+            return True
+        if any(term in q_lower for term in ("suggest", "options", "examples", "alternatives")):
+            return True
+        return False
+
+    def _is_convert_request(self, q_lower: str) -> bool:
+        if any(term in q_lower for term in ("convert", "reformat", "template")):
+            return True
+        for template_id in CONFERENCE_TEMPLATES.keys():
+            if template_id in q_lower:
+                return True
+        return False
+
+    def _has_explicit_replacement(self, q_lower: str, query: str) -> bool:
+        if '"' in query or "'" in query or "\\title{" in query:
+            return True
+        if re.search(r"\btitle\b.*\bto\b.{5,}", q_lower):
+            return True
+        return False
+
+    def _is_review_message(self, content: str) -> bool:
+        if not content:
+            return False
+        return "## Review" in content or "Suggested Improvements" in content
+
+    def _rewrite_affirmation(self, query: str, history: List[Dict[str, str]]) -> Optional[str]:
+        q = (query or "").strip().lower()
+        if not q:
+            return None
+        short_ack = {
+            "please",
+            "yes",
+            "ok",
+            "okay",
+            "sure",
+            "go ahead",
+            "do it",
+            "do so",
+            "apply",
+            "apply it",
+            "sounds good",
+            "yep",
+        }
+        if q not in short_ack:
+            return None
+        last_assistant = next((m for m in reversed(history) if m.get("role") == "assistant"), None)
+        if not last_assistant or not self._is_review_message(last_assistant.get("content", "")):
+            return None
+        return "Apply the suggested changes from your last review."
+
+    def _sanitize_assistant_content(self, content: str) -> str:
+        if "<<<EDIT>>>" in content:
+            content = content.split("<<<EDIT>>>", 1)[0].strip()
+        if "<<<CLARIFY>>>" in content:
+            content = content.split("<<<CLARIFY>>>", 1)[0].strip()
+        return content
+
+    def _should_require_tool_choice(self, query: str) -> bool:
+        q = (query or "").strip().lower()
+        if not q:
+            return True
+        if "apply all suggested changes" in q or "apply suggested changes" in q or "apply all suggestions" in q:
+            return False
+        if "apply critical fixes" in q or "apply critical" in q:
+            return False
+        return True
+
+    def _get_recent_history(
+        self,
+        db: Session,
+        user_id: str,
+        paper_id: Optional[str],
+        project_id: Optional[str],
+        limit: int = 8,
+    ) -> List[Dict[str, str]]:
+        try:
+            if not paper_id and not project_id:
+                return []
+            from app.models.editor_chat_message import EditorChatMessage
+
+            query = db.query(EditorChatMessage).filter(EditorChatMessage.user_id == user_id)
+            if paper_id:
+                query = query.filter(EditorChatMessage.paper_id == str(paper_id))
+            elif project_id:
+                query = query.filter(EditorChatMessage.project_id == str(project_id))
+
+            rows = (
+                query.order_by(EditorChatMessage.created_at.desc())
+                .limit(limit)
+                .all()
+            )
+            if not isinstance(rows, list):
+                return []
+
+            history = []
+            for row in reversed(rows):
+                if row.role not in ("user", "assistant"):
+                    continue
+                content = row.content or ""
+                if row.role == "assistant":
+                    content = self._sanitize_assistant_content(content)
+                    if not content:
+                        continue
+                history.append({"role": row.role, "content": content})
+            return history
+        except Exception as e:
+            logger.warning(f"[SmartAgentV2OR] Failed to load editor history: {e}")
+            return []
+
+    def _store_chat_exchange(
+        self,
+        db: Session,
+        user_id: str,
+        paper_id: Optional[str],
+        project_id: Optional[str],
+        user_message: str,
+        assistant_message: str,
+    ) -> None:
+        if not assistant_message or (not paper_id and not project_id):
+            return
+        try:
+            from app.models.editor_chat_message import EditorChatMessage
+
+            db.add(EditorChatMessage(
+                user_id=user_id,
+                paper_id=str(paper_id) if paper_id else None,
+                project_id=str(project_id) if project_id else None,
+                role="user",
+                content=user_message,
+            ))
+            db.add(EditorChatMessage(
+                user_id=user_id,
+                paper_id=str(paper_id) if paper_id else None,
+                project_id=str(project_id) if project_id else None,
+                role="assistant",
+                content=assistant_message,
+            ))
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            logger.warning(f"[SmartAgentV2OR] Failed to store editor chat: {e}")
 
     def _format_tool_response(self, tool_name: str, args: dict) -> Generator[str, None, None]:
         """Format the tool response for the frontend."""
 
         if tool_name == "answer_question":
             yield args.get("answer", "")
+
+        elif tool_name == "ask_clarification":
+            question = (args.get("question") or "").strip()
+            raw_options = args.get("options") or []
+            if isinstance(raw_options, str):
+                raw_options = [raw_options]
+            options = [opt.strip() for opt in raw_options if isinstance(opt, str) and opt.strip()]
+
+            yield "<<<CLARIFY>>>\n"
+            yield f"QUESTION: {question}\n"
+            yield f"OPTIONS: {' | '.join(options)}\n"
+            yield "<<<END>>>\n"
 
         elif tool_name == "propose_edit":
             explanation = args.get("explanation", "")
@@ -256,6 +571,9 @@ class SmartAgentServiceV2OR:
 
         elif tool_name == "list_available_templates":
             yield from self._handle_list_templates()
+
+        elif tool_name == "apply_template":
+            yield from self._handle_apply_template(args.get("template_id", ""))
 
         else:
             yield f"Unknown tool: {tool_name}"
@@ -457,16 +775,11 @@ class SmartAgentServiceV2OR:
         yield "## Available Conference Templates\n\n"
         yield "| Template | ID | Notes |\n"
         yield "|----------|-----|-------|\n"
-        yield "| IEEE Conference | `ieee` | Two-column, IEEEtran class |\n"
-        yield "| ACL/EMNLP/NAACL | `acl` | NLP conferences |\n"
-        yield "| NeurIPS | `neurips` | ML conference |\n"
-        yield "| ICML | `icml` | ML conference |\n"
-        yield "| ICLR | `iclr` | ML conference |\n"
-        yield "| CVPR/ICCV | `cvpr` | Computer vision |\n"
-        yield "| Nature/Science | `nature` | High-impact journals |\n"
-        yield "| Elsevier | `elsevier` | Journal format |\n"
-        yield "| Generic | `generic` | Simple article |\n"
-        yield "\nTo convert, say: \"Convert to IEEE format\"\n"
+        for template_id, template in CONFERENCE_TEMPLATES.items():
+            name = template.get("name", template_id)
+            notes = template.get("notes", "")
+            yield f"| {name} | `{template_id}` | {notes} |\n"
+        yield "\nTo convert, say: \"Convert this to ACL format\" or \"Reformat for IEEE\"\n"
 
     def _handle_apply_template(self, template_id: str) -> Generator[str, None, None]:
         """Return template info for AI to use with propose_edit."""
@@ -485,6 +798,10 @@ class SmartAgentServiceV2OR:
 
         yield f"### Author Format: `{template['author_format']}`\n\n"
         yield f"### Bibliography: `\\bibliographystyle{{{template['bib_style']}}}`\n\n"
+        yield "### Recommended Sections\n\n"
+        for section in template.get("sections", []):
+            yield f"- {section}\n"
+        yield "\n"
         yield f"### Notes: {template['notes']}\n\n"
 
         yield "---\n\n"

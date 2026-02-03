@@ -45,6 +45,7 @@ class User(Base):
     paper_memberships = relationship("PaperMember", back_populates="user", foreign_keys="PaperMember.user_id", cascade="all, delete-orphan")
     documents = relationship("Document", back_populates="owner", cascade="all, delete-orphan")
     ai_chat_sessions = relationship("AIChatSession", back_populates="user", cascade="all, delete-orphan")
+    editor_chat_messages = relationship("EditorChatMessage", back_populates="user", cascade="all, delete-orphan")
     collaboration_participations = relationship("CollaborationParticipant", back_populates="user")
     notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
 

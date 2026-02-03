@@ -26,6 +26,7 @@ from .document_chunk import DocumentChunk
 from .document_tag import DocumentTag
 from .tag import Tag
 from .ai_chat_session import AIChatSession
+from .editor_chat_message import EditorChatMessage
 from .collaboration_session import CollaborationSession
 from .collaboration_participant import CollaborationParticipant
 from .chat_message import ChatMessage
@@ -94,6 +95,7 @@ __all__ = [
     "Document",
     "DocumentChunk",
     "AIChatSession",
+    "EditorChatMessage",
     "Tag",
     "DocumentTag",
     "PaperVersion",

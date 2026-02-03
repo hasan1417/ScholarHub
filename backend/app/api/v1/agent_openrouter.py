@@ -162,6 +162,7 @@ async def agent_chat_stream_or(
                 user_id=str(current_user.id),
                 query=request.query,
                 paper_id=request.paper_id,
+                project_id=request.project_id,
                 document_excerpt=request.document_excerpt,
                 reasoning_mode=request.reasoning_mode,
             ):
