@@ -445,6 +445,8 @@ Replaced all 17 `print()` statements with `logger.debug()` and sanitized sensiti
   - Fixed cross-thread lock issue: replaced asyncio.Lock with threading.Lock
   - Fixed duplicate job processing: atomic UPDATE...RETURNING for job claiming
   - Wired embedding queue to paper approval endpoint (UI integration)
+- 2026-02-03: Added 16 embedding worker tests covering full pipeline:
+  - Job queueing, worker processing, embedding storage, semantic search, thread safety
 
 ## Next Steps
 All planned items complete. Search quality enhancement and semantic search fully implemented.
