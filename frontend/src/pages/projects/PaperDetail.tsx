@@ -15,6 +15,7 @@ import {
   Target,
   Trash2,
   Unlink,
+  Upload,
   X,
 } from 'lucide-react'
 
@@ -28,6 +29,8 @@ const stripXmlTags = (text: string | null | undefined): string => {
 import {
   projectReferencesAPI,
   researchPapersAPI,
+  referencesAPI,
+  buildApiUrl,
   teamAPI,
 } from '../../services/api'
 import {
@@ -64,6 +67,8 @@ const PaperDetail: React.FC = () => {
   const [showObjectivesModal, setShowObjectivesModal] = useState(false)
   const [selectedObjectives, setSelectedObjectives] = useState<string[]>([])
   const [isSavingObjectives, setIsSavingObjectives] = useState(false)
+  const [referenceUploads, setReferenceUploads] = useState<Record<string, boolean>>({})
+  const [referenceUploadError, setReferenceUploadError] = useState<string | null>(null)
 
   const projectMembers = project?.members ?? []
   const currentUserId = user?.id
@@ -198,6 +203,47 @@ const PaperDetail: React.FC = () => {
     } catch (error) {
       console.error('Error loading references:', error)
       setReferences([])
+    }
+  }
+
+  const handleUploadReferencePdf = async (referenceId: string, file: File | null) => {
+    if (!referenceId || !file) return
+    setReferenceUploadError(null)
+    setReferenceUploads((prev) => ({ ...prev, [referenceId]: true }))
+    try {
+      await referencesAPI.uploadPdf(referenceId, file)
+      await refreshReferences()
+    } catch (error: any) {
+      console.error('Error uploading reference PDF:', error)
+      setReferenceUploadError(error?.message || 'Unable to upload PDF right now.')
+    } finally {
+      setReferenceUploads((prev) => ({ ...prev, [referenceId]: false }))
+    }
+  }
+
+  const handleViewReferencePdf = async (downloadUrl: string) => {
+    try {
+      const token = localStorage.getItem('access_token')
+      if (!token) {
+        alert('Please login again to download the PDF')
+        return
+      }
+      // downloadUrl from backend is already /api/v1/documents/{id}/download
+      // Use origin + path directly to avoid double /api/v1 from buildApiUrl
+      const url = downloadUrl.startsWith('http')
+        ? downloadUrl
+        : `${window.location.origin}${downloadUrl.startsWith('/') ? downloadUrl : '/' + downloadUrl}`
+      const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      if (!resp.ok) {
+        throw new Error(`Download failed (${resp.status})`)
+      }
+      const blob = await resp.blob()
+      const objectUrl = URL.createObjectURL(blob)
+      window.open(objectUrl, '_blank')
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000)
+    } catch (error) {
+      console.error('Failed to open PDF', error)
+      alert('Failed to open PDF')
     }
   }
 
@@ -698,6 +744,12 @@ const PaperDetail: React.FC = () => {
                 )}
               </div>
 
+              {referenceUploadError && (
+                <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-400/40 dark:bg-rose-500/10 dark:text-rose-200">
+                  {referenceUploadError}
+                </div>
+              )}
+
               {references.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-8 text-center transition-colors dark:border-slate-700 dark:bg-slate-800/40">
                   <BookOpen className="mx-auto h-8 w-8 text-gray-300 dark:text-slate-600" />
@@ -710,11 +762,19 @@ const PaperDetail: React.FC = () => {
                 </div>
               ) : (
                 <div className="-mr-2 max-h-[420px] space-y-3 overflow-y-auto pr-2 custom-scrollbar">
-                  {references.map((ref) => (
-                    <div
-                      key={ref.paper_reference_id}
-                      className="group rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition hover:border-gray-300 dark:border-slate-700 dark:bg-slate-800/40 dark:hover:border-slate-600"
-                    >
+                  {references.map((ref) => {
+                    const hasFullText = Boolean(
+                      ref.pdf_processed ||
+                        ref.document_status === 'processed' ||
+                        ref.document_id
+                    )
+                    const isProcessing = ref.document_status === 'processing' || ref.document_status === 'uploading'
+                    const hasPdfLink = Boolean(ref.pdf_url)
+                    return (
+                      <div
+                        key={ref.paper_reference_id}
+                        className="group rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition hover:border-gray-300 dark:border-slate-700 dark:bg-slate-800/40 dark:hover:border-slate-600"
+                      >
                       <div className="flex flex-col gap-2.5 text-sm">
                         {/* Title row */}
                         <div className="flex items-start justify-between gap-3">
@@ -795,10 +855,58 @@ const PaperDetail: React.FC = () => {
                                 Source
                               </a>
                             )}
-                            {ref.project_reference_status && ref.project_reference_status !== 'approved' && (
-                              <span className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
-                                {ref.project_reference_status}
+                          {ref.project_reference_status && ref.project_reference_status !== 'approved' && (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
+                              {ref.project_reference_status}
+                            </span>
+                          )}
+                            {hasFullText ? (
+                              <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-medium text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200">
+                                Full text ready
                               </span>
+                            ) : isProcessing ? (
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
+                                Processing
+                              </span>
+                            ) : hasPdfLink ? (
+                              <span className="rounded-full bg-sky-100 px-2 py-0.5 font-medium text-sky-700 dark:bg-sky-500/20 dark:text-sky-200">
+                                PDF linked
+                              </span>
+                            ) : (
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
+                                PDF missing
+                              </span>
+                            )}
+                            {ref.document_download_url && (
+                              <button
+                                type="button"
+                                onClick={() => handleViewReferencePdf(ref.document_download_url as string)}
+                                className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                              >
+                                <Link2 className="h-3 w-3" />
+                                View PDF
+                              </button>
+                            )}
+                            {!hasFullText && ref.reference_id && canManageReferences && (
+                              <label
+                                htmlFor={`upload-ref-pdf-${ref.reference_id}`}
+                                className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-2 py-0.5 font-medium text-amber-700 hover:bg-amber-100 cursor-pointer dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200"
+                              >
+                                <Upload className="h-3 w-3" />
+                                {referenceUploads[ref.reference_id] ? 'Uploading...' : 'Upload PDF'}
+                                <input
+                                  id={`upload-ref-pdf-${ref.reference_id}`}
+                                  type="file"
+                                  accept="application/pdf"
+                                  className="hidden"
+                                  disabled={referenceUploads[ref.reference_id]}
+                                  onChange={(event) => {
+                                    const file = event.target.files?.[0] || null
+                                    void handleUploadReferencePdf(ref.reference_id as string, file)
+                                    event.currentTarget.value = ''
+                                  }}
+                                />
+                              </label>
                             )}
                           </div>
                           {ref.attached_at && (
@@ -809,7 +917,8 @@ const PaperDetail: React.FC = () => {
                         </div>
                       </div>
                     </div>
-                  ))}
+                  )
+                })}
                 </div>
               )}
             </section>

@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react'
-import { Search, X, BookOpen } from 'lucide-react'
-import { projectReferencesAPI, researchPapersAPI } from '../../services/api'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
+import { Search, X, BookOpen, Upload } from 'lucide-react'
+import api, { buildApiUrl, projectReferencesAPI, researchPapersAPI } from '../../services/api'
 
 interface ReferenceItem {
   id: string
+  referenceId?: string
   title: string
   authors?: string[]
   year?: number
@@ -12,6 +13,11 @@ interface ReferenceItem {
   source?: string
   journal?: string
   abstract?: string
+  pdfUrl?: string | null
+  pdfProcessed?: boolean | null
+  documentId?: string | null
+  documentStatus?: string | null
+  documentDownloadUrl?: string | null
 }
 
 interface CitationDialogProps {
@@ -56,6 +62,8 @@ const CitationDialog: React.FC<CitationDialogProps> = ({
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null)
   const [bibliographyStyle, setBibliographyStyle] = useState('plain')
   const [bibFile] = useState('main')
+  const [uploading, setUploading] = useState<Record<string, boolean>>({})
+  const [uploadError, setUploadError] = useState<string | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
 
@@ -70,31 +78,54 @@ const CitationDialog: React.FC<CitationDialogProps> = ({
     { value: 'chicago', label: 'Chicago', description: 'Chicago style' },
   ]
 
+  const normalizeReferences = useCallback((refs: any[]): ReferenceItem[] => {
+    return (refs || []).map((ref: any, index: number) => {
+      const referenceId = String(ref.reference_id ?? ref.id ?? ref.referenceId ?? '')
+      const id = String(ref.id ?? ref.reference_id ?? ref.referenceId ?? index)
+      return {
+        id,
+        referenceId: referenceId || id,
+        title: ref.title || ref.citation || ref.original_title || 'Untitled reference',
+        authors: ref.authors,
+        year: ref.year,
+        doi: ref.doi,
+        url: ref.url,
+        source: ref.source,
+        journal: ref.journal,
+        abstract: ref.abstract,
+        pdfUrl: ref.pdf_url ?? ref.pdfUrl ?? null,
+        pdfProcessed: ref.pdf_processed ?? ref.pdfProcessed ?? null,
+        documentId: ref.document_id ?? ref.documentId ?? null,
+        documentStatus: ref.document_status ?? ref.documentStatus ?? null,
+        documentDownloadUrl: ref.document_download_url ?? ref.documentDownloadUrl ?? null,
+      }
+    })
+  }, [])
+
+  const loadReferences = useCallback(async () => {
+    setIsLoading(true)
+    try {
+      if (projectId) {
+        const response = await projectReferencesAPI.listPaperReferences(projectId, paperId)
+        const refs = normalizeReferences(response.data?.references || [])
+        setReferences(refs)
+      } else {
+        const response = await researchPapersAPI.listReferences(paperId)
+        const refs = normalizeReferences(response.data?.references || [])
+        setReferences(refs)
+      }
+    } catch (error) {
+      console.error('Failed to load references:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [normalizeReferences, paperId, projectId])
+
   // Load references
   useEffect(() => {
     if (!isOpen) return
-
-    const loadReferences = async () => {
-      setIsLoading(true)
-      try {
-        if (projectId) {
-          const response = await projectReferencesAPI.listPaperReferences(projectId, paperId)
-          const refs = response.data?.references || []
-          setReferences(refs)
-        } else {
-          const response = await researchPapersAPI.listReferences(paperId)
-          const refs = response.data?.references || []
-          setReferences(refs)
-        }
-      } catch (error) {
-        console.error('Failed to load references:', error)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
     loadReferences()
-  }, [isOpen, paperId, projectId])
+  }, [isOpen, loadReferences])
 
   // Calculate position relative to anchor
   useEffect(() => {
@@ -163,6 +194,53 @@ const CitationDialog: React.FC<CitationDialogProps> = ({
     onClose()
   }
 
+  const handleUploadPdf = async (ref: ReferenceItem, file: File | null) => {
+    if (!file) return
+    const referenceId = ref.referenceId || ref.id
+    if (!referenceId) return
+    setUploadError(null)
+    setUploading((prev) => ({ ...prev, [referenceId]: true }))
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      await api.post(`/references/${referenceId}/upload-pdf`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      await loadReferences()
+    } catch (error: any) {
+      console.error('Failed to upload PDF:', error)
+      setUploadError(error?.message || 'Failed to upload PDF.')
+    } finally {
+      setUploading((prev) => ({ ...prev, [referenceId]: false }))
+    }
+  }
+
+  const handleViewPdf = async (downloadUrl: string) => {
+    try {
+      const token = localStorage.getItem('access_token')
+      if (!token) {
+        alert('Please login again to download the PDF')
+        return
+      }
+      // downloadUrl from backend is already /api/v1/documents/{id}/download
+      // Use origin + path directly to avoid double /api/v1 from buildApiUrl
+      const url = downloadUrl.startsWith('http')
+        ? downloadUrl
+        : `${window.location.origin}${downloadUrl.startsWith('/') ? downloadUrl : '/' + downloadUrl}`
+      const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      if (!resp.ok) {
+        throw new Error(`Download failed (${resp.status})`)
+      }
+      const blob = await resp.blob()
+      const objectUrl = URL.createObjectURL(blob)
+      window.open(objectUrl, '_blank')
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000)
+    } catch (error) {
+      console.error('Failed to open PDF', error)
+      alert('Failed to open PDF')
+    }
+  }
+
   if (!isOpen || !position) return null
 
   return (
@@ -226,6 +304,12 @@ const CitationDialog: React.FC<CitationDialogProps> = ({
           </div>
         </div>
 
+        {uploadError && (
+          <div className="border-b border-gray-200 px-3 py-2 text-[11px] text-rose-600 dark:border-slate-700 dark:text-rose-300">
+            {uploadError}
+          </div>
+        )}
+
         {/* Reference List */}
         <div className="max-h-[300px] overflow-y-auto">
           {isLoading ? (
@@ -244,7 +328,17 @@ const CitationDialog: React.FC<CitationDialogProps> = ({
             </div>
           ) : (
             <div className="divide-y divide-gray-100 dark:divide-slate-700">
-              {filteredReferences.map((ref) => (
+              {filteredReferences.map((ref) => {
+                const uploadKey = ref.referenceId || ref.id
+                const hasMetaPrefix = Boolean(ref.authors?.length || ref.year)
+                const hasFullText = Boolean(
+                  ref.pdfProcessed ||
+                    ref.documentStatus === 'processed' ||
+                    ref.documentId
+                )
+                const isProcessing = ref.documentStatus === 'processing' || ref.documentStatus === 'uploading'
+                const hasPdfLink = Boolean(ref.pdfUrl)
+                return (
                   <div
                     key={ref.id}
                     className="px-3 py-2 transition-colors hover:bg-gray-50 dark:hover:bg-slate-800"
@@ -268,6 +362,55 @@ const CitationDialog: React.FC<CitationDialogProps> = ({
                               <span>{ref.year}</span>
                             </>
                           )}
+                          {hasMetaPrefix && <span className="text-gray-400 dark:text-slate-500">•</span>}
+                          {hasFullText ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-medium text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200">
+                              Full text ready
+                            </span>
+                          ) : isProcessing ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 dark:bg-amber-500/20 dark:text-amber-200">
+                              Processing
+                            </span>
+                          ) : hasPdfLink ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-1.5 py-0.5 text-[9px] font-medium text-sky-700 dark:bg-sky-500/20 dark:text-sky-200">
+                              PDF linked
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 dark:bg-amber-500/20 dark:text-amber-200">
+                              PDF missing
+                            </span>
+                          )}
+                          {ref.documentDownloadUrl && (
+                            <button
+                              type="button"
+                              onClick={() => handleViewPdf(ref.documentDownloadUrl as string)}
+                              className="inline-flex items-center gap-1 rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[9px] font-medium text-indigo-700 hover:bg-indigo-100 dark:border-indigo-400/40 dark:bg-indigo-500/10 dark:text-indigo-200"
+                            >
+                              View PDF
+                            </button>
+                          )}
+                          {!hasFullText && (
+                            <label
+                              htmlFor={`upload-pdf-${ref.id}`}
+                              className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 hover:bg-amber-100 cursor-pointer dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <Upload className="h-3 w-3" />
+                              {uploading[uploadKey] ? 'Uploading...' : 'Upload PDF'}
+                              <input
+                                id={`upload-pdf-${ref.id}`}
+                                type="file"
+                                accept="application/pdf"
+                                className="hidden"
+                                disabled={uploading[uploadKey]}
+                                onChange={(event) => {
+                                  const file = event.target.files?.[0] || null
+                                  void handleUploadPdf(ref, file)
+                                  event.currentTarget.value = ''
+                                }}
+                              />
+                            </label>
+                          )}
                         </div>
                       </div>
 
@@ -281,7 +424,8 @@ const CitationDialog: React.FC<CitationDialogProps> = ({
                       </button>
                     </div>
                   </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
