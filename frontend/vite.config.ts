@@ -3,6 +3,9 @@ import react from '@vitejs/plugin-react'
 import path from 'path'
 
 // https://vitejs.dev/config/
+// Use backend service name in Docker, localhost for native dev
+const API_TARGET = process.env.VITE_API_TARGET || 'http://backend:8000'
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -16,7 +19,7 @@ export default defineConfig({
     allowedHosts: ['scholarhub.space', 'localhost'],
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: API_TARGET,
         ws: true,
         changeOrigin: true,
         secure: false,
@@ -34,12 +37,12 @@ export default defineConfig({
         },
       },
       '/onlyoffice': {
-        target: 'http://localhost:8000',
+        target: API_TARGET,
         changeOrigin: true,
         secure: false,
       },
       '/health': {
-        target: 'http://localhost:8000',
+        target: API_TARGET,
         changeOrigin: true,
         secure: false,
       },
