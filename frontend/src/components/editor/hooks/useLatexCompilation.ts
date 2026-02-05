@@ -24,6 +24,13 @@ export function useLatexCompilation({
   getLatestSource,
   flushBufferedChange,
 }: UseLatexCompilationOptions): UseLatexCompilationReturn {
+  // Debug helper -- enable with `window.__SH_DEBUG_LTX = true` in DevTools
+  const debugLog = useCallback((...args: any[]) => {
+    try {
+      if ((window as any).__SH_DEBUG_LTX) console.debug('[useLatexCompilation]', ...args)
+    } catch {}
+  }, [])
+
   const [compileStatus, setCompileStatus] = useState<'idle' | 'compiling' | 'success' | 'error'>('idle')
   const [compileError, setCompileError] = useState<string | null>(null)
   const [compileLogs, setCompileLogs] = useState<string[]>([])
@@ -58,11 +65,11 @@ export function useLatexCompilation({
     try {
       // Bug #6: Use window.location.origin instead of '*' for security
       iframe.contentWindow.postMessage({ type: 'loadFile', url: blobUrl, rev }, window.location.origin)
-      console.log('[LaTeX] Posted PDF to iframe:', { rev, url: blobUrl.substring(0, 50) })
+      debugLog('Posted PDF to iframe:', { rev, url: blobUrl.substring(0, 50) })
     } catch (e) {
       console.error('[LaTeX] Failed to post PDF to iframe:', e)
     }
-  }, [])
+  }, [debugLog])
 
   const compileNow = useCallback(async () => {
     if (readOnly) {
@@ -129,21 +136,21 @@ export function useLatexCompilation({
               const msg = payload.message || 'Compilation error'
               firstError = firstError || msg
             } else if (payload.type === 'final' && payload.pdf_url) {
-              console.log('[LaTeX] Received final event with PDF URL:', payload.pdf_url)
+              debugLog('Received final event with PDF URL:', payload.pdf_url)
               const pdfUrl = resolveApiUrl(payload.pdf_url)
-              console.log('[LaTeX] Resolved PDF URL:', pdfUrl)
+              debugLog('Resolved PDF URL:', pdfUrl)
               const token = localStorage.getItem('access_token') || ''
               const pdfResp = await fetch(pdfUrl, { headers: token ? { 'Authorization': `Bearer ${token}` } : undefined })
-              console.log('[LaTeX] PDF fetch response:', pdfResp.status, pdfResp.ok)
+              debugLog('PDF fetch response:', pdfResp.status, pdfResp.ok)
               if (!pdfResp.ok) throw new Error(`Failed to fetch PDF (${pdfResp.status})`)
               const blob = await pdfResp.blob()
-              console.log('[LaTeX] PDF blob size:', blob.size, 'mySeq:', mySeq, 'currentSeq:', compileSeqRef.current)
+              debugLog('PDF blob size:', blob.size, 'mySeq:', mySeq, 'currentSeq:', compileSeqRef.current)
               if (mySeq !== compileSeqRef.current) {
-                console.log('[LaTeX] Skipping stale compile result')
+                debugLog('Skipping stale compile result')
                 continue
               }
               const objectUrl = URL.createObjectURL(blob)
-              console.log('[LaTeX] Created blob URL:', objectUrl)
+              debugLog('Created blob URL:', objectUrl)
               cleanupPdf()
               pdfBlobRef.current = objectUrl
               postPdfToIframe(objectUrl, mySeq)
@@ -171,7 +178,7 @@ export function useLatexCompilation({
     } finally {
       if (compileAbortRef.current === controller) compileAbortRef.current = null
     }
-  }, [cleanupPdf, flushBufferedChange, getLatestSource, paperId, postPdfToIframe, readOnly, resolveApiUrl])
+  }, [cleanupPdf, debugLog, flushBufferedChange, getLatestSource, paperId, postPdfToIframe, readOnly, resolveApiUrl])
 
   // Viewer-ready listener: re-post PDF when iframe signals readiness
   useEffect(() => {

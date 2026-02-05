@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { Search, X, BookOpen, Upload } from 'lucide-react'
 import api, { buildApiUrl, projectReferencesAPI, researchPapersAPI } from '../../services/api'
+import { makeBibKey } from './utils/bibKey'
 
 interface ReferenceItem {
   id: string
@@ -28,23 +29,6 @@ interface CitationDialogProps {
   onInsertCitation: (citationKey: string, references: ReferenceItem[]) => void
   onInsertBibliography?: (style: string, bibFile: string, references: ReferenceItem[]) => void
   anchorElement: HTMLElement | null
-}
-
-// Generate BibTeX key from reference
-function makeBibKey(ref: ReferenceItem): string {
-  try {
-    const first = (Array.isArray(ref.authors) && ref.authors.length > 0) ? String(ref.authors[0]) : ''
-    const lastToken = first.split(/\s+/).filter(Boolean).slice(-1)[0] || ''
-    const last = lastToken.toLowerCase()
-    const yr = ref.year ? String(ref.year) : ''
-    const base = (ref.title || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ')
-    const parts = base.split(/\s+/).filter(Boolean)
-    const short = (parts.slice(0, 3).join('')).slice(0, 12)
-    const key = (last + yr + short) || ('ref' + yr)
-    return key
-  } catch {
-    return 'ref'
-  }
 }
 
 const CitationDialog: React.FC<CitationDialogProps> = ({

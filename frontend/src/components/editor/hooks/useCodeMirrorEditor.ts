@@ -228,7 +228,7 @@ export function useCodeMirrorEditor({
       : (latestDocRef.current || '')
 
     const hasYCollab = realtimeExtensions.length > 0
-    console.info('[useCodeMirrorEditor] createView called', {
+    debugLog('createView called', {
       isSafari,
       hasRealtimeDoc: !!realtimeDoc,
       yTextLength: yTextContent?.length ?? 'N/A',
@@ -245,7 +245,7 @@ export function useCodeMirrorEditor({
 
     const view = new EditorView({ state, parent })
 
-    console.info('[useCodeMirrorEditor] View created', {
+    debugLog('View created', {
       viewDocLength: view.state.doc.length,
       viewDocContent: view.state.doc.toString().slice(0, 50),
     })
@@ -300,7 +300,7 @@ export function useCodeMirrorEditor({
   // yText-ready effect: create view once yText is available in realtime mode
   // -----------------------------------------------------------------------
   useEffect(() => {
-    console.info('[useCodeMirrorEditor] yText ready effect check', {
+    debugLog('yText ready effect check', {
       hasRealtimeDoc: !!realtimeDoc,
       hasYSharedText: !!ySharedText,
       hasView: !!viewRef.current,
@@ -315,7 +315,7 @@ export function useCodeMirrorEditor({
     if (!containerRef.current) return
 
     const yTextContent = ySharedText.toString()
-    console.info('[useCodeMirrorEditor] yText ready, creating view now', {
+    debugLog('yText ready, creating view now', {
       yTextLength: yTextContent.length,
       yTextContent: yTextContent.slice(0, 50),
     })
@@ -342,7 +342,7 @@ export function useCodeMirrorEditor({
     if (!isSafari) return
     if (!realtimeDoc) return
 
-    console.info('[useCodeMirrorEditor] Safari effect triggered:', {
+    debugLog('Safari effect triggered:', {
       synced,
       hasView: !!viewRef.current,
       hasYSharedText: !!ySharedText,
@@ -355,14 +355,14 @@ export function useCodeMirrorEditor({
     const checkAndFix = () => {
       const yText = realtimeDoc?.getText('main')
       if (!yText) {
-        console.info('[useCodeMirrorEditor] Safari: no yText available')
+        debugLog('Safari: no yText available')
         return
       }
 
       const yContent = yText.toString()
       const viewContent = viewRef.current?.state?.doc?.toString() || ''
 
-      console.info('[useCodeMirrorEditor] Safari sync check:', {
+      debugLog('Safari sync check:', {
         yTextLength: yContent.length,
         viewLength: viewContent.length,
         mismatch: yContent.length !== viewContent.length,
@@ -370,7 +370,7 @@ export function useCodeMirrorEditor({
 
       // If CodeMirror view is empty but Yjs has content, force refresh
       if (viewContent.length === 0 && yContent.length > 0) {
-        console.info('[useCodeMirrorEditor] Safari: view empty but Yjs has content, forcing refresh')
+        debugLog('Safari: view empty but Yjs has content, forcing refresh')
 
         if (containerRef.current) {
           // Destroy and recreate the view
