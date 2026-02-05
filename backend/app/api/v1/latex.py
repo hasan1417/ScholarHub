@@ -171,26 +171,29 @@ async def compile_latex(request: CompileRequest, current_user: User = Depends(ge
 
     # Write source to cache dir (always refresh the tex file for transparency)
     try:
-        paths["dir"].mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(paths["dir"].mkdir, parents=True, exist_ok=True)
         # Copy bundled conference style files (.sty, .bst) for template support
-        _copy_style_files(paths["dir"])
+        await asyncio.to_thread(_copy_style_files, paths["dir"])
         # Clear cached aux/bbl files to force fresh bibliography build
-        for ext in [".aux", ".bbl", ".blg"]:
-            cached_file = paths["dir"] / f"main{ext}"
-            if cached_file.exists():
-                cached_file.unlink()
-        paths["tex"].write_text(effective_source, encoding="utf-8")
+        def _clear_aux_files():
+            for ext in [".aux", ".bbl", ".blg"]:
+                cached_file = paths["dir"] / f"main{ext}"
+                if cached_file.exists():
+                    cached_file.unlink()
+        await asyncio.to_thread(_clear_aux_files)
+        await asyncio.to_thread(paths["tex"].write_text, effective_source, encoding="utf-8")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to prepare source: {e}")
 
-    cached = paths["pdf"].exists()
+    cached = await asyncio.to_thread(paths["pdf"].exists)
     commit_id = None
     # If cached and save_version requested, save a compiled version commit
     if cached and save_version and request.paper_id:
       try:
         logs = ''
         try:
-            logs = paths["log"].read_text(encoding='utf-8', errors='ignore') if paths["log"].exists() else ''
+            log_exists = await asyncio.to_thread(paths["log"].exists)
+            logs = (await asyncio.to_thread(paths["log"].read_text, encoding='utf-8', errors='ignore')) if log_exists else ''
         except Exception as e:
             logger.warning("Failed to read compile log for version save: %s", e)
             logs = ''
@@ -218,9 +221,11 @@ async def compile_latex(request: CompileRequest, current_user: User = Depends(ge
 async def get_artifact(content_hash: str, filename: str, current_user: User = Depends(get_current_user)):
     paths = _artifact_paths(content_hash)
     target = paths["dir"] / filename
-    if not target.resolve().is_relative_to(paths["dir"].resolve()):
+    def _validate_path():
+        return target.resolve().is_relative_to(paths["dir"].resolve())
+    if not await asyncio.to_thread(_validate_path):
         raise HTTPException(status_code=400, detail="Invalid filename")
-    if not target.exists():
+    if not await asyncio.to_thread(target.exists):
         raise HTTPException(status_code=404, detail="artifact not found")
     return FileResponse(str(target))
 
@@ -260,16 +265,18 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
 
     # Always write the .tex
     try:
-        paths["dir"].mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(paths["dir"].mkdir, parents=True, exist_ok=True)
         # Copy bundled conference style files (.sty, .bst) for template support
-        _copy_style_files(paths["dir"])
+        await asyncio.to_thread(_copy_style_files, paths["dir"])
         # Clear cached aux/bbl files to force fresh bibliography build
         # This prevents conflicts when switching templates/bib styles
-        for ext in [".aux", ".bbl", ".blg"]:
-            cached_file = paths["dir"] / f"main{ext}"
-            if cached_file.exists():
-                cached_file.unlink()
-        paths["tex"].write_text(effective_source, encoding="utf-8")
+        def _clear_aux_files():
+            for ext in [".aux", ".bbl", ".blg"]:
+                cached_file = paths["dir"] / f"main{ext}"
+                if cached_file.exists():
+                    cached_file.unlink()
+        await asyncio.to_thread(_clear_aux_files)
+        await asyncio.to_thread(paths["tex"].write_text, effective_source, encoding="utf-8")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to prepare source: {e}")
 
@@ -288,26 +295,32 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
         if request.paper_id:
             try:
                 figures_src = Path("uploads") / "papers" / request.paper_id / "figures"
-                if figures_src.exists():
-                    figures_dst = paths["dir"] / "figures"
-                    if figures_dst.exists():
-                        shutil.rmtree(figures_dst)
-                    shutil.copytree(figures_src, figures_dst)
+                def _copy_figures():
+                    if figures_src.exists():
+                        figures_dst = paths["dir"] / "figures"
+                        if figures_dst.exists():
+                            shutil.rmtree(figures_dst)
+                        shutil.copytree(figures_src, figures_dst)
+                await asyncio.to_thread(_copy_figures)
             except Exception as e:
                 logger.warning("Failed to copy figures for paper %s: %s", request.paper_id, e)
 
             # Copy .bib files if they exist for this paper
             try:
                 paper_dir = Path("uploads") / "papers" / request.paper_id
-                for bib_file in paper_dir.glob("*.bib"):
-                    bib_dst = paths["dir"] / bib_file.name
-                    shutil.copy2(bib_file, bib_dst)
-                    copied_bib = True
+                def _copy_bib_files():
+                    found = False
+                    for bib_file in paper_dir.glob("*.bib"):
+                        bib_dst = paths["dir"] / bib_file.name
+                        shutil.copy2(bib_file, bib_dst)
+                        found = True
+                    return found
+                copied_bib = await asyncio.to_thread(_copy_bib_files)
             except Exception as e:
                 logger.warning("Failed to copy .bib files for paper %s: %s", request.paper_id, e)
 
         # Cache hit
-        cached = paths["pdf"].exists() and not copied_bib
+        cached = (await asyncio.to_thread(paths["pdf"].exists)) and not copied_bib
         if cached:
             payload = {"type": "cache", "message": "Cache hit", "hash": content_hash}
             yield f"data: {json.dumps(payload)}\n\n"
@@ -317,7 +330,8 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
                     pdf_url = f"/api/v1/latex/artifacts/{content_hash}/main.pdf"
                     logs = ''
                     try:
-                        logs = (paths["log"].read_text(encoding='utf-8', errors='ignore') if paths["log"].exists() else '')
+                        log_exists = await asyncio.to_thread(paths["log"].exists)
+                        logs = (await asyncio.to_thread(paths["log"].read_text, encoding='utf-8', errors='ignore')) if log_exists else ''
                     except Exception as e:
                         logger.warning("Failed to read compile log for version save (stream cache hit): %s", e)
                         logs = ''
@@ -342,10 +356,12 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
         start = time.time()
         try:
             # Optionally write main.bib from user's paper references
-            if request.paper_id and ((request.include_bibtex and not copied_bib) or not (paths["dir"] / "main.bib").exists()):
+            main_bib_path = paths["dir"] / "main.bib"
+            main_bib_exists = await asyncio.to_thread(main_bib_path.exists)
+            if request.paper_id and ((request.include_bibtex and not copied_bib) or not main_bib_exists):
                 try:
                     bib = _generate_bibtex_for_paper(db, current_user.id, request.paper_id)
-                    (paths["dir"] / "main.bib").write_text(bib, encoding="utf-8")
+                    await asyncio.to_thread(main_bib_path.write_text, bib, encoding="utf-8")
                     yield f"data: {json.dumps({'type': 'log', 'line': '[bibtex] Wrote main.bib from paper references'})}\n\n"
                 except Exception as e:
                     yield f"data: {json.dumps({'type': 'log', 'line': f'[bibtex] Skipped: {e}'})}\n\n"
@@ -353,8 +369,10 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
             # stream logs
             async for line in _run_tectonic(paths["dir"], paths["tex"]):
                 try:
-                    with paths["log"].open("a", encoding="utf-8") as lf:
-                        lf.write(line + "\n")
+                    def _append_log(log_line):
+                        with paths["log"].open("a", encoding="utf-8") as lf:
+                            lf.write(log_line + "\n")
+                    await asyncio.to_thread(_append_log, line)
                 except Exception as e:
                     logger.warning("Failed to write compile log: %s", e)
                 logs_buf.append(line)
@@ -366,13 +384,16 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
             # If bibliography is used, try bibtex + up to two more passes with early stop
             try:
                 aux = (paths["dir"] / "main.aux")
-                aux_content = aux.read_text(errors='ignore') if aux.exists() else ''
+                aux_exists = await asyncio.to_thread(aux.exists)
+                aux_content = (await asyncio.to_thread(aux.read_text, errors='ignore')) if aux_exists else ''
                 need_bib = '\\citation' in aux_content or '\\bibdata' in aux_content
             except Exception:
                 need_bib = False
 
             if need_bib:
-                bbl_before = (paths["dir"] / "main.bbl").read_text(errors='ignore') if (paths["dir"] / "main.bbl").exists() else ''
+                bbl_path = paths["dir"] / "main.bbl"
+                bbl_exists = await asyncio.to_thread(bbl_path.exists)
+                bbl_before = (await asyncio.to_thread(bbl_path.read_text, errors='ignore')) if bbl_exists else ''
                 try:
                     from shutil import which
                     bibtex_exe = which("bibtex")
@@ -405,7 +426,9 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
                         payload = {"type": "log", "line": line}
                         yield f"data: {json.dumps(payload)}\n\n"
                     try:
-                        bbl_now = (paths["dir"] / "main.bbl").read_text(errors='ignore') if (paths["dir"] / "main.bbl").exists() else ''
+                        bbl_check_path = paths["dir"] / "main.bbl"
+                        bbl_check_exists = await asyncio.to_thread(bbl_check_path.exists)
+                        bbl_now = (await asyncio.to_thread(bbl_check_path.read_text, errors='ignore')) if bbl_check_exists else ''
                         if bbl_now == bbl_before:
                             yield f"data: {json.dumps({'type': 'log', 'line': '[bibtex] Bibliography stabilized; stopping extra passes'})}\n\n"
                             break
@@ -414,7 +437,7 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
                         pass
 
             # Check result
-            if paths["pdf"].exists():
+            if await asyncio.to_thread(paths["pdf"].exists):
                 elapsed = round(time.time() - start, 2)
                 commit_id = None
                 if save_version and request.paper_id:

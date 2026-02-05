@@ -1,9 +1,11 @@
-import React, { useState, useCallback } from 'react'
+import { useState } from 'react'
 import {
-  ArrowLeft, Library, Save, Loader2, Undo2, Redo2, Sparkles,
-  Type, FileText, Lightbulb, Book, Clock, ChevronDown, Bold,
+  ArrowLeft, Library, Save, Loader2, Undo2, Redo2,
+  Clock, ChevronDown, Bold,
   Italic, Sigma, List, ListOrdered, Image, Table, Link2,
 } from 'lucide-react'
+import { AiToolsMenu } from './AiToolsMenu'
+import { CompileStatusBar } from './CompileStatusBar'
 
 interface FormattingItem {
   key: string
@@ -111,23 +113,8 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   onAiAction,
 }) => {
   const [openDropdown, setOpenDropdown] = useState<string | null>(null)
-  const [aiToolsMenuOpen, setAiToolsMenuOpen] = useState(false)
-  const [toneMenuOpen, setToneMenuOpen] = useState(false)
-  const [toneMenuAnchor, setToneMenuAnchor] = useState<HTMLElement | null>(null)
 
   const formattingDisabled = readOnly
-
-  const handleToneButtonClick = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
-    if (readOnly || !hasTextSelected) return
-    setToneMenuAnchor(event.currentTarget)
-    setToneMenuOpen(true)
-  }, [readOnly, hasTextSelected])
-
-  const handleToneSelect = useCallback(async (tone: string) => {
-    setToneMenuOpen(false)
-    await onAiAction('tone', tone)
-    setToneMenuAnchor(null)
-  }, [onAiAction])
 
   return (
     <>
@@ -145,22 +132,14 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           )}
           <span className="text-sm font-semibold">{templateTitle || 'LaTeX Source'}</span>
         </div>
-        <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500 dark:text-slate-300">
-          {collaborationStatus && (
-            <span className="inline-flex items-center gap-1 rounded border border-indigo-200 bg-indigo-50 px-2 py-1 font-medium text-indigo-600 dark:border-indigo-300/40 dark:bg-indigo-400/20 dark:text-indigo-100">
-              {collaborationStatus}
-            </span>
-          )}
-          {compileStatus === 'error' && compileError && (
-            <span className="max-w-xs truncate text-rose-600 dark:text-rose-200" title={compileError}>{compileError}</span>
-          )}
-          {compileStatus === 'success' && lastCompileAt && (
-            <span className="text-emerald-600 dark:text-emerald-200">Compiled {Math.max(1, Math.round((Date.now() - lastCompileAt) / 1000))}s ago</span>
-          )}
-          {saveState === 'saving' && <span className="text-indigo-500 dark:text-indigo-200">Saving…</span>}
-          {saveState === 'success' && <span className="text-emerald-600 dark:text-emerald-200">Draft saved</span>}
-          {saveState === 'error' && saveError && <span className="max-w-xs truncate text-rose-600 dark:text-rose-200" title={saveError}>{saveError}</span>}
-        </div>
+        <CompileStatusBar
+            collaborationStatus={collaborationStatus}
+            compileStatus={compileStatus}
+            compileError={compileError}
+            lastCompileAt={lastCompileAt}
+            saveState={saveState}
+            saveError={saveError}
+          />
       </div>
 
       {/* Toolbar row */}
@@ -418,74 +397,13 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                 <Library className="h-4 w-4" />
               </button>
 
-              {/* AI Text Tools Dropdown */}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => !aiActionLoading && setAiToolsMenuOpen(!aiToolsMenuOpen)}
-                  disabled={readOnly || (!hasTextSelected && !aiActionLoading)}
-                  className={`rounded p-1.5 transition-colors disabled:opacity-30 ${
-                    aiToolsMenuOpen || aiActionLoading
-                      ? 'bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300'
-                      : 'text-slate-500 hover:bg-slate-200 dark:text-slate-400 dark:hover:bg-slate-700'
-                  }`}
-                  title={aiActionLoading ? `Processing: ${aiActionLoading}...` : hasTextSelected ? 'AI text tools' : 'Select text first'}
-                >
-                  {aiActionLoading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Sparkles className="h-4 w-4" />
-                  )}
-                </button>
-                {(aiToolsMenuOpen || aiActionLoading) && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => !aiActionLoading && setAiToolsMenuOpen(false)} />
-                    <div className="absolute right-0 top-full z-50 mt-1 min-w-[150px] rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-800">
-                      <button
-                        onClick={() => { if (!aiActionLoading) { onAiAction('paraphrase') } }}
-                        disabled={!!aiActionLoading}
-                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${aiActionLoading === 'paraphrase' ? 'bg-violet-50 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300' : aiActionLoading ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700'}`}
-                      >
-                        {aiActionLoading === 'paraphrase' ? <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-500" /> : <Sparkles className="h-3.5 w-3.5 text-violet-500" />}
-                        Paraphrase
-                      </button>
-                      <button
-                        onClick={() => { if (!aiActionLoading) { onAiAction('summarize') } }}
-                        disabled={!!aiActionLoading}
-                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${aiActionLoading === 'summarize' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300' : aiActionLoading ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700'}`}
-                      >
-                        {aiActionLoading === 'summarize' ? <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" /> : <FileText className="h-3.5 w-3.5 text-emerald-500" />}
-                        Summarize
-                      </button>
-                      <button
-                        onClick={() => { if (!aiActionLoading) { onAiAction('explain') } }}
-                        disabled={!!aiActionLoading}
-                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${aiActionLoading === 'explain' ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300' : aiActionLoading ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700'}`}
-                      >
-                        {aiActionLoading === 'explain' ? <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-500" /> : <Lightbulb className="h-3.5 w-3.5 text-amber-500" />}
-                        Explain
-                      </button>
-                      <button
-                        onClick={() => { if (!aiActionLoading) { onAiAction('synonyms') } }}
-                        disabled={!!aiActionLoading}
-                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${aiActionLoading === 'synonyms' ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300' : aiActionLoading ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700'}`}
-                      >
-                        {aiActionLoading === 'synonyms' ? <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" /> : <Book className="h-3.5 w-3.5 text-blue-500" />}
-                        Synonyms
-                      </button>
-                      <div className="my-1 border-t border-slate-200 dark:border-slate-600" />
-                      <button
-                        onClick={(e) => { if (!aiActionLoading) handleToneButtonClick(e) }}
-                        disabled={!!aiActionLoading}
-                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${aiActionLoading?.startsWith('tone_') ? 'bg-rose-50 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300' : aiActionLoading ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700'}`}
-                      >
-                        {aiActionLoading?.startsWith('tone_') ? <Loader2 className="h-3.5 w-3.5 animate-spin text-rose-500" /> : <Type className="h-3.5 w-3.5 text-rose-500" />}
-                        Change Tone...
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
+              {/* AI Text Tools */}
+              <AiToolsMenu
+                readOnly={readOnly}
+                hasTextSelected={hasTextSelected}
+                aiActionLoading={aiActionLoading}
+                onAiAction={onAiAction}
+              />
             </>
           )}
 
@@ -557,50 +475,6 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         </div>
       </div>
 
-      {/* Tone Selector Menu */}
-      {(toneMenuOpen || aiActionLoading?.startsWith('tone_')) && toneMenuAnchor && (
-        <>
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => {
-              if (!aiActionLoading) {
-                setToneMenuOpen(false)
-                setToneMenuAnchor(null)
-              }
-            }}
-          />
-          <div
-            className="fixed z-50 min-w-[160px] rounded-lg border border-slate-200 bg-white shadow-xl dark:border-slate-600 dark:bg-slate-800"
-            style={{
-              top: `${toneMenuAnchor.getBoundingClientRect().bottom + 8}px`,
-              left: `${toneMenuAnchor.getBoundingClientRect().left}px`,
-            }}
-          >
-            <div className="p-2">
-              <div className="mb-2 px-2 text-xs font-semibold text-slate-600 dark:text-slate-400">
-                {aiActionLoading?.startsWith('tone_') ? 'Processing...' : 'Select Tone'}
-              </div>
-              {['formal', 'casual', 'academic', 'friendly', 'professional'].map((tone) => (
-                <button
-                  key={tone}
-                  onClick={() => !aiActionLoading && handleToneSelect(tone)}
-                  disabled={!!aiActionLoading}
-                  className={`flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm transition-colors ${
-                    aiActionLoading === `tone_${tone}`
-                      ? 'bg-rose-50 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300'
-                      : aiActionLoading
-                      ? 'cursor-not-allowed text-slate-400 opacity-40 dark:text-slate-500'
-                      : 'text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700'
-                  }`}
-                >
-                  {aiActionLoading === `tone_${tone}` && <Loader2 className="h-3.5 w-3.5 animate-spin text-rose-500" />}
-                  {tone.charAt(0).toUpperCase() + tone.slice(1)}
-                </button>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
     </>
   )
 }

@@ -12,6 +12,7 @@ import time
 from sqlalchemy import text
 from typing import Dict
 from app.services.latex_warmup import warmup_latex_cache
+from app.services.latex_cache_cleanup import start_cache_cleanup_task
 from app.services.document_processing_service import warmup_marker_background
 try:
     import redis as redis_lib
@@ -161,6 +162,9 @@ async def startup_warmup_event() -> None:
     # LaTeX cache warmup (async task)
     if settings.LATEX_WARMUP_ON_STARTUP:
         asyncio.create_task(warmup_latex_cache())
+
+    # LaTeX cache cleanup (periodic background task)
+    asyncio.create_task(start_cache_cleanup_task())
 
     # Marker PDF converter warmup (background thread - doesn't block event loop)
     # This loads the ML models so first PDF request doesn't timeout
