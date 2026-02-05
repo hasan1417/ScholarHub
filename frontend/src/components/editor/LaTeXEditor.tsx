@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState, useMemo, forwardRef, useImperativeHandle, useCallback } from 'react'
 import { logEvent } from '../../utils/metrics'
 import { researchPapersAPI, buildApiUrl, API_ROOT } from '../../services/api'
-import { EditorState, EditorSelection, StateEffect, StateField, type Extension, type SelectionRange } from '@codemirror/state'
-import { EditorView, keymap, drawSelection, highlightActiveLine, highlightActiveLineGutter, lineNumbers, Decoration, DecorationSet, WidgetType, ViewPlugin } from '@codemirror/view'
+import { EditorState, EditorSelection, StateEffect, type Extension, type SelectionRange } from '@codemirror/state'
+import { EditorView, keymap, drawSelection, highlightActiveLine, highlightActiveLineGutter, lineNumbers } from '@codemirror/view'
+import { type RemoteSelection, setRemoteSelectionsEffect, remoteSelectionsField, createRemoteDecorations } from './extensions/remoteSelectionsField'
+import { scrollOnDragSelection } from './extensions/scrollOnDragSelection'
 import { defaultKeymap, indentWithTab, history, historyKeymap, undo, redo, undoDepth, redoDepth } from '@codemirror/commands'
 import { StreamLanguage } from '@codemirror/language'
 import { stex } from '@codemirror/legacy-modes/mode/stex'
@@ -16,247 +18,7 @@ import CitationDialog from './CitationDialog'
 import HistoryPanel from './HistoryPanel'
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next'
 import { UndoManager } from 'yjs'
-
-type RemoteSelection = {
-  id: string
-  from: number
-  to: number
-  color: string
-  name: string
-}
-
-class RemoteCaretWidget extends WidgetType {
-  constructor(private readonly color: string, private readonly name: string) {
-    super()
-  }
-
-  toDOM(): HTMLElement {
-    const span = document.createElement('span')
-    span.className = 'remote-caret'
-    span.setAttribute('data-peer', this.name)
-    span.style.position = 'relative'
-    span.style.borderLeft = `2px solid ${this.color}`
-    span.style.marginLeft = '-1px'
-    span.style.pointerEvents = 'none'
-    span.style.height = '100%'
-
-    const label = document.createElement('span')
-    label.textContent = this.name
-    label.style.position = 'absolute'
-    label.style.top = '-1.4rem'
-    label.style.left = '0'
-    label.style.fontSize = '10px'
-    label.style.fontWeight = '600'
-    label.style.padding = '1px 4px'
-    label.style.borderRadius = '3px'
-    label.style.background = this.color
-    label.style.color = '#ffffff'
-    label.style.whiteSpace = 'nowrap'
-    label.style.pointerEvents = 'none'
-    label.style.boxShadow = '0 1px 2px rgba(15,23,42,0.25)'
-    label.style.transform = 'translateY(-2px)'
-
-    const idealContrast = computeIdealTextColor(this.color)
-    label.style.color = idealContrast
-
-    span.appendChild(label)
-    return span
-  }
-
-  ignoreEvent(): boolean {
-    return true
-  }
-}
-
-const setRemoteSelectionsEffect = StateEffect.define<DecorationSet>()
-
-const remoteSelectionsField = StateField.define<DecorationSet>({
-  create() {
-    return Decoration.none
-  },
-  update(value, tr) {
-    for (const effect of tr.effects) {
-      if (effect.is(setRemoteSelectionsEffect)) return effect.value
-    }
-    if (tr.docChanged) return value.map(tr.changes)
-    return value
-  },
-  provide: field => EditorView.decorations.from(field),
-})
-
-const highlightColor = (color: string) => {
-  if (!color) return 'rgba(59, 130, 246, 0.25)'
-  if (color.startsWith('#') && color.length === 7) {
-    return `${color}33`
-  }
-  return color
-}
-
-/**
- * Extension that enables auto-scroll when dragging selection to edge of editor.
- * Scrolls the editor when mouse is near top or bottom edge during selection.
- * Uses pointer events with capture for reliable drag tracking.
- */
-const scrollOnDragSelection = ViewPlugin.fromClass(class {
-  private scrollInterval: number | null = null
-  private lastMouseY = 0
-  private edgeThreshold = 50 // pixels from edge to trigger scroll
-  private scrollSpeed = 12 // pixels per frame
-  private scrollContainer: HTMLElement | null = null
-
-  constructor(private view: EditorView) {
-    this.onPointerDown = this.onPointerDown.bind(this)
-    this.onPointerMove = this.onPointerMove.bind(this)
-    this.onPointerUp = this.onPointerUp.bind(this)
-
-    view.dom.addEventListener('pointerdown', this.onPointerDown)
-  }
-
-  // Find the actual scrollable parent (where scrollHeight > clientHeight)
-  findScrollableContainer(): HTMLElement {
-    let el: HTMLElement | null = this.view.dom
-    while (el) {
-      if (el.scrollHeight > el.clientHeight + 10) {
-        const style = window.getComputedStyle(el)
-        if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
-          return el
-        }
-      }
-      el = el.parentElement
-    }
-    return this.view.scrollDOM
-  }
-
-  onPointerDown(e: PointerEvent) {
-    if (e.button !== 0) return
-
-    // Find scrollable container on first use (lazy init)
-    if (!this.scrollContainer) {
-      this.scrollContainer = this.findScrollableContainer()
-    }
-
-    try {
-      (e.target as HTMLElement).setPointerCapture(e.pointerId)
-    } catch {}
-
-    document.addEventListener('pointermove', this.onPointerMove)
-    document.addEventListener('pointerup', this.onPointerUp)
-  }
-
-  onPointerMove(e: PointerEvent) {
-    if (e.buttons !== 1 || !this.scrollContainer) {
-      this.stopScrolling()
-      return
-    }
-
-    this.lastMouseY = e.clientY
-    const rect = this.scrollContainer.getBoundingClientRect()
-    const mouseY = e.clientY
-
-    const nearTop = mouseY < rect.top + this.edgeThreshold
-    const nearBottom = mouseY > rect.bottom - this.edgeThreshold
-
-    if (nearTop || nearBottom) {
-      if (!this.scrollInterval) {
-        const container = this.scrollContainer
-        this.scrollInterval = window.setInterval(() => {
-          const currentRect = container.getBoundingClientRect()
-          const currentY = this.lastMouseY
-
-          if (currentY < currentRect.top + this.edgeThreshold) {
-            const distance = Math.max(0, currentRect.top + this.edgeThreshold - currentY)
-            const speed = Math.min(this.scrollSpeed + Math.floor(distance / 10), 30)
-            container.scrollTop -= speed
-          } else if (currentY > currentRect.bottom - this.edgeThreshold) {
-            const distance = Math.max(0, currentY - (currentRect.bottom - this.edgeThreshold))
-            const speed = Math.min(this.scrollSpeed + Math.floor(distance / 10), 30)
-            container.scrollTop += speed
-          } else {
-            this.stopScrolling()
-          }
-        }, 16)
-      }
-    } else {
-      this.stopScrolling()
-    }
-  }
-
-  onPointerUp(e: PointerEvent) {
-    try {
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId)
-    } catch {}
-    this.stopScrolling()
-    document.removeEventListener('pointermove', this.onPointerMove)
-    document.removeEventListener('pointerup', this.onPointerUp)
-  }
-
-  stopScrolling() {
-    if (this.scrollInterval) {
-      clearInterval(this.scrollInterval)
-      this.scrollInterval = null
-    }
-  }
-
-  destroy() {
-    this.stopScrolling()
-    this.view.dom.removeEventListener('pointerdown', this.onPointerDown)
-    document.removeEventListener('pointermove', this.onPointerMove)
-    document.removeEventListener('pointerup', this.onPointerUp)
-  }
-})
-
-const computeIdealTextColor = (bg: string): string => {
-  if (!bg || typeof bg !== 'string') return '#ffffff'
-  let hex = bg.replace('#', '')
-  if (hex.length === 3) {
-    hex = hex.split('').map(ch => ch + ch).join('')
-  }
-  if (hex.length !== 6) return '#ffffff'
-  const r = parseInt(hex.slice(0, 2), 16)
-  const g = parseInt(hex.slice(2, 4), 16)
-  const b = parseInt(hex.slice(4, 6), 16)
-  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-  return luminance > 0.6 ? '#111827' : '#ffffff'
-}
-
-const createRemoteDecorations = (state: EditorState, selections: RemoteSelection[]): DecorationSet => {
-  if (!selections || selections.length === 0) return Decoration.none
-  const ranges: any[] = []
-  const docLength = state.doc.length
-
-  for (const sel of selections) {
-    let from = Math.max(0, Math.min(sel.from, docLength))
-    let to = Math.max(0, Math.min(sel.to, docLength))
-    if (from > to) {
-      const tmp = from
-      from = to
-      to = tmp
-    }
-
-    const color = sel.color || '#3B82F6'
-    if (from === to) {
-      const caret = Decoration.widget({
-        widget: new RemoteCaretWidget(color, sel.name),
-        side: 1,
-      }).range(from)
-      ranges.push(caret)
-    } else {
-      const mark = Decoration.mark({
-        attributes: {
-          style: `background-color: ${highlightColor(color)}; border-left: 2px solid ${color}; border-right: 2px solid ${color}; border-radius: 2px;`
-        }
-      }).range(from, to)
-      ranges.push(mark)
-      const caret = Decoration.widget({
-        widget: new RemoteCaretWidget(color, sel.name),
-        side: sel.to >= sel.from ? 1 : -1,
-      }).range(sel.to)
-      ranges.push(caret)
-    }
-  }
-
-  return Decoration.set(ranges, true)
-}
+import { useSplitPane } from './hooks/useSplitPane'
 
 interface LaTeXEditorProps {
   value: string
@@ -352,13 +114,7 @@ function LaTeXEditorImpl(
   const [aiToolsMenuOpen, setAiToolsMenuOpen] = useState(false)
   const [aiActionLoading, setAiActionLoading] = useState<string | null>(null) // action name or null
   // Resizable split view
-  const [splitPosition, setSplitPosition] = useState(() => {
-    // Load from localStorage or default to 50%
-    const saved = localStorage.getItem('latex-editor-split-position')
-    return saved ? parseFloat(saved) : 50
-  })
-  const splitContainerRef = useRef<HTMLDivElement | null>(null)
-  const isDraggingRef = useRef(false)
+  const { splitPosition, splitContainerRef, handleSplitDragStart } = useSplitPane()
   const ySharedTextRef = useRef<any>(null)
   const yUndoManagerRef = useRef<UndoManager | null>(null)
   const ySetupRef = useRef(false)
@@ -1256,56 +1012,6 @@ function LaTeXEditorImpl(
       setRedoEnabled(redoDepth(view.state) > 0)
     } catch {}
   }, [redoEnabled])
-
-  // Resizable split handlers - use refs to avoid stale closures
-  const splitPositionRef = useRef(splitPosition)
-  useEffect(() => {
-    splitPositionRef.current = splitPosition
-  }, [splitPosition])
-
-  const handleSplitDragStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    isDraggingRef.current = true
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-
-    // Add overlay to prevent iframe from capturing mouse events
-    const overlay = document.createElement('div')
-    overlay.id = 'split-drag-overlay'
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;cursor:col-resize;'
-    document.body.appendChild(overlay)
-
-    const handleMouseMove = (moveEvent: MouseEvent) => {
-      // Check if mouse button is still pressed
-      if (moveEvent.buttons === 0) {
-        handleMouseUp()
-        return
-      }
-      if (!splitContainerRef.current) return
-      const rect = splitContainerRef.current.getBoundingClientRect()
-      const newPosition = ((moveEvent.clientX - rect.left) / rect.width) * 100
-      // Clamp between 20% and 80%
-      const clamped = Math.min(80, Math.max(20, newPosition))
-      setSplitPosition(clamped)
-    }
-
-    const handleMouseUp = () => {
-      isDraggingRef.current = false
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-      // Remove overlay
-      const existingOverlay = document.getElementById('split-drag-overlay')
-      if (existingOverlay) existingOverlay.remove()
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-      // Save current position from ref
-      localStorage.setItem('latex-editor-split-position', String(splitPositionRef.current))
-    }
-
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
-  }, [])
 
   const resolveApiUrl = useCallback((url: string | null | undefined) => {
     if (!url) return url || ''
