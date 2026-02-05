@@ -3,7 +3,7 @@ import { logEvent } from '../../utils/metrics'
 import { researchPapersAPI, buildApiUrl, API_ROOT } from '../../services/api'
 import { EditorState, EditorSelection, StateEffect, type Extension, type SelectionRange } from '@codemirror/state'
 import { EditorView, keymap, drawSelection, highlightActiveLine, highlightActiveLineGutter, lineNumbers } from '@codemirror/view'
-import { type RemoteSelection, setRemoteSelectionsEffect, remoteSelectionsField, createRemoteDecorations } from './extensions/remoteSelectionsField'
+import { setRemoteSelectionsEffect, remoteSelectionsField, createRemoteDecorations } from './extensions/remoteSelectionsField'
 import { scrollOnDragSelection } from './extensions/scrollOnDragSelection'
 import { defaultKeymap, indentWithTab, history, historyKeymap, undo, redo, undoDepth, redoDepth } from '@codemirror/commands'
 import { StreamLanguage } from '@codemirror/language'
@@ -16,9 +16,8 @@ import { LATEX_FORMATTING_GROUPS } from './latexToolbarConfig'
 import FigureUploadDialog from './FigureUploadDialog'
 import CitationDialog from './CitationDialog'
 import HistoryPanel from './HistoryPanel'
-import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next'
-import { UndoManager } from 'yjs'
 import { useSplitPane } from './hooks/useSplitPane'
+import { useRealtimeSync } from './hooks/useRealtimeSync'
 
 interface LaTeXEditorProps {
   value: string
@@ -115,138 +114,14 @@ function LaTeXEditorImpl(
   const [aiActionLoading, setAiActionLoading] = useState<string | null>(null) // action name or null
   // Resizable split view
   const { splitPosition, splitContainerRef, handleSplitDragStart } = useSplitPane()
-  const ySharedTextRef = useRef<any>(null)
-  const yUndoManagerRef = useRef<UndoManager | null>(null)
-  const ySetupRef = useRef(false)
-  const yKeymapRef = useRef<Extension | null>(null)
-  const [yTextReady, setYTextReady] = useState(0)
-  const [remoteSelections, setRemoteSelections] = useState<RemoteSelection[]>([])
-
-  useEffect(() => {
-    if (realtime?.doc) {
-      debugLog('Realtime session status', realtime?.status)
-    }
-  }, [realtime, debugLog])
-
-  useEffect(() => {
-    console.info('[LaTeXEditor] yText setup effect', {
-      hasRealtimeDoc: !!realtime?.doc,
-      currentYSharedText: !!ySharedTextRef.current,
-    })
-
-    if (!realtime?.doc) {
-      ySharedTextRef.current = null
-      yUndoManagerRef.current = null
-      ySetupRef.current = false
-      yKeymapRef.current = null
-      return
-    }
-    const yDoc = realtime.doc
-    const yText = yDoc.getText('main')
-    const yTextContent = yText.toString()
-    const needsInit = ySharedTextRef.current !== yText
-
-    console.info('[LaTeXEditor] yText from doc', {
-      yTextLength: yTextContent.length,
-      yTextContent: yTextContent.slice(0, 50),
-      needsInit,
-    })
-
-    ySharedTextRef.current = yText
-    if (!yUndoManagerRef.current) {
-      yUndoManagerRef.current = new UndoManager(yText)
-      yKeymapRef.current = keymap.of(yUndoManagerKeymap)
-    }
-    if (!ySetupRef.current) {
-      // Server-side seeding handles initial content
-      // No need to seed from client - this prevents race conditions
-      debugLog('Yjs text attached, length=', yText.length)
-      ySetupRef.current = true
-    }
-    if (needsInit) {
-      console.info('[LaTeXEditor] Incrementing yTextReady')
-      setYTextReady(prev => prev + 1)
-    }
-    // No manual observer needed - yCollab extension handles all Yjs ↔ CodeMirror sync automatically
-  }, [realtime?.doc, debugLog])
-
-  useEffect(() => {
-    const awareness = realtime?.awareness
-    if (!awareness) {
-      setRemoteSelections([])
-      return
-    }
-    const clientId = awareness.clientID
-    const updateSelections = () => {
-      try {
-        const peerMap = new Map((realtime?.peers || []).map(peer => [peer.id, peer]))
-        const selections: RemoteSelection[] = []
-        awareness.getStates().forEach((state: any, key: number) => {
-          if (key === clientId) return
-          const sel = state?.selection
-          if (!sel || typeof sel.anchor !== 'number' || typeof sel.head !== 'number') return
-          const user = state?.user || peerMap.get(state?.user?.id || '')
-          const id: string = user?.id || state?.user?.id || String(key)
-          if (!id) return
-          const color = user?.color || state?.user?.color || '#3B82F6'
-          const name = user?.name || state?.user?.name || user?.email || state?.user?.email || 'Collaborator'
-          selections.push({
-            id,
-            from: sel.anchor,
-            to: sel.head,
-            color,
-            name,
-          })
-        })
-        setRemoteSelections(selections)
-      } catch (err) {
-        console.warn('[LaTeXEditor] failed to parse awareness selections', err)
-      }
-    }
-    updateSelections()
-    awareness.on('update', updateSelections)
-    awareness.on('change', updateSelections)
-    return () => {
-      awareness.off('update', updateSelections)
-      awareness.off('change', updateSelections)
-    }
-  }, [realtime?.awareness, realtime?.peers])
-
-  // Force update when provider version changes (e.g., when new peers join)
-  useEffect(() => {
-    if (!realtime?.awareness || !realtime?.version) return
-    debugLog('Provider version changed, refreshing awareness', { version: realtime.version })
-    // Trigger a manual awareness update to pick up new peer states
-    const awareness = realtime.awareness
-    if (awareness) {
-      try {
-        // Force awareness state to be re-read
-        const clientId = awareness.clientID
-        const peerMap = new Map((realtime?.peers || []).map(peer => [peer.id, peer]))
-        const selections: RemoteSelection[] = []
-        awareness.getStates().forEach((state: any, key: number) => {
-          if (key === clientId) return
-          const sel = state?.selection
-          if (!sel || typeof sel.anchor !== 'number' || typeof sel.head !== 'number') return
-          const user = state?.user || peerMap.get(state?.user?.id || '')
-          const id: string = user?.id || state?.user?.id || String(key)
-          if (!id) return
-          const color = user?.color || state?.user?.color || '#3B82F6'
-          const name = user?.name || state?.user?.name || user?.email || state?.user?.email || 'Collaborator'
-          selections.push({
-            id,
-            from: sel.anchor,
-            to: sel.head,
-            color,
-            name,
-          })
-        })
-        setRemoteSelections(selections)
-      } catch (err) {
-        console.warn('[LaTeXEditor] Failed to update selections on version change', err)
-      }
-    }
-  }, [realtime?.version, realtime?.awareness, realtime?.peers, debugLog])
+  const { ySharedText, yUndoManager, yTextReady, remoteSelections, realtimeExtensions } = useRealtimeSync({
+    realtimeDoc: realtime?.doc || null,
+    awareness: realtime?.awareness || null,
+    peers: realtime?.peers || [],
+    readOnly,
+    providerVersion: realtime?.version,
+    synced: realtime?.synced,
+  })
 
   useEffect(() => {
     const view = viewRef.current
@@ -254,14 +129,6 @@ function LaTeXEditorImpl(
     const decorations = createRemoteDecorations(view.state, remoteSelections)
     view.dispatch({ effects: setRemoteSelectionsEffect.of(decorations) })
   }, [remoteSelections])
-
-  useEffect(() => {
-    const awareness = realtime?.awareness
-    if (!awareness || readOnly) return
-    return () => {
-      try { awareness.setLocalStateField('selection', null) } catch {}
-    }
-  }, [realtime?.awareness, readOnly])
 
   const onChangeRef = useRef(onChange)
   useEffect(() => {
@@ -303,9 +170,9 @@ function LaTeXEditorImpl(
     if (readOnly) {
       setUndoEnabled(false)
       setRedoEnabled(false)
-    } else if (realtime?.doc && yUndoManagerRef.current) {
-      setUndoEnabled((yUndoManagerRef.current.undoStack || []).length > 0)
-      setRedoEnabled((yUndoManagerRef.current.redoStack || []).length > 0)
+    } else if (realtime?.doc && yUndoManager) {
+      setUndoEnabled((yUndoManager.undoStack || []).length > 0)
+      setRedoEnabled((yUndoManager.redoStack || []).length > 0)
     } else {
       const view = viewRef.current
       if (view) {
@@ -315,22 +182,7 @@ function LaTeXEditorImpl(
         } catch {}
       }
     }
-  }, [readOnly, realtime?.doc])
-
-  const realtimeExtensions = useMemo<Extension[]>(() => {
-    if (!realtime?.doc || !ySharedTextRef.current) return []
-    const yText = ySharedTextRef.current
-    const awareness = realtime?.awareness || null
-    const extensions: Extension[] = [
-      yCollab(yText, awareness, {
-        undoManager: yUndoManagerRef.current || undefined,
-      }),
-    ]
-    if (yKeymapRef.current) {
-      extensions.push(yKeymapRef.current)
-    }
-    return extensions
-  }, [realtime?.doc, realtime?.awareness, yTextReady])
+  }, [readOnly, realtime?.doc, yUndoManager])
 
   const cmExtensions = useMemo<Extension[]>(() => {
     const baseKeymap = [...(realtime?.doc ? [] : historyKeymap), indentWithTab, ...defaultKeymap]
@@ -361,9 +213,9 @@ function LaTeXEditorImpl(
             } catch {}
           }
           try {
-            if (realtime?.doc && yUndoManagerRef.current) {
-              setUndoEnabled((yUndoManagerRef.current.undoStack || []).length > 0)
-              setRedoEnabled((yUndoManagerRef.current.redoStack || []).length > 0)
+            if (realtime?.doc && yUndoManager) {
+              setUndoEnabled((yUndoManager.undoStack || []).length > 0)
+              setRedoEnabled((yUndoManager.redoStack || []).length > 0)
             } else {
               setUndoEnabled(undoDepth(update.state) > 0)
               setRedoEnabled(redoDepth(update.state) > 0)
@@ -399,7 +251,7 @@ function LaTeXEditorImpl(
     // Safari workaround: use yText content directly instead of relying on yCollab sync
     // Safari has timing issues where yCollab doesn't properly sync content to CodeMirror
     const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
-    const yTextContent = ySharedTextRef.current ? ySharedTextRef.current.toString() : ''
+    const yTextContent = ySharedText ? ySharedText.toString() : ''
 
     // In realtime mode:
     // - Safari: use yText content directly (bypasses yCollab sync timing issues)
@@ -470,7 +322,7 @@ function LaTeXEditorImpl(
     setEditorReady(false)
     // In realtime mode, wait for yText to be ready before creating the view
     // This ensures yCollab is included in extensions from the start
-    if (realtime?.doc && !ySharedTextRef.current) {
+    if (realtime?.doc && !ySharedText) {
       debugLog('Deferring view creation until yText is ready')
       return
     }
@@ -484,19 +336,19 @@ function LaTeXEditorImpl(
   useEffect(() => {
     console.info('[LaTeXEditor] yText ready effect check', {
       hasRealtimeDoc: !!realtime?.doc,
-      hasYSharedText: !!ySharedTextRef.current,
+      hasYSharedText: !!ySharedText,
       hasView: !!viewRef.current,
       hasContainer: !!containerRef.current,
       yTextReady,
-      yTextLength: ySharedTextRef.current?.length ?? 'N/A',
+      yTextLength: ySharedText?.length ?? 'N/A',
     })
 
     if (!realtime?.doc) return
-    if (!ySharedTextRef.current) return
+    if (!ySharedText) return
     if (viewRef.current) return // View already exists
     if (!containerRef.current) return
 
-    const yTextContent = ySharedTextRef.current.toString()
+    const yTextContent = ySharedText.toString()
     console.info('[LaTeXEditor] yText ready, creating view now', {
       yTextLength: yTextContent.length,
       yTextContent: yTextContent.slice(0, 50),
@@ -524,7 +376,7 @@ function LaTeXEditorImpl(
     console.info('[LaTeXEditor] Safari effect triggered:', {
       synced: realtime?.synced,
       hasView: !!viewRef.current,
-      hasYSharedText: !!ySharedTextRef.current,
+      hasYSharedText: !!ySharedText,
       hasContainer: !!containerRef.current,
     })
 
@@ -557,8 +409,7 @@ function LaTeXEditorImpl(
             viewRef.current.destroy()
             viewRef.current = null
           }
-          // Update ySharedTextRef before creating view
-          ySharedTextRef.current = yText
+          // ySharedText is managed by useRealtimeSync hook
           setTimeout(() => {
             if (containerRef.current && !viewRef.current) {
               try { createView(containerRef.current) } catch (e) {
