@@ -39,9 +39,6 @@ const LatexAdapter = forwardRef(function LatexAdapter(
   const [currentCommitId] = useState<string | null>(null)
   const lastCheckpointContentRef = useRef<string>(src)
   const lastCheckpointAtRef = useRef<number>(Date.now())
-  const realtimeDocRef = useRef<any>(realtime?.doc || null)
-  const realtimeLastSnapshotRef = useRef<string>('')
-
   useEffect(() => {
     if (realtimeEnabled && paperId) {
       try { localStorage.removeItem(`paper:${paperId}:draft`) } catch {}
@@ -49,7 +46,6 @@ const LatexAdapter = forwardRef(function LatexAdapter(
   }, [realtimeEnabled, paperId])
 
   useEffect(() => {
-    realtimeDocRef.current = realtime?.doc || null
     if (realtime?.doc) {
       try {
         dbg('Realtime doc attached', { status: realtime?.status })
@@ -82,33 +78,8 @@ const LatexAdapter = forwardRef(function LatexAdapter(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contentJson, paperId, realtimeEnabled])
 
-  useEffect(() => {
-    if (!realtimeActive || !realtime?.doc) return
-    const yText = realtime.doc.getText('main')
-    try {
-      realtimeLastSnapshotRef.current = yText.toString()
-    } catch {}
-    const observer = () => {
-      try {
-        const next = yText.toString()
-        if (next !== realtimeLastSnapshotRef.current) {
-          try {
-            console.info('[LatexAdapter] Realtime doc observer update', {
-              length: next.length,
-              sample: next.slice(0, 80),
-            })
-          } catch {}
-          realtimeLastSnapshotRef.current = next
-        }
-        setSrc(prev => (prev === next ? prev : next))
-      } catch {}
-    }
-    yText.observe(observer)
-    return () => {
-      try { yText.unobserve(observer) } catch {}
-    }
-  }, [realtimeActive, realtime?.doc])
-  // No CRDT: no websocket, no snapshots; simple controlled editor
+  // yCollab inside LaTeXEditor handles bidirectional Yjs sync;
+  // the handleChange callback below keeps adapter `src` in sync via setSrc.
 
   // Draft content is controlled by DocumentShell; avoid fetching here to prevent races on first input.
 
