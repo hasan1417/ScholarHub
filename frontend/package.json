@@ -10,9 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "^6.20.0",
     "@codemirror/commands": "^6.2.4",
     "@codemirror/language": "^6.7.0",
     "@codemirror/legacy-modes": "^6.5.1",
+    "@codemirror/search": "^6.6.0",
     "@codemirror/state": "^6.5.2",
     "@codemirror/stream-parser": "^0.19.9",
     "@codemirror/view": "^6.26.3",

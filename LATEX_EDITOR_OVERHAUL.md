@@ -515,9 +515,9 @@ backend/app/services/latex_cache_cleanup.py (new)
 ### Phase 6: Feature Additions (post-refactor)
 
 - [ ] **6.1** LaTeX autocomplete (commands, environments, `\cite{}`, `\ref{}`)
-- [ ] **6.2** Enable CM6 built-in search/replace (Ctrl+F / Ctrl+H)
-- [ ] **6.3** Bracket auto-closing and matching
-- [ ] **6.4** Code folding for sections and environments
+- [x] **6.2** Enable CM6 built-in search/replace (Ctrl+F / Ctrl+H)
+- [x] **6.3** Bracket auto-closing and matching
+- [x] **6.4** Code folding for sections and environments — `latexFoldService.ts`
 - [ ] **6.5** Inline compilation error markers (gutter decorations)
 - [ ] **6.6** SyncTeX forward/inverse search
 - [ ] **6.7** Upgrade from legacy `stex` to Lezer-based LaTeX grammar

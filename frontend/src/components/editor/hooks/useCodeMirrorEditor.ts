@@ -2,8 +2,11 @@ import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { EditorState, StateEffect, type Extension } from '@codemirror/state'
 import { EditorView, keymap, drawSelection, highlightActiveLine, highlightActiveLineGutter, lineNumbers } from '@codemirror/view'
 import { defaultKeymap, indentWithTab, history, historyKeymap, undo, redo, undoDepth, redoDepth } from '@codemirror/commands'
-import { StreamLanguage } from '@codemirror/language'
+import { StreamLanguage, bracketMatching, foldGutter, foldKeymap } from '@codemirror/language'
 import { stex } from '@codemirror/legacy-modes/mode/stex'
+import { search, searchKeymap } from '@codemirror/search'
+import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
+import { latexFoldService } from '../extensions/latexFoldService'
 import { overleafLatexTheme } from '../codemirror/overleafTheme'
 import { setRemoteSelectionsEffect, remoteSelectionsField, createRemoteDecorations } from '../extensions/remoteSelectionsField'
 import { scrollOnDragSelection } from '../extensions/scrollOnDragSelection'
@@ -151,7 +154,14 @@ export function useCodeMirrorEditor({
   // CM extensions memo
   // -----------------------------------------------------------------------
   const cmExtensions = useMemo<Extension[]>(() => {
-    const baseKeymap = [...(realtimeDoc ? [] : historyKeymap), indentWithTab, ...defaultKeymap]
+    const baseKeymap = [
+      ...(realtimeDoc ? [] : historyKeymap),
+      ...searchKeymap,
+      ...closeBracketsKeymap,
+      ...foldKeymap,
+      indentWithTab,
+      ...defaultKeymap,
+    ]
     return [
       remoteSelectionsField,
       lineNumbers(),
@@ -164,6 +174,14 @@ export function useCodeMirrorEditor({
       EditorView.lineWrapping,
       scrollOnDragSelection,
       overleafLatexTheme,
+      // Search & replace (Ctrl+F / Ctrl+H)
+      search({ top: true }),
+      // Bracket matching & auto-closing
+      bracketMatching(),
+      closeBrackets(),
+      // Code folding for LaTeX environments and sections
+      foldGutter(),
+      latexFoldService,
       ...realtimeExtensions,
       EditorView.updateListener.of((update) => {
         if (update.selectionSet || update.docChanged) {
