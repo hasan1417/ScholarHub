@@ -1266,55 +1266,136 @@ class TextToolsRequest(BaseModel):
     text: str
     action: str  # 'paraphrase', 'tone', 'summarize', 'explain', 'synonyms'
     tone: Optional[str] = None  # For tone action: 'formal', 'casual', 'academic', 'friendly', 'professional'
+    project_id: Optional[str] = None  # Project ID to use project's configured model
 
 
 class TextToolsResponse(BaseModel):
     result: str
 
 
+def _is_valid_uuid_str(val: str) -> bool:
+    """Check if a string is a valid UUID."""
+    try:
+        from uuid import UUID as _UUID
+        _UUID(str(val))
+        return True
+    except (ValueError, AttributeError):
+        return False
+
+
+def _parse_project_short_id(url_id: str) -> str | None:
+    """Extract short_id from a URL identifier (slug-shortid or just shortid)."""
+    if not url_id or _is_valid_uuid_str(url_id):
+        return None
+    if len(url_id) == 8 and url_id.isalnum():
+        return url_id
+    last_hyphen = url_id.rfind('-')
+    if last_hyphen > 0:
+        potential = url_id[last_hyphen + 1:]
+        if len(potential) == 8 and potential.isalnum():
+            return potential
+    return None
+
+
 @router.post("/text-tools", response_model=TextToolsResponse)
 async def ai_text_tools(
     request: TextToolsRequest,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    AI-powered text manipulation tools: paraphrase, tone change, summarize, explain, find synonyms
+    AI-powered text manipulation tools: paraphrase, tone change, summarize, explain, find synonyms.
+    Uses the project's configured model via OpenRouter if project_id is provided.
     """
     try:
         logger.info(f"AI text tools request from user {current_user.id}: action={request.action}")
-        # Initialize OpenAI client
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+        # Import here to avoid circular imports
+        from app.models import Project
+        from app.api.utils.openrouter_access import resolve_openrouter_key_for_project, resolve_openrouter_key_for_user
+        from uuid import UUID as _UUID
+
+        # Default model
+        model = "openai/gpt-4o-mini"
+
+        # Get project settings if project_id provided
+        project = None
+        use_owner_key_for_team = False
+        if request.project_id:
+            # Try UUID lookup first
+            if _is_valid_uuid_str(request.project_id):
+                try:
+                    uuid_val = _UUID(request.project_id)
+                    project = db.query(Project).filter(Project.id == uuid_val).first()
+                except (ValueError, AttributeError):
+                    pass
+
+            # Try short_id lookup if UUID lookup failed
+            if not project:
+                short_id = _parse_project_short_id(request.project_id)
+                if short_id:
+                    project = db.query(Project).filter(Project.short_id == short_id).first()
+
+            if project:
+                discussion_settings = project.discussion_settings or {}
+                model = discussion_settings.get("model", "openai/gpt-5.2-20251211")
+                use_owner_key_for_team = discussion_settings.get("use_owner_key_for_team", False)
+
+        # Resolve OpenRouter API key
+        if project:
+            key_result = resolve_openrouter_key_for_project(
+                db, current_user, project, use_owner_key_for_team=use_owner_key_for_team
+            )
+        else:
+            key_result = resolve_openrouter_key_for_user(db, current_user)
+
+        api_key = key_result.get("api_key")
+        if not api_key:
+            error_detail = key_result.get("error_detail", "No API key available")
+            error_status = key_result.get("error_status", 402)
+            raise HTTPException(status_code=error_status, detail=error_detail)
 
         # Build prompt based on action
         if request.action == "paraphrase":
-            prompt = f"Paraphrase the following text while maintaining its meaning:\n\n{request.text}"
+            prompt = f"Paraphrase the following text while maintaining its meaning. Return ONLY the paraphrased text, no explanations:\n\n{request.text}"
         elif request.action == "tone":
             tone = request.tone or "formal"
-            prompt = f"Rewrite the following text in a {tone} tone:\n\n{request.text}"
+            prompt = f"Rewrite the following text in a {tone} tone. Return ONLY the rewritten text, no explanations:\n\n{request.text}"
         elif request.action == "summarize":
-            prompt = f"Provide a concise summary of the following text:\n\n{request.text}"
+            prompt = f"Provide a concise summary of the following text. Return ONLY the summary, no explanations:\n\n{request.text}"
         elif request.action == "explain":
-            prompt = f"Explain the meaning and key concepts in the following text:\n\n{request.text}"
+            prompt = f"Explain the meaning and key concepts in the following text clearly and concisely:\n\n{request.text}"
         elif request.action == "synonyms":
-            prompt = f"Provide synonyms and alternative phrasings for key terms in the following text:\n\n{request.text}"
+            prompt = f"Provide synonyms and alternative phrasings for key terms in the following text. Format as a brief list:\n\n{request.text}"
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid action: {request.action}"
             )
 
-        # Call OpenAI API
-        response = client.responses.create(
-            model="gpt-4o-mini",
-            input=[
-                {"role": "system", "content": "You are a helpful writing assistant for academic and professional writing. Provide clear, concise, and accurate responses."},
+        # Create OpenRouter client with timeout
+        client = OpenAI(
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",
+            default_headers={
+                "HTTP-Referer": "https://scholarhub.space",
+                "X-Title": "ScholarHub",
+            },
+            timeout=30.0,  # 30 second timeout
+        )
+
+        # Call OpenRouter API with selected model (project-configured if provided)
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "You are a helpful writing assistant for academic and professional writing. Provide clear, concise, and accurate responses. Follow instructions exactly."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
-            max_output_tokens=1000
+            max_tokens=1000
         )
 
-        result = (response.output_text or "").strip()
+        result = (response.choices[0].message.content or "").strip()
 
         return TextToolsResponse(result=result)
 

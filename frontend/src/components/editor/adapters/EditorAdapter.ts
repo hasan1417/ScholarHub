@@ -31,6 +31,7 @@ export interface EditorAdapterProps {
   onNavigateBack?: () => void
   onOpenReferences?: () => void
   onOpenAiAssistant?: (anchor: HTMLElement | null) => void
+  onOpenAiChatWithMessage?: (message: string) => void
   onInsertBibliographyShortcut?: () => void
   realtime?: {
     doc: any

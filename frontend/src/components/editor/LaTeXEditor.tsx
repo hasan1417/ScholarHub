@@ -9,7 +9,7 @@ import { stex } from '@codemirror/legacy-modes/mode/stex'
 import { overleafLatexTheme } from './codemirror/overleafTheme'
 import 'katex/dist/katex.min.css'
 import pdfViewerHtml from '../../assets/pdf-viewer.html?raw'
-import { ArrowLeft, Library, Bot, Save, Loader2, Undo2, Redo2, Sparkles, Type, FileText, Lightbulb, Book, Clock, ChevronDown, Bold, Italic, Sigma, List, ListOrdered, Image, Table, Link2 } from 'lucide-react'
+import { ArrowLeft, Library, Save, Loader2, Undo2, Redo2, Sparkles, Type, FileText, Lightbulb, Book, Clock, ChevronDown, Bold, Italic, Sigma, List, ListOrdered, Image, Table, Link2 } from 'lucide-react'
 import { LATEX_FORMATTING_GROUPS } from './latexToolbarConfig'
 import FigureUploadDialog from './FigureUploadDialog'
 import CitationDialog from './CitationDialog'
@@ -274,8 +274,8 @@ interface LaTeXEditorProps {
   uncontrolled?: boolean
   onNavigateBack?: () => void
   onOpenReferences?: () => void
-  onOpenAiAssistant?: (anchor: HTMLElement | null) => void
   onInsertBibliographyShortcut?: () => void
+  onOpenAiChatWithMessage?: (message: string) => void
   realtime?: {
     doc: any
     awareness?: any
@@ -313,7 +313,7 @@ function makeBibKey(ref: any): string {
 
 // LaTeX editor with CodeMirror and live PDF preview
 function LaTeXEditorImpl(
-  { value, onChange, onSave, templateTitle, fullHeight = false, paperId, projectId, readOnly = false, disableSave = false, onNavigateBack, onOpenAiAssistant, realtime, collaborationStatus }: LaTeXEditorProps,
+  { value, onChange, onSave, templateTitle, fullHeight = false, paperId, projectId, readOnly = false, disableSave = false, onNavigateBack, onOpenAiChatWithMessage, realtime, collaborationStatus }: LaTeXEditorProps,
   ref: React.Ref<LaTeXEditorHandle>
 ) {
   // Optional debug helper: in DevTools run `window.__SH_DEBUG_LTX = true`
@@ -350,6 +350,7 @@ function LaTeXEditorImpl(
   const [toneMenuAnchor, setToneMenuAnchor] = useState<HTMLElement | null>(null)
   const [openDropdown, setOpenDropdown] = useState<string | null>(null)
   const [aiToolsMenuOpen, setAiToolsMenuOpen] = useState(false)
+  const [aiActionLoading, setAiActionLoading] = useState<string | null>(null) // action name or null
   // Resizable split view
   const [splitPosition, setSplitPosition] = useState(() => {
     // Load from localStorage or default to 50%
@@ -1106,32 +1107,6 @@ function LaTeXEditorImpl(
     insertSnippet(cite, citationKey)
   }, [insertSnippet])
 
-  const handleOpenAiToolbar = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
-    if (readOnly) return
-    // Capture button rect immediately before it might unmount
-    const button = event.currentTarget
-    const rect = button.getBoundingClientRect()
-    // Store rect in a way that survives re-renders
-    const stableButton = button.cloneNode(true) as HTMLElement
-    stableButton.style.position = 'fixed'
-    stableButton.style.top = `${rect.top}px`
-    stableButton.style.left = `${rect.left}px`
-    stableButton.style.width = `${rect.width}px`
-    stableButton.style.height = `${rect.height}px`
-    stableButton.style.visibility = 'hidden'
-    stableButton.style.pointerEvents = 'none'
-    document.body.appendChild(stableButton)
-
-    onOpenAiAssistant?.(stableButton)
-
-    // Clean up after popover closes
-    setTimeout(() => {
-      if (document.body.contains(stableButton)) {
-        document.body.removeChild(stableButton)
-      }
-    }, 5000)
-  }, [readOnly, onOpenAiAssistant])
-
   const getSelectedText = useCallback(() => {
     try {
       const view = viewRef.current
@@ -1156,7 +1131,7 @@ function LaTeXEditorImpl(
   }, [])
 
   const handleAiAction = useCallback(async (action: string, tone?: string) => {
-    if (readOnly) return
+    if (readOnly || aiActionLoading) return
 
     const selectedText = getSelectedText()
     if (!selectedText.trim()) {
@@ -1164,10 +1139,29 @@ function LaTeXEditorImpl(
       return
     }
 
+    // For explain/summarize/synonyms: redirect to AI chat panel (non-destructive)
+    const chatActions = ['explain', 'summarize', 'synonyms']
+    if (chatActions.includes(action) && onOpenAiChatWithMessage) {
+      const actionLabels: Record<string, string> = {
+        explain: 'Explain this text',
+        summarize: 'Summarize this text',
+        synonyms: 'Suggest synonyms for key terms in this text',
+      }
+      const prompt = `${actionLabels[action]}:\n\n"${selectedText}"`
+      onOpenAiChatWithMessage(prompt)
+      setAiToolsMenuOpen(false)
+      return
+    }
+
+    // For paraphrase/tone: in-place replacement via API
+    const loadingKey = action === 'tone' && tone ? `tone_${tone}` : action
+    setAiActionLoading(loadingKey)
+
     try {
       const payload: any = {
         text: selectedText,
         action: action,
+        project_id: projectId,
       }
 
       if (tone) {
@@ -1200,8 +1194,10 @@ function LaTeXEditorImpl(
     } catch (error) {
       console.error('AI action failed:', error)
       alert('Failed to process text. Please try again.')
+    } finally {
+      setAiActionLoading(null)
     }
-  }, [readOnly, getSelectedText, replaceSelectedText])
+  }, [readOnly, getSelectedText, replaceSelectedText, projectId, aiActionLoading, onOpenAiChatWithMessage])
 
   const handleToneButtonClick = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
     if (readOnly || !hasTextSelected) return
@@ -1210,9 +1206,12 @@ function LaTeXEditorImpl(
   }, [readOnly, hasTextSelected])
 
   const handleToneSelect = useCallback(async (tone: string) => {
+    // Keep menu open while processing (loading state will be visible)
     setToneMenuOpen(false)
-    setToneMenuAnchor(null)
+    // Don't clear anchor yet - needed for positioning during loading
     await handleAiAction('tone', tone)
+    // Clear anchor after action completes
+    setToneMenuAnchor(null)
   }, [handleAiAction])
 
   const handleRestoreFromHistory = useCallback((content: string, _snapshotId: string) => {
@@ -1751,18 +1750,6 @@ function LaTeXEditorImpl(
 
               <span className="mx-1 h-5 w-px bg-slate-300 dark:bg-slate-600" />
 
-              {/* AI Tools */}
-              <button
-                type="button"
-                onClick={handleOpenAiToolbar}
-                disabled={readOnly || !onOpenAiAssistant}
-                className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-40 dark:text-emerald-400 dark:hover:bg-emerald-500/20"
-                title="AI Assistant"
-              >
-                <Bot className="h-4 w-4" />
-                <span>AI</span>
-              </button>
-
               <button
                 type="button"
                 onClick={handleOpenReferencesToolbar}
@@ -1777,55 +1764,64 @@ function LaTeXEditorImpl(
               <div className="relative">
                 <button
                   type="button"
-                  onClick={() => setAiToolsMenuOpen(!aiToolsMenuOpen)}
-                  disabled={readOnly || !hasTextSelected}
+                  onClick={() => !aiActionLoading && setAiToolsMenuOpen(!aiToolsMenuOpen)}
+                  disabled={readOnly || (!hasTextSelected && !aiActionLoading)}
                   className={`rounded p-1.5 transition-colors disabled:opacity-30 ${
-                    aiToolsMenuOpen
+                    aiToolsMenuOpen || aiActionLoading
                       ? 'bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300'
                       : 'text-slate-500 hover:bg-slate-200 dark:text-slate-400 dark:hover:bg-slate-700'
                   }`}
-                  title={hasTextSelected ? 'AI text tools' : 'Select text first'}
+                  title={aiActionLoading ? `Processing: ${aiActionLoading}...` : hasTextSelected ? 'AI text tools' : 'Select text first'}
                 >
-                  <Sparkles className="h-4 w-4" />
+                  {aiActionLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-4 w-4" />
+                  )}
                 </button>
-                {aiToolsMenuOpen && (
+                {(aiToolsMenuOpen || aiActionLoading) && (
                   <>
-                    <div className="fixed inset-0 z-40" onClick={() => setAiToolsMenuOpen(false)} />
+                    <div className="fixed inset-0 z-40" onClick={() => !aiActionLoading && setAiToolsMenuOpen(false)} />
                     <div className="absolute right-0 top-full z-50 mt-1 min-w-[150px] rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-800">
                       <button
-                        onClick={() => { handleAiAction('paraphrase'); setAiToolsMenuOpen(false) }}
-                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                        onClick={() => { if (!aiActionLoading) { handleAiAction('paraphrase') } }}
+                        disabled={!!aiActionLoading}
+                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${aiActionLoading === 'paraphrase' ? 'bg-violet-50 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300' : aiActionLoading ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700'}`}
                       >
-                        <Sparkles className="h-3.5 w-3.5 text-violet-500" />
+                        {aiActionLoading === 'paraphrase' ? <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-500" /> : <Sparkles className="h-3.5 w-3.5 text-violet-500" />}
                         Paraphrase
                       </button>
                       <button
-                        onClick={() => { handleAiAction('summarize'); setAiToolsMenuOpen(false) }}
-                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                        onClick={() => { if (!aiActionLoading) { handleAiAction('summarize') } }}
+                        disabled={!!aiActionLoading}
+                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${aiActionLoading === 'summarize' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300' : aiActionLoading ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700'}`}
                       >
-                        <FileText className="h-3.5 w-3.5 text-emerald-500" />
+                        {aiActionLoading === 'summarize' ? <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" /> : <FileText className="h-3.5 w-3.5 text-emerald-500" />}
                         Summarize
                       </button>
                       <button
-                        onClick={() => { handleAiAction('explain'); setAiToolsMenuOpen(false) }}
-                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                        onClick={() => { if (!aiActionLoading) { handleAiAction('explain') } }}
+                        disabled={!!aiActionLoading}
+                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${aiActionLoading === 'explain' ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300' : aiActionLoading ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700'}`}
                       >
-                        <Lightbulb className="h-3.5 w-3.5 text-amber-500" />
+                        {aiActionLoading === 'explain' ? <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-500" /> : <Lightbulb className="h-3.5 w-3.5 text-amber-500" />}
                         Explain
                       </button>
                       <button
-                        onClick={() => { handleAiAction('synonyms'); setAiToolsMenuOpen(false) }}
-                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                        onClick={() => { if (!aiActionLoading) { handleAiAction('synonyms') } }}
+                        disabled={!!aiActionLoading}
+                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${aiActionLoading === 'synonyms' ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300' : aiActionLoading ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700'}`}
                       >
-                        <Book className="h-3.5 w-3.5 text-blue-500" />
+                        {aiActionLoading === 'synonyms' ? <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" /> : <Book className="h-3.5 w-3.5 text-blue-500" />}
                         Synonyms
                       </button>
                       <div className="my-1 border-t border-slate-200 dark:border-slate-600" />
                       <button
-                        onClick={handleToneButtonClick}
-                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                        onClick={(e) => { if (!aiActionLoading) handleToneButtonClick(e) }}
+                        disabled={!!aiActionLoading}
+                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${aiActionLoading?.startsWith('tone_') ? 'bg-rose-50 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300' : aiActionLoading ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700'}`}
                       >
-                        <Type className="h-3.5 w-3.5 text-rose-500" />
+                        {aiActionLoading?.startsWith('tone_') ? <Loader2 className="h-3.5 w-3.5 animate-spin text-rose-500" /> : <Type className="h-3.5 w-3.5 text-rose-500" />}
                         Change Tone...
                       </button>
                     </div>
@@ -2065,14 +2061,16 @@ function LaTeXEditorImpl(
       )}
 
       {/* Tone Selector Menu */}
-      {toneMenuOpen && toneMenuAnchor && (
+      {(toneMenuOpen || aiActionLoading?.startsWith('tone_')) && toneMenuAnchor && (
         <>
           {/* Backdrop */}
           <div
             className="fixed inset-0 z-40"
             onClick={() => {
-              setToneMenuOpen(false)
-              setToneMenuAnchor(null)
+              if (!aiActionLoading) {
+                setToneMenuOpen(false)
+                setToneMenuAnchor(null)
+              }
             }}
           />
 
@@ -2085,13 +2083,23 @@ function LaTeXEditorImpl(
             }}
           >
             <div className="p-2">
-              <div className="mb-2 px-2 text-xs font-semibold text-slate-600 dark:text-slate-400">Select Tone</div>
+              <div className="mb-2 px-2 text-xs font-semibold text-slate-600 dark:text-slate-400">
+                {aiActionLoading?.startsWith('tone_') ? 'Processing...' : 'Select Tone'}
+              </div>
               {['formal', 'casual', 'academic', 'friendly', 'professional'].map((tone) => (
                 <button
                   key={tone}
-                  onClick={() => handleToneSelect(tone)}
-                  className="w-full rounded px-3 py-2 text-left text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                  onClick={() => !aiActionLoading && handleToneSelect(tone)}
+                  disabled={!!aiActionLoading}
+                  className={`flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm transition-colors ${
+                    aiActionLoading === `tone_${tone}`
+                      ? 'bg-rose-50 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300'
+                      : aiActionLoading
+                      ? 'cursor-not-allowed text-slate-400 opacity-40 dark:text-slate-500'
+                      : 'text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700'
+                  }`}
                 >
+                  {aiActionLoading === `tone_${tone}` && <Loader2 className="h-3.5 w-3.5 animate-spin text-rose-500" />}
                   {tone.charAt(0).toUpperCase() + tone.slice(1)}
                 </button>
               ))}

@@ -11,7 +11,7 @@ const LatexAdapter = forwardRef(function LatexAdapter(
   props: EnhancedProps,
   ref: React.Ref<EditorAdapterHandle>
 ) {
-  const { contentJson, onContentChange, onReady, onDirtyChange, className, paperId, projectId, paperTitle, lockedSectionKeys, branchName = 'draft', readOnly = false, onNavigateBack, onOpenReferences, onOpenAiAssistant, onInsertBibliographyShortcut, realtime, collaborationStatus, theme: _theme } = props
+  const { contentJson, onContentChange, onReady, onDirtyChange, className, paperId, projectId, paperTitle, lockedSectionKeys, branchName = 'draft', readOnly = false, onNavigateBack, onOpenReferences, onOpenAiChatWithMessage, onInsertBibliographyShortcut, realtime, collaborationStatus, theme: _theme } = props
   const dbg = (...args: any[]) => { try { if ((window as any).__SH_DEBUG_LTX) console.debug('[LatexAdapter]', ...args) } catch {} }
   const editorRef = useRef<any>(null)
   const realtimeEnabled = Boolean(realtime?.enabled)
@@ -329,7 +329,7 @@ const LatexAdapter = forwardRef(function LatexAdapter(
       allowAutoVersion={false}
       onNavigateBack={onNavigateBack}
       onOpenReferences={onOpenReferences}
-      onOpenAiAssistant={onOpenAiAssistant}
+      onOpenAiChatWithMessage={onOpenAiChatWithMessage}
       onInsertBibliographyShortcut={onInsertBibliographyShortcut}
       realtime={realtime}
       collaborationStatus={collaborationStatus}

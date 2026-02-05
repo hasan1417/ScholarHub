@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Sparkles } from 'lucide-react'
 import { EditorAdapterHandle, EditorAdapterProps } from './adapters/EditorAdapter'
 import BranchManager from './BranchManager'
 import MergeView from './MergeView'
@@ -13,8 +13,6 @@ import { fetchCollabToken } from '../../services/collabService'
 import { isCollabEnabled } from '../../config/collab'
 import { useCollabProvider } from '../../hooks/useCollabProvider'
 import { useThemePreference } from '../../hooks/useThemePreference'
-import EnhancedAIWritingTools from './EnhancedAIWritingTools'
-import EditorAIChat from './EditorAIChat'
 import EditorAIChatOR from './EditorAIChatOR'
 
 type AdapterComponent = React.ForwardRefExoticComponent<EditorAdapterProps & React.RefAttributes<EditorAdapterHandle>>
@@ -37,7 +35,6 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
   const { user } = useAuth()
   const adapterRef = useRef<EditorAdapterHandle>(null)
   const { theme } = useThemePreference()
-  const [selection, setSelection] = useState('')
   const [branchOpen, setBranchOpen] = useState(false)
   const [mergeOpen, setMergeOpen] = useState(false)
   const [currentBranchId, setCurrentBranchId] = useState<string | undefined>(undefined)
@@ -54,10 +51,8 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
   const [currentVersion, setCurrentVersion] = useState<string | null>(null)
   const fallbackRole: 'admin' | 'editor' | 'viewer' = forceReadOnly ? 'viewer' : (initialPaperRole ?? 'viewer')
   const [paperRole, setPaperRole] = useState<'admin' | 'editor' | 'viewer'>(fallbackRole)
-  const [aiPanelOpen, setAiPanelOpen] = useState(false)
-  const [aiAnchor, setAiAnchor] = useState<HTMLElement | null>(null)
   const [aiChatOpen, setAiChatOpen] = useState(false)
-  const [aiChatBetaMode, setAiChatBetaMode] = useState(true) // Default to Beta (OpenRouter) mode
+  const [aiChatInitialMessage, setAiChatInitialMessage] = useState<string | null>(null)
   const readOnly = forceReadOnly || paperRole === 'viewer'
   const collabFeatureEnabled = useMemo(() => isCollabEnabled(), [])
   const [collabToken, setCollabToken] = useState<{ token: string; ws_url?: string } | null>(null)
@@ -675,11 +670,11 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     adapterRef.current?.insertText(snippet)
   }, [readOnly])
 
-  const handleOpenAiAssistant = useCallback((anchor: HTMLElement | null) => {
-    if (readOnly) return
-    setAiAnchor(anchor)
-    setAiPanelOpen(true)
-  }, [readOnly])
+  // Open AI chat with a pre-filled message (from Sparkles explain/summarize)
+  const handleOpenAiChatWithMessage = useCallback((message: string) => {
+    setAiChatInitialMessage(message)
+    setAiChatOpen(true)
+  }, [])
 
   /** Handle AI edit approval - replace lines by line numbers (root cause fix) */
   const handleApplyAiEdit = useCallback((startLine: number, endLine: number, anchor: string, replacement: string): boolean => {
@@ -904,21 +899,13 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
       </div>
 
       {!readOnly && !aiChatOpen && (
-        <div className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2">
-          <button
-            onClick={() => { setAiChatBetaMode(false); setAiChatOpen(true) }}
-            className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-lg transition hover:-translate-y-0.5 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
-          >
-            <span className="rounded-full bg-indigo-600 px-3 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white">AI CHAT</span>
-          </button>
-          <button
-            onClick={() => { setAiChatBetaMode(true); setAiChatOpen(true) }}
-            className="flex items-center gap-2 rounded-full border border-purple-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-lg transition hover:-translate-y-0.5 hover:bg-purple-50 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:border-purple-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-purple-900/20"
-            title="Multi-model AI chat (Beta) - choose from GPT-5.2, Claude, Gemini, DeepSeek"
-          >
-            <span className="rounded-full bg-gradient-to-r from-purple-600 to-indigo-600 px-3 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white">BETA</span>
-          </button>
-        </div>
+        <button
+          onClick={() => setAiChatOpen(true)}
+          className="fixed bottom-6 left-1/2 z-40 flex h-14 w-14 -translate-x-1/2 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/30 transition-all duration-300 hover:scale-110 hover:shadow-xl hover:shadow-indigo-500/40 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 active:scale-95 dark:shadow-indigo-500/20 dark:hover:shadow-indigo-500/30"
+          title="AI Assistant"
+        >
+          <Sparkles className="h-6 w-6 animate-pulse" />
+        </button>
       )}
 
       <div
@@ -942,13 +929,13 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
               projectId={projectId}
               paperTitle={paperTitle}
               onContentChange={handleContentChange}
-              onSelectionChange={setSelection}
+              onSelectionChange={() => {}}
               className="h-full"
               lockedSectionKeys={Object.keys(sectionLocks)}
               readOnly={readOnly}
               onNavigateBack={handleNavigateBack}
               onOpenReferences={handleOpenReferences}
-              onOpenAiAssistant={handleOpenAiAssistant}
+              onOpenAiChatWithMessage={handleOpenAiChatWithMessage}
               onInsertBibliographyShortcut={handleInsertBibliographyShortcut}
               realtime={realtimeContext}
               collaborationStatus={collaborationStatus}
@@ -1094,45 +1081,18 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
         }}
       />
 
-      {/* AI Writing Assistant: floating UI that uses adapter APIs */}
-      <EnhancedAIWritingTools
-        selectedText={selection || ''}
-        onReplaceText={(text) => adapterRef.current?.replaceSelection?.(text || '')}
-        onInsertText={(text) => adapterRef.current?.insertText(text || '')}
-        currentPaperContent={lastHtml}
-        onCitationInsert={(c) => adapterRef.current?.insertText(c || '')}
-        open={!readOnly && aiPanelOpen}
-        onOpenChange={(next) => setAiPanelOpen(readOnly ? false : next)}
-        showLauncher={false}
-        anchorElement={aiAnchor}
-        isLatexMode={isLatex}
+      {/* AI Chat with multi-model support via OpenRouter */}
+      <EditorAIChatOR
+        paperId={paperId}
+        projectId={projectId}
+        documentText={lastHtml}
+        open={!readOnly && aiChatOpen}
+        onOpenChange={(next) => setAiChatOpen(readOnly ? false : next)}
+        onApplyEdit={handleApplyAiEdit}
+        onApplyEditsBatch={handleApplyAiEditsBatch}
+        initialMessage={aiChatInitialMessage || undefined}
+        onInitialMessageConsumed={() => setAiChatInitialMessage(null)}
       />
-
-      {/* Standard AI Chat */}
-      {!aiChatBetaMode && (
-        <EditorAIChat
-          paperId={paperId}
-          projectId={projectId}
-          documentText={lastHtml}
-          open={!readOnly && aiChatOpen}
-          onOpenChange={(next) => setAiChatOpen(readOnly ? false : next)}
-          onApplyEdit={handleApplyAiEdit}
-          onApplyEditsBatch={handleApplyAiEditsBatch}
-        />
-      )}
-
-      {/* Beta AI Chat with multi-model support via OpenRouter */}
-      {aiChatBetaMode && (
-        <EditorAIChatOR
-          paperId={paperId}
-          projectId={projectId}
-          documentText={lastHtml}
-          open={!readOnly && aiChatOpen}
-          onOpenChange={(next) => setAiChatOpen(readOnly ? false : next)}
-          onApplyEdit={handleApplyAiEdit}
-          onApplyEditsBatch={handleApplyAiEditsBatch}
-        />
-      )}
     </div>
   )
 }

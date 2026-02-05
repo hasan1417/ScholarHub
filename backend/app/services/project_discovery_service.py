@@ -166,13 +166,22 @@ class ProjectDiscoveryManager:
         self.db.flush()
         self._last_run_id = run.id
 
-        # For manual discovery, clear previous non-promoted results to start fresh
+        # For manual discovery, clear previous non-promoted MANUAL results to start fresh
         if run_type == ProjectDiscoveryRunType.MANUAL:
+            manual_run_ids = (
+                self.db.query(ProjectDiscoveryRun.id)
+                .filter(
+                    ProjectDiscoveryRun.project_id == project.id,
+                    ProjectDiscoveryRun.run_type == ProjectDiscoveryRunType.MANUAL,
+                )
+                .subquery()
+            )
             deleted_count = (
                 self.db.query(ProjectDiscoveryResultModel)
                 .filter(
                     ProjectDiscoveryResultModel.project_id == project.id,
                     ProjectDiscoveryResultModel.status != ProjectDiscoveryResultStatus.PROMOTED,
+                    ProjectDiscoveryResultModel.run_id.in_(manual_run_ids),
                 )
                 .delete(synchronize_session='fetch')
             )

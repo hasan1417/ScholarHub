@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Bot, Brain, Check, ChevronDown, ChevronUp, Edit3, FlaskConical, Loader2, Send, Sparkles, X } from 'lucide-react'
+import { Bot, Brain, Check, ChevronDown, ChevronUp, Edit3, Loader2, Send, Sparkles, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
-import { projectReferencesAPI, buildApiUrl, buildAuthHeaders } from '../../services/api'
-import { ModelSelector, modelSupportsReasoning, useOpenRouterModels } from '../discussion/ModelSelector'
+import { useQuery } from '@tanstack/react-query'
+import { projectReferencesAPI, projectsAPI, buildApiUrl, buildAuthHeaders } from '../../services/api'
+import { modelSupportsReasoning, useOpenRouterModels } from '../discussion/ModelSelector'
 
 /** Proposed edit from AI - line-based for reliable matching */
 interface EditProposal {
@@ -30,6 +31,10 @@ interface EditorAIChatORProps {
   onApplyEdit?: (startLine: number, endLine: number, anchor: string, replacement: string) => boolean
   /** Callback to apply a batch of edits against a snapshot */
   onApplyEditsBatch?: (proposals: EditProposal[], sourceDocument: string) => boolean
+  /** Initial message to auto-send when chat opens (e.g., from Sparkles explain/summarize) */
+  initialMessage?: string
+  /** Callback when initial message has been consumed */
+  onInitialMessageConsumed?: () => void
 }
 
 type ChatMessage = {
@@ -74,6 +79,8 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
   onOpenChange,
   onApplyEdit,
   onApplyEditsBatch,
+  initialMessage,
+  onInitialMessageConsumed,
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -82,23 +89,30 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
   const [error, setError] = useState<string | null>(null)
   const [references, setReferences] = useState<ReferenceItem[]>([])
   const [reasoningMode, setReasoningMode] = useState(false)
-  const { models: openrouterModels, warning: openrouterWarning } = useOpenRouterModels()
-  const [selectedModel, setSelectedModel] = useState(openrouterModels[0]?.id)
+  const { models: openrouterModels, warning: openrouterWarning } = useOpenRouterModels(projectId)
   const abortControllerRef = useRef<AbortController | null>(null)
   const [expandedProposals, setExpandedProposals] = useState<Set<string>>(new Set())
   const listRef = useRef<HTMLDivElement | null>(null)
+
+  // Fetch project AI settings to get the configured model
+  const settingsQuery = useQuery({
+    queryKey: ['project-ai-settings', projectId],
+    queryFn: async () => {
+      if (!projectId) return null
+      const response = await projectsAPI.getDiscussionSettings(projectId)
+      return response.data
+    },
+    enabled: Boolean(projectId),
+    staleTime: 30000,
+  })
+
+  // Use model from project settings, fallback to first available model
+  const selectedModel = settingsQuery.data?.model || openrouterModels[0]?.id
 
   const isReviewMessage = useCallback((content: string) => {
     if (!content) return false
     return content.includes('## Review') || content.includes('Suggested Improvements')
   }, [])
-
-  useEffect(() => {
-    if (openrouterModels.length === 0) return
-    if (!selectedModel || !openrouterModels.find((model) => model.id === selectedModel)) {
-      setSelectedModel(openrouterModels[0].id)
-    }
-  }, [openrouterModels, selectedModel])
 
   // Get current model info
   const currentModel = useMemo(
@@ -306,6 +320,20 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
     listRef.current.scrollTop = listRef.current.scrollHeight
   }, [messages, open])
 
+  // Auto-send initial message from Sparkles explain/summarize actions
+  const [pendingAutoSend, setPendingAutoSend] = useState<string | null>(null)
+  const initialMessageSentRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!open || !initialMessage || sending) return
+    // Prevent double-sending the same message
+    if (initialMessageSentRef.current === initialMessage) return
+    initialMessageSentRef.current = initialMessage
+    // Set input and flag for auto-send
+    setInput(initialMessage)
+    setPendingAutoSend(initialMessage)
+    onInitialMessageConsumed?.()
+  }, [open, initialMessage, sending, onInitialMessageConsumed])
+
   const docContext = useMemo(() => {
     if (!documentText) return null
     try {
@@ -325,16 +353,6 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
     )
     return references.filter((r) => !hasFullText(r)).length
   }, [references])
-
-  /** Document content stats */
-  const docStats = useMemo(() => {
-    const len = documentText?.length || 0
-    const lines = documentText?.split('\n').length || 0
-    // Only very large docs (200k+) use AI-driven section retrieval
-    // Most papers are 20-50k chars, so this covers 99%+ with simple full-doc approach
-    const isLarge = len >= 200000
-    return { len, lines, isLarge }
-  }, [documentText])
 
   const sendPrompt = useCallback(
     async (prompt: string, clearInput: boolean = false) => {
@@ -527,6 +545,14 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
     void sendPrompt(prompt, true)
   }, [input, sendPrompt, sending])
 
+  // Handle auto-send for initial messages from Sparkles
+  useEffect(() => {
+    if (pendingAutoSend && !sending) {
+      setPendingAutoSend(null)
+      void sendPrompt(pendingAutoSend, true)
+    }
+  }, [pendingAutoSend, sending, sendPrompt])
+
   /** Cancel ongoing request */
   const handleCancel = useCallback(() => {
     if (abortControllerRef.current) {
@@ -570,27 +596,18 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 text-white">
             <Bot className="h-5 w-5" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI Assistant</span>
-              <span className="flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-semibold text-purple-700 dark:bg-purple-900/50 dark:text-purple-300">
-                <FlaskConical className="h-3 w-3" />
-                Beta
-              </span>
-            </div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">
-              {currentModel.name} ({currentModel.provider})
-            </div>
-          </div>
+          <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI Assistant</span>
         </div>
         <div className="flex items-center gap-2">
-          {/* Model Selector - styled dropdown */}
-          <ModelSelector
-            value={selectedModel}
-            onChange={setSelectedModel}
-            disabled={sending}
-            models={openrouterModels}
-          />
+          {/* Model Display (read-only, configured in Project Settings) */}
+          <div
+            className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium dark:border-slate-700 dark:bg-slate-800"
+            title="Model is configured in Project Settings"
+          >
+            <Sparkles className="h-4 w-4 text-indigo-500 dark:text-indigo-400" />
+            <span className="max-w-[120px] truncate text-gray-700 dark:text-slate-200">{currentModel?.name || 'Loading...'}</span>
+            <span className="text-xs text-gray-400 dark:text-slate-500">{currentModel?.provider}</span>
+          </div>
 
           {/* Reasoning Mode Toggle - only show for supported models */}
           {supportsReasoning && (
@@ -623,23 +640,6 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
         </div>
       )}
 
-      {/* Model info banner */}
-      {docStats.len > 0 && (
-        <div className="mx-4 mt-3 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-sm shadow-sm dark:border-purple-400/50 dark:bg-purple-900/30 dark:text-purple-100">
-          <span className="text-purple-800 dark:text-purple-100">
-            <strong>{currentModel.name}</strong> — {docStats.lines.toLocaleString()} lines, {Math.round(docStats.len / 1000)}k chars
-            {docStats.isLarge ? (
-              <span className="ml-1 text-amber-600 dark:text-amber-300">
-                (Large doc: using smart section retrieval)
-              </span>
-            ) : (
-              <span className="ml-1 text-emerald-600 dark:text-emerald-300">
-                (Full document with line numbers)
-              </span>
-            )}
-          </span>
-        </div>
-      )}
 
       {missingPdfCount > 0 && (
         <div className="mx-4 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 shadow-sm dark:border-amber-400/50 dark:bg-amber-900/30 dark:text-amber-100">
