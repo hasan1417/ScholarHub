@@ -104,7 +104,6 @@ const NEW_TAB_GROUPS = {
 const ProjectLayout = () => {
   const { projectId, paperId } = useParams<{ projectId: string; paperId?: string }>()
   const navigate = useNavigate()
-  const location = useLocation()
   const queryClient = useQueryClient()
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
@@ -174,10 +173,10 @@ const ProjectLayout = () => {
   const showResearchGroup = normalizedRole !== 'viewer'
 
   const pendingDiscovery = useQuery({
-    queryKey: ['project', projectId, 'discoveryPendingCount'],
+    queryKey: ['project', projectId, 'discoveryPendingCount', 'auto'],
     queryFn: async () => {
       if (!projectId) return 0
-      const response = await projectDiscoveryAPI.getPendingCount(projectId)
+      const response = await projectDiscoveryAPI.getPendingCount(projectId, 'auto')
       return response.data.pending
     },
     enabled: Boolean(projectId) && normalizedRole !== 'viewer',
@@ -188,8 +187,9 @@ const ProjectLayout = () => {
 
   const canEditProject = normalizedRole === 'admin'
 
-  // localStorage tracking for Library/Discovery notifications (NEW NAVIGATION only)
+  // Track whether user has viewed discovery since the last increase (dot indicator only)
   const storageKey = `library-discovery-${projectId}`
+  const location = useLocation()
 
   const [prevCount, setPrevCount] = useState<number>(() => {
     const stored = localStorage.getItem(`${storageKey}-count`)
@@ -201,22 +201,17 @@ const ProjectLayout = () => {
     return stored === 'true'
   })
 
-  // Check if user is on discovery page (both old and new routes)
   const isOnDiscoveryPage = location.pathname.includes('/discovery') || location.pathname.includes('/library/discover')
 
-  // Track when user navigates to discovery page
   useEffect(() => {
     if (isOnDiscoveryPage && pendingCount > 0) {
       setHasViewedDiscovery(true)
-      setPrevCount(pendingCount)
       localStorage.setItem(`${storageKey}-viewed`, 'true')
-      localStorage.setItem(`${storageKey}-count`, pendingCount.toString())
     }
   }, [isOnDiscoveryPage, pendingCount, storageKey])
 
-  // If count increased, mark as not viewed (new papers arrived)
   useEffect(() => {
-    if (pendingCount > prevCount && prevCount > 0) {
+    if (pendingCount > prevCount && prevCount >= 0) {
       setHasViewedDiscovery(false)
       localStorage.setItem(`${storageKey}-viewed`, 'false')
     }
@@ -224,7 +219,7 @@ const ProjectLayout = () => {
     localStorage.setItem(`${storageKey}-count`, pendingCount.toString())
   }, [pendingCount, prevCount, storageKey])
 
-  // Show notification if: there are badges AND user hasn't viewed them yet
+  // Dot indicator only; numeric badge comes from pendingCount elsewhere
   const hasLibraryNotifications = pendingCount > 0 && !hasViewedDiscovery
 
   useEffect(() => {

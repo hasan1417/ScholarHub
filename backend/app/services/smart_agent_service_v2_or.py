@@ -224,6 +224,28 @@ class SmartAgentServiceV2OR:
                         })
                         continue  # AI will call propose_edit next
 
+                    elif tool_name == "review_document":
+                        # Intermediate: AI may want to propose_edit after review
+                        review_output = "".join(self._format_tool_response(tool_name, tool_args))
+                        messages.append(choice.message)
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": review_output
+                        })
+                        continue  # Let AI decide if it wants to propose edits
+
+                    elif tool_name == "list_available_templates":
+                        # Intermediate: AI may want to apply_template next
+                        list_output = "".join(self._format_tool_response(tool_name, tool_args))
+                        messages.append(choice.message)
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": list_output
+                        })
+                        continue  # Let AI decide next action
+
                     # All other tools - format and return
                     yield from _collect_and_yield(self._format_tool_response(tool_name, tool_args))
                     self._store_chat_exchange(
@@ -610,7 +632,21 @@ class SmartAgentServiceV2OR:
             lines = [f"({len(refs)} references attached):\n"]
             for i, ref in enumerate(refs, 1):
                 authors = ", ".join(ref.authors[:2]) + (" et al." if len(ref.authors) > 2 else "") if ref.authors else "Unknown"
-                lines.append(f"{i}. {ref.title} ({authors}, {ref.year or 'n.d.'})")
+                status_bits = []
+                document = getattr(ref, "document", None)
+                if document is not None:
+                    doc_status = getattr(document.status, "value", None) or str(document.status)
+                    if getattr(document, "is_processed_for_ai", False):
+                        status_bits.append("full text ready")
+                    elif doc_status in {"processing", "uploading"}:
+                        status_bits.append("processing")
+                    elif doc_status:
+                        status_bits.append(doc_status)
+                if ref.pdf_url and not status_bits:
+                    status_bits.append("pdf linked")
+
+                status_suffix = f" — {', '.join(status_bits)}" if status_bits else ""
+                lines.append(f"{i}. {ref.title} ({authors}, {ref.year or 'n.d.'}){status_suffix}")
                 if ref.abstract:
                     lines.append(f"   Abstract: {ref.abstract[:200]}...")
 

@@ -4,7 +4,7 @@ import ProjectDiscovery from './ProjectDiscovery'
 import ProjectReferences from './ProjectReferences'
 import SubTabs, { SubTab } from '../../components/navigation/SubTabs'
 import { useQuery } from '@tanstack/react-query'
-import { projectDiscoveryAPI } from '../../services/api'
+import { projectDiscoveryAPI, projectReferencesAPI } from '../../services/api'
 import { useProjectContext } from './ProjectLayout'
 
 const ProjectLibrary = () => {
@@ -13,10 +13,10 @@ const ProjectLibrary = () => {
 
   // Get pending discovery count for badge
   const pendingDiscovery = useQuery({
-    queryKey: ['project', projectId, 'discoveryPendingCount'],
+    queryKey: ['project', projectId, 'discoveryPendingCount', 'auto'],
     queryFn: async () => {
       if (!projectId) return 0
-      const response = await projectDiscoveryAPI.getPendingCount(projectId)
+      const response = await projectDiscoveryAPI.getPendingCount(projectId, 'auto')
       return response.data.pending
     },
     enabled: Boolean(projectId) && currentRole !== 'viewer',
@@ -24,6 +24,30 @@ const ProjectLibrary = () => {
   })
 
   const pendingCount = pendingDiscovery.data ?? 0
+
+  const referencesQuery = useQuery({
+    queryKey: ['project', projectId, 'relatedReferences'],
+    queryFn: async () => {
+      if (!projectId) return { references: [] }
+      try {
+        const response = await projectReferencesAPI.list(projectId, { status: 'approved' })
+        return response.data
+      } catch (error) {
+        const axiosError = error as { response?: { status?: number } }
+        if (axiosError.response?.status === 404) {
+          return { disabled: true, references: [] }
+        }
+        throw error
+      }
+    },
+    enabled: Boolean(projectId),
+  })
+
+  const referencesCount = (() => {
+    const payload = referencesQuery.data as { references?: unknown[]; disabled?: boolean } | undefined
+    if (!payload || payload.disabled) return 0
+    return Array.isArray(payload.references) ? payload.references.length : 0
+  })()
 
   const LIBRARY_TABS: SubTab[] = [
     {
@@ -38,6 +62,7 @@ const ProjectLibrary = () => {
       path: 'references',
       icon: BookOpen,
       tooltip: 'Your collected papers for this project',
+      badge: referencesCount,
     },
   ]
 

@@ -438,23 +438,36 @@ def list_discovery_results(  # pylint: disable=too-many-arguments,too-many-local
 @router.delete("/projects/{project_id}/discovery/results/clear")
 def clear_discovery_results(
     project_id: str,
+    run_type: ProjectDiscoveryRunType | None = Query(None, alias="run_type"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Clear all non-promoted discovery results for a project."""
+    """Clear non-promoted discovery results for a project (optionally filtered by run type)."""
     _guard_feature()
     _ensure_discovery_schema(db)
     project = get_project_or_404(db, project_id)
     ensure_project_member(db, project, current_user, roles=[ProjectRole.ADMIN, ProjectRole.EDITOR])
 
-    deleted_count = (
+    base_query = (
         db.query(ProjectDiscoveryResultModel)
         .filter(
             ProjectDiscoveryResultModel.project_id == project.id,
             ProjectDiscoveryResultModel.status != ProjectDiscoveryResultStatus.PROMOTED,
         )
-        .delete(synchronize_session='fetch')
     )
+
+    if run_type is not None:
+        run_ids = (
+            db.query(ProjectDiscoveryRun.id)
+            .filter(
+                ProjectDiscoveryRun.project_id == project.id,
+                ProjectDiscoveryRun.run_type == run_type,
+            )
+            .subquery()
+        )
+        base_query = base_query.filter(ProjectDiscoveryResultModel.run_id.in_(run_ids))
+
+    deleted_count = base_query.delete(synchronize_session='fetch')
     db.commit()
 
     return {"deleted": deleted_count}
@@ -466,6 +479,7 @@ def clear_discovery_results(
 )
 def get_pending_discovery_count(
     project_id: str,
+    run_type: ProjectDiscoveryRunType | None = Query(None, alias="run_type"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -475,14 +489,26 @@ def get_pending_discovery_count(
     project = get_project_or_404(db, project_id)
     ensure_project_member(db, project, current_user)
 
-    pending = (
+    base_query = (
         db.query(ProjectDiscoveryResultModel)
         .filter(
             ProjectDiscoveryResultModel.project_id == project.id,
             ProjectDiscoveryResultModel.status == ProjectDiscoveryResultStatus.PENDING,
         )
-        .count()
     )
+
+    if run_type is not None:
+        run_ids = (
+            db.query(ProjectDiscoveryRun.id)
+            .filter(
+                ProjectDiscoveryRun.project_id == project.id,
+                ProjectDiscoveryRun.run_type == run_type,
+            )
+            .subquery()
+        )
+        base_query = base_query.filter(ProjectDiscoveryResultModel.run_id.in_(run_ids))
+
+    pending = base_query.count()
 
     return DiscoveryCountResponse(pending=pending)
 

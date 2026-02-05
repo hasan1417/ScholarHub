@@ -210,23 +210,17 @@ const ProjectDiscovery = () => {
     return () => clearInterval(timer)
   }, [discoveryCooldown])
 
-  // Clear non-promoted results on page load/refresh
-  useEffect(() => {
-    if (isViewer) return
-    const clearOnMount = async () => {
-      setIsClearingResults(true)
-      try {
-        await projectDiscoveryAPI.clearResults(project.id)
-        queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryResults'] })
-        queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingCount'] })
-      } catch {
-        // Silently ignore errors on clear
-      } finally {
-        setIsClearingResults(false)
-      }
+  const manualSessionStart = useMemo(() => {
+    if (typeof window === 'undefined') return 0
+    const globalAny = window as typeof window & { __shDiscoverySessionStart?: Record<string, number> }
+    if (!globalAny.__shDiscoverySessionStart) {
+      globalAny.__shDiscoverySessionStart = {}
     }
-    clearOnMount()
-  }, [project.id, isViewer, queryClient])
+    if (!globalAny.__shDiscoverySessionStart[project.id]) {
+      globalAny.__shDiscoverySessionStart[project.id] = Date.now()
+    }
+    return globalAny.__shDiscoverySessionStart[project.id]
+  }, [project.id])
 
   const updateManualForm = (updater: (prev: ManualFormState) => ManualFormState) => {
     setManualFormState((prev) => updater(prev))
@@ -315,10 +309,15 @@ const ProjectDiscovery = () => {
     return items.filter((item) => item.has_pdf || Boolean(item.pdf_url))
   }
 
-  const manualResults = useMemo(
-    () => sortResults(filterResults(allResults.filter((item) => item.run_type === 'manual'))),
-    [allResults, sortBy, showPdfOnly]
-  )
+  const manualResults = useMemo(() => {
+    const filtered = allResults.filter((item) => item.run_type === 'manual')
+      .filter((item) => {
+        if (!manualSessionStart) return true
+        const startedAt = new Date(item.run_started_at).getTime()
+        return Number.isFinite(startedAt) ? startedAt >= manualSessionStart : true
+      })
+    return sortResults(filterResults(filtered))
+  }, [allResults, sortBy, showPdfOnly, manualSessionStart])
 
   const deletableManualResults = useMemo(
     () => manualResults.filter((item) => item.status !== 'promoted'),

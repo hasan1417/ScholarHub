@@ -592,8 +592,13 @@ export const projectDiscoveryAPI = {
         },
       }
     ),
-  getPendingCount: (projectId: string) =>
-    api.get<ProjectDiscoveryCountResponse>(`/projects/${projectId}/discovery/results/pending/count`),
+  getPendingCount: (projectId: string, runType?: 'manual' | 'auto') =>
+    api.get<ProjectDiscoveryCountResponse>(
+      `/projects/${projectId}/discovery/results/pending/count`,
+      {
+        params: runType ? { run_type: runType } : undefined,
+      }
+    ),
   promoteResult: (projectId: string, resultId: string) =>
     api.post<ProjectDiscoveryResultItem>(
       `/projects/${projectId}/discovery/results/${resultId}/promote`,
@@ -612,9 +617,12 @@ export const projectDiscoveryAPI = {
     api.delete<ProjectDiscoveryClearResponse>(
       `/projects/${projectId}/discovery/results/dismissed`
     ),
-  clearResults: (projectId: string) =>
+  clearResults: (projectId: string, runType?: 'manual' | 'auto') =>
     api.delete<{ deleted: number }>(
-      `/projects/${projectId}/discovery/results/clear`
+      `/projects/${projectId}/discovery/results/clear`,
+      {
+        params: runType ? { run_type: runType } : undefined,
+      }
     ),
 }
 

@@ -44,6 +44,9 @@ interface ReferenceItem {
   id: string
   title: string
   pdfUrl?: string | null
+  pdfProcessed?: boolean | null
+  documentStatus?: string | null
+  documentId?: string | null
 }
 
 const MAX_DOC_CONTEXT_CHARS = 4000
@@ -404,14 +407,17 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
       try {
         const res = await projectReferencesAPI.listPaperReferences(projectId, paperId)
         const refs = Array.isArray(res.data?.references)
-          ? res.data.references
-              .map((ref: any) => ({
-                id: String(ref.id ?? ref.reference_id ?? Math.random()),
-                title: ref.title || ref.citation || ref.original_title || 'Untitled reference',
-                pdfUrl: ref.pdf_url ?? null,
-              }))
-              .slice(0, 12)
-          : []
+            ? res.data.references
+                .map((ref: any) => ({
+                  id: String(ref.id ?? ref.reference_id ?? Math.random()),
+                  title: ref.title || ref.citation || ref.original_title || 'Untitled reference',
+                  pdfUrl: ref.pdf_url ?? null,
+                  pdfProcessed: ref.pdf_processed ?? null,
+                  documentStatus: ref.document_status ?? null,
+                  documentId: ref.document_id ?? null,
+                }))
+                .slice(0, 12)
+            : []
         setReferences(refs)
       } catch (e: any) {
         console.warn('[EditorAIChat] Failed to load references', e)
@@ -448,7 +454,12 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
     }
   }, [documentText])
 
-  const missingPdfCount = useMemo(() => references.filter((r) => !r.pdfUrl).length, [references])
+  const missingPdfCount = useMemo(() => {
+    const hasFullText = (ref: ReferenceItem) => Boolean(
+      ref.pdfProcessed || ref.documentStatus === 'processed' || ref.documentId
+    )
+    return references.filter((r) => !hasFullText(r)).length
+  }, [references])
 
   /** Document content stats with smart context info */
   const docStats = useMemo(() => {
@@ -731,8 +742,8 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
       {missingPdfCount > 0 && (
         <div className="mx-4 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 shadow-sm dark:border-amber-400/50 dark:bg-amber-900/30 dark:text-amber-100">
           {missingPdfCount === 1
-            ? 'One attached reference is missing its PDF. Attach the PDF for more accurate answers.'
-            : `${missingPdfCount} attached references are missing PDFs. Attach PDFs for more accurate answers.`}
+            ? 'One attached reference is missing full text. Attach the PDF for more accurate answers.'
+            : `${missingPdfCount} attached references are missing full text. Attach PDFs for more accurate answers.`}
         </div>
       )}
 

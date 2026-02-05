@@ -29,6 +29,7 @@ interface PaperDiscoveryProps {
 }
 
 const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, paperId: paperIdProp, forcePaperMode }) => {
+  const STORAGE_KEY = 'paperDiscovery:manual:v1'
   const { isAuthenticated } = useAuth()
   const [toast, setToast] = useState<{ type: 'success' | 'info' | 'error'; message: string } | null>(null)
   const showToast = (message: string, type: 'success' | 'info' | 'error' = 'info', ms = 3500) => {
@@ -83,6 +84,79 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
   const [sourceFilter, setSourceFilter] = useState('')
   const [selectedSourcePaperTemp, setSelectedSourcePaperTemp] = useState<string | null>(null)
   const [selectedSourcePaperTitleTemp, setSelectedSourcePaperTitleTemp] = useState<string | null>(null)
+
+  // Restore manual search state within this tab session
+  React.useEffect(() => {
+    if (forcePaperMode || paperIdProp || mode !== 'query') return
+    if (typeof window === 'undefined') return
+    try {
+      const raw = window.sessionStorage.getItem(STORAGE_KEY)
+      if (!raw) return
+      const saved = JSON.parse(raw)
+      if (!saved || saved.version !== 1) return
+      setQuery(saved.query ?? '')
+      setResearchTopic(saved.researchTopic ?? '')
+      setPapers(Array.isArray(saved.papers) ? saved.papers : [])
+      setHasSearched(Boolean(saved.hasSearched))
+      setSearchTime(Number(saved.searchTime || 0))
+      setSelectedSources(Array.isArray(saved.selectedSources) ? saved.selectedSources : ['crossref'])
+      setMaxResults(typeof saved.maxResults === 'number' ? saved.maxResults : 20)
+      setSortBy(saved.sortBy === 'year' || saved.sortBy === 'citations' ? saved.sortBy : 'relevance')
+      setRelevanceThreshold(typeof saved.relevanceThreshold === 'number' ? saved.relevanceThreshold : null)
+      setPdfOnly(Boolean(saved.pdfOnly))
+      setFilterByYear(typeof saved.filterByYear === 'number' ? saved.filterByYear : null)
+    } catch (err) {
+      console.warn('Failed to restore discovery state', err)
+    }
+  }, [forcePaperMode, paperIdProp, mode])
+
+  // Track first render to avoid overwriting sessionStorage before restore completes
+  const isFirstRenderRef = React.useRef(true)
+
+  // Persist manual search state within this tab session (skip first render)
+  React.useEffect(() => {
+    // Skip the first render cycle - let restore effect populate state first
+    if (isFirstRenderRef.current) {
+      isFirstRenderRef.current = false
+      return
+    }
+    if (forcePaperMode || paperIdProp || mode !== 'query') return
+    if (typeof window === 'undefined') return
+    try {
+      const payload = {
+        version: 1,
+        query,
+        researchTopic,
+        papers,
+        hasSearched,
+        searchTime,
+        selectedSources,
+        maxResults,
+        sortBy,
+        relevanceThreshold,
+        pdfOnly,
+        filterByYear,
+      }
+      window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
+    } catch (err) {
+      console.warn('Failed to persist discovery state', err)
+    }
+  }, [
+    forcePaperMode,
+    paperIdProp,
+    mode,
+    query,
+    researchTopic,
+    papers,
+    hasSearched,
+    searchTime,
+    selectedSources,
+    maxResults,
+    sortBy,
+    relevanceThreshold,
+    pdfOnly,
+    filterByYear,
+  ])
 
   const openSelectPaperModal = async () => {
     try {

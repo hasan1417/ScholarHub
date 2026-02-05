@@ -141,6 +141,10 @@ export interface PaperReferenceAttachment {
   abstract?: string | null
   is_open_access?: boolean | null
   pdf_url?: string | null
+  pdf_processed?: boolean | null
+  document_id?: string | null
+  document_status?: string | null
+  document_download_url?: string | null
   attached_at?: string | null
 }
 

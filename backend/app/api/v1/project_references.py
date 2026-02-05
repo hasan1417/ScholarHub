@@ -710,6 +710,18 @@ def list_references_for_paper(
     )
 
     def _serialize(link: PaperReference, project_ref: Optional[ProjectReference], reference: Reference):
+        document = reference.document if reference else None
+        document_id = str(document.id) if document else None
+        document_status = None
+        document_download_url = None
+        pdf_processed = False
+
+        if document:
+            status_attr = getattr(document.status, "value", None)
+            document_status = status_attr or str(document.status)
+            document_download_url = f"/api/v1/documents/{document.id}/download"
+            pdf_processed = bool(getattr(document, "is_processed_for_ai", False))
+
         return {
             "paper_reference_id": str(link.id),
             "project_reference_id": str(project_ref.id) if project_ref else None,
@@ -725,6 +737,10 @@ def list_references_for_paper(
             "abstract": reference.abstract,
             "is_open_access": reference.is_open_access,
             "pdf_url": reference.pdf_url,
+            "pdf_processed": pdf_processed,
+            "document_id": document_id,
+            "document_status": document_status,
+            "document_download_url": document_download_url,
             "attached_at": link.created_at.isoformat() if link.created_at else None,
         }
 
