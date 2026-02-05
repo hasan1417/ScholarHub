@@ -65,16 +65,13 @@ export const overleafLatexTheme: Extension = [
       // Extend highlight using box-shadow (doesn't shift text like margin does)
       boxShadow: '-16px 0 0 var(--latex-editor-active-line-bg), 16px 0 0 var(--latex-editor-active-line-bg)',
     },
-    // Keep active line highlight even when selection exists (User preference)
-    // '&.cm-has-selection .cm-activeLine': {
-    //   backgroundColor: 'transparent',
-    //   boxShadow: 'none',
-    // },
+    // Hide active line highlight when selection exists
+    '&.cm-has-selection .cm-activeLine': {
+      backgroundColor: 'transparent',
+      boxShadow: 'none',
+    },
     '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
       backgroundColor: 'var(--latex-editor-selection-bg) !important',
-      // Extend selection to cover the gap on left/right + gutter overlap
-      // Increased from 16px to 24px and added z-index to ensure it sits right
-      boxShadow: '-24px 0 0 var(--latex-editor-selection-bg), 24px 0 0 var(--latex-editor-selection-bg)',
     },
     '&.cm-editor.cm-focused': {
       outline: '1px solid var(--latex-editor-focus-ring)',
