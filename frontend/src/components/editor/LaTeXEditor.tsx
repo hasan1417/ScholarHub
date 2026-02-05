@@ -4,7 +4,6 @@ import { researchPapersAPI, buildApiUrl } from '../../services/api'
 import { EditorSelection, type SelectionRange } from '@codemirror/state'
 import 'katex/dist/katex.min.css'
 import pdfViewerHtml from '../../assets/pdf-viewer.html?raw'
-import { ArrowLeft, Library, Save, Loader2, Undo2, Redo2, Sparkles, Type, FileText, Lightbulb, Book, Clock, ChevronDown, Bold, Italic, Sigma, List, ListOrdered, Image, Table, Link2 } from 'lucide-react'
 import { LATEX_FORMATTING_GROUPS } from './latexToolbarConfig'
 import FigureUploadDialog from './FigureUploadDialog'
 import CitationDialog from './CitationDialog'
@@ -13,6 +12,8 @@ import { useSplitPane } from './hooks/useSplitPane'
 import { useRealtimeSync } from './hooks/useRealtimeSync'
 import { useCodeMirrorEditor } from './hooks/useCodeMirrorEditor'
 import { useLatexCompilation } from './hooks/useLatexCompilation'
+import { EditorToolbar } from './components/EditorToolbar'
+import { PdfPreviewPane } from './components/PdfPreviewPane'
 
 interface LaTeXEditorProps {
   value: string
@@ -79,11 +80,7 @@ function LaTeXEditorImpl(
   const [citationDialogOpen, setCitationDialogOpen] = useState(false)
   const [historyPanelOpen, setHistoryPanelOpen] = useState(false)
   const [citationAnchor, setCitationAnchor] = useState<HTMLElement | null>(null)
-  const [toneMenuOpen, setToneMenuOpen] = useState(false)
-  const [toneMenuAnchor, setToneMenuAnchor] = useState<HTMLElement | null>(null)
-  const [openDropdown, setOpenDropdown] = useState<string | null>(null)
-  const [aiToolsMenuOpen, setAiToolsMenuOpen] = useState(false)
-  const [aiActionLoading, setAiActionLoading] = useState<string | null>(null) // action name or null
+  const [aiActionLoading, setAiActionLoading] = useState<string | null>(null)
   // Resizable split view
   const { splitPosition, splitContainerRef, handleSplitDragStart } = useSplitPane()
   const { ySharedText, yUndoManager, yTextReady, remoteSelections, realtimeExtensions } = useRealtimeSync({
@@ -229,7 +226,6 @@ function LaTeXEditorImpl(
   const contentLayoutCls = splitLayout
     ? 'mt-2 flex-1 min-h-0 flex overflow-hidden'
     : 'mt-2 flex-1 min-h-0 flex flex-col'
-  const formattingDisabled = readOnly
   // In split mode, use dynamic widths based on splitPosition
   const editorPaneCls = splitLayout
     ? 'relative min-w-0 overflow-hidden rounded-l-md border border-slate-200 bg-white shadow-sm transition-colors dark:border-slate-800 dark:bg-slate-950/40 dark:shadow-slate-950/30'
@@ -444,7 +440,6 @@ function LaTeXEditorImpl(
       }
       const prompt = `${actionLabels[action]}:\n\n"${selectedText}"`
       onOpenAiChatWithMessage(prompt)
-      setAiToolsMenuOpen(false)
       return
     }
 
@@ -494,21 +489,6 @@ function LaTeXEditorImpl(
     }
   }, [readOnly, getSelectedText, replaceSelectedText, projectId, aiActionLoading, onOpenAiChatWithMessage])
 
-  const handleToneButtonClick = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
-    if (readOnly || !hasTextSelected) return
-    setToneMenuAnchor(event.currentTarget)
-    setToneMenuOpen(true)
-  }, [readOnly, hasTextSelected])
-
-  const handleToneSelect = useCallback(async (tone: string) => {
-    // Keep menu open while processing (loading state will be visible)
-    setToneMenuOpen(false)
-    // Don't clear anchor yet - needed for positioning during loading
-    await handleAiAction('tone', tone)
-    // Clear anchor after action completes
-    setToneMenuAnchor(null)
-  }, [handleAiAction])
-
   const handleRestoreFromHistory = useCallback((content: string, _snapshotId: string) => {
     if (realtime?.doc) {
       try {
@@ -530,456 +510,70 @@ function LaTeXEditorImpl(
     setHistoryPanelOpen(false)
   }, [realtime])
 
+  const handleSave = useCallback(async () => {
+    if (disableSave || readOnly || saveState === 'saving') return
+    flushBufferedChange()
+    setSaveState('saving')
+    setSaveError(null)
+    try {
+      const v = viewRef.current?.state.doc.toString() || ''
+      const contentJson = { authoring_mode: 'latex', latex_source: v }
+      const activePaperId = paperId ?? (window as any).__SH_ACTIVE_PAPER_ID
+
+      if (onSave) {
+        await onSave(v, contentJson)
+      } else {
+        if (!activePaperId) throw new Error('Missing paper id')
+        await researchPapersAPI.updatePaperContent(activePaperId, { content_json: contentJson, manual_save: true })
+      }
+
+      try { logEvent('LatexSaveClicked', { len: v.length }) } catch {}
+      setSaveState('success')
+      setTimeout(() => setSaveState('idle'), 2000)
+    } catch (e: any) {
+      console.warn('Save failed', e)
+      setSaveState('error')
+      setSaveError(e?.message || 'Save failed')
+    }
+  }, [disableSave, readOnly, saveState, flushBufferedChange, paperId, onSave])
+
   return (
     <div className={containerCls}>
-      <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-3 py-2 text-slate-700 transition-colors dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-200">
-        <div className="flex items-center gap-3">
-          {onNavigateBack && (
-            <button
-              aria-label="Back to paper details"
-              onClick={onNavigateBack}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </button>
-          )}
-          <span className="text-sm font-semibold">{templateTitle || 'LaTeX Source'}</span>
-        </div>
-        <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500 dark:text-slate-300">
-          {collaborationStatus && (
-            <span className="inline-flex items-center gap-1 rounded border border-indigo-200 bg-indigo-50 px-2 py-1 font-medium text-indigo-600 dark:border-indigo-300/40 dark:bg-indigo-400/20 dark:text-indigo-100">
-              {collaborationStatus}
-            </span>
-          )}
-          {compileStatus === 'error' && compileError && (
-            <span className="max-w-xs truncate text-rose-600 dark:text-rose-200" title={compileError}>{compileError}</span>
-          )}
-          {compileStatus === 'success' && lastCompileAt && (
-            <span className="text-emerald-600 dark:text-emerald-200">Compiled {Math.max(1, Math.round((Date.now() - lastCompileAt) / 1000))}s ago</span>
-          )}
-          {saveState === 'saving' && <span className="text-indigo-500 dark:text-indigo-200">Saving…</span>}
-          {saveState === 'success' && <span className="text-emerald-600 dark:text-emerald-200">Draft saved</span>}
-          {saveState === 'error' && saveError && <span className="max-w-xs truncate text-rose-600 dark:text-rose-200" title={saveError}>{saveError}</span>}
-        </div>
-      </div>
-      {/* Overleaf-style Toolbar */}
-      <div className="border-b border-slate-200 bg-slate-50 px-2 py-1.5 transition-colors dark:border-slate-700 dark:bg-slate-800/90">
-        <div className="flex items-center gap-1">
-          {/* View Mode Toggle - Overleaf style */}
-          <div className="inline-flex items-center rounded-md bg-slate-200/80 p-0.5 dark:bg-slate-700">
-            {(['code', 'split', 'pdf'] as const).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => setViewMode(mode)}
-                className={`rounded px-3 py-1 text-xs font-medium transition-all ${
-                  viewMode === mode
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
-                }`}
-              >
-                {mode === 'code' ? 'Code' : mode === 'split' ? 'Split' : 'PDF'}
-              </button>
-            ))}
-          </div>
-
-          <span className="mx-1 h-5 w-px bg-slate-300 dark:bg-slate-600" />
-
-          {viewMode !== 'pdf' && !readOnly && (
-            <>
-              {/* Undo/Redo */}
-              <button
-                type="button"
-                onClick={handleUndo}
-                disabled={!undoEnabled}
-                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-transparent dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                title="Undo"
-              >
-                <Undo2 className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={handleRedo}
-                disabled={!redoEnabled}
-                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-transparent dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                title="Redo"
-              >
-                <Redo2 className="h-4 w-4" />
-              </button>
-
-              <span className="mx-1 h-5 w-px bg-slate-300 dark:bg-slate-600" />
-
-              {/* Structure Dropdown */}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setOpenDropdown(openDropdown === 'structure' ? null : 'structure')}
-                  disabled={formattingDisabled}
-                  className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors ${
-                    formattingDisabled
-                      ? 'cursor-not-allowed text-slate-400'
-                      : openDropdown === 'structure'
-                      ? 'bg-slate-200 text-slate-900 dark:bg-slate-600 dark:text-white'
-                      : 'text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-700'
-                  }`}
-                >
-                  <span>Normal text</span>
-                  <ChevronDown className="h-3 w-3" />
-                </button>
-                {openDropdown === 'structure' && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setOpenDropdown(null)} />
-                    <div className="absolute left-0 top-full z-50 mt-1 min-w-[160px] rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-800">
-                      <button
-                        onClick={() => { setOpenDropdown(null) }}
-                        className="flex w-full items-center px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
-                      >
-                        Normal text
-                      </button>
-                      {formattingGroups.find(g => g.label === 'Structure')?.items.map(item => (
-                        <button
-                          key={item.key}
-                          onClick={() => { item.action(); setOpenDropdown(null) }}
-                          className={`flex w-full items-center px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-700 ${
-                            item.key === 'section' ? 'text-lg font-bold text-slate-800 dark:text-slate-100' :
-                            item.key === 'subsection' ? 'text-base font-semibold text-slate-700 dark:text-slate-200' :
-                            'text-sm font-medium text-slate-600 dark:text-slate-300'
-                          }`}
-                        >
-                          {item.label}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
-
-              <span className="mx-1 h-5 w-px bg-slate-300 dark:bg-slate-600" />
-
-              {/* Text Formatting Icons */}
-              <button
-                type="button"
-                onClick={insertBold}
-                disabled={formattingDisabled}
-                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                title="Bold (\\textbf)"
-              >
-                <Bold className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={insertItalics}
-                disabled={formattingDisabled}
-                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                title="Italic (\\textit)"
-              >
-                <Italic className="h-4 w-4" />
-              </button>
-
-              <span className="mx-1 h-5 w-px bg-slate-300 dark:bg-slate-600" />
-
-              {/* Math */}
-              <button
-                type="button"
-                onClick={insertInlineMath}
-                disabled={formattingDisabled}
-                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                title="Inline math ($...$)"
-              >
-                <Sigma className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={insertCite}
-                disabled={formattingDisabled}
-                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                title="Citation (\\cite)"
-              >
-                <Link2 className="h-4 w-4" />
-              </button>
-
-              <span className="mx-1 h-5 w-px bg-slate-300 dark:bg-slate-600" />
-
-              {/* Insert Elements */}
-              <button
-                type="button"
-                onClick={insertFigure}
-                disabled={formattingDisabled}
-                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                title="Insert figure"
-              >
-                <Image className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={insertTable}
-                disabled={formattingDisabled}
-                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                title="Insert table"
-              >
-                <Table className="h-4 w-4" />
-              </button>
-
-              <span className="mx-1 h-5 w-px bg-slate-300 dark:bg-slate-600" />
-
-              {/* Lists */}
-              <button
-                type="button"
-                onClick={insertItemize}
-                disabled={formattingDisabled}
-                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                title="Bullet list"
-              >
-                <List className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={insertEnumerate}
-                disabled={formattingDisabled}
-                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                title="Numbered list"
-              >
-                <ListOrdered className="h-4 w-4" />
-              </button>
-
-              <span className="mx-1 h-5 w-px bg-slate-300 dark:bg-slate-600" />
-
-              {/* More formatting dropdown */}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setOpenDropdown(openDropdown === 'more' ? null : 'more')}
-                  disabled={formattingDisabled}
-                  className={`rounded p-1.5 transition-colors ${
-                    formattingDisabled
-                      ? 'cursor-not-allowed text-slate-400'
-                      : openDropdown === 'more'
-                      ? 'bg-slate-200 text-slate-900 dark:bg-slate-600 dark:text-white'
-                      : 'text-slate-500 hover:bg-slate-200 dark:text-slate-400 dark:hover:bg-slate-700'
-                  }`}
-                  title="More formatting"
-                >
-                  <ChevronDown className="h-4 w-4" />
-                </button>
-                {openDropdown === 'more' && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setOpenDropdown(null)} />
-                    <div className="absolute left-0 top-full z-50 mt-1 min-w-[180px] rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-800">
-                      <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Text</div>
-                      {formattingGroups.find(g => g.label === 'Text')?.items.filter(i => !['bold', 'italic'].includes(i.key)).map(item => (
-                        <button
-                          key={item.key}
-                          onClick={() => { item.action(); setOpenDropdown(null) }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
-                        >
-                          {item.icon}
-                          <span>{item.label}</span>
-                        </button>
-                      ))}
-                      <div className="my-1 border-t border-slate-200 dark:border-slate-600" />
-                      <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Math</div>
-                      {formattingGroups.find(g => g.label === 'Math')?.items.filter(i => i.key !== 'math-inline').map(item => (
-                        <button
-                          key={item.key}
-                          onClick={() => { item.action(); setOpenDropdown(null) }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
-                        >
-                          {item.icon}
-                          <span>{item.label}</span>
-                        </button>
-                      ))}
-                      <div className="my-1 border-t border-slate-200 dark:border-slate-600" />
-                      <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">References</div>
-                      {formattingGroups.find(g => g.label === 'References')?.items.map(item => (
-                        <button
-                          key={item.key}
-                          onClick={() => { item.action(); setOpenDropdown(null) }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
-                        >
-                          {item.icon}
-                          <span>{item.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
-
-              <span className="mx-1 h-5 w-px bg-slate-300 dark:bg-slate-600" />
-
-              <button
-                type="button"
-                onClick={handleOpenReferencesToolbar}
-                disabled={readOnly || !paperId}
-                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                title="References & Citations"
-              >
-                <Library className="h-4 w-4" />
-              </button>
-
-              {/* AI Text Tools Dropdown */}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => !aiActionLoading && setAiToolsMenuOpen(!aiToolsMenuOpen)}
-                  disabled={readOnly || (!hasTextSelected && !aiActionLoading)}
-                  className={`rounded p-1.5 transition-colors disabled:opacity-30 ${
-                    aiToolsMenuOpen || aiActionLoading
-                      ? 'bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300'
-                      : 'text-slate-500 hover:bg-slate-200 dark:text-slate-400 dark:hover:bg-slate-700'
-                  }`}
-                  title={aiActionLoading ? `Processing: ${aiActionLoading}...` : hasTextSelected ? 'AI text tools' : 'Select text first'}
-                >
-                  {aiActionLoading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Sparkles className="h-4 w-4" />
-                  )}
-                </button>
-                {(aiToolsMenuOpen || aiActionLoading) && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => !aiActionLoading && setAiToolsMenuOpen(false)} />
-                    <div className="absolute right-0 top-full z-50 mt-1 min-w-[150px] rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-800">
-                      <button
-                        onClick={() => { if (!aiActionLoading) { handleAiAction('paraphrase') } }}
-                        disabled={!!aiActionLoading}
-                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${aiActionLoading === 'paraphrase' ? 'bg-violet-50 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300' : aiActionLoading ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700'}`}
-                      >
-                        {aiActionLoading === 'paraphrase' ? <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-500" /> : <Sparkles className="h-3.5 w-3.5 text-violet-500" />}
-                        Paraphrase
-                      </button>
-                      <button
-                        onClick={() => { if (!aiActionLoading) { handleAiAction('summarize') } }}
-                        disabled={!!aiActionLoading}
-                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${aiActionLoading === 'summarize' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300' : aiActionLoading ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700'}`}
-                      >
-                        {aiActionLoading === 'summarize' ? <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" /> : <FileText className="h-3.5 w-3.5 text-emerald-500" />}
-                        Summarize
-                      </button>
-                      <button
-                        onClick={() => { if (!aiActionLoading) { handleAiAction('explain') } }}
-                        disabled={!!aiActionLoading}
-                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${aiActionLoading === 'explain' ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300' : aiActionLoading ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700'}`}
-                      >
-                        {aiActionLoading === 'explain' ? <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-500" /> : <Lightbulb className="h-3.5 w-3.5 text-amber-500" />}
-                        Explain
-                      </button>
-                      <button
-                        onClick={() => { if (!aiActionLoading) { handleAiAction('synonyms') } }}
-                        disabled={!!aiActionLoading}
-                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${aiActionLoading === 'synonyms' ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300' : aiActionLoading ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700'}`}
-                      >
-                        {aiActionLoading === 'synonyms' ? <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" /> : <Book className="h-3.5 w-3.5 text-blue-500" />}
-                        Synonyms
-                      </button>
-                      <div className="my-1 border-t border-slate-200 dark:border-slate-600" />
-                      <button
-                        onClick={(e) => { if (!aiActionLoading) handleToneButtonClick(e) }}
-                        disabled={!!aiActionLoading}
-                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${aiActionLoading?.startsWith('tone_') ? 'bg-rose-50 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300' : aiActionLoading ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-500' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700'}`}
-                      >
-                        {aiActionLoading?.startsWith('tone_') ? <Loader2 className="h-3.5 w-3.5 animate-spin text-rose-500" /> : <Type className="h-3.5 w-3.5 text-rose-500" />}
-                        Change Tone...
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            </>
-          )}
-
-          {/* Spacer */}
-          <div className="flex-1" />
-
-          {/* Right side: History, Compile, Save */}
-          <div className="flex items-center gap-1">
-            {paperId && (
-              <button
-                type="button"
-                onClick={() => setHistoryPanelOpen(true)}
-                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                title="History"
-              >
-                <Clock className="h-4 w-4" />
-              </button>
-            )}
-
-            {!(disableSave || readOnly) && (
-              <button
-                type="button"
-                className={`rounded p-1.5 transition-colors ${
-                  saveState === 'saving'
-                    ? 'text-indigo-500'
-                    : saveState === 'success'
-                    ? 'text-emerald-500'
-                    : saveState === 'error'
-                    ? 'text-rose-500'
-                    : 'text-slate-500 hover:bg-slate-200 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700'
-                }`}
-                onClick={async () => {
-                  if (disableSave || readOnly || saveState === 'saving') return
-                  flushBufferedChange()
-                  setSaveState('saving')
-                  setSaveError(null)
-                  try {
-                    const v = viewRef.current?.state.doc.toString() || ''
-                    const contentJson = { authoring_mode: 'latex', latex_source: v }
-                    const activePaperId = paperId ?? (window as any).__SH_ACTIVE_PAPER_ID
-
-                    if (onSave) {
-                      await onSave(v, contentJson)
-                    } else {
-                      if (!activePaperId) throw new Error('Missing paper id')
-                      await researchPapersAPI.updatePaperContent(activePaperId, { content_json: contentJson, manual_save: true })
-                    }
-
-                    try { logEvent('LatexSaveClicked', { len: v.length }) } catch {}
-                    setSaveState('success')
-                    setTimeout(() => setSaveState('idle'), 2000)
-                  } catch (e: any) {
-                    console.warn('Save failed', e)
-                    setSaveState('error')
-                    setSaveError(e?.message || 'Save failed')
-                  }
-                }}
-                disabled={disableSave || readOnly}
-                title={saveState === 'saving' ? 'Saving...' : saveState === 'success' ? 'Saved' : 'Save'}
-              >
-                {saveState === 'saving' ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Save className="h-4 w-4" />
-                )}
-              </button>
-            )}
-
-            <button
-              type="button"
-              className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-semibold transition-colors ${
-                compileStatus === 'compiling'
-                  ? 'cursor-wait bg-slate-400 text-white'
-                  : compileStatus === 'success'
-                  ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                  : compileStatus === 'error'
-                  ? 'bg-rose-600 text-white hover:bg-rose-700'
-                  : 'bg-emerald-600 text-white hover:bg-emerald-700'
-              }`}
-              onClick={() => compileNow()}
-              disabled={compileStatus === 'compiling'}
-              title="Recompile"
-            >
-              {compileStatus === 'compiling' ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  <span>Compiling</span>
-                </>
-              ) : (
-                <span>Recompile</span>
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
+      <EditorToolbar
+        viewMode={viewMode}
+        onSetViewMode={setViewMode}
+        onNavigateBack={onNavigateBack}
+        templateTitle={templateTitle}
+        collaborationStatus={collaborationStatus}
+        compileStatus={compileStatus}
+        compileError={compileError}
+        lastCompileAt={lastCompileAt}
+        onCompile={compileNow}
+        readOnly={readOnly}
+        disableSave={disableSave}
+        saveState={saveState}
+        saveError={saveError}
+        onSave={handleSave}
+        undoEnabled={undoEnabled}
+        redoEnabled={redoEnabled}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        hasTextSelected={hasTextSelected}
+        formattingGroups={formattingGroups}
+        onInsertBold={insertBold}
+        onInsertItalics={insertItalics}
+        onInsertInlineMath={insertInlineMath}
+        onInsertCite={insertCite}
+        onInsertFigure={insertFigure}
+        onInsertTable={insertTable}
+        onInsertItemize={insertItemize}
+        onInsertEnumerate={insertEnumerate}
+        paperId={paperId}
+        onOpenReferences={handleOpenReferencesToolbar}
+        onOpenHistory={() => setHistoryPanelOpen(true)}
+        aiActionLoading={aiActionLoading}
+        onAiAction={handleAiAction}
+      />
       <div ref={splitContainerRef} className={contentLayoutCls}>
         {showEditor && (
           <div
@@ -1001,7 +595,6 @@ function LaTeXEditorImpl(
             className="group relative z-10 flex w-1 cursor-col-resize items-center justify-center bg-slate-200 transition-colors hover:bg-indigo-400 dark:bg-slate-700 dark:hover:bg-indigo-500"
             onMouseDown={handleSplitDragStart}
           >
-            {/* Drag handle indicator */}
             <div className="absolute flex h-8 w-4 items-center justify-center rounded bg-slate-300 opacity-0 transition-opacity group-hover:opacity-100 dark:bg-slate-600">
               <div className="flex flex-col gap-0.5">
                 <div className="h-0.5 w-1 rounded-full bg-slate-500 dark:bg-slate-400" />
@@ -1017,34 +610,18 @@ function LaTeXEditorImpl(
             className={previewPaneCls}
             style={splitLayout ? { width: `${100 - splitPosition}%` } : undefined}
           >
-            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-300">
-              <span className="font-medium text-slate-600 dark:text-slate-200">PDF Preview</span>
-              {compileStatus === 'compiling' && <span className="text-indigo-500 dark:text-indigo-300">Updating…</span>}
-              {compileStatus === 'success' && lastCompileAt && <span className="text-slate-500 dark:text-slate-300">Updated {Math.max(1, Math.round((Date.now() - lastCompileAt) / 1000))}s ago</span>}
-              {compileStatus === 'error' && compileError && <span className="text-rose-500 dark:text-rose-300" title={compileError}>Compile failed</span>}
-            </div>
-            <div className="overflow-hidden flex-1">
-              <iframe
-                ref={iframeRef}
-                id="latex-preview-frame"
-                title="Compiled PDF"
-                srcDoc={pdfViewerHtml}
-                data-loaded="false"
-                className="h-full w-full"
-              />
-            </div>
-            {compileLogs.length > 0 && (
-              <div className="max-h-40 overflow-auto border-t border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300">
-                {compileLogs.slice(-60).map((line, idx) => (
-                  <div key={idx} className="whitespace-pre-wrap">{line}</div>
-                ))}
-              </div>
-            )}
+            <PdfPreviewPane
+              iframeRef={iframeRef}
+              pdfViewerHtml={pdfViewerHtml}
+              compileStatus={compileStatus}
+              compileError={compileError}
+              compileLogs={compileLogs}
+              lastCompileAt={lastCompileAt}
+            />
           </div>
         )}
       </div>
 
-      {/* Figure Upload Dialog */}
       {paperId && (
         <FigureUploadDialog
           isOpen={figureDialogOpen}
@@ -1054,7 +631,6 @@ function LaTeXEditorImpl(
         />
       )}
 
-      {/* Citation Dialog */}
       {paperId && (
         <CitationDialog
           isOpen={citationDialogOpen}
@@ -1063,7 +639,6 @@ function LaTeXEditorImpl(
           projectId={projectId}
           onInsertCitation={handleInsertCitation}
           onInsertBibliography={async (style, bibFile, references) => {
-            // Generate BibTeX content from references
             const bibContent = references.map(ref => {
               const key = makeBibKey(ref)
               const authors = ref.authors?.join(' and ') || ''
@@ -1081,31 +656,17 @@ function LaTeXEditorImpl(
 }`
             }).join('\n\n')
 
-            console.log('Generated BibTeX content:', bibContent)
-
-            // Upload .bib file to backend
             try {
               const formData = new FormData()
-              // Create a File object instead of Blob for better compatibility
               const bibFile_obj = new File([bibContent], `${bibFile}.bib`, {
                 type: 'application/x-bibtex'
               })
               formData.append('file', bibFile_obj)
-
-              console.log('Uploading .bib file for paper:', paperId)
-              console.log('File size:', bibContent.length, 'bytes')
-              console.log('FormData entries:', Array.from(formData.entries()).map(([k, v]) => [k, v instanceof File ? `File: ${v.name} (${v.size} bytes)` : v]))
-
-              const response = await researchPapersAPI.uploadBib(paperId, formData)
-              console.log('Upload successful:', response.data)
-
-              // Insert bibliography commands
+              await researchPapersAPI.uploadBib(paperId, formData)
               const snippet = `\\clearpage\n% Bibliography\n\\bibliographystyle{${style}}\n\\bibliography{${bibFile}}\n`
               insertAtDocumentEnd(snippet, bibFile)
             } catch (error: any) {
               console.error('Failed to upload .bib file:', error)
-              console.error('Error response:', error.response?.data)
-              console.error('Detail:', JSON.stringify(error.response?.data?.detail, null, 2))
               const detail = error.response?.data?.detail
               const message = Array.isArray(detail)
                 ? detail.map((d: any) => `${d.loc?.join('.') || 'unknown'}: ${d.msg}`).join(', ')
@@ -1117,55 +678,6 @@ function LaTeXEditorImpl(
         />
       )}
 
-      {/* Tone Selector Menu */}
-      {(toneMenuOpen || aiActionLoading?.startsWith('tone_')) && toneMenuAnchor && (
-        <>
-          {/* Backdrop */}
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => {
-              if (!aiActionLoading) {
-                setToneMenuOpen(false)
-                setToneMenuAnchor(null)
-              }
-            }}
-          />
-
-          {/* Menu */}
-          <div
-            className="fixed z-50 min-w-[160px] rounded-lg border border-slate-200 bg-white shadow-xl dark:border-slate-600 dark:bg-slate-800"
-            style={{
-              top: `${toneMenuAnchor.getBoundingClientRect().bottom + 8}px`,
-              left: `${toneMenuAnchor.getBoundingClientRect().left}px`,
-            }}
-          >
-            <div className="p-2">
-              <div className="mb-2 px-2 text-xs font-semibold text-slate-600 dark:text-slate-400">
-                {aiActionLoading?.startsWith('tone_') ? 'Processing...' : 'Select Tone'}
-              </div>
-              {['formal', 'casual', 'academic', 'friendly', 'professional'].map((tone) => (
-                <button
-                  key={tone}
-                  onClick={() => !aiActionLoading && handleToneSelect(tone)}
-                  disabled={!!aiActionLoading}
-                  className={`flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm transition-colors ${
-                    aiActionLoading === `tone_${tone}`
-                      ? 'bg-rose-50 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300'
-                      : aiActionLoading
-                      ? 'cursor-not-allowed text-slate-400 opacity-40 dark:text-slate-500'
-                      : 'text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700'
-                  }`}
-                >
-                  {aiActionLoading === `tone_${tone}` && <Loader2 className="h-3.5 w-3.5 animate-spin text-rose-500" />}
-                  {tone.charAt(0).toUpperCase() + tone.slice(1)}
-                </button>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* History Panel - only mount when open to avoid unnecessary API calls */}
       {paperId && historyPanelOpen && (
         <HistoryPanel
           paperId={paperId}
