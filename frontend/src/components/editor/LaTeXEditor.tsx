@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useState, useMemo, forwardRef, useImperativeHandle, useCallback } from 'react'
+import React, { useEffect, useState, useMemo, forwardRef, useImperativeHandle, useCallback } from 'react'
 import { logEvent } from '../../utils/metrics'
-import { researchPapersAPI, buildApiUrl, API_ROOT } from '../../services/api'
+import { researchPapersAPI, buildApiUrl } from '../../services/api'
 import { EditorSelection, type SelectionRange } from '@codemirror/state'
 import 'katex/dist/katex.min.css'
 import pdfViewerHtml from '../../assets/pdf-viewer.html?raw'
@@ -12,6 +12,7 @@ import HistoryPanel from './HistoryPanel'
 import { useSplitPane } from './hooks/useSplitPane'
 import { useRealtimeSync } from './hooks/useRealtimeSync'
 import { useCodeMirrorEditor } from './hooks/useCodeMirrorEditor'
+import { useLatexCompilation } from './hooks/useLatexCompilation'
 
 interface LaTeXEditorProps {
   value: string
@@ -73,15 +74,7 @@ function LaTeXEditorImpl(
 ) {
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'success' | 'error'>('idle')
   const [saveError, setSaveError] = useState<string | null>(null)
-  const [compileStatus, setCompileStatus] = useState<'idle' | 'compiling' | 'success' | 'error'>('idle')
-  const [compileError, setCompileError] = useState<string | null>(null)
-  const [compileLogs, setCompileLogs] = useState<string[]>([])
-  const [lastCompileAt, setLastCompileAt] = useState<number | null>(null)
   const [viewMode, setViewMode] = useState<'code' | 'split' | 'pdf'>('split')
-  const iframeRef = useRef<HTMLIFrameElement | null>(null)
-  const pdfBlobRef = useRef<string | null>(null)
-  const lastPostedRevRef = useRef<number>(0)
-  const compileAbortRef = useRef<AbortController | null>(null)
   const [figureDialogOpen, setFigureDialogOpen] = useState(false)
   const [citationDialogOpen, setCitationDialogOpen] = useState(false)
   const [historyPanelOpen, setHistoryPanelOpen] = useState(false)
@@ -126,6 +119,27 @@ function LaTeXEditorImpl(
     yTextReady,
     remoteSelections,
     synced: realtime?.synced,
+  })
+
+  // Stable accessor for latest document source
+  const getLatestSource = useCallback(() => {
+    try { const v = viewRef.current; if (v) return v.state.doc.toString() } catch {}
+    return latestDocRef.current || ''
+  }, [viewRef, latestDocRef])
+
+  // LaTeX compilation hook
+  const {
+    iframeRef,
+    compileStatus,
+    compileError,
+    compileLogs,
+    lastCompileAt,
+    compileNow,
+  } = useLatexCompilation({
+    paperId,
+    readOnly,
+    getLatestSource,
+    flushBufferedChange,
   })
 
   // Expose imperative handle
@@ -515,172 +529,6 @@ function LaTeXEditorImpl(
     }
     setHistoryPanelOpen(false)
   }, [realtime])
-
-  const resolveApiUrl = useCallback((url: string | null | undefined) => {
-    if (!url) return url || ''
-    if (/^https?:/i.test(url)) return url
-    const sanitized = url.startsWith('/') ? url : `/${url}`
-    return `${API_ROOT}${sanitized}`
-  }, [])
-
-  const cleanupPdf = useCallback(() => {
-    const current = pdfBlobRef.current
-    if (current && current.startsWith('blob:')) {
-      try { URL.revokeObjectURL(current) } catch {}
-    }
-    pdfBlobRef.current = null
-  }, [])
-
-  const postPdfToIframe = useCallback((blobUrl: string, rev: number) => {
-    const iframe = iframeRef.current
-    if (!iframe || !iframe.contentWindow) return
-    try {
-      iframe.contentWindow.postMessage({ type: 'loadFile', url: blobUrl, rev }, '*')
-      console.log('[LaTeX] Posted PDF to iframe:', { rev, url: blobUrl.substring(0, 50) })
-    } catch (e) {
-      console.error('[LaTeX] Failed to post PDF to iframe:', e)
-    }
-  }, [])
-
-  const compileNow = useCallback(async () => {
-    if (readOnly) {
-      setCompileError('Compile disabled in read-only mode')
-      setCompileStatus('error')
-      return
-    }
-    const projectId = paperId ?? (window as any).__SH_ACTIVE_PAPER_ID ?? null
-    setCompileLogs([])
-    setCompileError(null)
-    setCompileStatus('compiling')
-    if (compileAbortRef.current) {
-      try { compileAbortRef.current.abort() } catch {}
-    }
-    flushBufferedChange()
-    const controller = new AbortController()
-    compileAbortRef.current = controller
-    const buildId = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
-    try { await logEvent('CompileClicked', { srcLen: latestDocRef.current.length, projectId, buildId }) } catch {}
-    const t0 = performance.now()
-    let firstError: string | null = null
-    let producedPdf = false
-    try {
-      let src = latestDocRef.current || ''
-      try { const v = viewRef.current; if (v) src = v.state.doc.toString() } catch {}
-      latestDocRef.current = src
-      try { await logEvent('CompileStart', { approxLen: src.length, buildId, projectId }) } catch {}
-      const resp = await fetch(buildApiUrl('/latex/compile/stream'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
-        },
-        body: JSON.stringify({ latex_source: src, paper_id: projectId, include_bibtex: true, job_label: buildId }),
-        signal: controller.signal
-      })
-      if (!resp.ok || !resp.body) throw new Error(`Compile failed: ${resp.status} ${resp.statusText}`)
-      const reader = resp.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      const seqRef = (LaTeXEditorImpl as any)._compileSeq || ((LaTeXEditorImpl as any)._compileSeq = { current: 0 })
-      seqRef.current += 1
-      const mySeq = seqRef.current
-      while (true) {
-        const { value, done } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        const parts = buffer.split('\n\n')
-        buffer = parts.pop() || ''
-        for (const chunk of parts) {
-          const trimmed = chunk.trim()
-          if (!trimmed.startsWith('data:')) continue
-          try {
-            const payload = JSON.parse(trimmed.replace(/^data:\s*/, ''))
-            if (payload.type === 'log') {
-              const line = typeof payload.line === 'string' ? payload.line : ''
-              if (line) {
-                setCompileLogs(prev => prev.length > 200 ? [...prev.slice(-199), line] : [...prev, line])
-                if (!firstError && /error:/i.test(line)) firstError = line
-              }
-            } else if (payload.type === 'error') {
-              const msg = payload.message || 'Compilation error'
-              firstError = firstError || msg
-            } else if (payload.type === 'final' && payload.pdf_url) {
-              console.log('[LaTeX] Received final event with PDF URL:', payload.pdf_url)
-              const pdfUrl = resolveApiUrl(payload.pdf_url)
-              console.log('[LaTeX] Resolved PDF URL:', pdfUrl)
-              const token = localStorage.getItem('access_token') || ''
-              const pdfResp = await fetch(pdfUrl, { headers: token ? { 'Authorization': `Bearer ${token}` } : undefined })
-              console.log('[LaTeX] PDF fetch response:', pdfResp.status, pdfResp.ok)
-              if (!pdfResp.ok) throw new Error(`Failed to fetch PDF (${pdfResp.status})`)
-              const blob = await pdfResp.blob()
-              console.log('[LaTeX] PDF blob size:', blob.size, 'mySeq:', mySeq, 'currentSeq:', (LaTeXEditorImpl as any)._compileSeq.current)
-              if (mySeq !== (LaTeXEditorImpl as any)._compileSeq.current) {
-                console.log('[LaTeX] Skipping stale compile result')
-                continue
-              }
-              const objectUrl = URL.createObjectURL(blob)
-              console.log('[LaTeX] Created blob URL:', objectUrl)
-              cleanupPdf()
-              pdfBlobRef.current = objectUrl
-              postPdfToIframe(objectUrl, mySeq)
-              lastPostedRevRef.current = mySeq
-              producedPdf = true
-            }
-          } catch {}
-        }
-      }
-      const duration = Math.round(performance.now() - t0)
-      try { await logEvent('CompileEnd', { buildId, durationMs: duration, projectId, success: producedPdf }) } catch {}
-      if (producedPdf) {
-        setCompileStatus('success')
-        setCompileError(null)
-        setLastCompileAt(Date.now())
-      } else {
-        setCompileStatus('error')
-        setCompileError(firstError || 'Compilation failed')
-      }
-    } catch (err: any) {
-      if (controller.signal.aborted) return
-      const message = err?.message || 'Compilation failed'
-      setCompileStatus('error')
-      setCompileError(message)
-    } finally {
-      if (compileAbortRef.current === controller) compileAbortRef.current = null
-    }
-  }, [buildApiUrl, cleanupPdf, flushBufferedChange, paperId, postPdfToIframe, readOnly, resolveApiUrl])
-
-  useEffect(() => {
-    const onMessage = (event: MessageEvent) => {
-      const data = event.data
-      if (!data || typeof data !== 'object') return
-      if (data.type !== 'viewer-ready') return
-      const iframe = iframeRef.current
-      if (iframe && event.source !== iframe.contentWindow) return
-      const url = pdfBlobRef.current
-      const rev = lastPostedRevRef.current
-      if (!url || !rev) return
-      postPdfToIframe(url, rev)
-    }
-    window.addEventListener('message', onMessage)
-    return () => {
-      window.removeEventListener('message', onMessage)
-    }
-  }, [postPdfToIframe])
-
-  useEffect(() => {
-    return () => {
-      if (compileAbortRef.current) {
-        try { compileAbortRef.current.abort() } catch {}
-      }
-      cleanupPdf()
-    }
-  }, [cleanupPdf])
-
-  useEffect(() => {
-    if (!readOnly) {
-      void compileNow()
-    }
-  }, [compileNow, readOnly])
 
   return (
     <div className={containerCls}>
