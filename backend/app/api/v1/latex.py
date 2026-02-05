@@ -2,16 +2,19 @@ from fastapi import APIRouter, Depends, HTTPException, status, Response, Query
 from app.core.config import settings
 from starlette.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Set
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import shutil
 import tempfile
 import time
 import uuid
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 from app.api.deps import get_current_user, get_db
 from app.models.user import User
 from app.models.reference import Reference
@@ -37,8 +40,8 @@ def _copy_style_files(target_dir: Path) -> None:
         for style_file in LATEX_STYLES_DIR.glob("*"):
             if style_file.suffix in (".sty", ".bst", ".cls"):
                 shutil.copy2(style_file, target_dir / style_file.name)
-    except Exception:
-        pass  # Silently continue if style file copy fails
+    except Exception as e:
+        logger.warning("Failed to copy style files to %s: %s", target_dir, e)
 
 
 class CompileRequest(BaseModel):
@@ -76,8 +79,8 @@ def _ensure_body_content(source: str) -> str:
         if start != -1 and _document_body_empty(source):
             insertion_point = start + len(begin_token)
             return f"{source[:insertion_point]}\n\\mbox{{}}%\n{source[insertion_point:]}"
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to ensure body content: %s", e)
     return source
 
 
@@ -96,8 +99,8 @@ def _document_body_empty(source: str) -> bool:
                 cleaned_lines.append(stripped)
             cleaned = ''.join(cleaned_lines).strip()
             return len(cleaned) == 0
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to check if document body is empty: %s", e)
     return False
 
 
@@ -188,13 +191,15 @@ async def compile_latex(request: CompileRequest, current_user: User = Depends(ge
         logs = ''
         try:
             logs = paths["log"].read_text(encoding='utf-8', errors='ignore') if paths["log"].exists() else ''
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to read compile log for version save: %s", e)
             logs = ''
         pdf_url = f"/api/v1/latex/artifacts/{content_hash}/main.pdf"
         commit = compilation_version_manager.saveCompiledVersion(request.paper_id, current_user.id, request.latex_source, pdf_url, logs)
         if commit:
             commit_id = str(commit.id)
-      except Exception:
+      except Exception as e:
+        logger.warning("Failed to save compiled version (cache hit, non-stream): %s", e)
         commit_id = None
 
     build_id = request.job_label or f"{content_hash}-{int(time.time()*1000)}"
@@ -213,6 +218,8 @@ async def compile_latex(request: CompileRequest, current_user: User = Depends(ge
 async def get_artifact(content_hash: str, filename: str, current_user: User = Depends(get_current_user)):
     paths = _artifact_paths(content_hash)
     target = paths["dir"] / filename
+    if not target.resolve().is_relative_to(paths["dir"].resolve()):
+        raise HTTPException(status_code=400, detail="Invalid filename")
     if not target.exists():
         raise HTTPException(status_code=404, detail="artifact not found")
     return FileResponse(str(target))
@@ -286,8 +293,8 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
                     if figures_dst.exists():
                         shutil.rmtree(figures_dst)
                     shutil.copytree(figures_src, figures_dst)
-            except Exception:
-                pass  # Silently continue if figures copy fails
+            except Exception as e:
+                logger.warning("Failed to copy figures for paper %s: %s", request.paper_id, e)
 
             # Copy .bib files if they exist for this paper
             try:
@@ -296,8 +303,8 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
                     bib_dst = paths["dir"] / bib_file.name
                     shutil.copy2(bib_file, bib_dst)
                     copied_bib = True
-            except Exception:
-                pass  # Silently continue if .bib copy fails
+            except Exception as e:
+                logger.warning("Failed to copy .bib files for paper %s: %s", request.paper_id, e)
 
         # Cache hit
         cached = paths["pdf"].exists() and not copied_bib
@@ -311,12 +318,14 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
                     logs = ''
                     try:
                         logs = (paths["log"].read_text(encoding='utf-8', errors='ignore') if paths["log"].exists() else '')
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("Failed to read compile log for version save (stream cache hit): %s", e)
                         logs = ''
                     commit = compilation_version_manager.saveCompiledVersion(request.paper_id, current_user.id, request.latex_source, pdf_url, logs)
                     if commit:
                         commit_id = str(commit.id)
-                except Exception:
+                except Exception as e:
+                    logger.warning("Failed to save compiled version (stream cache hit): %s", e)
                     commit_id = None
             final = {"type": "final", "pdf_url": f"/api/v1/latex/artifacts/{content_hash}/main.pdf", "hash": content_hash, "elapsed": round(time.time()-t0,2), "buildId": build_id, "errorCount": 0, "commitId": commit_id}
             yield f"data: {json.dumps(final)}\n\n"
@@ -346,8 +355,8 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
                 try:
                     with paths["log"].open("a", encoding="utf-8") as lf:
                         lf.write(line + "\n")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Failed to write compile log: %s", e)
                 logs_buf.append(line)
                 if 'error' in (line or '').lower():
                     error_count += 1
@@ -357,7 +366,8 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
             # If bibliography is used, try bibtex + up to two more passes with early stop
             try:
                 aux = (paths["dir"] / "main.aux")
-                need_bib = aux.exists() and ("\\citation" in aux.read_text(errors='ignore') or "\\bibdata" in aux.read_text(errors='ignore'))
+                aux_content = aux.read_text(errors='ignore') if aux.exists() else ''
+                need_bib = '\\citation' in aux_content or '\\bibdata' in aux_content
             except Exception:
                 need_bib = False
 
@@ -413,7 +423,8 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
                         commit = compilation_version_manager.saveCompiledVersion(request.paper_id, current_user.id, request.latex_source, pdf_url, "\n".join(logs_buf[-5000:]))
                         if commit:
                             commit_id = str(commit.id)
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("Failed to save compiled version (stream compile): %s", e)
                         commit_id = None
                 final = {
                     "type": "final",
@@ -483,8 +494,16 @@ def _esc(s: Optional[str]) -> Optional[str]:
     return s.replace('{', '\\{').replace('}', '\\}')
 
 
-def _to_bibtex_entry(ref: Reference) -> str:
+def _to_bibtex_entry(ref: Reference, seen_keys: Optional[Set[str]] = None) -> str:
     key = _make_bibtex_key(ref.title, ref.authors, ref.year)
+    # Disambiguate duplicate keys by appending a, b, c, etc.
+    if seen_keys is not None:
+        original_key = key
+        suffix_idx = 0
+        while key in seen_keys:
+            suffix_idx += 1
+            key = original_key + chr(ord('a') + suffix_idx - 1)
+        seen_keys.add(key)
     fields = []
     def add(k: str, v: Optional[str]):
         if v:
@@ -497,8 +516,8 @@ def _to_bibtex_entry(ref: Reference) -> str:
     if has_authors:
         try:
             add("author", ' and '.join(ref.authors))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to join authors for reference %s: %s", ref.id, e)
     add("year", str(ref.year) if has_year else None)
     add("doi", ref.doi)
     add("url", ref.url)
@@ -512,9 +531,11 @@ def _to_bibtex_entry(ref: Reference) -> str:
 def _generate_bibtex_for_paper(db: Session, owner_id: Any, paper_id: str) -> str:
     refs = db.query(Reference).filter(Reference.owner_id == owner_id, Reference.paper_id == paper_id).all()
     entries = []
+    seen_keys: Set[str] = set()
     for r in refs:
         try:
-            entries.append(_to_bibtex_entry(r))
-        except Exception:
+            entries.append(_to_bibtex_entry(r, seen_keys=seen_keys))
+        except Exception as e:
+            logger.warning("Failed to generate BibTeX entry for reference %s: %s", r.id, e)
             continue
     return "\n\n".join(entries) if entries else "% Bibliography is empty for this paper."
