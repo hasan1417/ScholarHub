@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -50,11 +51,16 @@ class CompileRequest(BaseModel):
     engine: Optional[str] = "tectonic"
     job_label: Optional[str] = None
     include_bibtex: Optional[bool] = True
+    latex_files: Optional[Dict[str, str]] = None  # Multi-file: {"intro.tex": "...", ...}
 
 
-def _sha256(text: str) -> str:
+def _sha256(text: str, extra_files: Optional[Dict[str, str]] = None) -> str:
     h = hashlib.sha256()
     h.update(text.encode("utf-8", errors="ignore"))
+    if extra_files:
+        for name in sorted(extra_files.keys()):
+            h.update(name.encode("utf-8", errors="ignore"))
+            h.update(extra_files[name].encode("utf-8", errors="ignore"))
     return h.hexdigest()
 
 
@@ -68,6 +74,34 @@ def _artifact_paths(content_hash: str) -> Dict[str, Path]:
         "pdf": out_dir / "main.pdf",
         "log": out_dir / "compile.log",
     }
+
+
+def _parse_latex_errors(log_lines: list[str]) -> list[dict]:
+    """Parse LaTeX log lines for structured errors with line numbers.
+
+    Scans for lines starting with `!` (LaTeX error indicator) and looks
+    ahead for `l.NNN` patterns to extract line numbers and context.
+    """
+    errors: list[dict] = []
+    i = 0
+    while i < len(log_lines):
+        line = log_lines[i]
+        if line.startswith('!'):
+            message = line[1:].strip()
+            err: dict = {"message": message}
+            # Look ahead up to 5 lines for `l.NNN` pattern (line number)
+            for j in range(i + 1, min(i + 6, len(log_lines))):
+                look = log_lines[j]
+                m = re.match(r'^l\.(\d+)\s*(.*)', look)
+                if m:
+                    err["line"] = int(m.group(1))
+                    ctx = m.group(2).strip()
+                    if ctx:
+                        err["context"] = ctx
+                    break
+            errors.append(err)
+        i += 1
+    return errors
 
 
 def _ensure_body_content(source: str) -> str:
@@ -119,6 +153,7 @@ async def _run_tectonic(out_dir: Path, tex_path: Path):
         "--outdir",
         str(out_dir),
         "--keep-logs",
+        "--synctex",
         "--chatter",
         "minimal",
         cwd=str(out_dir),
@@ -166,7 +201,7 @@ async def compile_latex(request: CompileRequest, current_user: User = Depends(ge
         }
 
     effective_source = _ensure_body_content(request.latex_source)
-    content_hash = _sha256(effective_source)
+    content_hash = _sha256(effective_source, request.latex_files)
     paths = _artifact_paths(content_hash)
 
     # Write source to cache dir (always refresh the tex file for transparency)
@@ -182,10 +217,24 @@ async def compile_latex(request: CompileRequest, current_user: User = Depends(ge
                     cached_file.unlink()
         await asyncio.to_thread(_clear_aux_files)
         await asyncio.to_thread(paths["tex"].write_text, effective_source, encoding="utf-8")
+        # Write additional multi-file sources
+        if request.latex_files:
+            for fname, content in request.latex_files.items():
+                safe_name = Path(fname).name
+                if not safe_name.endswith('.tex') or safe_name == 'main.tex':
+                    continue
+                target_path = paths["dir"] / safe_name
+                if not target_path.resolve().is_relative_to(paths["dir"].resolve()):
+                    continue
+                await asyncio.to_thread(target_path.write_text, content, encoding="utf-8")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to prepare source: {e}")
 
-    cached = await asyncio.to_thread(paths["pdf"].exists)
+    synctex_check = paths["dir"] / "main.synctex.gz"
+    cached = (
+        (await asyncio.to_thread(paths["pdf"].exists))
+        and (await asyncio.to_thread(synctex_check.exists))
+    )
     commit_id = None
     # If cached and save_version requested, save a compiled version commit
     if cached and save_version and request.paper_id:
@@ -260,10 +309,10 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
         return StreamingResponse(empty_stream(), media_type='text/event-stream', headers=headers)
 
     effective_source = _ensure_body_content(request.latex_source)
-    content_hash = _sha256(effective_source)
+    content_hash = _sha256(effective_source, request.latex_files)
     paths = _artifact_paths(content_hash)
 
-    # Always write the .tex
+    # Always write the .tex (and extra files if multi-file)
     try:
         await asyncio.to_thread(paths["dir"].mkdir, parents=True, exist_ok=True)
         # Copy bundled conference style files (.sty, .bst) for template support
@@ -277,6 +326,17 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
                     cached_file.unlink()
         await asyncio.to_thread(_clear_aux_files)
         await asyncio.to_thread(paths["tex"].write_text, effective_source, encoding="utf-8")
+        # Write additional multi-file sources
+        if request.latex_files:
+            for fname, content in request.latex_files.items():
+                # Sanitize filename: only allow .tex files in the compile dir
+                safe_name = Path(fname).name
+                if not safe_name.endswith('.tex') or safe_name == 'main.tex':
+                    continue
+                target_path = paths["dir"] / safe_name
+                if not target_path.resolve().is_relative_to(paths["dir"].resolve()):
+                    continue
+                await asyncio.to_thread(target_path.write_text, content, encoding="utf-8")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to prepare source: {e}")
 
@@ -319,8 +379,13 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
             except Exception as e:
                 logger.warning("Failed to copy .bib files for paper %s: %s", request.paper_id, e)
 
-        # Cache hit
-        cached = (await asyncio.to_thread(paths["pdf"].exists)) and not copied_bib
+        # Cache hit — also require synctex.gz so SyncTeX works
+        synctex_path = paths["dir"] / "main.synctex.gz"
+        cached = (
+            (await asyncio.to_thread(paths["pdf"].exists))
+            and (await asyncio.to_thread(synctex_path.exists))
+            and not copied_bib
+        )
         if cached:
             payload = {"type": "cache", "message": "Cache hit", "hash": content_hash}
             yield f"data: {json.dumps(payload)}\n\n"
@@ -341,7 +406,7 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
                 except Exception as e:
                     logger.warning("Failed to save compiled version (stream cache hit): %s", e)
                     commit_id = None
-            final = {"type": "final", "pdf_url": f"/api/v1/latex/artifacts/{content_hash}/main.pdf", "hash": content_hash, "elapsed": round(time.time()-t0,2), "buildId": build_id, "errorCount": 0, "commitId": commit_id}
+            final = {"type": "final", "pdf_url": f"/api/v1/latex/artifacts/{content_hash}/main.pdf", "hash": content_hash, "elapsed": round(time.time()-t0,2), "buildId": build_id, "errorCount": 0, "errors": [], "commitId": commit_id}
             yield f"data: {json.dumps(final)}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
             status_str = 'cached'
@@ -387,7 +452,8 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
                 aux_exists = await asyncio.to_thread(aux.exists)
                 aux_content = (await asyncio.to_thread(aux.read_text, errors='ignore')) if aux_exists else ''
                 need_bib = '\\citation' in aux_content or '\\bibdata' in aux_content
-            except Exception:
+            except Exception as e:
+                logger.debug("Failed to check aux for bibliography needs: %s", e)
                 need_bib = False
 
             if need_bib:
@@ -420,7 +486,7 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
                     yield f"data: {json.dumps({'type': 'log', 'line': f'[bibtex] Failed: {e}'})}\n\n"
 
                 # Up to two more tectonic passes; stop early if main.bbl stabilized
-                for i in range(2):
+                for _ in range(2):
                     async for line in _run_tectonic(paths["dir"], paths["tex"]):
                         logs_buf.append(line)
                         payload = {"type": "log", "line": line}
@@ -433,8 +499,8 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
                             yield f"data: {json.dumps({'type': 'log', 'line': '[bibtex] Bibliography stabilized; stopping extra passes'})}\n\n"
                             break
                         bbl_before = bbl_now
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Failed to check bbl stabilization: %s", e)
 
             # Check result
             if await asyncio.to_thread(paths["pdf"].exists):
@@ -449,6 +515,7 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
                     except Exception as e:
                         logger.warning("Failed to save compiled version (stream compile): %s", e)
                         commit_id = None
+                structured_errors = _parse_latex_errors(logs_buf)
                 final = {
                     "type": "final",
                     "pdf_url": f"/api/v1/latex/artifacts/{content_hash}/main.pdf",
@@ -456,6 +523,7 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
                     "elapsed": elapsed,
                     "buildId": build_id,
                     "errorCount": error_count,
+                    "errors": structured_errors,
                     "commitId": commit_id,
                 }
                 yield f"data: {json.dumps(final)}\n\n"

@@ -103,12 +103,17 @@ const server = new Server({
         return
       }
 
-      if (yText.length > 0) {
-        yText.delete(0, yText.length)
-        log.info({ document: documentName }, 'Cleared existing realtime doc before bootstrap')
-      }
-
-      yText.insert(0, latexSource)
+      // Use a Y.Doc transaction so delete+insert is atomic.
+      // Without this, a concurrent client insert (from yCollab syncing
+      // editor content) can interleave with our delete/insert and cause
+      // the Yjs CRDT to merge both insertions — doubling the content.
+      document.transact(() => {
+        if (yText.length > 0) {
+          yText.delete(0, yText.length)
+          log.info({ document: documentName }, 'Cleared existing realtime doc before bootstrap')
+        }
+        yText.insert(0, latexSource)
+      })
       log.info({ document: documentName, length: latexSource.length }, 'Bootstrapped document from backend')
     } catch (error) {
       log.error({ document: documentName, error }, 'Bootstrap fetch failed')

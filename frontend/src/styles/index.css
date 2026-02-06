@@ -41,36 +41,36 @@
 }
 
 :root {
-  --latex-editor-bg: #fbfbfe;
-  --latex-editor-fg: #1b2330;
+  --latex-editor-bg: #ffffff;
+  --latex-editor-fg: #000000;
   --latex-editor-font-size: 14px;
   --latex-editor-font-family: 'Monaco', 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
-  --latex-editor-gutter-bg: #f0f3fb;
-  --latex-editor-gutter-fg: #7a8199;
-  --latex-editor-gutter-border: #d7dbe8;
-  --latex-editor-active-line-bg: #e8f1ff;
-  --latex-editor-active-line-gutter-bg: #e8f1ff;
-  --latex-editor-active-line-fg: #1b2330;
-  --latex-editor-selection-bg: #a8d1ff;
-  --latex-editor-focus-ring: #4c8bf5;
-  --latex-editor-fold-bg: #eef3ff;
-  --latex-editor-fold-fg: #3f4a6b;
-  --latex-editor-fold-border: #cbd5f5;
+  --latex-editor-gutter-bg: #f0f0f0;
+  --latex-editor-gutter-fg: #333333;
+  --latex-editor-gutter-border: transparent;
+  --latex-editor-active-line-bg: rgba(0, 0, 0, 0.07);
+  --latex-editor-active-line-gutter-bg: #dcdcdc;
+  --latex-editor-active-line-fg: #000000;
+  --latex-editor-selection-bg: rgb(181, 213, 255);
+  --latex-editor-focus-ring: transparent;
+  --latex-editor-fold-bg: #6B72E6;
+  --latex-editor-fold-fg: #ffffff;
+  --latex-editor-fold-border: transparent;
   --latex-editor-tooltip-bg: #1f2937;
   --latex-editor-tooltip-fg: #e5e7eb;
   --latex-editor-tooltip-border: #4b5563;
-  --latex-editor-caret: #1f55b5;
-  --latex-editor-selection-match: #87b4ff;
+  --latex-editor-caret: #000000;
+  --latex-editor-selection-match: rgba(250, 250, 255, 0.5);
   --latex-editor-spell: #d14343;
-  --latex-editor-comment: #5c7a5b;
-  --latex-editor-string: #ad2f45;
-  --latex-editor-command: #1f55b5;
-  --latex-editor-text: #1b2330;
-  --latex-editor-keyword: #8c3fc8;
-  --latex-editor-math: #8b2bb9;
-  --latex-editor-number: #b65700;
-  --latex-editor-bracket: #1f55b5;
-  --latex-editor-operator: #1f55b5;
+  --latex-editor-comment: rgb(76, 136, 107);
+  --latex-editor-string: rgb(3, 106, 7);
+  --latex-editor-command: #0000A2;
+  --latex-editor-text: #000000;
+  --latex-editor-keyword: #0000ff;
+  --latex-editor-math: #833FBA;
+  --latex-editor-number: #833FBA;
+  --latex-editor-bracket: #000000;
+  --latex-editor-operator: rgb(104, 118, 135);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -138,34 +138,34 @@ body.dark, [data-theme='dark'], :root.dark {
 }
 
 :root[data-theme='light'], body[data-theme='light'], :root.light {
-  --latex-editor-bg: #fbfbfe;
-  --latex-editor-fg: #1b2330;
-  --latex-editor-gutter-bg: #f0f3fb;
-  --latex-editor-gutter-fg: #7a8199;
-  --latex-editor-gutter-border: #d7dbe8;
-  --latex-editor-active-line-bg: #e8f1ff;
-  --latex-editor-active-line-gutter-bg: #e8f1ff;
-  --latex-editor-active-line-fg: #1b2330;
-  --latex-editor-selection-bg: #9fc2ff;
-  --latex-editor-focus-ring: #4c8bf5;
-  --latex-editor-fold-bg: #eef3ff;
-  --latex-editor-fold-fg: #3f4a6b;
-  --latex-editor-fold-border: #cbd5f5;
+  --latex-editor-bg: #ffffff;
+  --latex-editor-fg: #000000;
+  --latex-editor-gutter-bg: #f0f0f0;
+  --latex-editor-gutter-fg: #333333;
+  --latex-editor-gutter-border: transparent;
+  --latex-editor-active-line-bg: rgba(0, 0, 0, 0.07);
+  --latex-editor-active-line-gutter-bg: #dcdcdc;
+  --latex-editor-active-line-fg: #000000;
+  --latex-editor-selection-bg: rgb(181, 213, 255);
+  --latex-editor-focus-ring: transparent;
+  --latex-editor-fold-bg: #6B72E6;
+  --latex-editor-fold-fg: #ffffff;
+  --latex-editor-fold-border: transparent;
   --latex-editor-tooltip-bg: #1f2937;
   --latex-editor-tooltip-fg: #e5e7eb;
   --latex-editor-tooltip-border: #4b5563;
-  --latex-editor-caret: #1f55b5;
-  --latex-editor-selection-match: #87b4ff;
+  --latex-editor-caret: #000000;
+  --latex-editor-selection-match: rgba(250, 250, 255, 0.5);
   --latex-editor-spell: #d14343;
-  --latex-editor-comment: #5c7a5b;
-  --latex-editor-string: #ad2f45;
-  --latex-editor-command: #1f55b5;
-  --latex-editor-text: #1b2330;
-  --latex-editor-keyword: #8c3fc8;
-  --latex-editor-math: #8b2bb9;
-  --latex-editor-number: #b65700;
-  --latex-editor-bracket: #1f55b5;
-  --latex-editor-operator: #1f55b5;
+  --latex-editor-comment: rgb(76, 136, 107);
+  --latex-editor-string: rgb(3, 106, 7);
+  --latex-editor-command: #0000A2;
+  --latex-editor-text: #000000;
+  --latex-editor-keyword: #0000ff;
+  --latex-editor-math: #833FBA;
+  --latex-editor-number: #833FBA;
+  --latex-editor-bracket: #000000;
+  --latex-editor-operator: rgb(104, 118, 135);
 }
 
 /* Academic Editor Custom Styles using Tailwind */

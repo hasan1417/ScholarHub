@@ -45,19 +45,17 @@ const LatexAdapter = forwardRef(function LatexAdapter(
     }
   }, [realtimeEnabled, paperId])
 
-  useEffect(() => {
-    if (realtime?.doc) {
-      try {
-        dbg('Realtime doc attached', { status: realtime?.status })
-        const text = realtime.doc.getText('main')
-        if (text) {
-          setSrc(text.toString())
-        }
-      } catch {}
-    }
-  }, [realtime, dbg])
+  // NOTE: We intentionally do NOT read Y.Text into `src` here.
+  // In realtime mode, yCollab syncs Y.Text → CM view, and the updateListener
+  // calls onChange → handleChange → setSrc. Reading Y.Text in a separate effect
+  // creates a race with the server bootstrap that can cause content doubling.
 
   useEffect(() => {
+    // Skip contentJson prop sync in realtime mode — Yjs is the source of truth
+    if (realtimeActive) {
+      dbg('skipping contentJson sync (realtime active)')
+      return
+    }
     const fromJson = (contentJson && typeof contentJson === 'object' && (contentJson as any).latex_source) || ''
     let next = typeof fromJson === 'string' ? fromJson : ''
     if (paperId && !realtimeEnabled) {
@@ -76,7 +74,7 @@ const LatexAdapter = forwardRef(function LatexAdapter(
       lastCheckpointAtRef.current = Date.now()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contentJson, paperId, realtimeEnabled])
+  }, [contentJson, paperId, realtimeEnabled, realtimeActive])
 
   // yCollab inside LaTeXEditor handles bidirectional Yjs sync;
   // the handleChange callback below keeps adapter `src` in sync via setSrc.
@@ -120,13 +118,6 @@ const LatexAdapter = forwardRef(function LatexAdapter(
 
           if (!overwriteRealtime && realtimeLength > 0) {
             dbg('setContent skipped (overwriteRealtime=false, realtime has content)', { realtimeLength })
-            try {
-              console.info('[LatexAdapter] setContent skipped to protect realtime doc', {
-                overwriteRealtime,
-                realtimeLength,
-                incomingLength: next.length,
-              })
-            } catch {}
             setSrc(prev => (prev === currentRealtime ? prev : currentRealtime))
             lastCheckpointContentRef.current = currentRealtime
             lastCheckpointAtRef.current = Date.now()
@@ -146,10 +137,15 @@ const LatexAdapter = forwardRef(function LatexAdapter(
               previousLength: realtimeLength,
               incomingLength: next.length,
             })
-            yText.delete(0, realtimeLength)
-            if (next) {
-              yText.insert(0, next)
-            }
+            // Use a Y.Doc transaction so that delete+insert is atomic.
+            // This prevents concurrent server bootstrap inserts from being
+            // merged alongside our insert (which causes content doubling).
+            realtimeDoc.transact(() => {
+              yText.delete(0, realtimeLength)
+              if (next) {
+                yText.insert(0, next)
+              }
+            })
           } catch (err) {
             console.warn('[LatexAdapter] failed to overwrite realtime doc via setContent', err)
           }

@@ -3,20 +3,45 @@ import type { Extension } from '@codemirror/state'
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { tags as t } from '@lezer/highlight'
 
-// Overleaf-inspired theme colors are defined via CSS variables in styles/index.css
-// so the editor can react to both light and dark modes without remounting.
+// Overleaf textmate theme — colors defined via CSS variables in styles/index.css
+// so the editor reacts to light/dark mode without remounting.
 
 const overleafHighlightStyle = HighlightStyle.define([
   { tag: t.comment, color: 'var(--latex-editor-comment)', fontStyle: 'italic' },
   { tag: [t.string, t.special(t.string)], color: 'var(--latex-editor-string)' },
-  { tag: [t.tagName, t.macroName], color: 'var(--latex-editor-command)', fontWeight: '600' },
-  { tag: t.keyword, color: 'var(--latex-editor-keyword)', fontWeight: '600' },
+  // Lezer LaTeX: CtrlSeq/Csname → keyword, Begin/End → keyword
+  { tag: [t.keyword, t.definitionKeyword], color: 'var(--latex-editor-keyword)' },
+  // Legacy stex compat: tagName/macroName for command highlighting
+  { tag: [t.tagName, t.macroName], color: 'var(--latex-editor-command)' },
+  // Lezer: EnvName variants → className
+  { tag: t.className, color: 'var(--latex-editor-command)' },
+  // Lezer: section headings
+  { tag: t.heading, color: 'var(--latex-editor-keyword)', fontWeight: 'bold' },
+  // Lezer: \label, \ref → labelName
+  { tag: t.labelName, color: 'var(--latex-editor-string)' },
+  // Lezer: \cite → quote
+  { tag: t.quote, color: 'var(--latex-editor-string)' },
+  // Lezer: Dollar, MathSpecialChar → processingInstruction
+  { tag: t.processingInstruction, color: 'var(--latex-editor-math)' },
+  // Lezer: \textbf → strong, \textit/\emph → emphasis
+  { tag: t.strong, color: 'var(--latex-editor-keyword)', fontWeight: 'bold' },
+  { tag: t.emphasis, color: 'var(--latex-editor-keyword)', fontStyle: 'italic' },
+  // Lezer: \texttt → monospace
+  { tag: t.monospace, color: 'var(--latex-editor-keyword)' },
+  // Lezer: verbatim/verb content → meta
+  { tag: t.meta, color: 'var(--latex-editor-string)' },
+  // NOTE: Do NOT style t.content — the Lezer LaTeX parser tags all normal text
+  // as t.content (Normal node). Styling it wraps every word in a <span>, which
+  // prevents browser spellcheck from seeing contiguous text nodes. The foreground
+  // color is inherited from .cm-content / .cm-editor styles.
   { tag: [t.atom, t.bool], color: 'var(--latex-editor-math)' },
   { tag: [t.number, t.integer, t.float], color: 'var(--latex-editor-number)' },
   { tag: t.operator, color: 'var(--latex-editor-operator)' },
   { tag: t.bracket, color: 'var(--latex-editor-bracket)' },
   { tag: [t.variableName, t.definition(t.variableName)], color: 'var(--latex-editor-text)' },
   { tag: t.special(t.variableName), color: 'var(--latex-editor-math)' },
+  // Lezer: invalid/trailing content
+  { tag: t.invalid, color: 'var(--latex-editor-spell)' },
 ])
 
 export const overleafLatexTheme: Extension = [
@@ -25,6 +50,8 @@ export const overleafLatexTheme: Extension = [
       backgroundColor: 'var(--latex-editor-bg)',
       color: 'var(--latex-editor-fg)',
       height: '100%',
+      textRendering: 'optimizeSpeed',
+      fontVariantNumeric: 'slashed-zero',
     },
     '.cm-editor': {
       fontSize: 'var(--latex-editor-font-size)',
@@ -34,7 +61,6 @@ export const overleafLatexTheme: Extension = [
       overflow: 'auto',
       fontFamily: 'var(--latex-editor-font-family)',
       lineHeight: '1.58',
-      // Scroller has content background - selection layer is inside so this is fine
       backgroundColor: 'var(--latex-editor-bg)',
       minHeight: '100%',
     },
@@ -43,26 +69,23 @@ export const overleafLatexTheme: Extension = [
       minHeight: '100%',
       maxHeight: 'none',
       fontFamily: 'var(--latex-editor-font-family)',
-      // NO backgroundColor - it would cover the selection layer!
     },
     '.cm-gutters': {
       backgroundColor: 'var(--latex-editor-gutter-bg)',
       color: 'var(--latex-editor-gutter-fg)',
-      borderRight: '1px solid var(--latex-editor-gutter-border)',
+      borderRight: 'none',
+      flexShrink: '0',
     },
     '.cm-lineNumbers .cm-gutterElement': {
-      padding: '0 12px',
+      padding: '0 8px 0 12px',
+      userSelect: 'none',
     },
     '.cm-activeLineGutter': {
-      backgroundColor: 'var(--latex-editor-active-line-bg)',
+      backgroundColor: 'var(--latex-editor-active-line-gutter-bg)',
       color: 'var(--latex-editor-active-line-fg)',
-      // Extend to cover the border gap
-      marginRight: '-1px',
-      paddingRight: '1px',
     },
     '.cm-activeLine': {
       backgroundColor: 'var(--latex-editor-active-line-bg)',
-      // Extend highlight using box-shadow (doesn't shift text like margin does)
       boxShadow: '-16px 0 0 var(--latex-editor-active-line-bg), 16px 0 0 var(--latex-editor-active-line-bg)',
     },
     // Hide active line highlight when selection exists
@@ -74,13 +97,20 @@ export const overleafLatexTheme: Extension = [
       backgroundColor: 'var(--latex-editor-selection-bg) !important',
     },
     '&.cm-editor.cm-focused': {
-      outline: '1px solid var(--latex-editor-focus-ring)',
-      outlineOffset: '0',
+      outline: 'none',
+    },
+    '&.cm-editor.cm-focused:not(:focus-visible)': {
+      outline: 'none',
+    },
+    // Matching brackets — Overleaf style: outline only, no background
+    '&.cm-focused .cm-matchingBracket, &.cm-focused .cm-nonmatchingBracket': {
+      outline: '1px solid rgb(192, 192, 192)',
+      backgroundColor: 'transparent',
     },
     '.cm-foldPlaceholder': {
       backgroundColor: 'var(--latex-editor-fold-bg)',
       color: 'var(--latex-editor-fold-fg)',
-      border: '1px solid var(--latex-editor-fold-border)',
+      border: 'none',
       borderRadius: '3px',
       padding: '0 4px',
     },
@@ -96,18 +126,23 @@ export const overleafLatexTheme: Extension = [
   EditorView.baseTheme({
     '.cm-cursor, .cm-dropCursor': {
       borderLeftColor: 'var(--latex-editor-caret)',
+      borderLeftWidth: '2px',
+      marginLeft: '-1px',
     },
     '&.cm-editor': {
       color: 'var(--latex-editor-fg)',
     },
     '.cm-selectionMatch': {
       backgroundColor: 'var(--latex-editor-selection-match)',
+      outline: '1px solid rgb(200, 200, 250)',
     },
     '.cm-content': {
       caretColor: 'var(--latex-editor-caret)',
     },
-    '.cm-sel-spell-error': {
+    '.cm-spell-error': {
       textDecoration: 'underline wavy var(--latex-editor-spell)',
+      textDecorationSkipInk: 'none',
+      textUnderlineOffset: '2px',
     },
     '.cm-content span.cm-comment': {
       color: 'var(--latex-editor-comment)',
@@ -118,7 +153,6 @@ export const overleafLatexTheme: Extension = [
     },
     '.cm-content span.cm-builtin, .cm-content span.cm-tag': {
       color: 'var(--latex-editor-command)',
-      fontWeight: 600,
     },
     '.cm-content span.cm-variableName': {
       color: 'var(--latex-editor-text)',

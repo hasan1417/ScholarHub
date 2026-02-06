@@ -30,6 +30,7 @@ class ResearchPaper(Base):
     # Metadata
     keywords = Column(ARRAY(String))  # Array of keywords
     references = Column(Text)  # Bibliography
+    latex_files = Column(JSONB, nullable=True)  # Multi-file LaTeX: {"main.tex": "...", "intro.tex": "..."}
     latex_crdt_state = Column(LargeBinary, nullable=True)
     latex_crdt_rev = Column(BigInteger, nullable=False, default=0)
     latex_crdt_checksum = Column(String(64))

@@ -3,6 +3,7 @@ import {
   ArrowLeft, Library, Save, Loader2, Undo2, Redo2,
   Clock, ChevronDown, Bold,
   Italic, Sigma, List, ListOrdered, Image, Table, Link2,
+  ListTree, ArrowRightToLine,
 } from 'lucide-react'
 import { AiToolsMenu } from './AiToolsMenu'
 import { CompileStatusBar } from './CompileStatusBar'
@@ -69,12 +70,19 @@ interface EditorToolbarProps {
   paperId?: string
   onOpenReferences: (event: React.MouseEvent<HTMLButtonElement>) => void
 
+  // Outline
+  outlinePanelOpen?: boolean
+  onToggleOutline?: () => void
+
   // History
   onOpenHistory: () => void
 
   // AI actions
   aiActionLoading: string | null
   onAiAction: (action: string, tone?: string) => void
+
+  // SyncTeX
+  onForwardSync?: () => void
 }
 
 export const EditorToolbar: React.FC<EditorToolbarProps> = ({
@@ -108,9 +116,12 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   onInsertEnumerate,
   paperId,
   onOpenReferences,
+  outlinePanelOpen,
+  onToggleOutline,
   onOpenHistory,
   aiActionLoading,
   onAiAction,
+  onForwardSync,
 }) => {
   const [openDropdown, setOpenDropdown] = useState<string | null>(null)
 
@@ -162,6 +173,22 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
               </button>
             ))}
           </div>
+
+          {/* Outline toggle */}
+          {onToggleOutline && (
+            <button
+              type="button"
+              onClick={onToggleOutline}
+              className={`rounded p-1.5 transition-colors ${
+                outlinePanelOpen
+                  ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-400'
+                  : 'text-slate-500 hover:bg-slate-200 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200'
+              }`}
+              title="Document outline"
+            >
+              <ListTree className="h-4 w-4" />
+            </button>
+          )}
 
           <span className="mx-1 h-5 w-px bg-slate-300 dark:bg-slate-600" />
 
@@ -410,8 +437,19 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           {/* Spacer */}
           <div className="flex-1" />
 
-          {/* Right side: History, Compile, Save */}
+          {/* Right side: SyncTeX, History, Compile, Save */}
           <div className="flex items-center gap-1">
+            {onForwardSync && (
+              <button
+                type="button"
+                onClick={onForwardSync}
+                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                title="Sync to PDF (jump to current line)"
+              >
+                <ArrowRightToLine className="h-4 w-4" />
+              </button>
+            )}
+
             {paperId && (
               <button
                 type="button"

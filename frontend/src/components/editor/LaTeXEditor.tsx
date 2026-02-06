@@ -1,10 +1,6 @@
-import React, { useEffect, useState, useMemo, forwardRef, useImperativeHandle, useCallback } from 'react'
-import { logEvent } from '../../utils/metrics'
-import { researchPapersAPI, buildApiUrl } from '../../services/api'
-import { EditorSelection, type SelectionRange } from '@codemirror/state'
+import React, { useEffect, useState, forwardRef, useImperativeHandle, useCallback } from 'react'
 import 'katex/dist/katex.min.css'
 import pdfViewerHtml from '../../assets/pdf-viewer.html?raw'
-import { LATEX_FORMATTING_GROUPS } from './latexToolbarConfig'
 import FigureUploadDialog from './FigureUploadDialog'
 import CitationDialog from './CitationDialog'
 import HistoryPanel from './HistoryPanel'
@@ -12,9 +8,20 @@ import { useSplitPane } from './hooks/useSplitPane'
 import { useRealtimeSync } from './hooks/useRealtimeSync'
 import { useCodeMirrorEditor } from './hooks/useCodeMirrorEditor'
 import { useLatexCompilation } from './hooks/useLatexCompilation'
+import { useMultiFileManagement } from './hooks/useMultiFileManagement'
+import { useLatexEventListeners } from './hooks/useLatexEventListeners'
+import { useHistoryRestore } from './hooks/useHistoryRestore'
+import { useLatexSnippets } from './hooks/useLatexSnippets'
+import { useCitationHandlers } from './hooks/useCitationHandlers'
+import { useAiTextTools } from './hooks/useAiTextTools'
 import { EditorToolbar } from './components/EditorToolbar'
 import { PdfPreviewPane } from './components/PdfPreviewPane'
-import { makeBibKey } from './utils/bibKey'
+import { OutlinePanel } from './components/OutlinePanel'
+import { FileSelector } from './components/FileSelector'
+import { useDocumentOutline } from './hooks/useDocumentOutline'
+import { useSyncTeX } from './hooks/useSyncTeX'
+import { setDiagnostics } from '@codemirror/lint'
+import { latexErrorsToDiagnostics } from './extensions/latexErrorMarkers'
 
 interface LaTeXEditorProps {
   value: string
@@ -54,52 +61,45 @@ export interface LaTeXEditorHandle {
 
 // LaTeX editor with CodeMirror and live PDF preview
 function LaTeXEditorImpl(
-  { value, onChange, onSave, templateTitle, fullHeight = false, paperId, projectId, readOnly = false, disableSave = false, onNavigateBack, onOpenAiChatWithMessage, realtime, collaborationStatus }: LaTeXEditorProps,
+  { value, onChange, onSave, templateTitle, paperId, projectId, readOnly = false, disableSave = false, onNavigateBack, onOpenAiChatWithMessage, realtime, collaborationStatus }: LaTeXEditorProps,
   ref: React.Ref<LaTeXEditorHandle>
 ) {
-  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'success' | 'error'>('idle')
-  const [saveError, setSaveError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'code' | 'split' | 'pdf'>('split')
   const [figureDialogOpen, setFigureDialogOpen] = useState(false)
-  const [citationDialogOpen, setCitationDialogOpen] = useState(false)
-  const [historyPanelOpen, setHistoryPanelOpen] = useState(false)
-  const [citationAnchor, setCitationAnchor] = useState<HTMLElement | null>(null)
-  const [aiActionLoading, setAiActionLoading] = useState<string | null>(null)
+  const [outlinePanelOpen, setOutlinePanelOpen] = useState(false)
+
   // Resizable split view
   const { splitPosition, splitContainerRef, handleSplitDragStart } = useSplitPane()
-  const { ySharedText, yUndoManager, yTextReady, remoteSelections, realtimeExtensions } = useRealtimeSync({
+
+  // Realtime sync (Yjs)
+  const { ySharedText, yUndoManager, yTextReady, remoteSelections, realtimeExtensions, getYText, getFileList } = useRealtimeSync({
     realtimeDoc: realtime?.doc || null,
     awareness: realtime?.awareness || null,
     peers: realtime?.peers || [],
     readOnly,
     providerVersion: realtime?.version,
     synced: realtime?.synced,
+    activeFile: 'main.tex', // updated below via multi-file hook
   })
 
-  // CodeMirror editor lifecycle hook
+  // Multi-file management
+  const { activeFile, fileList, handleCreateFile, handleDeleteFile, handleSelectFile } = useMultiFileManagement({
+    realtimeDoc: realtime?.doc || null,
+    getYText,
+    getFileList,
+    yTextReady,
+  })
+
+  // CodeMirror editor lifecycle
   const {
-    viewRef,
-    editorReady,
-    undoEnabled,
-    redoEnabled,
-    hasTextSelected,
-    handleContainerRef,
-    flushBufferedChange,
-    latestDocRef,
-    handleUndo,
-    handleRedo,
+    viewRef, editorReady, undoEnabled, redoEnabled, hasTextSelected,
+    handleContainerRef, flushBufferedChange, latestDocRef, handleUndo, handleRedo,
   } = useCodeMirrorEditor({
-    value,
-    onChange,
-    readOnly,
+    value, onChange, readOnly,
     realtimeDoc: realtime?.doc || null,
     realtimeAwareness: realtime?.awareness || null,
-    realtimeExtensions,
-    ySharedText,
-    yUndoManager,
-    yTextReady,
-    remoteSelections,
-    synced: realtime?.synced,
+    realtimeExtensions, ySharedText, yUndoManager, yTextReady, remoteSelections,
+    synced: realtime?.synced, paperId,
   })
 
   // Stable accessor for latest document source
@@ -108,20 +108,104 @@ function LaTeXEditorImpl(
     return latestDocRef.current || ''
   }, [viewRef, latestDocRef])
 
-  // LaTeX compilation hook
+  // Multi-file: get contents of all extra files for compilation
+  const getExtraFiles = useCallback((): Record<string, string> | null => {
+    if (fileList.length <= 1) return null
+    const files: Record<string, string> = {}
+    for (const f of fileList) {
+      if (f === 'main.tex') continue
+      if (realtime?.doc) {
+        const yText = getYText(f)
+        if (yText) files[f] = yText.toString()
+      }
+    }
+    return Object.keys(files).length > 0 ? files : null
+  }, [fileList, realtime?.doc, getYText])
+
+  // LaTeX compilation
   const {
-    iframeRef,
-    compileStatus,
-    compileError,
-    compileLogs,
-    lastCompileAt,
-    compileNow,
-  } = useLatexCompilation({
-    paperId,
-    readOnly,
-    getLatestSource,
-    flushBufferedChange,
+    iframeRef, compileStatus, compileError, compileLogs, compileErrors, lastCompileAt, compileNow, contentHash,
+  } = useLatexCompilation({ paperId, readOnly, getLatestSource, flushBufferedChange, getExtraFiles })
+
+  // SyncTeX: bidirectional PDF <-> source sync
+  const { forwardSync, backwardSync } = useSyncTeX({ contentHash, enabled: compileStatus === 'success' })
+
+  // Forward sync: source line → PDF position
+  const handleForwardSync = useCallback(() => {
+    const view = viewRef.current
+    if (!view) return
+    const line = view.state.doc.lineAt(view.state.selection.main.head).number
+    const result = forwardSync(line)
+    if (!result) return
+    const iframe = iframeRef.current
+    if (!iframe?.contentWindow) return
+    iframe.contentWindow.postMessage(
+      { type: 'syncToPosition', page: result.page, x: result.x, y: result.y },
+      window.location.origin
+    )
+  }, [forwardSync, iframeRef])
+
+  // Backward sync: PDF click → source line
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data
+      if (!data || data.type !== 'syncToSource') return
+      const iframe = iframeRef.current
+      if (iframe && event.source !== iframe.contentWindow) return
+      const page = Number(data.page)
+      const x = Number(data.x)
+      const y = Number(data.y)
+      if (!Number.isFinite(page) || !Number.isFinite(x) || !Number.isFinite(y)) return
+      const result = backwardSync(page, x, y)
+      if (!result) return
+      const view = viewRef.current
+      if (!view) return
+      try {
+        const lineInfo = view.state.doc.line(Math.min(result.line, view.state.doc.lines))
+        view.dispatch({ selection: { anchor: lineInfo.from }, scrollIntoView: true })
+        view.focus()
+      } catch {}
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [backwardSync, iframeRef])
+
+  // Dispatch compile error diagnostics to CodeMirror lint layer
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view) return
+    const diagnostics = compileErrors.length > 0
+      ? latexErrorsToDiagnostics(compileErrors, view)
+      : []
+    view.dispatch(setDiagnostics(view.state, diagnostics))
+  }, [compileErrors])
+
+  // Window event listeners for sidebar bibliography/cite insertion
+  useLatexEventListeners(viewRef)
+
+  // Document outline
+  const { outline } = useDocumentOutline({ viewRef, enabled: outlinePanelOpen })
+
+  // History restore + save
+  const { historyPanelOpen, setHistoryPanelOpen, saveState, saveError, handleRestoreFromHistory, handleSave } = useHistoryRestore({
+    viewRef, realtimeDoc: realtime?.doc || null, paperId, readOnly, disableSave: disableSave ?? false, flushBufferedChange, onSave,
   })
+
+  // Snippet / formatting insertion
+  const {
+    formattingGroups, insertAtDocumentEnd, insertSnippet,
+    insertBold, insertItalics, insertInlineMath, insertCite, insertFigure, insertTable, insertItemize, insertEnumerate,
+    handleFigureInsert,
+  } = useLatexSnippets({ viewRef, readOnly, setFigureDialogOpen })
+
+  // Citation dialog
+  const {
+    citationDialogOpen, citationAnchor,
+    handleOpenReferencesToolbar, handleCloseCitationDialog, handleInsertCitation, handleInsertBibliography,
+  } = useCitationHandlers({ paperId, readOnly, insertSnippet, insertAtDocumentEnd })
+
+  // AI text tools
+  const { aiActionLoading, handleAiAction } = useAiTextTools({ viewRef, readOnly, projectId, onOpenAiChatWithMessage })
 
   // Expose imperative handle
   useImperativeHandle(ref, () => ({
@@ -148,378 +232,20 @@ function LaTeXEditorImpl(
     focus: () => { try { viewRef.current?.focus() } catch {} }
   }), [realtime])
 
-  // Listen for LaTeX insertion events from sidebar (bibliography, cite)
-  useEffect(() => {
-    const onInsertBib = () => {
-      try {
-        const v = viewRef.current
-        if (!v) return
-        const doc = v.state.doc.toString()
-        if (/\\bibliography\{/.test(doc)) return
-        const insert = ['','% Bibliography','\\bibliographystyle{plain}','\\bibliography{main}',''].join('\n')
-        const endIdx = doc.lastIndexOf('\\end{document}')
-        const pos = endIdx >= 0 ? endIdx : v.state.doc.length
-        v.dispatch({ changes: { from: pos, to: pos, insert } })
-        v.focus()
-      } catch {}
-    }
-    const onInsertNoCite = (e: Event) => {
-      try {
-        const v = viewRef.current
-        if (!v) return
-        const ev = e as CustomEvent
-        const keys: string[] = Array.isArray(ev.detail?.keys) ? ev.detail.keys : []
-        if (!keys.length) return
-        const doc = v.state.doc.toString()
-        const line = `\\nocite{${Array.from(new Set(keys)).join(',')}}\n`
-        const endIdx = doc.lastIndexOf('\\end{document}')
-        const pos = endIdx >= 0 ? endIdx : v.state.doc.length
-        v.dispatch({ changes: { from: pos, to: pos, insert: '\n' + line } })
-        v.focus()
-      } catch {}
-    }
-    const onInsertCite = (e: Event) => {
-      try {
-        const v = viewRef.current
-        if (!v) return
-        const ev = e as CustomEvent
-        const key = ev.detail?.key
-        if (!key) return
-        const sel = v.state.selection.main
-        const insert = `\\cite{${key}}`
-        v.dispatch({ changes: { from: sel.from, to: sel.to, insert } })
-        v.focus()
-      } catch {}
-    }
-    window.addEventListener('SH_LATEX_INSERT_BIB', onInsertBib)
-    window.addEventListener('SH_LATEX_INSERT_NOCITE', onInsertNoCite as any)
-    window.addEventListener('SH_LATEX_INSERT_CITE', onInsertCite as any)
-    return () => {
-      window.removeEventListener('SH_LATEX_INSERT_BIB', onInsertBib)
-      window.removeEventListener('SH_LATEX_INSERT_NOCITE', onInsertNoCite as any)
-      window.removeEventListener('SH_LATEX_INSERT_CITE', onInsertCite as any)
-    }
-  }, [])
-
-  const containerCls = fullHeight
-    ? 'flex flex-1 min-h-0 flex-col bg-white text-slate-900 transition-colors dark:bg-slate-900 dark:text-slate-100'
-    : 'flex flex-1 min-h-0 flex-col bg-white text-slate-900 transition-colors dark:bg-slate-900 dark:text-slate-100'
+  // Layout classes
+  const containerCls = 'flex flex-1 min-h-0 flex-col bg-white text-slate-900 transition-colors dark:bg-slate-900 dark:text-slate-100'
   const showEditor = viewMode === 'code' || viewMode === 'split'
   const showPreview = viewMode === 'pdf' || viewMode === 'split'
   const splitLayout = viewMode === 'split'
   const contentLayoutCls = splitLayout
     ? 'mt-2 flex-1 min-h-0 flex overflow-hidden'
     : 'mt-2 flex-1 min-h-0 flex flex-col'
-  // In split mode, use dynamic widths based on splitPosition
   const editorPaneCls = splitLayout
     ? 'relative min-w-0 overflow-hidden rounded-l-md border border-slate-200 bg-white shadow-sm transition-colors dark:border-slate-800 dark:bg-slate-950/40 dark:shadow-slate-950/30'
     : 'relative flex-1 min-h-0 overflow-auto rounded-md border border-slate-200 bg-white shadow-sm transition-colors dark:border-slate-800 dark:bg-slate-950/40 dark:shadow-slate-950/30'
   const previewPaneCls = splitLayout
     ? 'min-w-0 flex flex-col overflow-hidden rounded-r-md border border-l-0 border-slate-200 bg-white shadow-sm transition-colors dark:border-slate-800 dark:bg-slate-950/40 dark:shadow-slate-950/30'
     : 'flex-1 min-h-0 flex flex-col overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm transition-colors dark:border-slate-800 dark:bg-slate-950/40 dark:shadow-slate-950/30'
-
-  const applyWrapper = useCallback((prefix: string, suffix: string, fallback = '') => {
-    if (readOnly) return
-    const view = viewRef.current
-    if (!view) return
-    const state = view.state
-    const { from, to } = state.selection.main
-    const selected = state.sliceDoc(from, to)
-    const content = selected || fallback
-    const insertText = `${prefix}${content}${suffix}`
-    const anchor = from + prefix.length
-    const head = anchor + content.length
-    view.dispatch({
-      changes: { from, to, insert: insertText },
-      selection: EditorSelection.single(anchor, head),
-      scrollIntoView: true,
-    })
-    view.focus()
-  }, [readOnly])
-
-  const insertSnippet = useCallback((snippet: string, placeholder?: string) => {
-    if (readOnly) return
-    const view = viewRef.current
-    if (!view) return
-    const state = view.state
-    const { from, to } = state.selection.main
-    let selection: SelectionRange | EditorSelection = EditorSelection.single(from + snippet.length, from + snippet.length)
-    if (placeholder) {
-      const idx = snippet.indexOf(placeholder)
-      if (idx >= 0) {
-        selection = EditorSelection.single(from + idx, from + idx + placeholder.length)
-      }
-    }
-    view.dispatch({
-      changes: { from, to, insert: snippet },
-      selection,
-      scrollIntoView: true,
-    })
-    view.focus()
-  }, [readOnly])
-
-  const insertAtDocumentEnd = useCallback((snippet: string, placeholder?: string) => {
-    if (readOnly) return
-    const view = viewRef.current
-    if (!view) return
-    const doc = view.state.doc
-    const raw = doc.toString()
-    const endDocIndex = raw.lastIndexOf('\\end{document}')
-
-    let insertPos = doc.length
-    let insertText = snippet
-
-    if (endDocIndex !== -1) {
-      insertPos = endDocIndex
-      const needsNewlineBefore = insertPos > 0 && raw[insertPos - 1] !== '\n'
-      insertText = `${needsNewlineBefore ? '\n' : ''}${snippet}\n`
-    } else {
-      const needsNewlineBefore = doc.length > 0 && doc.sliceString(Math.max(0, doc.length - 1), doc.length) !== '\n'
-      insertText = `${needsNewlineBefore ? '\n' : ''}${snippet}\n`
-    }
-
-    let selection: SelectionRange | EditorSelection = EditorSelection.cursor(insertPos + insertText.length)
-    if (placeholder) {
-      const idx = insertText.indexOf(placeholder)
-      if (idx >= 0) {
-        selection = EditorSelection.single(insertPos + idx, insertPos + idx + placeholder.length)
-      }
-    }
-
-    view.dispatch({
-      changes: { from: insertPos, to: insertPos, insert: insertText },
-      selection,
-      scrollIntoView: true,
-    })
-    view.focus()
-  }, [readOnly])
-
-  const insertHeading = useCallback((command: 'section' | 'subsection' | 'paragraph', placeholder: string) => {
-    const prefix = `\\${command}{`
-    const suffix = `}\n\n`
-    applyWrapper(prefix, suffix, placeholder)
-  }, [applyWrapper])
-
-  const insertBold = useCallback(() => applyWrapper('\\textbf{', '}', 'bold text'), [applyWrapper])
-  const insertItalics = useCallback(() => applyWrapper('\\textit{', '}', 'italic text'), [applyWrapper])
-  const insertSmallCaps = useCallback(() => applyWrapper('\\textsc{', '}', 'Small Caps'), [applyWrapper])
-  const insertInlineCode = useCallback(() => applyWrapper('\\texttt{', '}', 'code'), [applyWrapper])
-  const insertFootnote = useCallback(() => applyWrapper('\\footnote{', '}', 'Footnote text'), [applyWrapper])
-  const insertInlineMath = useCallback(() => applyWrapper('$', '$', 'x^2'), [applyWrapper])
-  const insertDisplayMath = useCallback(() => applyWrapper('\\[\n', '\n\\]\n\n', 'E = mc^2'), [applyWrapper])
-  const insertAlignEnv = useCallback(() => insertSnippet('\\begin{align}\n  a + b &= c \\\n  d + e &= f\n\\end{align}\n\n', 'a + b &= c'), [insertSnippet])
-  const insertItemize = useCallback(() => insertSnippet('\\begin{itemize}\n  \\item First item\n  \\item Second item\n\\end{itemize}\n\n', 'First item'), [insertSnippet])
-  const insertEnumerate = useCallback(() => insertSnippet('\\begin{enumerate}\n  \\item First step\n  \\item Second step\n\\end{enumerate}\n\n', 'First step'), [insertSnippet])
-  const insertDescription = useCallback(() => insertSnippet('\\begin{description}\n  \\item[Term] Definition text\n\\end{description}\n\n', 'Term'), [insertSnippet])
-  const insertQuote = useCallback(() => insertSnippet('\\begin{quote}\nQuote text here.\n\\end{quote}\n\n', 'Quote text here.'), [insertSnippet])
-  const insertFigure = useCallback(() => {
-    setFigureDialogOpen(true)
-  }, [])
-
-  const handleFigureInsert = useCallback((imageUrl: string, caption: string, label: string, width: string) => {
-    const figureCode = `\\begin{figure}[ht]\n  \\centering\n  \\includegraphics[width=${width}\\linewidth]{${imageUrl}}\n  \\caption{${caption}}\n  \\label{${label}}\n\\end{figure}\n\n`
-    insertSnippet(figureCode, caption)
-  }, [insertSnippet])
-  const insertTable = useCallback(() => insertSnippet('\\begin{table}[ht]\n  \\centering\n  \\begin{tabular}{lcc}\n    \\toprule\n    Column 1 & Column 2 & Column 3 \\\n    \\midrule\n    Row 1 & 0.0 & 0.0 \\\n    Row 2 & 0.0 & 0.0 \\\n    \\bottomrule\n  \\end{tabular}\n  \\caption{Caption here}\n  \\label{tab:example}\n\\end{table}\n\n', 'Caption here'), [insertSnippet])
-
-  const insertCite = useCallback(() => {
-    if (readOnly) return
-    insertSnippet('\\cite{key}', 'key')
-  }, [readOnly, insertSnippet])
-
-  const handleInsertBibliographyAction = useCallback(() => {
-    if (readOnly) return
-    // Simple direct insertion - user can manually edit the style
-    insertSnippet('\n% Bibliography\n\\bibliographystyle{plain}\n\\bibliography{main}\n', 'bibliography')
-  }, [readOnly, insertSnippet])
-
-  const formattingActions = useMemo(() => ({
-    section: () => insertHeading('section', 'Section Title'),
-    subsection: () => insertHeading('subsection', 'Subsection Title'),
-    paragraph: () => insertHeading('paragraph', 'Paragraph Title'),
-    bold: insertBold,
-    italic: insertItalics,
-    smallcaps: insertSmallCaps,
-    code: insertInlineCode,
-    quote: insertQuote,
-    footnote: insertFootnote,
-    'math-inline': insertInlineMath,
-    'math-display': insertDisplayMath,
-    align: insertAlignEnv,
-    itemize: insertItemize,
-    enumerate: insertEnumerate,
-    description: insertDescription,
-    figure: insertFigure,
-    table: insertTable,
-    cite: insertCite,
-    bibliography: handleInsertBibliographyAction,
-  }), [insertHeading, insertBold, insertItalics, insertSmallCaps, insertInlineCode, insertQuote, insertFootnote, insertInlineMath, insertDisplayMath, insertAlignEnv, insertItemize, insertEnumerate, insertDescription, insertFigure, insertTable, insertCite, handleInsertBibliographyAction])
-
-  const formattingGroups = useMemo(() => LATEX_FORMATTING_GROUPS.map(group => ({
-    label: group.label,
-    items: group.items.map(item => {
-      const Icon = item.Icon
-      return {
-        key: item.key,
-        label: item.label,
-        title: item.title,
-        icon: <Icon className="h-3.5 w-3.5" />,
-        action: formattingActions[item.key as keyof typeof formattingActions] ?? (() => {}),
-      }
-    }),
-  })), [formattingActions])
-
-  const handleOpenReferencesToolbar = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
-    if (readOnly) return
-    // Store button element for positioning
-    const button = event.currentTarget
-    setCitationAnchor(button)
-    setCitationDialogOpen(true)
-  }, [readOnly])
-
-  const handleInsertCitation = useCallback((citationKey: string, _references?: any[]) => {
-    const cite = `\\cite{${citationKey}}`
-    insertSnippet(cite, citationKey)
-  }, [insertSnippet])
-
-  const getSelectedText = useCallback(() => {
-    try {
-      const view = viewRef.current
-      if (!view) return ''
-      const sel = view.state.selection.main
-      return view.state.doc.sliceString(sel.from, sel.to)
-    } catch {
-      return ''
-    }
-  }, [])
-
-  const replaceSelectedText = useCallback((text: string) => {
-    try {
-      const view = viewRef.current
-      if (!view) return
-      const sel = view.state.selection.main
-      view.dispatch({
-        changes: { from: sel.from, to: sel.to, insert: text || '' }
-      })
-      view.focus()
-    } catch {}
-  }, [])
-
-  const handleAiAction = useCallback(async (action: string, tone?: string) => {
-    if (readOnly || aiActionLoading) return
-
-    const selectedText = getSelectedText()
-    if (!selectedText.trim()) {
-      alert('Please select some text first')
-      return
-    }
-
-    // For explain/summarize/synonyms: redirect to AI chat panel (non-destructive)
-    const chatActions = ['explain', 'summarize', 'synonyms']
-    if (chatActions.includes(action) && onOpenAiChatWithMessage) {
-      const actionLabels: Record<string, string> = {
-        explain: 'Explain this text',
-        summarize: 'Summarize this text',
-        synonyms: 'Suggest synonyms for key terms in this text',
-      }
-      const prompt = `${actionLabels[action]}:\n\n"${selectedText}"`
-      onOpenAiChatWithMessage(prompt)
-      return
-    }
-
-    // For paraphrase/tone: in-place replacement via API
-    const loadingKey = action === 'tone' && tone ? `tone_${tone}` : action
-    setAiActionLoading(loadingKey)
-
-    try {
-      const payload: any = {
-        text: selectedText,
-        action: action,
-        project_id: projectId,
-      }
-
-      if (tone) {
-        payload.tone = tone
-      }
-
-      const token = localStorage.getItem('access_token')
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      }
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`
-      }
-
-      const response = await fetch(buildApiUrl('/ai/text-tools'), {
-        method: 'POST',
-        headers,
-        credentials: 'include',
-        body: JSON.stringify(payload),
-      })
-
-      if (!response.ok) {
-        throw new Error(`Request failed: ${response.status}`)
-      }
-
-      const data = await response.json()
-      if (data.result) {
-        replaceSelectedText(data.result)
-      }
-    } catch (error) {
-      console.error('AI action failed:', error)
-      alert('Failed to process text. Please try again.')
-    } finally {
-      setAiActionLoading(null)
-    }
-  }, [readOnly, getSelectedText, replaceSelectedText, projectId, aiActionLoading, onOpenAiChatWithMessage])
-
-  const handleRestoreFromHistory = useCallback((content: string, _snapshotId: string) => {
-    if (realtime?.doc) {
-      try {
-        const yText = realtime.doc.getText('main')
-        yText.delete(0, yText.length)
-        yText.insert(0, content)
-      } catch (err) {
-        console.warn('[LaTeXEditor] realtime restore failed', err)
-      }
-    } else {
-      try {
-        const v = viewRef.current
-        if (v) {
-          const cur = v.state.doc.toString()
-          v.dispatch({ changes: { from: 0, to: cur.length, insert: content } })
-        }
-      } catch {}
-    }
-    setHistoryPanelOpen(false)
-  }, [realtime])
-
-  const handleSave = useCallback(async () => {
-    if (disableSave || readOnly || saveState === 'saving') return
-    flushBufferedChange()
-    setSaveState('saving')
-    setSaveError(null)
-    try {
-      const v = viewRef.current?.state.doc.toString() || ''
-      const contentJson = { authoring_mode: 'latex', latex_source: v }
-      const activePaperId = paperId ?? (window as any).__SH_ACTIVE_PAPER_ID
-
-      if (onSave) {
-        await onSave(v, contentJson)
-      } else {
-        if (!activePaperId) throw new Error('Missing paper id')
-        await researchPapersAPI.updatePaperContent(activePaperId, { content_json: contentJson, manual_save: true })
-      }
-
-      try { logEvent('LatexSaveClicked', { len: v.length }) } catch {}
-      setSaveState('success')
-      setTimeout(() => setSaveState('idle'), 2000)
-    } catch (e: any) {
-      console.warn('Save failed', e)
-      setSaveState('error')
-      setSaveError(e?.message || 'Save failed')
-    }
-  }, [disableSave, readOnly, saveState, flushBufferedChange, paperId, onSave])
 
   return (
     <div className={containerCls}>
@@ -554,17 +280,27 @@ function LaTeXEditorImpl(
         onInsertEnumerate={insertEnumerate}
         paperId={paperId}
         onOpenReferences={handleOpenReferencesToolbar}
+        outlinePanelOpen={outlinePanelOpen}
+        onToggleOutline={() => setOutlinePanelOpen(prev => !prev)}
         onOpenHistory={() => setHistoryPanelOpen(true)}
         aiActionLoading={aiActionLoading}
         onAiAction={handleAiAction}
+        onForwardSync={handleForwardSync}
       />
       <div ref={splitContainerRef} className={contentLayoutCls}>
         {showEditor && (
-          <div
-            className={editorPaneCls}
-            style={splitLayout ? { width: `${splitPosition}%` } : undefined}
-          >
-            <div ref={handleContainerRef} className="absolute inset-0" />
+          <div className={editorPaneCls} style={splitLayout ? { width: `${splitPosition}%` } : undefined}>
+            {realtime?.doc && (
+              <FileSelector
+                files={fileList}
+                activeFile={activeFile}
+                onSelectFile={handleSelectFile}
+                onCreateFile={handleCreateFile}
+                onDeleteFile={handleDeleteFile}
+                readOnly={readOnly}
+              />
+            )}
+            <div ref={handleContainerRef} className={realtime?.doc ? 'absolute inset-0 top-auto bottom-0' : 'absolute inset-0'} style={realtime?.doc && fileList.length > 0 ? { top: fileList.length > 1 ? '33px' : '29px' } : undefined} />
             {!editorReady && (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-white/80 text-xs text-slate-500 dark:bg-slate-950/70 dark:text-slate-300">
                 Initializing editor…
@@ -590,10 +326,7 @@ function LaTeXEditorImpl(
         )}
 
         {showPreview && (
-          <div
-            className={previewPaneCls}
-            style={splitLayout ? { width: `${100 - splitPosition}%` } : undefined}
-          >
+          <div className={previewPaneCls} style={splitLayout ? { width: `${100 - splitPosition}%` } : undefined}>
             <PdfPreviewPane
               iframeRef={iframeRef}
               pdfViewerHtml={pdfViewerHtml}
@@ -618,47 +351,20 @@ function LaTeXEditorImpl(
       {paperId && (
         <CitationDialog
           isOpen={citationDialogOpen}
-          onClose={() => setCitationDialogOpen(false)}
+          onClose={handleCloseCitationDialog}
           paperId={paperId}
           projectId={projectId}
           onInsertCitation={handleInsertCitation}
-          onInsertBibliography={async (style, bibFile, references) => {
-            const bibContent = references.map(ref => {
-              const key = makeBibKey(ref)
-              const authors = ref.authors?.join(' and ') || ''
-              const title = ref.title || ''
-              const year = ref.year || ''
-              const journal = ref.journal || ''
-              const doi = ref.doi || ''
-
-              return `@article{${key},
-  author = {${authors}},
-  title = {${title}},
-  year = {${year}},
-  journal = {${journal}},
-  doi = {${doi}}
-}`
-            }).join('\n\n')
-
-            try {
-              const formData = new FormData()
-              const bibFile_obj = new File([bibContent], `${bibFile}.bib`, {
-                type: 'application/x-bibtex'
-              })
-              formData.append('file', bibFile_obj)
-              await researchPapersAPI.uploadBib(paperId, formData)
-              const snippet = `\\clearpage\n% Bibliography\n\\bibliographystyle{${style}}\n\\bibliography{${bibFile}}\n`
-              insertAtDocumentEnd(snippet, bibFile)
-            } catch (error: any) {
-              console.error('Failed to upload .bib file:', error)
-              const detail = error.response?.data?.detail
-              const message = Array.isArray(detail)
-                ? detail.map((d: any) => `${d.loc?.join('.') || 'unknown'}: ${d.msg}`).join(', ')
-                : (detail || error.message || 'Upload failed')
-              alert(`Failed to upload bibliography file. ${message}`)
-            }
-          }}
+          onInsertBibliography={handleInsertBibliography}
           anchorElement={citationAnchor}
+        />
+      )}
+
+      {outlinePanelOpen && (
+        <OutlinePanel
+          outline={outline}
+          viewRef={viewRef}
+          onClose={() => setOutlinePanelOpen(false)}
         />
       )}
 

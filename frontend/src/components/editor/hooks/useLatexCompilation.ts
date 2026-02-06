@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { logEvent } from '../../../utils/metrics'
 import { buildApiUrl, API_ROOT } from '../../../services/api'
+import type { LatexError } from '../extensions/latexErrorMarkers'
 
 interface UseLatexCompilationOptions {
   paperId: string | undefined
   readOnly: boolean
   getLatestSource: () => string
   flushBufferedChange: () => void
+  getExtraFiles?: () => Record<string, string> | null
 }
 
 interface UseLatexCompilationReturn {
@@ -14,8 +16,10 @@ interface UseLatexCompilationReturn {
   compileStatus: 'idle' | 'compiling' | 'success' | 'error'
   compileError: string | null
   compileLogs: string[]
+  compileErrors: LatexError[]
   lastCompileAt: number | null
   compileNow: () => Promise<void>
+  contentHash: string | null
 }
 
 export function useLatexCompilation({
@@ -23,6 +27,7 @@ export function useLatexCompilation({
   readOnly,
   getLatestSource,
   flushBufferedChange,
+  getExtraFiles,
 }: UseLatexCompilationOptions): UseLatexCompilationReturn {
   // Debug helper -- enable with `window.__SH_DEBUG_LTX = true` in DevTools
   const debugLog = useCallback((...args: any[]) => {
@@ -34,7 +39,9 @@ export function useLatexCompilation({
   const [compileStatus, setCompileStatus] = useState<'idle' | 'compiling' | 'success' | 'error'>('idle')
   const [compileError, setCompileError] = useState<string | null>(null)
   const [compileLogs, setCompileLogs] = useState<string[]>([])
+  const [compileErrors, setCompileErrors] = useState<LatexError[]>([])
   const [lastCompileAt, setLastCompileAt] = useState<number | null>(null)
+  const [contentHash, setContentHash] = useState<string | null>(null)
 
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const pdfBlobRef = useRef<string | null>(null)
@@ -79,6 +86,7 @@ export function useLatexCompilation({
     }
     const projectId = paperId ?? (window as any).__SH_ACTIVE_PAPER_ID ?? null
     setCompileLogs([])
+    setCompileErrors([])
     setCompileError(null)
     setCompileStatus('compiling')
     if (compileAbortRef.current) {
@@ -102,13 +110,19 @@ export function useLatexCompilation({
       compileSeqRef.current += 1
       const mySeq = compileSeqRef.current
 
+      const extraFiles = getExtraFiles?.() || null
+      const body: Record<string, any> = { latex_source: src, paper_id: projectId, include_bibtex: true, job_label: buildId }
+      if (extraFiles && Object.keys(extraFiles).length > 0) {
+        body.latex_files = extraFiles
+      }
+
       const resp = await fetch(buildApiUrl('/latex/compile/stream'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
         },
-        body: JSON.stringify({ latex_source: src, paper_id: projectId, include_bibtex: true, job_label: buildId }),
+        body: JSON.stringify(body),
         signal: controller.signal
       })
       if (!resp.ok || !resp.body) throw new Error(`Compile failed: ${resp.status} ${resp.statusText}`)
@@ -136,6 +150,10 @@ export function useLatexCompilation({
               const msg = payload.message || 'Compilation error'
               firstError = firstError || msg
             } else if (payload.type === 'final' && payload.pdf_url) {
+              if (payload.hash) setContentHash(payload.hash)
+              if (Array.isArray(payload.errors)) {
+                setCompileErrors(payload.errors as LatexError[])
+              }
               debugLog('Received final event with PDF URL:', payload.pdf_url)
               const pdfUrl = resolveApiUrl(payload.pdf_url)
               debugLog('Resolved PDF URL:', pdfUrl)
@@ -178,7 +196,7 @@ export function useLatexCompilation({
     } finally {
       if (compileAbortRef.current === controller) compileAbortRef.current = null
     }
-  }, [cleanupPdf, debugLog, flushBufferedChange, getLatestSource, paperId, postPdfToIframe, readOnly, resolveApiUrl])
+  }, [cleanupPdf, debugLog, flushBufferedChange, getLatestSource, getExtraFiles, paperId, postPdfToIframe, readOnly, resolveApiUrl])
 
   // Viewer-ready listener: re-post PDF when iframe signals readiness
   useEffect(() => {
@@ -226,7 +244,9 @@ export function useLatexCompilation({
     compileStatus,
     compileError,
     compileLogs,
+    compileErrors,
     lastCompileAt,
     compileNow,
+    contentHash,
   }
 }

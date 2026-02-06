@@ -303,8 +303,67 @@
                 try { document.body.removeChild(tmp) } catch {}
                 ignoreResize = false
               })()
+          } else if (data && data.type === 'syncToPosition') {
+              // SyncTeX forward sync: scroll to page/position and flash indicator
+              const targetPage = data.page || 1
+              const targetX = data.x || 0
+              const targetY = data.y || 0
+              if (!pdfDoc || !canvases.length) return
+              // Find the canvas for the target page (1-based → 0-indexed)
+              const pageIdx = Math.max(0, Math.min(targetPage - 1, canvases.length - 1))
+              const canvas = canvases[pageIdx]
+              if (!canvas) return
+              const vp = pageViewports[pageIdx]
+              if (!vp) return
+              // Calculate pixel position on canvas
+              // SyncTeX coords are in TeX points from the top-left of the page
+              // vp.width/height are the CSS pixel dimensions
+              const scaleX = vp.width / (vp.viewBox[2] - vp.viewBox[0])
+              const scaleY = vp.height / (vp.viewBox[3] - vp.viewBox[1])
+              // Scroll canvas into view
+              canvas.scrollIntoView({ behavior: 'smooth', block: 'center' })
+              // Flash indicator
+              const indicator = document.createElement('div')
+              indicator.style.cssText = 'position:absolute;width:100%;height:24px;background:rgba(59,130,246,0.25);pointer-events:none;transition:opacity 1.5s;border-left:3px solid #3b82f6;z-index:10;'
+              const rect = canvas.getBoundingClientRect()
+              const viewerRect = viewer.getBoundingClientRect()
+              const pxY = targetY * scaleY
+              indicator.style.top = (rect.top - viewerRect.top + viewer.scrollTop + pxY - 12) + 'px'
+              indicator.style.left = '0'
+              viewer.style.position = 'relative'
+              viewer.appendChild(indicator)
+              setTimeout(() => { indicator.style.opacity = '0' }, 300)
+              setTimeout(() => { try { viewer.removeChild(indicator) } catch {} }, 1800)
           }
         } catch {}
+      })
+
+      // SyncTeX backward sync: Ctrl+Click on PDF → send line to parent
+      viewer.addEventListener('click', function(e) {
+        if (!e.ctrlKey && !e.metaKey) return
+        if (!pdfDoc || !canvases.length || !pageViewports.length) return
+        e.preventDefault()
+        // Determine which canvas was clicked
+        const scaler = document.getElementById('scaler')
+        if (!scaler) return
+        for (let i = 0; i < canvases.length; i++) {
+          const canvas = canvases[i]
+          const rect = canvas.getBoundingClientRect()
+          if (e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom) {
+            const vp = pageViewports[i]
+            if (!vp) return
+            // Convert click position to TeX coordinates
+            const scaleX = (vp.viewBox[2] - vp.viewBox[0]) / vp.width
+            const scaleY = (vp.viewBox[3] - vp.viewBox[1]) / vp.height
+            const texX = (e.clientX - rect.left) * scaleX
+            const texY = (e.clientY - rect.top) * scaleY
+            const page = i + 1
+            try {
+              window.parent.postMessage({ type: 'syncToSource', page: page, x: texX, y: texY }, '*')
+            } catch {}
+            return
+          }
+        }
       })
 
       try {

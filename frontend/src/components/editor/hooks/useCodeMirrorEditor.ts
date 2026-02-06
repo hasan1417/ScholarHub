@@ -2,11 +2,14 @@ import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { EditorState, StateEffect, type Extension } from '@codemirror/state'
 import { EditorView, keymap, drawSelection, highlightActiveLine, highlightActiveLineGutter, lineNumbers } from '@codemirror/view'
 import { defaultKeymap, indentWithTab, history, historyKeymap, undo, redo, undoDepth, redoDepth } from '@codemirror/commands'
-import { StreamLanguage, bracketMatching, foldGutter, foldKeymap } from '@codemirror/language'
-import { stex } from '@codemirror/legacy-modes/mode/stex'
+import { bracketMatching, foldGutter, foldKeymap } from '@codemirror/language'
 import { search, searchKeymap } from '@codemirror/search'
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
+import { lintGutter } from '@codemirror/lint'
+import { latexAutocompletion, completionKeymap } from '../extensions/latexAutocomplete'
 import { latexFoldService } from '../extensions/latexFoldService'
+import { latexLanguageSetup } from '../extensions/latexLanguageSetup'
+import { latexSpellcheck } from '../extensions/latexSpellcheck'
 import { overleafLatexTheme } from '../codemirror/overleafTheme'
 import { setRemoteSelectionsEffect, remoteSelectionsField, createRemoteDecorations } from '../extensions/remoteSelectionsField'
 import { scrollOnDragSelection } from '../extensions/scrollOnDragSelection'
@@ -29,6 +32,7 @@ interface UseCodeMirrorEditorOptions {
   yTextReady: number
   remoteSelections: RemoteSelection[]
   synced?: boolean
+  paperId?: string
 }
 
 interface UseCodeMirrorEditorReturn {
@@ -60,6 +64,7 @@ export function useCodeMirrorEditor({
   yTextReady,
   remoteSelections,
   synced,
+  paperId,
 }: UseCodeMirrorEditorOptions): UseCodeMirrorEditorReturn {
   // Debug helper -- enable with `window.__SH_DEBUG_LTX = true` in DevTools
   const debugLog = useCallback((...args: any[]) => {
@@ -77,6 +82,8 @@ export function useCodeMirrorEditor({
   const applyingFromEditorRef = useRef(false)
   const latestDocRef = useRef<string>(value || '')
   const pendingChangeTimerRef = useRef<number | null>(null)
+  const syncedRef = useRef(synced)
+  syncedRef.current = synced
 
   const onChangeRef = useRef(onChange)
   useEffect(() => {
@@ -158,6 +165,7 @@ export function useCodeMirrorEditor({
       ...(realtimeDoc ? [] : historyKeymap),
       ...searchKeymap,
       ...closeBracketsKeymap,
+      ...completionKeymap,
       ...foldKeymap,
       indentWithTab,
       ...defaultKeymap,
@@ -169,7 +177,7 @@ export function useCodeMirrorEditor({
       highlightActiveLine(),
       highlightActiveLineGutter(),
       ...(realtimeDoc ? [] : [history()]),
-      StreamLanguage.define(stex),
+      latexLanguageSetup(),
       keymap.of(baseKeymap),
       EditorView.lineWrapping,
       scrollOnDragSelection,
@@ -179,9 +187,13 @@ export function useCodeMirrorEditor({
       // Bracket matching & auto-closing
       bracketMatching(),
       closeBrackets(),
+      // LaTeX-aware autocompletion (commands, environments, citations, refs)
+      latexAutocompletion(paperId),
       // Code folding for LaTeX environments and sections
       foldGutter(),
       latexFoldService,
+      lintGutter(),
+      latexSpellcheck(),
       ...realtimeExtensions,
       EditorView.updateListener.of((update) => {
         if (update.selectionSet || update.docChanged) {
@@ -218,7 +230,7 @@ export function useCodeMirrorEditor({
         Promise.resolve().then(() => { applyingFromEditorRef.current = false })
       }),
     ]
-  }, [realtimeDoc, realtimeAwareness, readOnly, realtimeExtensions, scheduleBufferedChange, debugLog, yUndoManager])
+  }, [realtimeDoc, realtimeAwareness, readOnly, realtimeExtensions, scheduleBufferedChange, debugLog, yUndoManager, paperId])
 
   // -----------------------------------------------------------------------
   // View lifecycle helpers
@@ -234,26 +246,24 @@ export function useCodeMirrorEditor({
 
   const createView = useCallback((parent: HTMLElement) => {
     clearContainer(parent)
-    // Safari workaround: use yText content directly instead of relying on yCollab sync
-    const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
-    const yTextContent = ySharedText ? ySharedText.toString() : ''
-
     // In realtime mode:
-    // - Safari: use yText content directly (bypasses yCollab sync timing issues)
-    // - Other browsers: start empty, let yCollab sync from Yjs
-    const initialDoc = realtimeDoc
-      ? (isSafari && yTextContent ? yTextContent : '')
-      : (latestDocRef.current || '')
+    //  - If provider has NOT synced yet (synced=false): use '' as initialDoc.
+    //    yCollab's Y.Text observer will push content when the provider syncs.
+    //  - If provider HAS synced (synced=true, e.g. HMR re-mount): use Y.Text
+    //    content as initialDoc, since no new sync event will fire the observer.
+    let initialDoc: string
+    if (realtimeDoc) {
+      const yContent = syncedRef.current ? (realtimeDoc.getText('main')?.toString() || '') : ''
+      initialDoc = yContent
+    } else {
+      initialDoc = latestDocRef.current || ''
+    }
 
     const hasYCollab = realtimeExtensions.length > 0
     debugLog('createView called', {
-      isSafari,
       hasRealtimeDoc: !!realtimeDoc,
-      yTextLength: yTextContent?.length ?? 'N/A',
-      yTextSample: yTextContent?.slice(0, 50) ?? 'N/A',
       hasYCollab,
       initialDocLength: initialDoc.length,
-      realtimeExtensionsCount: realtimeExtensions.length,
     })
 
     const state = EditorState.create({
@@ -277,13 +287,14 @@ export function useCodeMirrorEditor({
     } catch {}
     viewRef.current = view
     setEditorReady(true)
+
     if (!readOnly && realtimeAwareness) {
       try {
         const main = view.state.selection.main
         realtimeAwareness.setLocalStateField('selection', { anchor: main.from, head: main.to })
       } catch {}
     }
-  }, [cmExtensions, realtimeDoc, realtimeAwareness, readOnly, clearContainer, realtimeExtensions.length, ySharedText])
+  }, [cmExtensions, realtimeDoc, realtimeAwareness, readOnly, clearContainer, realtimeExtensions.length])
 
   const handleContainerRef = useCallback((el: HTMLDivElement | null) => {
     if (el === containerRef.current) return
@@ -353,73 +364,51 @@ export function useCodeMirrorEditor({
   }, [cmExtensions])
 
   // -----------------------------------------------------------------------
-  // Safari workaround: Force refresh when synced becomes true
+  // Post-sync integrity check: detect doubled content in Y.Text
   // -----------------------------------------------------------------------
   useEffect(() => {
-    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
-    if (!isSafari) return
     if (!realtimeDoc) return
-
-    debugLog('Safari effect triggered:', {
-      synced,
-      hasView: !!viewRef.current,
-      hasYSharedText: !!ySharedText,
-      hasContainer: !!containerRef.current,
-    })
-
     if (!synced) return
 
-    // Check periodically for content mismatch (Safari timing issues)
     const checkAndFix = () => {
       const yText = realtimeDoc?.getText('main')
-      if (!yText) {
-        debugLog('Safari: no yText available')
-        return
-      }
+      if (!yText) return
 
       const yContent = yText.toString()
-      const viewContent = viewRef.current?.state?.doc?.toString() || ''
 
-      debugLog('Safari sync check:', {
-        yTextLength: yContent.length,
-        viewLength: viewContent.length,
-        mismatch: yContent.length !== viewContent.length,
-      })
-
-      // If CodeMirror view is empty but Yjs has content, force refresh
-      if (viewContent.length === 0 && yContent.length > 0) {
-        debugLog('Safari: view empty but Yjs has content, forcing refresh')
-
-        if (containerRef.current) {
-          // Destroy and recreate the view
-          if (viewRef.current) {
-            viewRef.current.destroy()
-            viewRef.current = null
-          }
-          setTimeout(() => {
-            if (containerRef.current && !viewRef.current) {
-              try { createView(containerRef.current) } catch (e) {
-                console.error('[useCodeMirrorEditor] Safari: failed to recreate view', e)
-              }
-            }
-          }, 50)
+      // Safety net: detect doubled content in Y.Text.
+      // If the content is exactly the same text repeated twice, fix it.
+      if (yContent.length > 100 && yContent.length % 2 === 0) {
+        const half = yContent.length / 2
+        const firstHalf = yContent.slice(0, half)
+        const secondHalf = yContent.slice(half)
+        if (firstHalf === secondHalf) {
+          console.warn('[useCodeMirrorEditor] Detected doubled content in Y.Text, deduplicating', {
+            totalLength: yContent.length,
+            halfLength: half,
+          })
+          realtimeDoc.transact(() => {
+            yText.delete(half, half)
+          })
+          return // yCollab will sync the corrected content to the view
         }
       }
     }
 
-    // Run check immediately and after a delay (Safari timing workaround)
-    checkAndFix()
-    const timeout = setTimeout(checkAndFix, 500)
+    // Run check after a delay to catch bootstrap-related doubling
+    const timeout = setTimeout(checkAndFix, 1500)
 
     return () => clearTimeout(timeout)
-  }, [synced, realtimeDoc, createView, ySharedText])
+  }, [synced, realtimeDoc, debugLog])
 
   // -----------------------------------------------------------------------
   // Value sync (non-realtime mode only)
   // -----------------------------------------------------------------------
   useEffect(() => {
-    // CRITICAL: Skip external value sync when in realtime mode
-    // In realtime mode, Yjs is the single source of truth
+    // CRITICAL: Skip external value sync when in realtime mode.
+    // In realtime mode, Yjs is the single source of truth — never push
+    // prop values into the editor (which would also flow into Y.Text via
+    // yCollab and risk content doubling during bootstrap).
     if (realtimeDoc) {
       debugLog('skipping external value sync (realtime mode)')
       return
