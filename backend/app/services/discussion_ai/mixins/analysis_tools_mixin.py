@@ -29,27 +29,29 @@ class AnalysisToolsMixin:
         - self._save_ai_memory(channel, memory) -> None
     """
 
-    def _tool_deep_search_papers(
+    def _tool_trigger_search_ui(
         self,
         ctx: Dict[str, Any],
         research_question: str,
         max_papers: int = 10,
     ) -> Dict:
         """
-        Deep search with synthesis context.
-        Searches for papers and provides them in a format optimized for AI synthesis.
+        Trigger the frontend search UI for a research question.
+
+        This tool does NOT perform an actual search - it sends an action to the frontend
+        to display a search interface where the user can execute and review the search results.
         """
         # Store the research question in memory for context
         channel = ctx.get("channel")
         if channel:
             memory = self._get_ai_memory(channel)
-            memory.setdefault("deep_search", {})["last_question"] = research_question
+            memory.setdefault("search_ui_trigger", {})["last_question"] = research_question
             self._save_ai_memory(channel, memory)
 
-        # Trigger the search (frontend will execute it)
+        # Trigger the frontend search UI
         return {
             "status": "success",
-            "message": f"Deep searching for: '{research_question}'",
+            "message": f"Opening search interface for: '{research_question}'",
             "research_question": research_question,
             "action": {
                 "type": "deep_search_references",
@@ -60,8 +62,8 @@ class AnalysisToolsMixin:
                 },
             },
             "next_step": (
-                "The search results will appear below. I'll synthesize an answer "
-                "citing specific papers. You can then focus on specific papers for deeper discussion."
+                "The search interface will appear below. Once the search completes, "
+                "I can help synthesize the results or you can focus on specific papers for deeper discussion."
             ),
         }
 
@@ -319,7 +321,6 @@ class AnalysisToolsMixin:
         Cross-paper analysis using RAG (Retrieval Augmented Generation).
         Dynamically retrieves relevant chunks based on the analysis question.
         """
-        import math
         from app.models import Reference, ProjectReference
         from app.models.document_chunk import DocumentChunk
 
@@ -393,75 +394,57 @@ class AnalysisToolsMixin:
                 )
                 query_embedding = embedding_response.data[0].embedding
 
-                def cosine_similarity(a, b):
-                    try:
-                        dot = sum(x * y for x, y in zip(a, b))
-                        norm_a = math.sqrt(sum(x * x for x in a))
-                        norm_b = math.sqrt(sum(y * y for y in b))
-                        return dot / (norm_a * norm_b) if norm_a and norm_b else 0.0
-                    except Exception:
-                        return 0.0
+                # Convert embedding to pgvector format
+                from sqlalchemy import text
+                embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
 
-                # For each paper with chunks, find the most relevant chunks
+                # For each paper with chunks, find the most relevant chunks using pgvector SQL
                 for paper_idx, paper, ref in papers_with_chunks:
-                    chunks = self.db.query(DocumentChunk).filter(
-                        DocumentChunk.document_id == ref.document_id
-                    ).limit(500).all()
+                    # Use pgvector to find top chunks directly in the database
+                    sql = text("""
+                        SELECT id, chunk_text, 1 - (embedding <=> :query_embedding) as similarity
+                        FROM document_chunks
+                        WHERE document_id = :document_id
+                            AND embedding IS NOT NULL
+                        ORDER BY embedding <=> :query_embedding
+                        LIMIT :limit
+                    """)
 
-                    if not chunks:
-                        papers_abstract_only.append((paper_idx, paper))
-                        continue
+                    result = self.db.execute(
+                        sql,
+                        {
+                            "query_embedding": embedding_str,
+                            "document_id": str(ref.document_id),
+                            "limit": 4,
+                        }
+                    )
+                    rows = result.fetchall()
 
-                    # Score chunks by relevance to the question
-                    scored_chunks = []
-                    for chunk in chunks:
-                        if not chunk.chunk_text:
-                            continue
-
-                        emb = chunk.embedding
-                        if emb is not None:
-                            # Handle different embedding formats
-                            if isinstance(emb, str):
-                                try:
-                                    import json as _json
-                                    emb = _json.loads(emb)
-                                except (json.JSONDecodeError, ValueError):
-                                    emb = None
-
-                            if emb:
-                                score = cosine_similarity(query_embedding, emb)
-                                scored_chunks.append((chunk, score))
-                        else:
-                            # Fallback: keyword matching
-                            query_terms = [t.lower() for t in analysis_question.split() if len(t) > 2]
-                            text_lower = chunk.chunk_text.lower()
-                            score = sum(text_lower.count(term) for term in query_terms) / 100.0
-                            if score > 0:
-                                scored_chunks.append((chunk, score))
-
-                    # Sort by relevance and take top chunks (up to 4 per paper)
-                    scored_chunks.sort(key=lambda x: x[1], reverse=True)
-                    top_chunks = scored_chunks[:4]
-
-                    if top_chunks:
+                    if rows:
                         # Build context from relevant chunks
                         chunk_texts = []
-                        for chunk, score in top_chunks:
+                        top_score = 0.0
+                        for row in rows:
+                            chunk_text = row.chunk_text
+                            similarity = row.similarity
+                            if not top_score:
+                                top_score = similarity
                             # Truncate very long chunks
-                            text = chunk.chunk_text[:1500] if len(chunk.chunk_text) > 1500 else chunk.chunk_text
+                            text = chunk_text[:1500] if len(chunk_text) > 1500 else chunk_text
                             chunk_texts.append(text)
 
                         rag_context_by_paper[paper_idx] = {
                             "chunks": chunk_texts,
-                            "chunk_count": len(top_chunks),
-                            "top_score": top_chunks[0][1] if top_chunks else 0,
+                            "chunk_count": len(rows),
+                            "top_score": top_score,
                         }
-                        logger.info(f"RAG: Found {len(top_chunks)} relevant chunks for paper {paper_idx + 1} (top score: {top_chunks[0][1]:.3f})")
+                        logger.info(f"RAG: Found {len(rows)} relevant chunks for paper {paper_idx + 1} (top score: {top_score:.3f})")
                     else:
                         papers_abstract_only.append((paper_idx, paper))
 
             except Exception as e:
                 logger.error(f"RAG embedding search failed: {e}")
+                logger.warning(f"[RAG] Full-text search failed, falling back to abstract-only for {len(papers_with_chunks)} papers")
                 # Fall back to treating all as abstract-only
                 for paper_idx, paper, ref in papers_with_chunks:
                     papers_abstract_only.append((paper_idx, paper))
@@ -551,6 +534,14 @@ class AnalysisToolsMixin:
                     f"{abstract_only_count} paper(s) have abstracts only."
                 )
 
+        # Add RAG failure warning if applicable
+        if rag_failed:
+            rag_warning = " (Note: Full-text search failed, using abstracts only for papers that would normally have full-text)"
+            if depth_warning:
+                depth_warning += rag_warning
+            else:
+                depth_warning = "⚠️ " + rag_warning
+
         # Store analysis info in memory
         memory.setdefault("cross_paper_analysis", {})["last_question"] = analysis_question
         memory["cross_paper_analysis"]["paper_count"] = len(focused_papers)
@@ -606,7 +597,8 @@ class AnalysisToolsMixin:
         focused_papers = memory.get("focused_papers", [])
         session_summary = memory.get("summary", "")
         facts = memory.get("facts", {})
-        deep_search = memory.get("deep_search", {})
+        # Support both old and new memory keys for backward compatibility
+        search_ui_trigger = memory.get("search_ui_trigger", memory.get("deep_search", {}))
         cross_analysis = memory.get("cross_paper_analysis", {})
 
         # Build context from all available sources
@@ -637,9 +629,9 @@ class AnalysisToolsMixin:
             for d in facts["decisions_made"][-5:]:
                 context_parts.append(f"- {d}")
 
-        # Add deep search question if available
-        if deep_search.get("last_question"):
-            context_parts.append(f"\n**Research Question:** {deep_search['last_question']}")
+        # Add search UI trigger question if available
+        if search_ui_trigger.get("last_question"):
+            context_parts.append(f"\n**Research Question:** {search_ui_trigger['last_question']}")
 
         # Add cross-analysis context
         if cross_analysis.get("last_question"):

@@ -213,6 +213,7 @@ class MemoryMixin:
             logger.info(f"Saved AI memory for channel {channel.id} - focused_papers: {len(memory.get('focused_papers', []))}")
         except Exception as e:
             logger.error(f"Failed to save AI memory: {e}")
+            logger.warning(f"[Memory] Memory save failed and was rolled back - conversation context may be lost")
             self.db.rollback()
 
     def _summarize_old_messages(
@@ -365,6 +366,7 @@ Return ONLY valid JSON, no explanation:"""
 
         except Exception as e:
             logger.error(f"Failed to extract research facts: {e}")
+            logger.warning(f"[Memory] Fact extraction failed, using existing facts (no new information captured)")
             return existing_facts
 
     def _extract_key_quotes(self, user_message: str, existing_quotes: List[str]) -> List[str]:
@@ -472,58 +474,74 @@ Return ONLY valid JSON, no explanation:"""
 
         return contradiction_warning
 
-    def _build_memory_context(self, channel: "ProjectDiscussionChannel") -> str:
+    def _build_memory_context_core(
+        self,
+        memory: Dict[str, Any],
+        include_focused_papers: bool = True,
+        include_unanswered_questions: bool = True,
+        summary_header: str = "## Previous Conversation Summary",
+        phase_descriptions: Optional[Dict[str, str]] = None,
+    ) -> str:
         """
-        Build context string from AI memory for inclusion in system prompt.
-        Includes all three memory tiers: working, session, and long-term.
+        Core memory context builder shared by public and internal methods.
+        Builds context from memory dict with configurable sections.
+
+        Args:
+            memory: The AI memory dictionary
+            include_focused_papers: Whether to include focused papers section
+            include_unanswered_questions: Whether to include unanswered questions
+            summary_header: Header text for summary section
+            phase_descriptions: Custom phase descriptions (defaults to short form)
+
+        Returns:
+            Formatted memory context string
         """
-        memory = self._get_ai_memory(channel)
         lines = []
 
-        # DEBUG: Log what's in memory
-        logger.info(f"Building memory context. Memory keys: {list(memory.keys())}")
-        logger.info(f"Focused papers in memory: {len(memory.get('focused_papers', []))}")
-
-        # Tier 2: Session summary
-        if memory.get("summary"):
-            lines.append("## Previous Conversation Summary")
-            lines.append(memory["summary"])
-            lines.append("")
-
-        # CRITICAL: Include focused papers so AI knows to use analyze_across_papers
-        focused_papers = memory.get("focused_papers", [])
-        if focused_papers:
-            lines.append("## FOCUSED PAPERS (Use analyze_across_papers for questions about these)")
-            for i, p in enumerate(focused_papers, 1):
-                paper_line = f"[{i}] <paper-title>{sanitize_for_context(p.get('title', 'Untitled'), 300)}</paper-title>"
-                if p.get('authors'):
-                    authors = p['authors']
-                    if isinstance(authors, list):
-                        authors = ', '.join(authors[:2]) + ('...' if len(authors) > 2 else '')
-                    paper_line += f" - {sanitize_for_context(str(authors), 200)}"
-                if p.get('year'):
-                    paper_line += f" ({p['year']})"
-                if p.get('has_full_text'):
-                    paper_line += " [Full Text]"
-                else:
-                    paper_line += " [Abstract Only]"
-                lines.append(paper_line)
-            lines.append("")
-            lines.append("**IMPORTANT:** For ANY question about these papers (compare, summarize, discuss), use the analyze_across_papers tool!")
-            lines.append("")
-
-        # Tier 3: Research state (Phase 3)
-        research_state = memory.get("research_state", {})
-        stage = research_state.get("stage", "exploring")
-        if stage != "exploring" or research_state.get("stage_confidence", 0) > 0.6:
-            stage_desc = {
+        # Default phase descriptions (short form)
+        if phase_descriptions is None:
+            phase_descriptions = {
                 "exploring": "Initial exploration",
                 "refining": "Refining scope",
                 "finding_papers": "Literature search",
                 "analyzing": "Deep analysis",
                 "writing": "Writing phase",
             }
-            lines.append(f"**Research Phase:** {stage_desc.get(stage, stage)}")
+
+        # Tier 2: Session summary
+        if memory.get("summary"):
+            lines.append(summary_header)
+            lines.append(memory["summary"])
+            lines.append("")
+
+        # Focused papers section (if enabled)
+        if include_focused_papers:
+            focused_papers = memory.get("focused_papers", [])
+            if focused_papers:
+                lines.append("## FOCUSED PAPERS (Use analyze_across_papers for questions about these)")
+                for i, p in enumerate(focused_papers, 1):
+                    paper_line = f"[{i}] <paper-title>{sanitize_for_context(p.get('title', 'Untitled'), 300)}</paper-title>"
+                    if p.get('authors'):
+                        authors = p['authors']
+                        if isinstance(authors, list):
+                            authors = ', '.join(authors[:2]) + ('...' if len(authors) > 2 else '')
+                        paper_line += f" - {sanitize_for_context(str(authors), 200)}"
+                    if p.get('year'):
+                        paper_line += f" ({p['year']})"
+                    if p.get('has_full_text'):
+                        paper_line += " [Full Text]"
+                    else:
+                        paper_line += " [Abstract Only]"
+                    lines.append(paper_line)
+                lines.append("")
+                lines.append("**IMPORTANT:** For ANY question about these papers (compare, summarize, discuss), use the analyze_across_papers tool!")
+                lines.append("")
+
+        # Tier 3: Research state
+        research_state = memory.get("research_state", {})
+        stage = research_state.get("stage", "exploring")
+        if stage != "exploring" or research_state.get("stage_confidence", 0) > 0.6:
+            lines.append(f"**Research Phase:** {phase_descriptions.get(stage, stage)}")
 
         # Research facts
         facts = memory.get("facts", {})
@@ -546,13 +564,13 @@ Return ONLY valid JSON, no explanation:"""
             for q in facts["pending_questions"]:
                 lines.append(f"- {q}")
 
-        # Tier 3: Unanswered questions (Phase 3)
-        if facts.get("unanswered_questions"):
+        # Unanswered questions (if enabled)
+        if include_unanswered_questions and facts.get("unanswered_questions"):
             lines.append("**Previously Unanswered Questions:**")
             for q in facts["unanswered_questions"]:
                 lines.append(f"- {q}")
 
-        # Tier 3: Long-term memory (Phase 3)
+        # Tier 3: Long-term memory
         long_term = memory.get("long_term", {})
         if long_term.get("user_preferences"):
             lines.append("**User Preferences:**")
@@ -560,7 +578,9 @@ Return ONLY valid JSON, no explanation:"""
                 lines.append(f"- {p}")
 
         if long_term.get("rejected_approaches"):
-            lines.append("**Rejected Approaches (avoid suggesting):**")
+            # Note: Different warning text for internal vs public use
+            warning = " (avoid suggesting)" if include_focused_papers else ""
+            lines.append(f"**Rejected Approaches{warning}:**")
             for r in long_term["rejected_approaches"][-3:]:
                 lines.append(f"- {r}")
 
@@ -571,6 +591,25 @@ Return ONLY valid JSON, no explanation:"""
                 lines.append(f'- "{q}"')
 
         return "\n".join(lines) if lines else ""
+
+    def _build_memory_context(self, channel: "ProjectDiscussionChannel") -> str:
+        """
+        Build context string from AI memory for inclusion in system prompt.
+        Includes all three memory tiers: working, session, and long-term.
+        """
+        memory = self._get_ai_memory(channel)
+
+        # DEBUG: Log what's in memory
+        logger.info(f"Building memory context. Memory keys: {list(memory.keys())}")
+        logger.info(f"Focused papers in memory: {len(memory.get('focused_papers', []))}")
+
+        # Delegate to core builder with full feature set
+        return self._build_memory_context_core(
+            memory=memory,
+            include_focused_papers=True,
+            include_unanswered_questions=True,
+            summary_header="## Previous Conversation Summary",
+        )
 
     def cache_tool_result(
         self,
@@ -879,7 +918,9 @@ Response:"""
             )
             result = response.choices[0].message.content.strip()
 
-            if "NO_CONTRADICTION" in result.upper():
+            result_upper = result.upper()
+            # Accept any variation: "NO_CONTRADICTION", "NO CONTRADICTIONS", "NO CONTRADICTION FOUND", etc.
+            if "NO_CONTRADICTION" in result_upper or "NO CONTRADICTION" in result_upper:
                 return None
 
             return result
@@ -981,21 +1022,40 @@ Response:"""
             ],
         }
 
+        # Priority order for tie-breaking (more specific stages win)
+        stage_priority = ["writing", "analyzing", "finding_papers", "refining", "exploring"]
+
         # Count matches for each stage
         stage_scores = {}
         for stage, patterns in stage_indicators.items():
             score = sum(1 for p in patterns if p in message_lower or p in response_lower)
             stage_scores[stage] = score
 
-        # Find best matching stage
-        best_stage = max(stage_scores, key=stage_scores.get)
+        # Find the maximum score
+        max_score = max(stage_scores.values())
+
+        # If no matches at all, stay at current stage
+        if max_score == 0:
+            return current_stage, 0.5
+
+        # Get all stages with max score (to handle ties)
+        top_stages = [stage for stage, score in stage_scores.items() if score == max_score]
+
+        # If there's a tie, use priority order to pick the most specific stage
+        if len(top_stages) > 1:
+            for priority_stage in stage_priority:
+                if priority_stage in top_stages:
+                    best_stage = priority_stage
+                    break
+            else:
+                # Fallback to first in list (shouldn't happen)
+                best_stage = top_stages[0]
+        else:
+            best_stage = top_stages[0]
+
         best_score = stage_scores[best_stage]
 
         # Calculate confidence based on score and whether it matches current
-        if best_score == 0:
-            # No clear indicators, stay at current stage
-            return current_stage, 0.5
-
         confidence = min(0.9, 0.5 + (best_score * 0.1))
 
         # Add inertia - prefer to stay in current stage unless strong signal
@@ -1250,64 +1310,22 @@ Response:"""
         3. Long-term memory (research state, preferences, etc.)
         """
         memory = self._get_ai_memory(channel)
-        lines = []
 
-        # Session summary (Tier 2)
-        if memory.get("summary"):
-            lines.append("## Conversation Summary")
-            lines.append(memory["summary"])
-            lines.append("")
+        # Long-form phase descriptions for public API
+        phase_descriptions = {
+            "exploring": "Initial exploration phase",
+            "refining": "Refining research scope",
+            "finding_papers": "Literature search phase",
+            "analyzing": "Deep analysis phase",
+            "writing": "Writing/synthesis phase",
+        }
 
-        # Research state
-        research_state = memory.get("research_state", {})
-        stage = research_state.get("stage", "exploring")
-        if stage != "exploring" or research_state.get("stage_confidence", 0) > 0.6:
-            stage_desc = {
-                "exploring": "Initial exploration phase",
-                "refining": "Refining research scope",
-                "finding_papers": "Literature search phase",
-                "analyzing": "Deep analysis phase",
-                "writing": "Writing/synthesis phase",
-            }
-            lines.append(f"**Research Phase:** {stage_desc.get(stage, stage)}")
-
-        # Research facts
-        facts = memory.get("facts", {})
-        if facts.get("research_topic"):
-            lines.append(f"**Research Focus:** {facts['research_topic']}")
-
-        if facts.get("papers_discussed"):
-            lines.append("**Papers Discussed:**")
-            for p in facts["papers_discussed"][-5:]:
-                reaction = f" ({p.get('user_reaction', '')})" if p.get('user_reaction') else ""
-                lines.append(f"- {p.get('title', 'Unknown')} by {p.get('author', 'Unknown')}{reaction}")
-
-        if facts.get("decisions_made"):
-            lines.append("**Decisions Made:**")
-            for d in facts["decisions_made"][-5:]:
-                lines.append(f"- {d}")
-
-        if facts.get("pending_questions"):
-            lines.append("**Open Questions:**")
-            for q in facts["pending_questions"]:
-                lines.append(f"- {q}")
-
-        # Long-term memory
-        long_term = memory.get("long_term", {})
-        if long_term.get("user_preferences"):
-            lines.append("**User Preferences:**")
-            for p in long_term["user_preferences"][-3:]:
-                lines.append(f"- {p}")
-
-        if long_term.get("rejected_approaches"):
-            lines.append("**Rejected Approaches:**")
-            for r in long_term["rejected_approaches"][-3:]:
-                lines.append(f"- {r}")
-
-        # Key quotes
-        if memory.get("key_quotes"):
-            lines.append("**Key User Statements:**")
-            for q in memory["key_quotes"]:
-                lines.append(f'- "{q}"')
-
-        return "\n".join(lines) if lines else ""
+        # Delegate to core builder without focused papers and unanswered questions
+        # (those are internal-only for system prompt optimization)
+        return self._build_memory_context_core(
+            memory=memory,
+            include_focused_papers=False,
+            include_unanswered_questions=False,
+            summary_header="## Conversation Summary",
+            phase_descriptions=phase_descriptions,
+        )

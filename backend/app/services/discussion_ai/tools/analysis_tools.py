@@ -5,21 +5,21 @@ from typing import Any, Dict, List
 from .registry import ToolRegistry, ToolSpec
 
 
-DEEP_SEARCH_PAPERS_SCHEMA = {
+TRIGGER_SEARCH_UI_SCHEMA = {
     "type": "function",
     "function": {
-        "name": "deep_search_papers",
-        "description": "Search papers and synthesize an answer to a complex research question. Returns synthesized answer with supporting papers. Use this for questions like 'What are the main approaches to X?', 'How do researchers typically handle Y?', 'What's the state of the art in Z?'",
+        "name": "trigger_search_ui",
+        "description": "Trigger the frontend search interface for a research question. This does NOT perform the actual search - it sends an action to the frontend to display a search UI where the user can execute and review the search. Use when the user wants to explore papers but needs to review results before proceeding.",
         "parameters": {
             "type": "object",
             "properties": {
                 "research_question": {
                     "type": "string",
-                    "description": "The research question to answer (e.g., 'What are the main approaches to attention in transformers?')",
+                    "description": "The research question to search for (e.g., 'What are the main approaches to attention in transformers?')",
                 },
                 "max_papers": {
                     "type": "integer",
-                    "description": "Maximum number of papers to analyze",
+                    "description": "Maximum number of papers to suggest searching for",
                     "default": 10,
                 },
             },
@@ -70,8 +70,8 @@ ANALYZE_ACROSS_PAPERS_SCHEMA = {
 }
 
 
-def _handle_deep_search_papers(orchestrator: Any, ctx: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
-    return orchestrator._tool_deep_search_papers(ctx, **args)
+def _handle_trigger_search_ui(orchestrator: Any, ctx: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
+    return orchestrator._tool_trigger_search_ui(ctx, **args)
 
 
 def _handle_focus_on_papers(orchestrator: Any, ctx: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
@@ -84,9 +84,9 @@ def _handle_analyze_across_papers(orchestrator: Any, ctx: Dict[str, Any], args: 
 
 TOOL_SPECS: List[ToolSpec] = [
     ToolSpec(
-        name="deep_search_papers",
-        schema=DEEP_SEARCH_PAPERS_SCHEMA,
-        handler=_handle_deep_search_papers,
+        name="trigger_search_ui",
+        schema=TRIGGER_SEARCH_UI_SCHEMA,
+        handler=_handle_trigger_search_ui,
     ),
     ToolSpec(
         name="focus_on_papers",

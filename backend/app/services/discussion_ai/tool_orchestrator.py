@@ -38,7 +38,7 @@ TOOLS:
 - discover_topics: Find what specific topics exist in a broad area (use for vague requests like "recent algorithms")
 - search_papers: Search for academic papers on a SPECIFIC topic
 - batch_search_papers: Search multiple specific topics at once (grouped results)
-- deep_search_papers: Search and synthesize an answer to complex research questions
+- trigger_search_ui: Opens frontend search UI for a research question (does NOT perform actual search)
 
 **Paper Management:**
 - get_recent_search_results: Get papers from last search (for "these papers", "use them")
@@ -60,7 +60,7 @@ When you see "FOCUSED PAPERS" in the context above, you MUST use analyze_across_
 DO NOT search again when papers are already focused!
 
 **Workflows:**
-- DEEP SEARCH workflow: deep_search_papers → review results → focus_on_papers → analyze_across_papers
+- SEARCH UI workflow: trigger_search_ui → review results → focus_on_papers → analyze_across_papers
 - PAPER FOCUS workflow: focus_on_papers (from search or library) → analyze_across_papers → generate_section_from_discussion
 
 **Content Creation:**
@@ -263,7 +263,7 @@ HISTORY_REMINDER = (
     "- After user confirms → CALL THE TOOL, don't just respond with text\n"
     "- If user asks to 'create', 'generate', 'write' AFTER a search was done → call get_recent_search_results FIRST, do NOT search again!\n"
     "- For research questions ('What are the approaches to X?', 'overview of Y') → answer from knowledge, then OFFER to search for papers\n"
-    "- Only call deep_search_papers when user explicitly asks for papers, references, citations, or recent/2024/2025 literature"
+    "- Only call trigger_search_ui when user explicitly asks to open a search interface or explore papers interactively"
 )
 
 
@@ -584,8 +584,8 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
             "batch_search_papers": "Searching multiple topics",
             "add_to_library": "Adding papers to library & ingesting PDFs",
             "update_project_info": "Updating project info",
-            # Deep search & paper focus tools
-            "deep_search_papers": "Searching and synthesizing papers",
+            # Search UI & paper focus tools
+            "trigger_search_ui": "Opening search interface",
             "focus_on_papers": "Loading papers into focus",
             "analyze_across_papers": "Analyzing across focused papers",
             "generate_section_from_discussion": "Generating section from discussion",

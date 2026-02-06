@@ -364,11 +364,14 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 
             # Format results - filter out papers already in library
             papers = []
+            skipped_library = 0
             for idx, p in enumerate(source_papers):
-                # Check if paper is already in library - skip silently
+                # Check if paper is already in library
                 if p.doi and p.doi.lower().replace("https://doi.org/", "").strip() in library_dois:
+                    skipped_library += 1
                     continue
                 if p.title and p.title.lower().strip() in library_titles:
+                    skipped_library += 1
                     continue
 
                 # Stop once we have enough new papers
@@ -407,7 +410,8 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             # Return as action so frontend displays notification with Add buttons
             return {
                 "status": "success",
-                "message": f"Found {len(papers)} papers for: '{query}'{oa_note}",
+                "message": f"Found {len(papers)} papers for: '{query}'{oa_note}"
+                    + (f" ({skipped_library} already in your library)" if skipped_library else ""),
                 "action": {
                     "type": "search_results",  # Frontend will display as notification
                     "payload": {

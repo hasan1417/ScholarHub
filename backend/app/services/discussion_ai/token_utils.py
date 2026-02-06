@@ -85,9 +85,9 @@ def get_encoder(model: str = "gpt-4") -> tiktoken.Encoding:
 class _FallbackEncoder:
     """Fallback encoder when tiktoken is unavailable."""
 
-    def encode(self, text: str) -> List[int]:
+    def encode(self, text: str) -> range:
         # Rough estimate: ~4 characters per token
-        return list(range(len(text) // 4))
+        return range(len(text) // 4)
 
 
 def count_tokens(text: str, model: str = "gpt-4") -> int:
@@ -128,12 +128,17 @@ def get_context_limit(model: str) -> int:
     if model in MODEL_CONTEXT_LIMITS:
         return MODEL_CONTEXT_LIMITS[model]
 
-    # Try matching by model family (prefix matching)
+    # Try matching by model family — longest prefix first to avoid
+    # short patterns shadowing longer ones (e.g. gpt-4 vs gpt-4-turbo)
+    best_match = None
+    best_len = 0
     for model_pattern, limit in MODEL_CONTEXT_LIMITS.items():
-        if model.startswith(model_pattern.rsplit("-", 1)[0]):
-            return limit
+        prefix = model_pattern.rsplit("-", 1)[0]
+        if model.startswith(prefix) and len(prefix) > best_len:
+            best_match = limit
+            best_len = len(prefix)
 
-    return DEFAULT_CONTEXT_LIMIT
+    return best_match if best_match is not None else DEFAULT_CONTEXT_LIMIT
 
 
 def get_available_context(

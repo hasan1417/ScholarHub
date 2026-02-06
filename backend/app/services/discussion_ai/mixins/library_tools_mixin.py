@@ -11,6 +11,8 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
+from sqlalchemy.exc import IntegrityError
+
 from app.services.discussion_ai.utils import (
     _escape_latex,
     _normalize_title,
@@ -151,8 +153,9 @@ class LibraryToolsMixin:
 
         # Create lookup by our generated keys for fast exact matching
         paper_by_key = {}
+        used_keys: set = set()
         for paper in all_papers:
-            key = self._generate_citation_key(paper)
+            key = self._generate_citation_key(paper, used_keys)
             paper_by_key[key] = paper
 
         # Match citation keys to papers
@@ -212,22 +215,41 @@ class LibraryToolsMixin:
                 if isinstance(authors, str):
                     authors = [a.strip() for a in authors.split(",")]
 
-                existing_ref = Reference(
-                    owner_id=project.created_by,
-                    title=title,
-                    authors=authors,
-                    year=matched_paper.get("year"),
-                    doi=doi,
-                    url=matched_paper.get("url"),
-                    source=matched_paper.get("source", "ai_discovery"),
-                    journal=matched_paper.get("journal"),
-                    abstract=matched_paper.get("abstract"),
-                    is_open_access=matched_paper.get("is_open_access", False),
-                    pdf_url=matched_paper.get("pdf_url"),
-                    status="pending",
-                )
-                self.db.add(existing_ref)
-                self.db.flush()
+                try:
+                    existing_ref = Reference(
+                        owner_id=project.created_by,
+                        title=title,
+                        authors=authors,
+                        year=matched_paper.get("year"),
+                        doi=doi,
+                        url=matched_paper.get("url"),
+                        source=matched_paper.get("source", "ai_discovery"),
+                        journal=matched_paper.get("journal"),
+                        abstract=matched_paper.get("abstract"),
+                        is_open_access=matched_paper.get("is_open_access", False),
+                        pdf_url=matched_paper.get("pdf_url"),
+                        status="pending",
+                    )
+                    self.db.add(existing_ref)
+                    self.db.flush()
+                except IntegrityError:
+                    # Race condition: another request created this reference
+                    self.db.rollback()
+                    # Re-query to get the existing record
+                    if doi:
+                        existing_ref = self.db.query(Reference).filter(
+                            Reference.doi == doi,
+                            Reference.owner_id == project.created_by
+                        ).first()
+                    if not existing_ref and title:
+                        existing_ref = self.db.query(Reference).filter(
+                            Reference.title == title,
+                            Reference.owner_id == project.created_by
+                        ).first()
+                    if not existing_ref:
+                        # Still can't find it - skip this reference
+                        logger.warning(f"[LinkRefs] Failed to create or find reference after IntegrityError: {title}")
+                        continue
 
             # NOTE: PDF ingestion is NOT triggered here to avoid:
             # 1. Slow paper creation (PDF download + embedding is expensive)
@@ -411,8 +433,14 @@ class LibraryToolsMixin:
 
         return keywords
 
-    def _generate_citation_key(self, paper: Dict) -> str:
-        """Generate a citation key from paper info (authorYYYYword format)."""
+    def _generate_citation_key(self, paper: Dict, used_keys: Optional[set] = None) -> str:
+        """Generate a citation key from paper info (authorYYYYword format).
+
+        If *used_keys* is provided the method guarantees uniqueness: when the
+        base key already exists in the set a disambiguating letter suffix
+        (a, b, c, ...) is appended.  The final key is added to *used_keys*
+        before returning so that subsequent calls stay collision-free.
+        """
         import re
         authors = paper.get("authors", "unknown")
         if isinstance(authors, list):
@@ -436,7 +464,29 @@ class LibraryToolsMixin:
         title_words = [w for w in re.findall(r'[a-zA-Z]+', title) if len(w) > 3]
         title_word = title_words[0].lower() if title_words else ""
 
-        return f"{last_name}{year}{title_word}"
+        base_key = f"{last_name}{year}{title_word}"
+
+        # Disambiguate when tracking used keys
+        if used_keys is not None:
+            if base_key not in used_keys:
+                used_keys.add(base_key)
+                return base_key
+            # Append a, b, c, ... until we find a free slot
+            for suffix_ord in range(ord("a"), ord("z") + 1):
+                candidate = f"{base_key}{chr(suffix_ord)}"
+                if candidate not in used_keys:
+                    used_keys.add(candidate)
+                    return candidate
+            # Extremely unlikely: all 26 letters exhausted, fall back to numeric
+            n = 2
+            while True:
+                candidate = f"{base_key}{n}"
+                if candidate not in used_keys:
+                    used_keys.add(candidate)
+                    return candidate
+                n += 1
+
+        return base_key
 
     def _parse_citation_key(self, cite_key: str) -> Dict[str, str]:
         """Parse a citation key into semantic components (author, year, title_word)."""
@@ -607,8 +657,9 @@ class LibraryToolsMixin:
 
         # Also create lookup by our generated keys for exact matches
         paper_by_key = {}
+        used_keys: set = set()
         for paper in all_papers:
-            key = self._generate_citation_key(paper)
+            key = self._generate_citation_key(paper, used_keys)
             paper_by_key[key] = paper
 
         # Extract citation keys from content
@@ -1116,9 +1167,14 @@ class LibraryToolsMixin:
                 "message": "No paper indices provided. Specify which papers to add (e.g., [0,1,2] for first 3 papers).",
             }
 
+        # Cap batch size to prevent excessive operations
+        if len(paper_indices) > 25:
+            paper_indices = paper_indices[:25]
+
         added_papers = []
         failed_papers = []
         ingestion_results = []
+        used_keys: set = set()
 
         for idx in paper_indices:
             if idx < 0 or idx >= len(recent_search_results):
@@ -1176,22 +1232,54 @@ class LibraryToolsMixin:
                     if isinstance(authors, str):
                         authors = [a.strip() for a in authors.split(",")]
 
-                    existing_ref = Reference(
-                        owner_id=project.created_by,
-                        title=title,
-                        authors=authors,
-                        year=paper.get("year"),
-                        doi=doi,
-                        url=paper.get("url"),
-                        source=paper.get("source", "ai_discovery"),
-                        journal=paper.get("journal"),
-                        abstract=paper.get("abstract"),
-                        is_open_access=paper.get("is_open_access", False),
-                        pdf_url=paper.get("pdf_url"),
-                        status="pending",
-                    )
-                    self.db.add(existing_ref)
-                    self.db.flush()
+                    try:
+                        existing_ref = Reference(
+                            owner_id=project.created_by,
+                            title=title,
+                            authors=authors,
+                            year=paper.get("year"),
+                            doi=doi,
+                            url=paper.get("url"),
+                            source=paper.get("source", "ai_discovery"),
+                            journal=paper.get("journal"),
+                            abstract=paper.get("abstract"),
+                            is_open_access=paper.get("is_open_access", False),
+                            pdf_url=paper.get("pdf_url"),
+                            status="pending",
+                        )
+                        self.db.add(existing_ref)
+                        self.db.flush()
+                    except IntegrityError:
+                        # Race condition: another request created this reference
+                        self.db.rollback()
+                        # Re-query to get the existing record
+                        if doi:
+                            existing_ref = self.db.query(Reference).filter(
+                                Reference.doi == doi,
+                                Reference.owner_id == project.created_by
+                            ).first()
+                        # Try normalized title+author match if DOI failed
+                        if not existing_ref:
+                            all_refs = self.db.query(Reference).filter(
+                                Reference.owner_id == project.created_by
+                            ).limit(5000).all()
+                            for ref in all_refs:
+                                ref_normalized_title = _normalize_title(ref.title or "")
+                                if ref_normalized_title != normalized_title:
+                                    continue
+                                ref_authors = ref.authors or []
+                                ref_normalized_authors = set(_normalize_author(a) for a in ref_authors if a)
+                                if normalized_authors & ref_normalized_authors:
+                                    existing_ref = ref
+                                    break
+                                if not normalized_authors and not ref_normalized_authors:
+                                    existing_ref = ref
+                                    break
+                        if not existing_ref:
+                            # Still can't find it - add to failed_papers and continue
+                            logger.warning(f"[AddToLibrary] Failed to create or find reference after IntegrityError: {title}")
+                            failed_papers.append({"index": idx, "title": title, "error": "Failed to create reference (race condition)"})
+                            continue
 
                 # Check if already in project library
                 existing_project_ref = self.db.query(ProjectReference).filter(
@@ -1242,7 +1330,7 @@ class LibraryToolsMixin:
                         logger.warning(f"[AddToLibrary] Failed to queue embedding job: {e}")
 
                 # Generate citation key for this paper
-                cite_key = self._generate_citation_key(paper)
+                cite_key = self._generate_citation_key(paper, used_keys)
 
                 added_info = {
                     "index": idx,
@@ -1274,8 +1362,8 @@ class LibraryToolsMixin:
                         added_info["ingestion_error"] = str(e)
                         ingestion_results.append({"title": title, "status": "error", "error": str(e)})
                         # Don't rollback - the Reference was already committed successfully
-                        # Just expire the session to clear any stale state
-                        self.db.expire_all()
+                        # Just expire the specific ref to clear any stale state
+                        self.db.expire(existing_ref)
                 elif not existing_ref.pdf_url:
                     added_info["ingestion_status"] = "no_pdf_available"
                 else:
@@ -1285,9 +1373,9 @@ class LibraryToolsMixin:
 
             except Exception as e:
                 logger.exception(f"Error adding paper at index {idx}")
-                # Only rollback uncommitted changes for THIS paper
-                # Don't use rollback() as it could affect previously committed papers
-                self.db.expire_all()
+                # Rollback uncommitted changes for THIS paper (e.g. failed Reference creation)
+                # Previously committed papers are safe since each iteration commits independently
+                self.db.rollback()
                 failed_papers.append({"index": idx, "title": title, "error": str(e)})
 
         # Summary

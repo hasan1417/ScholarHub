@@ -23,7 +23,7 @@ ORDERED_TOOL_NAMES: List[str] = [
     "discover_topics",
     "batch_search_papers",
     "add_to_library",
-    "deep_search_papers",
+    "trigger_search_ui",
     "focus_on_papers",
     "analyze_across_papers",
     "generate_section_from_discussion",
