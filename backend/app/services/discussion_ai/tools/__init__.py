@@ -22,11 +22,16 @@ ORDERED_TOOL_NAMES: List[str] = [
     "get_created_artifacts",
     "discover_topics",
     "batch_search_papers",
+    "export_citations",
+    "annotate_reference",
     "add_to_library",
     "trigger_search_ui",
     "focus_on_papers",
     "analyze_across_papers",
+    "compare_papers",
+    "suggest_research_gaps",
     "generate_section_from_discussion",
+    "generate_abstract",
 ]
 
 

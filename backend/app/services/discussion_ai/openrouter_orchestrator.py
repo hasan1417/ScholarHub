@@ -11,11 +11,12 @@ Key difference from base ToolOrchestrator:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import time
-from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
+from typing import Any, AsyncGenerator, Dict, List, Optional, TYPE_CHECKING
 
 import openai
 from openai import APIStatusError, RateLimitError, APIConnectionError, APITimeoutError
@@ -374,6 +375,15 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             }
         ) if api_key else None
 
+        self.async_openrouter_client = openai.AsyncOpenAI(
+            api_key=api_key or "missing-key",
+            base_url="https://openrouter.ai/api/v1",
+            default_headers={
+                "HTTP-Referer": "https://scholarhub.space",
+                "X-Title": "ScholarHub",
+            }
+        ) if api_key else None
+
         if user_api_key:
             logger.info("Using user-provided OpenRouter API key")
 
@@ -490,25 +500,23 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         error_msg = f"{self.model} is temporarily unavailable. Please try again or switch models."
         return {"content": error_msg, "tool_calls": []}
 
-    def _call_ai_with_tools_streaming(self, messages: List[Dict], ctx: Dict[str, Any]) -> Generator[Dict[str, Any], None, None]:
-        """Call OpenRouter with tool definitions (streaming) with retry on transient errors.
+    async def _call_ai_with_tools_streaming(self, messages: List[Dict], ctx: Dict[str, Any]) -> AsyncGenerator[Dict[str, Any], None]:
+        """Call OpenRouter with tool definitions (async streaming) with retry on transient errors.
 
         Yields:
         - {"type": "token", "content": str} for content tokens
         - {"type": "tool_call_detected"} when first tool call is detected (stop streaming tokens)
         - {"type": "result", "content": str, "tool_calls": list} at the end
         """
-        if not self.openrouter_client:
+        if not self.async_openrouter_client:
             yield {"type": "result", "content": "OpenRouter API not configured.", "tool_calls": []}
             return
 
         reasoning_info = f" (reasoning: {self._reasoning_mode})" if self._reasoning_mode else ""
-        logger.info(f"Streaming from OpenRouter with model: {self.model}{reasoning_info}")
+        logger.info(f"Async streaming from OpenRouter with model: {self.model}{reasoning_info}")
 
-        # Filter tools based on user's role
         tools = self._get_tools_for_user(ctx)
 
-        # Build API call params
         call_params = {
             "model": self.model,
             "messages": messages,
@@ -517,65 +525,51 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             "stream": True,
         }
 
-        # Add reasoning params if enabled
         reasoning_params = self._get_reasoning_params()
         if reasoning_params.get("extra_body"):
             call_params["extra_body"] = reasoning_params["extra_body"]
 
-        # Retry loop for transient errors (only retries stream initialization, not mid-stream)
-        last_error: Optional[Exception] = None
         stream = None
-
         for attempt in range(MAX_RETRIES):
             try:
-                stream = self.openrouter_client.chat.completions.create(**call_params)
-                break  # Successfully got stream
+                stream = await self.async_openrouter_client.chat.completions.create(**call_params)
+                break
             except Exception as e:
-                last_error = e
                 if not self._is_retryable_error(e):
-                    # Non-retryable error - fail immediately
-                    logger.error(f"Non-retryable error starting OpenRouter stream: {e}")
+                    logger.error(f"Non-retryable error starting async OpenRouter stream: {e}")
                     yield {"type": "result", "content": f"Error: {str(e)}", "tool_calls": []}
                     return
-
                 if attempt < MAX_RETRIES - 1:
                     backoff = INITIAL_BACKOFF_SECONDS * (2 ** attempt)
                     logger.warning(
-                        f"Model {self.model} stream attempt {attempt + 1}/{MAX_RETRIES} failed: {e}. "
+                        f"Model {self.model} async stream attempt {attempt + 1}/{MAX_RETRIES} failed: {e}. "
                         f"Retrying in {backoff}s..."
                     )
-                    time.sleep(backoff)
+                    await asyncio.sleep(backoff)
                 else:
-                    logger.error(
-                        f"Model {self.model} stream failed after {MAX_RETRIES} attempts. Last error: {e}"
-                    )
+                    logger.error(f"Model {self.model} async stream failed after {MAX_RETRIES} attempts. Last error: {e}")
 
         if stream is None:
             error_msg = f"{self.model} is temporarily unavailable. Please try again or switch models."
             yield {"type": "result", "content": error_msg, "tool_calls": []}
             return
 
-        # Process the stream
         try:
             content_chunks = []
-            tool_calls_data = {}  # {index: {"id": ..., "name": ..., "arguments": ...}}
+            tool_calls_data = {}
             tool_call_signaled = False
 
-            for chunk in stream:
+            async for chunk in stream:
                 delta = chunk.choices[0].delta if chunk.choices else None
                 if not delta:
                     continue
 
-                # Handle content tokens
                 if delta.content:
                     content_chunks.append(delta.content)
-                    # Only yield tokens if we haven't detected a tool call yet
                     if not tool_call_signaled:
                         yield {"type": "token", "content": delta.content}
 
-                # Handle tool calls (accumulated across chunks)
                 if delta.tool_calls:
-                    # Signal tool call detection ONCE so caller knows to stop streaming
                     if not tool_call_signaled:
                         tool_call_signaled = True
                         yield {"type": "tool_call_detected"}
@@ -584,7 +578,6 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                         idx = tc_chunk.index
                         if idx not in tool_calls_data:
                             tool_calls_data[idx] = {"id": "", "name": "", "arguments": ""}
-
                         if tc_chunk.id:
                             tool_calls_data[idx]["id"] = tc_chunk.id
                         if tc_chunk.function:
@@ -593,7 +586,6 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                             if tc_chunk.function.arguments:
                                 tool_calls_data[idx]["arguments"] += tc_chunk.function.arguments
 
-            # Parse accumulated tool calls
             tool_calls = []
             for idx in sorted(tool_calls_data.keys()):
                 tc = tool_calls_data[idx]
@@ -601,37 +593,24 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     args = json.loads(tc["arguments"]) if tc["arguments"] else {}
                 except json.JSONDecodeError:
                     args = {}
-                tool_calls.append({
-                    "id": tc["id"],
-                    "name": tc["name"],
-                    "arguments": args,
-                })
+                tool_calls.append({"id": tc["id"], "name": tc["name"], "arguments": args})
 
-            yield {
-                "type": "result",
-                "content": "".join(content_chunks),
-                "tool_calls": tool_calls,
-            }
+            yield {"type": "result", "content": "".join(content_chunks), "tool_calls": tool_calls}
 
         except Exception as e:
-            logger.exception(f"Error processing OpenRouter stream with model {self.model}")
+            logger.exception(f"Error processing async OpenRouter stream with model {self.model}")
             yield {"type": "result", "content": f"Error: {str(e)}", "tool_calls": []}
 
-    def _execute_with_tools_streaming(
+    async def _execute_with_tools_streaming(
         self,
         messages: List[Dict],
         ctx: Dict[str, Any],
-    ) -> Generator[Dict[str, Any], None, None]:
-        """
-        Execute with tool calling and streaming.
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Execute with tool calling and async streaming.
 
         OVERRIDE: Only streams the FINAL response, not intermediate thinking.
-        - Tokens are streamed immediately until a tool call is detected
-        - When tool call is detected mid-stream, remaining content is hidden
-        - Status messages are shown during tool execution
-        - Final response (no tool calls) is fully streamed
+        Tool execution runs in threads via asyncio.to_thread since tools use sync DB.
         """
-        # Set reasoning mode from context for use in API calls
         self._reasoning_mode = ctx.get("reasoning_mode", False)
 
         max_iterations = 8
@@ -640,58 +619,49 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         final_content_chunks = []
 
         recent_results = ctx.get("recent_search_results", [])
-        logger.info(f"[OpenRouter Streaming] Starting with model: {self.model}, recent_search_results: {len(recent_results)} papers")
+        logger.info(f"[OpenRouter Async Streaming] Starting with model: {self.model}, recent_search_results: {len(recent_results)} papers")
 
         while iteration < max_iterations:
             iteration += 1
-            logger.debug(f"[OpenRouter Streaming] Iteration {iteration}, messages count: {len(messages)}")
+            logger.debug(f"[OpenRouter Async Streaming] Iteration {iteration}, messages count: {len(messages)}")
 
             response_content = ""
             tool_calls = []
             iteration_content = []
             has_tool_call = False
 
-            for event in self._call_ai_with_tools_streaming(messages, ctx):
+            async for event in self._call_ai_with_tools_streaming(messages, ctx):
                 if event["type"] == "token":
                     iteration_content.append(event["content"])
-                    # Stream tokens to client unless tool call detected
                     if not has_tool_call:
                         yield {"type": "token", "content": event["content"]}
                 elif event["type"] == "tool_call_detected":
-                    # Tool call detected mid-stream - stop streaming, buffer the rest
                     has_tool_call = True
-                    logger.info("[OpenRouter Streaming] Tool call detected, stopping token stream")
+                    logger.info("[OpenRouter Async Streaming] Tool call detected, stopping token stream")
                 elif event["type"] == "result":
                     response_content = event["content"]
                     tool_calls = event.get("tool_calls", [])
 
-            logger.debug(f"[OpenRouter Streaming] Got {len(tool_calls)} tool calls: {[tc.get('name') for tc in tool_calls]}")
-            logger.debug(f"[OpenRouter Streaming] Content length: {len(response_content)} chars")
+            logger.debug(f"[OpenRouter Async Streaming] Got {len(tool_calls)} tool calls: {[tc.get('name') for tc in tool_calls]}")
 
             if not tool_calls:
-                # No tool calls - this was the final response
-                logger.info("[OpenRouter Streaming] Final response - no more tool calls")
-                # Use streamed tokens if available, otherwise fall back to response_content
-                # (some models don't stream tokens, they return content only in the final result)
+                logger.info("[OpenRouter Async Streaming] Final response - no more tool calls")
                 if iteration_content:
                     final_content_chunks.extend(iteration_content)
                 elif response_content:
                     final_content_chunks.append(response_content)
-                    # Stream the content now since it wasn't streamed earlier
                     yield {"type": "token", "content": response_content}
                 break
 
-            # Tool calls present - send status messages
             for tc in tool_calls:
                 tool_name = tc.get("name", "")
                 status_message = self._get_tool_status_message(tool_name)
                 yield {"type": "status", "tool": tool_name, "message": status_message}
 
-            # Execute tool calls
-            tool_results = self._execute_tool_calls(tool_calls, ctx)
+            # Execute tool calls in thread (tools use sync DB)
+            tool_results = await asyncio.to_thread(self._execute_tool_calls, tool_calls, ctx)
             all_tool_results.extend(tool_results)
 
-            # Add assistant message with tool calls to conversation
             formatted_tool_calls = [
                 {
                     "id": tc["id"],
@@ -710,7 +680,6 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 "tool_calls": formatted_tool_calls,
             })
 
-            # Add tool results to conversation
             for tool_call, result in zip(tool_calls, tool_results):
                 messages.append({
                     "role": "tool",
@@ -718,23 +687,19 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     "content": json.dumps(result, default=str),
                 })
 
-        # Build final result
         final_message = "".join(final_content_chunks)
-        logger.debug(f"[OpenRouter] Complete. Tools called: {[t['name'] for t in all_tool_results]}")
+        logger.debug(f"[OpenRouter Async] Complete. Tools called: {[t['name'] for t in all_tool_results]}")
 
-        # Generate message when model returns empty content after tool execution
-        # Some models (e.g., DeepSeek) don't provide a summary message after executing tools
         if not final_message.strip() and all_tool_results:
-            final_message = self._generate_tool_summary_message(all_tool_results)
-            logger.info(f"[OpenRouter] Generated summary for empty response: {final_message[:100]}...")
+            final_message = await asyncio.to_thread(self._generate_tool_summary_message, all_tool_results)
+            logger.info(f"[OpenRouter Async] Generated summary for empty response: {final_message[:100]}...")
 
         actions = self._extract_actions(final_message, all_tool_results)
-        logger.debug(f"[OpenRouter] Extracted {len(actions)} actions: {[a.get('type') for a in actions]}")
 
-        # Update AI memory after successful response
         contradiction_warning = None
         try:
-            contradiction_warning = self.update_memory_after_exchange(
+            contradiction_warning = await asyncio.to_thread(
+                self.update_memory_after_exchange,
                 ctx["channel"],
                 ctx["user_message"],
                 final_message,

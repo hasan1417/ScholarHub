@@ -8,8 +8,6 @@ from uuid import UUID, uuid4
 import asyncio
 import json
 import logging
-import threading
-import queue
 
 from fastapi import (
     APIRouter,
@@ -1236,7 +1234,7 @@ def list_openrouter_models(
     "/projects/{project_id}/discussion/channels/{channel_id}/assistant",
     response_model=DiscussionAssistantResponse,
 )
-def invoke_discussion_assistant(
+async def invoke_discussion_assistant(
     project_id: str,
     channel_id: UUID,
     payload: DiscussionAssistantRequest,
@@ -1384,7 +1382,7 @@ def invoke_discussion_assistant(
             )
             if not is_new and existing_exchange_id:
                 logger.info(f"Duplicate request detected, returning existing exchange: {existing_exchange_id}")
-                def duplicate_response():
+                async def duplicate_response():
                     yield f"data: {json.dumps({'type': 'duplicate', 'exchange_id': existing_exchange_id})}\n\n"
                 return StreamingResponse(
                     duplicate_response(),
@@ -1406,7 +1404,8 @@ def invoke_discussion_assistant(
             usage=None,
             suggested_actions=[],
         )
-        _persist_assistant_exchange(
+        await asyncio.to_thread(
+            _persist_assistant_exchange,
             project.id,
             channel.id,
             current_user.id,
@@ -1415,10 +1414,10 @@ def invoke_discussion_assistant(
             initial_response.model_dump(mode="json"),
             exchange_created_at,
             {},
-            status="processing",
-            status_message="Thinking",
+            "processing",
+            "Thinking",
         )
-        asyncio.run(_broadcast_discussion_event(
+        await _broadcast_discussion_event(
             project.id,
             channel.id,
             "assistant_processing",
@@ -1430,91 +1429,77 @@ def invoke_discussion_assistant(
                 "created_at": exchange_created_at,
                 "author": author_info,
             }},
-        ))
+        )
 
-        # Use a queue to pass events from background thread to streaming response
-        event_queue: queue.Queue = queue.Queue()
-        processing_done = threading.Event()
-
-        # Capture IDs before starting thread
+        # Capture values for the async generator closure
         proj_id = project.id
         chan_id = channel.id
         user_id = current_user.id
         question_text = payload.question
         reasoning_enabled = payload.reasoning or False
         selected_model = model
-        user_key = api_key_to_use
 
-        def run_ai_processing():
-            """Background thread that runs AI and puts events in queue."""
-            thread_db = SessionLocal()
+        async def stream_sse():
+            """Async generator that streams SSE events from the orchestrator."""
             try:
-                thread_project = thread_db.query(Project).filter_by(id=proj_id).first()
-                thread_channel = thread_db.query(ProjectDiscussionChannel).filter_by(id=chan_id).first()
-                thread_user = thread_db.query(User).filter_by(id=user_id).first()
-
-                if not thread_project or not thread_channel:
-                    raise ValueError("Project or channel not found")
-
-                thread_orchestrator = OpenRouterOrchestrator(
-                    _discussion_ai_core, thread_db, model=selected_model,
-                    user_api_key=user_key,
-                )
-
                 final_result = None
-                for event in thread_orchestrator.handle_message_streaming(
-                    thread_project,
-                    thread_channel,
+                async for event in orchestrator.handle_message_streaming(
+                    project,
+                    channel,
                     question_text,
                     recent_search_results=search_results_list,
                     recent_search_id=payload.recent_search_id,
                     previous_state_dict=previous_state_dict,
                     conversation_history=conversation_history,
                     reasoning_mode=reasoning_enabled,
-                    current_user=thread_user,
+                    current_user=current_user,
                 ):
-                    event_queue.put(event)
-                    if event.get("type") == "result":
-                        final_result = event.get("data", {})
+                    if event.get("type") == "token":
+                        yield "data: " + json.dumps({"type": "token", "content": event.get("content", "")}) + "\n\n"
                     elif event.get("type") == "status":
                         status_msg = event.get("message", "Processing...")
+                        # Update status in DB and broadcast
                         try:
-                            exchange_record = thread_db.query(ProjectDiscussionAssistantExchange).filter_by(
-                                id=UUID(exchange_id)
-                            ).first()
-                            if exchange_record:
-                                exchange_record.status_message = status_msg
-                                thread_db.commit()
-                                asyncio.run(_broadcast_discussion_event(
-                                    proj_id,
-                                    chan_id,
-                                    "assistant_status",
-                                    {"exchange_id": exchange_id, "status_message": status_msg},
-                                ))
+                            def _update_status():
+                                sdb = SessionLocal()
+                                try:
+                                    rec = sdb.query(ProjectDiscussionAssistantExchange).filter_by(
+                                        id=UUID(exchange_id)
+                                    ).first()
+                                    if rec:
+                                        rec.status_message = status_msg
+                                        sdb.commit()
+                                finally:
+                                    sdb.close()
+                            await asyncio.to_thread(_update_status)
+                            await _broadcast_discussion_event(
+                                proj_id, chan_id, "assistant_status",
+                                {"exchange_id": exchange_id, "status_message": status_msg},
+                            )
                         except Exception as e:
                             logger.warning(f"Failed to update status message: {e}")
+                        yield "data: " + json.dumps({"type": "status", "tool": event.get("tool", ""), "message": status_msg}) + "\n\n"
+                    elif event.get("type") == "result":
+                        final_result = event.get("data", {})
+                        response_model = _build_ai_response(final_result, selected_model)
+                        yield "data: " + json.dumps({"type": "result", "payload": response_model.model_dump(mode="json")}) + "\n\n"
+                    elif event.get("type") == "error":
+                        yield "data: " + json.dumps({"type": "error", "message": event.get("message", "Error")}) + "\n\n"
 
+                # Persist completed exchange
                 if final_result:
                     response_model = _build_ai_response(final_result, selected_model)
                     payload_dict = response_model.model_dump(mode="json")
                     conversation_state = final_result.get("conversation_state", {})
 
-                    _persist_assistant_exchange(
-                        proj_id,
-                        chan_id,
-                        user_id,
-                        exchange_id,
-                        question_text,
-                        payload_dict,
-                        exchange_created_at,
-                        conversation_state,
-                        status="completed",
+                    await asyncio.to_thread(
+                        _persist_assistant_exchange,
+                        proj_id, chan_id, user_id, exchange_id,
+                        question_text, payload_dict, exchange_created_at,
+                        conversation_state, "completed",
                     )
-
-                    asyncio.run(_broadcast_discussion_event(
-                        proj_id,
-                        chan_id,
-                        "assistant_reply",
+                    await _broadcast_discussion_event(
+                        proj_id, chan_id, "assistant_reply",
                         {"exchange": {
                             "id": exchange_id,
                             "question": question_text,
@@ -1523,75 +1508,32 @@ def invoke_discussion_assistant(
                             "author": author_info,
                             "status": "completed",
                         }},
-                    ))
-
+                    )
                     try:
-                        SubscriptionService.increment_usage(thread_db, user_id, "discussion_ai_calls")
+                        await asyncio.to_thread(SubscriptionService.increment_usage, db, user_id, "discussion_ai_calls")
                     except Exception:
                         pass
 
-            except Exception as exc:
-                logger.exception("AI processing failed", exc_info=exc)
-                _persist_assistant_exchange(
-                    proj_id,
-                    chan_id,
-                    user_id,
-                    exchange_id,
-                    question_text,
-                    {"message": "An error occurred while processing your request.", "citations": [], "suggested_actions": []},
-                    exchange_created_at,
-                    {},
-                    status="failed",
-                    status_message="Processing failed. Please try again.",
-                )
-                asyncio.run(_broadcast_discussion_event(
-                    proj_id,
-                    chan_id,
-                    "assistant_failed",
-                    {"exchange_id": exchange_id, "error": "Processing failed"},
-                ))
-                event_queue.put({"type": "error", "message": "Processing failed"})
-            finally:
-                event_queue.put(None)  # Signal end
-                processing_done.set()
-                thread_db.close()
-
-        ai_thread = threading.Thread(target=run_ai_processing, daemon=True)
-        ai_thread.start()
-
-        def stream_events():
-            """Stream events from the queue to the client."""
-            try:
-                while True:
-                    try:
-                        event = event_queue.get(timeout=0.5)
-                    except queue.Empty:
-                        if processing_done.is_set():
-                            break
-                        continue
-
-                    if event is None:
-                        break
-
-                    if event.get("type") == "token":
-                        yield "data: " + json.dumps({"type": "token", "content": event.get("content", "")}) + "\n\n"
-                    elif event.get("type") == "status":
-                        yield "data: " + json.dumps({"type": "status", "tool": event.get("tool", ""), "message": event.get("message", "Processing")}) + "\n\n"
-                    elif event.get("type") == "result":
-                        final_data = event.get("data", {})
-                        response_model = _build_ai_response(final_data, selected_model)
-                        yield "data: " + json.dumps({"type": "result", "payload": response_model.model_dump(mode="json")}) + "\n\n"
-                    elif event.get("type") == "error":
-                        yield "data: " + json.dumps({"type": "error", "message": event.get("message", "Error")}) + "\n\n"
-
             except GeneratorExit:
-                logger.info(f"Client disconnected, AI processing continues in background for exchange {exchange_id}")
+                logger.info(f"Client disconnected during streaming for exchange {exchange_id}")
             except Exception as exc:
                 logger.exception("Streaming error", exc_info=exc)
-                yield "data: " + json.dumps({"type": "error", "message": "Stream error"}) + "\n\n"
+                await asyncio.to_thread(
+                    _persist_assistant_exchange,
+                    proj_id, chan_id, user_id, exchange_id,
+                    question_text,
+                    {"message": "An error occurred while processing your request.", "citations": [], "suggested_actions": []},
+                    exchange_created_at, {}, "failed",
+                    "Processing failed. Please try again.",
+                )
+                await _broadcast_discussion_event(
+                    proj_id, chan_id, "assistant_failed",
+                    {"exchange_id": exchange_id, "error": "Processing failed"},
+                )
+                yield "data: " + json.dumps({"type": "error", "message": "Processing failed"}) + "\n\n"
 
         return StreamingResponse(
-            stream_events(),
+            stream_sse(),
             media_type="text/event-stream",
             headers={"X-Exchange-Id": exchange_id},
         )

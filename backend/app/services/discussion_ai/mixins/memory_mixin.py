@@ -171,15 +171,17 @@ class MemoryMixin:
                 memory["long_term"] = {
                     "user_preferences": [],
                     "rejected_approaches": [],
-                    "successful_searches": [],
                 }
             if "unanswered_questions" not in memory.get("facts", {}):
                 memory.setdefault("facts", {})["unanswered_questions"] = []
+            if "research_question" not in memory.get("facts", {}):
+                memory.setdefault("facts", {})["research_question"] = None
             return memory
         return {
             "summary": None,
             "facts": {
                 "research_topic": None,
+                "research_question": None,  # Formal RQ, e.g. "How does X affect Y?"
                 "papers_discussed": [],
                 "decisions_made": [],
                 "pending_questions": [],
@@ -194,7 +196,6 @@ class MemoryMixin:
             "long_term": {
                 "user_preferences": [],         # Learned preferences (e.g., "prefers recent papers")
                 "rejected_approaches": [],      # Approaches user explicitly rejected
-                "successful_searches": [],      # Search queries that yielded good results
             },
             "key_quotes": [],
             "last_summarized_exchange_id": None,
@@ -308,6 +309,7 @@ EXISTING FACTS:
 Extract and UPDATE the facts JSON. Only include new/changed information.
 Return a JSON object with these fields (keep existing values if not changed):
 - research_topic: Main research topic (string or null)
+- research_question: Formal research question if stated (e.g. "How does X affect Y in Z population?") — null if not yet articulated
 - papers_discussed: Array of {{"title": "...", "author": "...", "relevance": "why discussed", "user_reaction": "positive/negative/neutral"}}
 - decisions_made: Array of decision strings (append new ones, don't remove old)
 - pending_questions: Array of unanswered questions (can remove if answered)
@@ -340,6 +342,8 @@ Return ONLY valid JSON, no explanation:"""
             merged = existing_facts.copy()
             if new_facts.get("research_topic"):
                 merged["research_topic"] = new_facts["research_topic"]
+            if new_facts.get("research_question"):
+                merged["research_question"] = new_facts["research_question"]
 
             # Append new papers (avoid duplicates by title)
             existing_titles = {p.get("title", "").lower() for p in merged.get("papers_discussed", [])}
@@ -547,6 +551,8 @@ Return ONLY valid JSON, no explanation:"""
         facts = memory.get("facts", {})
         if facts.get("research_topic"):
             lines.append(f"**Research Focus:** {facts['research_topic']}")
+        if facts.get("research_question"):
+            lines.append(f"**Research Question:** {facts['research_question']}")
 
         if facts.get("papers_discussed"):
             lines.append("**Papers Discussed:**")
@@ -729,6 +735,7 @@ Return ONLY valid JSON, no explanation:"""
         max_papers: int = 10,
         max_decisions: int = 10,
         max_methodology_notes: int = 8,
+        max_focused_papers: int = 20,
     ) -> None:
         """Prune stale data from memory dict in-place (no DB read/save)."""
         from datetime import datetime, timezone
@@ -758,6 +765,11 @@ Return ONLY valid JSON, no explanation:"""
         if len(facts.get("methodology_notes", [])) > max_methodology_notes:
             facts["methodology_notes"] = facts["methodology_notes"][-max_methodology_notes:]
         memory["facts"] = facts
+
+        # Cap focused_papers to prevent unbounded context growth
+        focused = memory.get("focused_papers", [])
+        if len(focused) > max_focused_papers:
+            memory["focused_papers"] = focused[-max_focused_papers:]
 
     def _update_research_state_inline(
         self,
@@ -830,7 +842,6 @@ Return ONLY valid JSON, no explanation:"""
         long_term = memory.get("long_term", {
             "user_preferences": [],
             "rejected_approaches": [],
-            "successful_strategies": [],
         })
         message_lower = user_message.lower()
 
@@ -1188,7 +1199,6 @@ Response:"""
         long_term = memory.get("long_term", {
             "user_preferences": [],
             "rejected_approaches": [],
-            "successful_searches": [],
         })
 
         message_lower = user_message.lower()

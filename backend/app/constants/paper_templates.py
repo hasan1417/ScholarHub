@@ -601,6 +601,139 @@ $^{2}$Institution Two, City, Country
         "bib_style": "plain",
         "notes": "ACM-style two-column format for CHI, SIGCHI, and other ACM conferences."
     },
+    "apa": {
+        "id": "apa",
+        "name": "APA 7th Edition",
+        "description": "APA 7th edition style for psychology, education, and social sciences",
+        "preamble_example": r"""\documentclass[12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{times}
+\usepackage{geometry}
+\geometry{letterpaper, margin=1in}
+\usepackage{setspace}
+\doublespacing
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{apacite}
+\usepackage{authblk}
+
+\title{Your Paper Title}
+
+\author[1]{First Author}
+\author[2]{Second Author}
+\affil[1]{Department, University One}
+\affil[2]{Department, University Two}
+
+\date{}
+
+\begin{document}
+\maketitle""",
+        "author_format": r"\author[1]{Name} \affil[1]{Department, University}",
+        "sections": ["Abstract", "Introduction", "Literature Review", "Method", "Results", "Discussion", "Conclusion", "References"],
+        "bib_style": "apacite",
+        "notes": "APA 7th edition double-spaced format. 12pt Times New Roman, 1-inch margins. Uses apacite for author-date citations (\\citeA{} for narrative, \\cite{} for parenthetical)."
+    },
+    "chicago": {
+        "id": "chicago",
+        "name": "Chicago/Turabian",
+        "description": "Chicago Manual of Style / Turabian format for humanities and social sciences",
+        "preamble_example": r"""\documentclass[12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\geometry{letterpaper, margin=1in}
+\usepackage{setspace}
+\doublespacing
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{natbib}
+\usepackage{authblk}
+\usepackage{endnotes}
+
+\title{Your Paper Title}
+
+\author[1]{First Author}
+\author[2]{Second Author}
+\affil[1]{Department, University One}
+\affil[2]{Department, University Two}
+
+\date{}
+
+\begin{document}
+\maketitle""",
+        "author_format": r"\author[1]{Name} \affil[1]{Department, University}",
+        "sections": ["Introduction", "Literature Review", "Methodology", "Findings", "Discussion", "Conclusion", "Bibliography"],
+        "bib_style": "chicago",
+        "notes": "Chicago/Turabian double-spaced format. 12pt font, 1-inch margins. Supports both notes-bibliography and author-date styles. Uses natbib for citations."
+    },
+    "plos": {
+        "id": "plos",
+        "name": "PLOS ONE",
+        "description": "Single-column format for PLOS ONE open-access journal",
+        "preamble_example": r"""\documentclass[10pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+\usepackage{lineno}
+\linenumbers
+\usepackage{hyperref}
+\usepackage{authblk}
+
+\title{Your Full Paper Title}
+
+\author[1]{First Author}
+\author[2]{Second Author}
+\affil[1]{Department, Institution One, City, Country}
+\affil[2]{Department, Institution Two, City, Country}
+
+\date{}
+
+\begin{document}
+\maketitle""",
+        "author_format": r"\author[1]{Name} \affil[1]{Department, Institution, City, Country}",
+        "sections": ["Abstract", "Introduction", "Materials and Methods", "Results", "Discussion", "Conclusion", "Supporting Information"],
+        "bib_style": "plos",
+        "notes": "PLOS ONE single-column format with line numbers. No page limits. Open access. Use numbered references in order of appearance."
+    },
+    "springer-basic": {
+        "id": "springer-basic",
+        "name": "Springer Basic Journal",
+        "description": "Single-column format for Springer journal submissions",
+        "preamble_example": r"""\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+\usepackage{natbib}
+\usepackage{authblk}
+\usepackage{lineno}
+
+\title{Your Paper Title}
+
+\author[1]{First Author}
+\author[2]{Second Author}
+\affil[1]{Department, University One, City, Country \\ \texttt{first@email.com}}
+\affil[2]{Department, University Two, City, Country \\ \texttt{second@email.com}}
+
+\date{}
+
+\begin{document}
+\maketitle""",
+        "author_format": r"\author[1]{Name} \affil[1]{Department, University, City, Country \\ \texttt{email}}",
+        "sections": ["Abstract", "Introduction", "Related Work", "Methods", "Results", "Discussion", "Conclusion"],
+        "bib_style": "spbasic",
+        "notes": "Springer basic journal single-column format. Distinct from LNCS proceedings format. Uses natbib for author-date citations. No strict page limits."
+    },
 }
 
 

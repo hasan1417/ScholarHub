@@ -213,7 +213,7 @@ class AnalysisToolsMixin:
         # Store focused papers in channel memory
         if channel:
             memory = self._get_ai_memory(channel)
-            memory["focused_papers"] = focused_papers
+            memory["focused_papers"] = focused_papers[-20:]  # Cap at 20
             self._save_ai_memory(channel, memory)
             logger.info(f"✅ Saved {len(focused_papers)} focused papers to channel memory (channel_id: {channel.id})")
 
@@ -384,6 +384,7 @@ class AnalysisToolsMixin:
 
         # Use RAG to find relevant chunks for papers that have been ingested
         rag_context_by_paper = {}
+        rag_failed = False
 
         if papers_with_chunks and self.ai_service and self.ai_service.openai_client:
             try:
@@ -445,6 +446,7 @@ class AnalysisToolsMixin:
             except Exception as e:
                 logger.error(f"RAG embedding search failed: {e}")
                 logger.warning(f"[RAG] Full-text search failed, falling back to abstract-only for {len(papers_with_chunks)} papers")
+                rag_failed = True
                 # Fall back to treating all as abstract-only
                 for paper_idx, paper, ref in papers_with_chunks:
                     papers_abstract_only.append((paper_idx, paper))
@@ -573,6 +575,281 @@ class AnalysisToolsMixin:
             "papers_context": full_context,
             "instruction": instruction,
             "retrieval_method": "semantic_search" if full_text_count > 0 else "abstracts_only",
+        }
+
+    def _tool_compare_papers(
+        self,
+        ctx: Dict[str, Any],
+        dimensions: List[str],
+        paper_indices: Optional[List[int]] = None,
+        reference_ids: Optional[List[str]] = None,
+    ) -> Dict:
+        """
+        Compare specific papers across chosen dimensions.
+        Loads papers into focus and provides structured comparison context.
+        """
+        from app.models import Reference, ProjectReference
+
+        project = ctx["project"]
+        channel = ctx.get("channel")
+        recent_search_results = ctx.get("recent_search_results", [])
+
+        if not paper_indices and not reference_ids:
+            return {
+                "status": "error",
+                "message": "Provide paper_indices (from search results) or reference_ids (from library) to compare.",
+            }
+
+        if not dimensions:
+            return {
+                "status": "error",
+                "message": "Provide at least one dimension to compare across (e.g. 'methodology', 'results').",
+            }
+
+        # Re-use focus_on_papers to load papers into context
+        focus_result = self._tool_focus_on_papers(
+            ctx,
+            paper_indices=paper_indices,
+            reference_ids=reference_ids,
+        )
+
+        if focus_result.get("status") == "error":
+            return focus_result
+
+        # Retrieve focused papers from memory
+        focused_papers = []
+        if channel:
+            memory = self._get_ai_memory(channel)
+            focused_papers = memory.get("focused_papers", [])
+
+        if len(focused_papers) < 2:
+            return {
+                "status": "error",
+                "message": "Need at least 2 papers to compare. Only loaded "
+                           f"{len(focused_papers)} paper(s).",
+            }
+
+        # Build paper info dicts for comparison context
+        papers_info = []
+        for i, p in enumerate(focused_papers):
+            info: Dict[str, Any] = {
+                "number": i + 1,
+                "title": sanitize_for_context(p.get("title", "Untitled"), 300),
+                "authors": sanitize_for_context(str(p.get("authors", "Unknown")), 300),
+                "year": p.get("year", "N/A"),
+            }
+            if p.get("abstract"):
+                info["abstract"] = sanitize_for_context(p["abstract"], 600)
+            if p.get("summary"):
+                info["summary"] = sanitize_for_context(p["summary"], 800)
+            if p.get("key_findings"):
+                findings = p["key_findings"]
+                if isinstance(findings, list):
+                    info["key_findings"] = findings
+                else:
+                    info["key_findings"] = str(findings)
+            if p.get("methodology"):
+                info["methodology"] = sanitize_for_context(str(p["methodology"]), 600)
+            if p.get("limitations"):
+                limitations = p["limitations"]
+                if isinstance(limitations, list):
+                    info["limitations"] = limitations
+                else:
+                    info["limitations"] = str(limitations)
+            papers_info.append(info)
+
+        # Build structured comparison context
+        context_parts = []
+        for info in papers_info:
+            parts = [f"### Paper {info['number']}: {info['title']} ({info['year']})"]
+            parts.append(f"**Authors:** {info['authors']}")
+            if info.get("abstract"):
+                parts.append(f"**Abstract:** {info['abstract']}")
+            if info.get("summary"):
+                parts.append(f"**Summary:** {info['summary']}")
+            if info.get("key_findings"):
+                if isinstance(info["key_findings"], list):
+                    parts.append("**Key Findings:**")
+                    for f in info["key_findings"]:
+                        parts.append(f"- {f}")
+                else:
+                    parts.append(f"**Key Findings:** {info['key_findings']}")
+            if info.get("methodology"):
+                parts.append(f"**Methodology:** {info['methodology']}")
+            if info.get("limitations"):
+                if isinstance(info["limitations"], list):
+                    parts.append("**Limitations:**")
+                    for lim in info["limitations"]:
+                        parts.append(f"- {lim}")
+                else:
+                    parts.append(f"**Limitations:** {info['limitations']}")
+            context_parts.append("\n".join(parts))
+
+        comparison_context = "\n\n" + "\n\n".join(context_parts)
+
+        dims_str = ", ".join(dimensions)
+        instruction = (
+            f"Compare the following papers across these dimensions: {dims_str}.\n"
+            "For each paper, extract ONLY information explicitly stated in the provided text.\n"
+            "Format as a markdown table with papers as rows and dimensions as columns."
+        )
+
+        return {
+            "status": "success",
+            "comparison_context": comparison_context,
+            "instruction": instruction,
+            "papers": papers_info,
+        }
+
+    def _tool_suggest_research_gaps(
+        self,
+        ctx: Dict[str, Any],
+        scope: str = "focused",
+        research_question: Optional[str] = None,
+    ) -> Dict:
+        """
+        Analyze a set of papers to identify research gaps, understudied areas,
+        and future directions.
+        """
+        from app.models import Reference, ProjectReference
+
+        project = ctx["project"]
+        channel = ctx.get("channel")
+
+        papers_data: List[Dict[str, Any]] = []
+
+        if scope == "focused":
+            if not channel:
+                return {
+                    "status": "error",
+                    "message": "Channel context not available.",
+                }
+            memory = self._get_ai_memory(channel)
+            focused = memory.get("focused_papers", [])
+            if not focused:
+                return {
+                    "status": "error",
+                    "message": "No papers in focus. Use focus_on_papers first, or set scope to 'library' or 'channel'.",
+                }
+            papers_data = focused
+
+        elif scope == "library":
+            refs = (
+                self.db.query(Reference)
+                .join(ProjectReference, ProjectReference.reference_id == Reference.id)
+                .filter(ProjectReference.project_id == project.id)
+                .limit(20)
+                .all()
+            )
+            if not refs:
+                return {
+                    "status": "error",
+                    "message": "No references in the project library.",
+                }
+            for ref in refs:
+                paper: Dict[str, Any] = {
+                    "title": ref.title,
+                    "authors": ref.authors if isinstance(ref.authors, str) else ", ".join(ref.authors or []),
+                    "year": ref.year,
+                    "abstract": ref.abstract or "",
+                }
+                if ref.status in ("ingested", "analyzed"):
+                    paper["summary"] = ref.summary
+                    paper["key_findings"] = ref.key_findings
+                    paper["methodology"] = ref.methodology
+                    paper["limitations"] = ref.limitations
+                papers_data.append(paper)
+
+        elif scope == "channel":
+            if not channel:
+                return {
+                    "status": "error",
+                    "message": "Channel context not available.",
+                }
+            refs = (
+                self.db.query(Reference)
+                .join(ProjectReference, ProjectReference.reference_id == Reference.id)
+                .filter(
+                    ProjectReference.project_id == project.id,
+                    ProjectReference.added_via_channel_id == channel.id,
+                )
+                .limit(20)
+                .all()
+            )
+            if not refs:
+                return {
+                    "status": "error",
+                    "message": "No references have been added via this channel. Try scope='library' or 'focused'.",
+                }
+            for ref in refs:
+                paper = {
+                    "title": ref.title,
+                    "authors": ref.authors if isinstance(ref.authors, str) else ", ".join(ref.authors or []),
+                    "year": ref.year,
+                    "abstract": ref.abstract or "",
+                }
+                if ref.status in ("ingested", "analyzed"):
+                    paper["summary"] = ref.summary
+                    paper["key_findings"] = ref.key_findings
+                    paper["methodology"] = ref.methodology
+                    paper["limitations"] = ref.limitations
+                papers_data.append(paper)
+        else:
+            return {
+                "status": "error",
+                "message": f"Invalid scope '{scope}'. Use 'focused', 'library', or 'channel'.",
+            }
+
+        # Build context from collected papers
+        context_parts = []
+        for i, p in enumerate(papers_data, 1):
+            parts = [f"### Paper {i}: {sanitize_for_context(str(p.get('title', 'Untitled')), 300)}"]
+            if p.get("abstract"):
+                parts.append(f"**Abstract:** {sanitize_for_context(str(p['abstract']), 600)}")
+            if p.get("summary"):
+                parts.append(f"**Summary:** {sanitize_for_context(str(p['summary']), 800)}")
+            if p.get("key_findings"):
+                findings = p["key_findings"]
+                if isinstance(findings, list):
+                    parts.append("**Key Findings:**")
+                    for f in findings:
+                        parts.append(f"- {f}")
+                else:
+                    parts.append(f"**Key Findings:** {findings}")
+            if p.get("methodology"):
+                parts.append(f"**Methodology:** {sanitize_for_context(str(p['methodology']), 600)}")
+            if p.get("limitations"):
+                limitations = p["limitations"]
+                if isinstance(limitations, list):
+                    parts.append("**Limitations:**")
+                    for lim in limitations:
+                        parts.append(f"- {lim}")
+                else:
+                    parts.append(f"**Limitations:** {limitations}")
+            context_parts.append("\n".join(parts))
+
+        full_context = "\n\n".join(context_parts)
+
+        research_focus = ""
+        if research_question:
+            research_focus = f"\nIf a research question was provided, focus the analysis on: {research_question}"
+
+        instruction = (
+            f"Based on these {len(papers_data)} papers, identify:\n"
+            "1. Understudied areas or populations\n"
+            "2. Missing methodological comparisons\n"
+            "3. Contradictions between studies\n"
+            "4. Common limitations across papers\n"
+            "5. Suggested future research directions\n"
+            f"{research_focus}\n"
+            "Only cite findings that appear in the provided text."
+        )
+
+        return {
+            "status": "success",
+            "papers_analyzed": len(papers_data),
+            "context": full_context,
+            "instruction": instruction,
         }
 
     def _tool_generate_section_from_discussion(

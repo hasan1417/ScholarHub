@@ -18,6 +18,7 @@
 | 9 | Memory N+1 writes (multiple DB commits per exchange) | Medium | FIXED — Batched into single save with inline methods |
 | 10 | Inline `normalize_title`/`normalize_author` duplicates | Low | FIXED — Replaced with module-level `_normalize_title`/`_normalize_author` |
 | 11 | Repeated regex compilation (`\\cite{}` pattern) | Low | FIXED — Replaced with pre-compiled `_CITE_PATTERN` |
+| 12 | Thread+Queue streaming replaced with native async | Architecture | DONE — AsyncOpenAI client, async generators end-to-end, removed `asyncio.run()` anti-pattern from endpoint |
 
 ---
 
@@ -30,6 +31,7 @@
 5. [Low Severity Issues](#5-low-severity-issues)
 6. [Technology Assessment](#6-technology-assessment)
 7. [Architecture Recommendations](#7-architecture-recommendations)
+8. [Researcher Tooling & Prompt Audit](#8-researcher-tooling--prompt-audit)
 
 ---
 
@@ -44,19 +46,19 @@
 | OpenRouter Wrapper | `openrouter_orchestrator.py` | 843 |
 | Token Management | `token_utils.py` (tiktoken + manual limits) | 261 |
 | Search Cache | `search_cache.py` (Redis) | 120 |
-| Tool Registry | `tools/` (6 modules, 21 tools) | ~600 |
+| Tool Registry | `tools/` (6 modules, 30 tools) | ~600 |
 | **Total** | | **~10,300** |
 
 ### Flow
 
 ```
-User message → API endpoint → ToolOrchestrator.handle_message_streaming()
+User message → API endpoint (async def) → orchestrator.handle_message_streaming_async()
   → _build_messages() (system prompt + memory + history with token windowing)
-  → _execute_with_tools_streaming() (up to 8 tool call iterations)
-    → _call_ai_with_tools_streaming() (OpenAI function calling)
-    → _execute_tool_calls() (via ToolRegistry with permission checks)
-  → update_memory_after_exchange() (summarize, extract facts, detect contradictions)
-  → SSE events to client via queue + background thread
+  → _execute_with_tools_streaming_async() (up to 8 tool call iterations)
+    → _call_ai_with_tools_streaming_async() (AsyncOpenAI, async for chunk in stream)
+    → asyncio.to_thread(_execute_tool_calls()) (sync tools via ToolRegistry)
+  → asyncio.to_thread(update_memory_after_exchange())
+  → SSE events yielded directly via async generator → StreamingResponse
 ```
 
 ---
@@ -380,7 +382,7 @@ No maximum on `paper_indices`. The AI could pass `[0,1,...,999]` and add 1,000 p
 |--------|---------|--------------------------|---------|
 | Framework | Custom 5,680-line class | LangGraph / custom lightweight orchestrator | **Current approach is reasonable** for your use case. LangGraph adds 10-14ms overhead per call and brings framework lock-in. A custom orchestrator gives full control, which matters for academic tool calling. However, the 5,680-line monolith needs splitting. |
 | Tool dispatch | Custom registry + permission checks | OpenAI function calling (already used) | **Good choice.** The function calling API is the native approach. The custom registry adds role-based filtering on top, which is valuable. |
-| Streaming | Background thread + queue + SSE | FastAPI StreamingResponse with async generators | **Needs improvement.** The thread + queue pattern is complex and error-prone. Modern FastAPI supports `async def` with `yield` directly into `StreamingResponse`, eliminating the queue entirely. |
+| Streaming | ~~Background thread + queue + SSE~~ → Async generators + SSE (FIXED 2026-02-06) | FastAPI StreamingResponse with async generators | **DONE.** Replaced thread+queue with native `async for` over `AsyncOpenAI` stream. Tools run via `asyncio.to_thread()`. No more `asyncio.run()` anti-pattern. |
 
 **Recommendation:** Keep custom orchestration but refactor the God class into 4-5 focused services. Migrate streaming to native async generators.
 
@@ -473,7 +475,7 @@ No maximum on `paper_indices`. The AI could pass `[0,1,...,999]` and add 1,000 p
 
 2. **Use pgvector consistently** for all vector searches (replace Python-level cosine similarity)
 
-3. **Migrate streaming to async generators**: Replace thread + queue with `async def handle_message_streaming()` using `yield`
+3. ~~**Migrate streaming to async generators**~~ — DONE (2026-02-06): Replaced thread+queue with `handle_message_streaming_async()` using `AsyncOpenAI` + `async for` + `yield`
 
 4. **Auto-update model limits** from OpenRouter API response instead of hardcoded dict
 
@@ -495,14 +497,319 @@ No maximum on `paper_indices`. The AI could pass `[0,1,...,999]` and add 1,000 p
 
 | Category | Count | Action |
 |----------|-------|--------|
-| Critical | 3 | Fix immediately |
-| High | 6 | Fix this sprint |
-| Medium | 10 | Fix next sprint |
-| Low | 9 | Fix opportunistically |
-| **Total** | **28** | |
+| Critical | 3 | All FIXED |
+| High | 6 | All FIXED |
+| Medium | 10 | 3 FIXED, rest next sprint |
+| Low | 9 | 2 FIXED, rest opportunistic |
+| Architecture | 1 | DONE (async streaming) |
+| Researcher Gaps — Tools | 3 high + 2 low | Phase A: `export_citations`, `compare_papers`, `suggest_research_gaps` |
+| Researcher Gaps — Prompt | 4 improvements | Phase B: anti-hallucination, academic writing, stage-adaptive, ingestion nudge |
+| **Total** | **28 bugs + 9 enhancements** | |
 
-The system's **strongest areas** are the academic search aggregation (6 APIs, server-side cache, good dedup), the tool registry with role-based permissions, and the token-based context windowing.
+The system's **strongest areas** are the academic search aggregation (6 APIs, server-side cache, good dedup), the tool registry with role-based permissions, the token-based context windowing, and the async streaming architecture (refactored 2026-02-06).
 
-The **weakest areas** are the security issues (LaTeX injection, thread safety), the prompt architecture (250-line band-aid prompt), and the 5,680-line God class that mixes orchestration, paper management, library operations, RAG, and memory into a single file.
+The **main remaining work** is researcher-facing: adding `export_citations`, `compare_papers`, and `suggest_research_gaps` tools, plus hardening the system prompt with academic writing standards, anti-hallucination rules for data/statistics, and stage-adaptive behavior using the existing memory system.
 
-The technology choices are mostly sound for 2025-2026 — custom orchestration with OpenAI function calling is appropriate for this use case, pgvector works well at this scale, and the multi-source search is excellent. The main improvements should focus on security fixes, code organization (splitting the God class), and adopting Structured Outputs for reliable LLM responses.
+The technology choices are sound for 2025-2026 — custom orchestration with OpenAI function calling is appropriate for this use case, pgvector works well at this scale, and the multi-source search is excellent.
+
+---
+
+## 8. Researcher Tooling & Prompt Audit
+
+**Date:** 2026-02-06
+**Scope:** Evaluate whether the current 30 tools and system prompt adequately serve academic researchers. Identify gaps, propose new tools, and recommend prompt improvements.
+
+---
+
+### 8.1 Current Tool Inventory (30 tools)
+
+#### Search Tools (5)
+| Tool | Purpose | Role |
+|------|---------|------|
+| `search_papers` | Search academic papers online (Semantic Scholar, OpenAlex, CORE, CrossRef, PubMed) | viewer+ |
+| `discover_topics` | Discover 4–6 subtopics/methods within a broad area | viewer+ |
+| `batch_search_papers` | Search up to 5 topics simultaneously | viewer+ |
+| `get_related_papers` | Find similar/citing/referenced papers for a given paper | viewer+ |
+| `semantic_search_library` | Embedding-based similarity search within project library (pgvector) | viewer+ |
+
+#### Library / Reference Tools (7)
+| Tool | Purpose | Role |
+|------|---------|------|
+| `get_recent_search_results` | Retrieve papers from most recent search | viewer+ |
+| `get_project_references` | List all papers in the project library | viewer+ |
+| `get_reference_details` | Detailed info for a specific paper (full analysis if PDF ingested) | viewer+ |
+| `analyze_reference` | Re-analyze a reference PDF (summary, key findings, methodology, limitations) | editor+ |
+| `get_channel_resources` | Files attached to the current discussion channel | viewer+ |
+| `get_channel_papers` | Papers added to library through this channel | viewer+ |
+| `add_to_library` | Add papers from search results to library + ingest PDFs | editor+ |
+
+#### Project / Paper Tools (4)
+| Tool | Purpose | Role |
+|------|---------|------|
+| `get_project_papers` | List draft papers/documents in the project | viewer+ |
+| `create_paper` | Create a new LaTeX paper (lit review, research, summary, notes) | editor+ |
+| `update_paper` | Update an existing paper (replace section or append) | editor+ |
+| `generate_section_from_discussion` | Generate a paper section from discussion context | editor+ |
+
+#### Artifact Tools (2)
+| Tool | Purpose | Role |
+|------|---------|------|
+| `create_artifact` | Create a downloadable document (markdown/LaTeX/text/PDF) | editor+ |
+| `get_created_artifacts` | List artifacts created in this channel | viewer+ |
+
+#### Project Info Tools (2)
+| Tool | Purpose | Role |
+|------|---------|------|
+| `get_project_info` | Get project title, description, goals, keywords, status | viewer+ |
+| `update_project_info` | Update project description, objectives, keywords | admin |
+
+#### Analysis / Focus Tools (3)
+| Tool | Purpose | Role |
+|------|---------|------|
+| `trigger_search_ui` | Trigger frontend search interface for user review | viewer+ |
+| `focus_on_papers` | Load specific papers into focus for detailed discussion | viewer+ |
+| `analyze_across_papers` | Analyze a topic across all focused papers (RAG-based) | viewer+ |
+
+---
+
+### 8.2 System Prompt Assessment
+
+**Location:** `tool_orchestrator.py` → `BASE_SYSTEM_PROMPT` (~58 lines after recent simplification)
+
+#### What works well
+- **"Golden Rule: Use What You Have"** — prevents unnecessary re-searching
+- **Paper context priority** (recent search → channel history → library) — clear and correct
+- **Citation workflow** — enforces `\cite{authorYYYYword}`, auto-generated references section
+- **Depth awareness** — distinguishes abstracts (search) from full text (ingested PDFs)
+- **Async search behavior** — correctly instructs AI not to list papers after search
+- **Conciseness rules** — max 1 clarifying question, no UUIDs, confirm actions by name
+
+#### What's missing or weak
+
+| Issue | Impact | Detail |
+|-------|--------|--------|
+| No academic writing guidance | **High** | When generating papers, AI has no instruction on formal tone, hedging language ("suggests", "indicates"), or citation density expectations |
+| No anti-hallucination rule for data/statistics | **High** | Prompt says "never invent papers" but nothing about fabricating statistics, results, percentages, or specific findings. Researchers must trust numbers come from actual sources |
+| Research stage tracked but unused in prompt | **Medium** | Memory system detects `exploring → refining → finding_papers → analyzing → writing` but the system prompt doesn't adapt behavior per stage |
+| PDF ingestion nudge too subtle | **Medium** | "DEPTH AWARENESS" section mentions it, but AI rarely proactively suggests ingesting when user asks deep questions about un-ingested papers |
+| No structured comparison guidance | **Medium** | No prompt instruction for side-by-side methodology/findings comparisons |
+| No gap identification guidance | **Medium** | No instruction for synthesizing research gaps from a body of literature |
+
+---
+
+### 8.3 Identified Gaps — New Tools Needed
+
+#### HIGH PRIORITY
+
+##### 8.3.1 `export_citations`
+
+**Problem:** Researchers constantly need BibTeX exports. A user can't say "export the bibliography for my paper" or "give me the BibTeX for these 3 papers." The reference metadata (DOIs, authors, year, journal) exists in the DB but there's no tool to format and deliver it.
+
+**Proposed tool:**
+```
+export_citations(
+    reference_ids: List[str],       # UUIDs of library papers
+    format: "bibtex" | "apa" | "mla" | "chicago",
+    scope: "selected" | "paper" | "all"
+)
+```
+
+**Returns:** Formatted citation text the AI can present directly in chat or package as an artifact.
+
+**Implementation notes:**
+- Reference model already has: `title`, `authors`, `year`, `journal`, `doi`, `url`, `volume`, `issue`, `pages`
+- BibTeX generation is straightforward string formatting from existing data
+- Should go in `LibraryToolsMixin`
+- Permission: `viewer+` (read-only operation)
+
+---
+
+##### 8.3.2 `compare_papers`
+
+**Problem:** `analyze_across_papers` does freeform cross-paper analysis, but researchers frequently want **structured** comparisons: "compare the methodologies of papers 1, 3, 5" → table with rows per paper and columns per dimension (dataset, method, metrics, findings, limitations).
+
+**Proposed tool:**
+```
+compare_papers(
+    paper_indices: List[int],       # from search results (0-based)
+    reference_ids: List[str],       # from library (UUIDs)
+    dimensions: List[str]           # e.g. ["methodology", "dataset", "results", "limitations"]
+)
+```
+
+**Returns:** Structured comparison dict that the AI formats as a markdown table. Each cell sourced from actual paper content (abstracts or full text if ingested).
+
+**Implementation notes:**
+- Builds on existing `focus_on_papers` infrastructure to load paper content
+- Uses focused papers + a structured prompt template (not freeform)
+- If papers have full text, uses RAG chunks; otherwise uses abstracts
+- Should go in `AnalysisToolsMixin`
+- Permission: `viewer+`
+
+---
+
+##### 8.3.3 `suggest_research_gaps`
+
+**Problem:** After a literature review, the natural next question is "what gaps exist in this field?" Currently requires manual prompting with no structured output. This is a core researcher workflow.
+
+**Proposed tool:**
+```
+suggest_research_gaps(
+    scope: "focused" | "library" | "channel",
+    research_question: str              # optional: narrow the gap analysis
+)
+```
+
+**Returns:** Structured gap analysis:
+- Understudied populations/domains
+- Missing methodological comparisons
+- Contradictions between studies
+- Limitations common across papers
+- Suggested future research directions
+
+**Implementation notes:**
+- Loads papers based on scope (focused papers, library refs, or channel papers)
+- Sends paper summaries/abstracts to LLM with a structured gap-analysis prompt
+- Uses JSON mode for structured output
+- Should go in `AnalysisToolsMixin`
+- Permission: `viewer+`
+
+---
+
+#### MEDIUM PRIORITY
+
+##### 8.3.4 Prompt: Academic writing standards
+
+Add to `BASE_SYSTEM_PROMPT` when generating paper content:
+```
+ACADEMIC WRITING STANDARDS (when creating or updating papers):
+- Use formal academic tone: avoid contractions, colloquialisms, and first person singular
+- Use hedging language appropriately: "findings suggest", "results indicate", "evidence supports"
+- Ensure adequate citation density: every factual claim MUST be backed by \cite{}
+- Structure sections with clear topic sentences and logical flow
+- Use precise terminology consistent with the field
+- Prefer active voice for clarity but passive voice where convention expects it
+```
+
+##### 8.3.5 Prompt: Anti-hallucination guardrail for data
+
+Add to `BASE_SYSTEM_PROMPT`:
+```
+DATA INTEGRITY:
+NEVER fabricate statistics, results, percentages, p-values, or specific findings.
+If you don't have the actual data from a paper (via full text or search abstract),
+say "this paper reports on [topic] but I'd need the full text for specific numbers."
+Only quote findings that appear verbatim in the context you have access to.
+When summarizing across papers, clearly attribute each finding to its source.
+```
+
+##### 8.3.6 Prompt: Stage-adaptive behavior
+
+Use the already-tracked research stage (`research_state.stage` in memory) to adjust responses:
+
+| Stage | AI Behavior |
+|-------|-------------|
+| **exploring** | Suggest broad searches, help narrow the topic, ask about goals and constraints |
+| **refining** | Suggest specific comparisons, help formulate concrete research questions |
+| **finding_papers** | Prioritize search efficiency, suggest batch searches, related papers, semantic search |
+| **analyzing** | Suggest PDF ingestion for depth, offer cross-paper analysis, highlight contradictions |
+| **writing** | Focus on citations, section generation, academic tone, structure and flow |
+
+Implementation: inject a short stage-aware instruction after the base system prompt based on `ctx.research_state.stage`.
+
+##### 8.3.7 Prompt: Proactive PDF ingestion nudge
+
+Add to `BASE_SYSTEM_PROMPT` under DEPTH AWARENESS:
+```
+PROACTIVE INGESTION:
+When a user asks a detailed question about a paper that has NOT been ingested (no full text available):
+1. Answer what you can from the abstract
+2. Explicitly offer: "I only have the abstract for this paper. Want me to add it to your
+   library and ingest the PDF? That would give me the full text for a deeper analysis."
+Do NOT repeatedly offer ingestion for the same paper in a conversation.
+```
+
+---
+
+#### LOWER PRIORITY (Nice-to-Have)
+
+##### 8.3.8 `generate_abstract`
+
+Auto-generate an abstract from an existing paper draft. Common end-of-writing workflow.
+
+```
+generate_abstract(paper_id: str, max_words: int = 250)
+```
+
+Reads the paper content, generates a structured abstract (background, methods, results, conclusion). Could use the paper's own `\cite{}` references for accuracy.
+
+##### 8.3.9 `annotate_reference`
+
+Let researchers save notes/tags on specific papers through the AI.
+
+```
+annotate_reference(
+    reference_id: str,
+    note: str,
+    tags: List[str]     # e.g. ["methodology", "key-paper", "contradicts-hypothesis"]
+)
+```
+
+Persists to a new `reference_annotations` table or a JSONB column on `ProjectReference`. Annotations appear in context when the AI discusses that paper.
+
+##### 8.3.10 Expand LaTeX template list
+
+**Current:** generic, IEEE, ACL, NeurIPS, ICML
+**Missing:** APA, Chicago, Springer, Elsevier, AAAI, Nature, PLOS ONE
+
+These are common formats researchers need. Templates are LaTeX preamble definitions — adding them is low effort.
+
+---
+
+### 8.4 Memory System Assessment (for Researcher Workflows)
+
+| Aspect | Status | Gap |
+|--------|--------|-----|
+| 4-tier memory (summary, facts, research_state, long_term) | Working | Over-engineered per Section 6.2 |
+| Research stage detection | Working but underutilized | Stage not fed back into prompt behavior (see 8.3.6) |
+| `papers_discussed` tracking | Working | Can grow unbounded — should cap and summarize |
+| Per-paper notes/opinions | **Missing** | Memory tracks papers discussed but not user's notes about them |
+| Formal research question field | **Missing** | `research_topic` exists but no structured RQ that refines over time |
+| Focused papers context | Working | Well-integrated with `analyze_across_papers` |
+
+---
+
+### 8.5 Permission System Assessment
+
+| Role | Tool Count | Capabilities |
+|------|-----------|-------------|
+| Viewer | 19 read-only | Search, browse library, analyze, view artifacts |
+| Editor | 25 (+ 6 write) | + add_to_library, create/update papers, create artifacts, analyze_reference |
+| Admin | 27 (+ 2 admin) | + update_project_info |
+
+**Assessment:** Permission model is solid. Two-level enforcement (schema filtering + execution check) with fail-closed default. New tools should follow the same pattern:
+- `export_citations` → viewer+ (read-only)
+- `compare_papers` → viewer+ (read-only)
+- `suggest_research_gaps` → viewer+ (read-only)
+- `generate_abstract` → editor+ (reads paper content, could create artifact)
+- `annotate_reference` → editor+ (writes data)
+
+---
+
+### 8.6 Recommended Implementation Order
+
+#### Phase A — New Tools
+1. **`export_citations`** — straightforward, high researcher value, uses existing reference data
+2. **`compare_papers`** — builds on existing `focus_on_papers` infrastructure
+3. **`suggest_research_gaps`** — builds on `analyze_across_papers` pattern
+
+#### Phase B — Prompt Improvements
+1. **Anti-hallucination guardrail** for data/statistics (highest integrity impact)
+2. **Academic writing guidance** in system prompt
+3. **Proactive PDF ingestion nudge**
+4. **Stage-adaptive behavior** using existing memory data
+
+#### Phase C — Nice-to-Have
+1. `generate_abstract`
+2. `annotate_reference`
+3. Additional LaTeX templates (APA, Springer, Elsevier, AAAI, Nature, PLOS ONE)

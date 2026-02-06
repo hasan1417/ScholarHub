@@ -82,6 +82,67 @@ def _handle_analyze_across_papers(orchestrator: Any, ctx: Dict[str, Any], args: 
     return orchestrator._tool_analyze_across_papers(ctx, **args)
 
 
+COMPARE_PAPERS_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "compare_papers",
+        "description": "Compare specific papers across chosen dimensions (e.g. methodology, dataset, results, limitations). Loads papers into focus and provides structured comparison context. Use when user asks to 'compare papers', 'how do they differ', 'contrast methodologies', etc.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "paper_indices": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "Indices from recent search results (0-based) to compare.",
+                },
+                "reference_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "UUIDs of library references to compare.",
+                },
+                "dimensions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Dimensions to compare across, e.g. ['methodology', 'dataset', 'results', 'limitations'].",
+                },
+            },
+            "required": ["dimensions"],
+        },
+    },
+}
+
+SUGGEST_RESEARCH_GAPS_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "suggest_research_gaps",
+        "description": "Analyze a set of papers to identify research gaps, understudied areas, and future directions. Use when user asks 'what gaps exist', 'what's missing in this research', 'suggest future work', etc.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "scope": {
+                    "type": "string",
+                    "enum": ["focused", "library", "channel"],
+                    "description": "Which papers to analyze: 'focused' (currently focused papers), 'library' (project library), 'channel' (papers added via this channel).",
+                    "default": "focused",
+                },
+                "research_question": {
+                    "type": "string",
+                    "description": "Optional narrowing question to focus the gap analysis on.",
+                },
+            },
+        },
+    },
+}
+
+
+def _handle_compare_papers(orchestrator: Any, ctx: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
+    return orchestrator._tool_compare_papers(ctx, **args)
+
+
+def _handle_suggest_research_gaps(orchestrator: Any, ctx: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
+    return orchestrator._tool_suggest_research_gaps(ctx, **args)
+
+
 TOOL_SPECS: List[ToolSpec] = [
     ToolSpec(
         name="trigger_search_ui",
@@ -97,6 +158,16 @@ TOOL_SPECS: List[ToolSpec] = [
         name="analyze_across_papers",
         schema=ANALYZE_ACROSS_PAPERS_SCHEMA,
         handler=_handle_analyze_across_papers,
+    ),
+    ToolSpec(
+        name="compare_papers",
+        schema=COMPARE_PAPERS_SCHEMA,
+        handler=_handle_compare_papers,
+    ),
+    ToolSpec(
+        name="suggest_research_gaps",
+        schema=SUGGEST_RESEARCH_GAPS_SCHEMA,
+        handler=_handle_suggest_research_gaps,
     ),
 ]
 

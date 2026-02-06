@@ -50,7 +50,7 @@ CREATE_PAPER_SCHEMA = {
                 },
                 "template": {
                     "type": "string",
-                    "enum": ["generic", "ieee", "acl", "neurips", "icml", "iclr", "aaai", "cvpr", "iccv", "eccv", "nature", "elsevier", "acm", "lncs", "jmlr", "ijcai", "kdd", "pnas"],
+                    "enum": ["generic", "ieee", "acl", "neurips", "icml", "iclr", "aaai", "cvpr", "iccv", "eccv", "nature", "elsevier", "acm", "lncs", "jmlr", "ijcai", "kdd", "pnas", "apa", "chicago", "plos", "springer-basic"],
                     "description": "Conference/journal template format. Use when user specifies a format like 'IEEE format', 'ACL style', 'Nature template'. Default is 'generic' (simple article).",
                     "default": "generic",
                 },
@@ -119,6 +119,30 @@ GENERATE_SECTION_FROM_DISCUSSION_SCHEMA = {
 }
 
 
+GENERATE_ABSTRACT_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "generate_abstract",
+        "description": "Generate a structured abstract for an existing paper based on its content. Use when user asks to 'generate an abstract', 'write an abstract for my paper', etc.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "paper_id": {
+                    "type": "string",
+                    "description": "UUID of the paper to generate an abstract for (get from get_project_papers).",
+                },
+                "max_words": {
+                    "type": "integer",
+                    "description": "Target word count for the abstract.",
+                    "default": 250,
+                },
+            },
+            "required": ["paper_id"],
+        },
+    },
+}
+
+
 def _handle_get_project_papers(orchestrator: Any, ctx: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
     return orchestrator._tool_get_project_papers(ctx, **args)
 
@@ -133,6 +157,10 @@ def _handle_update_paper(orchestrator: Any, ctx: Dict[str, Any], args: Dict[str,
 
 def _handle_generate_section_from_discussion(orchestrator: Any, ctx: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
     return orchestrator._tool_generate_section_from_discussion(ctx, **args)
+
+
+def _handle_generate_abstract(orchestrator: Any, ctx: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
+    return orchestrator._tool_generate_abstract(ctx, **args)
 
 
 TOOL_SPECS: List[ToolSpec] = [
@@ -155,6 +183,11 @@ TOOL_SPECS: List[ToolSpec] = [
         name="generate_section_from_discussion",
         schema=GENERATE_SECTION_FROM_DISCUSSION_SCHEMA,
         handler=_handle_generate_section_from_discussion,
+    ),
+    ToolSpec(
+        name="generate_abstract",
+        schema=GENERATE_ABSTRACT_SCHEMA,
+        handler=_handle_generate_abstract,
     ),
 ]
 

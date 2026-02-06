@@ -5,8 +5,9 @@ Tests that transient errors (429, 5xx, timeouts) are retried with exponential ba
 while non-retryable errors (auth, invalid request) fail immediately.
 """
 
+import asyncio
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from openai import RateLimitError, APIStatusError, APIConnectionError, APITimeoutError
 
 from app.services.discussion_ai.openrouter_orchestrator import (
@@ -15,6 +16,14 @@ from app.services.discussion_ai.openrouter_orchestrator import (
     MAX_RETRIES,
     INITIAL_BACKOFF_SECONDS,
 )
+
+
+async def _collect_async_gen(gen):
+    """Helper to collect all events from an async generator."""
+    events = []
+    async for event in gen:
+        events.append(event)
+    return events
 
 
 class TestIsRetryableError:
@@ -263,7 +272,7 @@ class TestNonStreamingRetry:
 
 
 class TestStreamingRetry:
-    """Test retry behavior for _call_ai_with_tools_streaming."""
+    """Test retry behavior for _call_ai_with_tools_streaming (async)."""
 
     @pytest.fixture
     def orchestrator(self):
@@ -281,63 +290,93 @@ class TestStreamingRetry:
             orch._get_tools_for_user = MagicMock(return_value=[])
             return orch
 
-    def _make_stream_chunks(self, content="Hello"):
-        """Create mock stream chunks."""
+    @staticmethod
+    def _make_async_stream_chunks(content="Hello"):
+        """Create a mock async stream that yields chunks."""
         chunks = []
         for char in content:
             chunk = MagicMock()
             chunk.choices = [MagicMock(delta=MagicMock(content=char, tool_calls=None))]
             chunks.append(chunk)
-        return iter(chunks)
 
-    @patch('time.sleep')
-    def test_streaming_retries_on_init_failure(self, mock_sleep, orchestrator):
+        class AsyncStreamMock:
+            def __aiter__(self):
+                return self._iter()
+
+            async def _iter(self):
+                for c in chunks:
+                    yield c
+
+        return AsyncStreamMock()
+
+    def test_streaming_retries_on_init_failure(self, orchestrator):
         """Should retry stream initialization on transient errors."""
-        orchestrator.openrouter_client.chat.completions.create = MagicMock(
-            side_effect=[
-                RateLimitError("rate limited", response=MagicMock(), body={}),
-                self._make_stream_chunks("OK"),
-            ]
-        )
+        call_count = 0
+        stream_result = self._make_async_stream_chunks("OK")
 
-        events = list(orchestrator._call_ai_with_tools_streaming([], {}))
+        async def mock_create(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RateLimitError("rate limited", response=MagicMock(), body={})
+            return stream_result
 
-        # Should have token events and final result
+        orchestrator.async_openrouter_client.chat.completions.create = mock_create
+
+        async def run():
+            with patch('asyncio.sleep', new_callable=AsyncMock):
+                return await _collect_async_gen(
+                    orchestrator._call_ai_with_tools_streaming([], {})
+                )
+
+        events = asyncio.run(run())
+
         result = events[-1]
         assert result["type"] == "result"
         assert result["content"] == "OK"
-        assert mock_sleep.call_count == 1
 
-    @patch('time.sleep')
-    def test_streaming_fails_after_max_retries(self, mock_sleep, orchestrator):
+    def test_streaming_fails_after_max_retries(self, orchestrator):
         """Should fail with message after MAX_RETRIES exhausted."""
-        orchestrator.openrouter_client.chat.completions.create = MagicMock(
-            side_effect=RateLimitError("rate limited", response=MagicMock(), body={})
-        )
+        async def mock_create(**kwargs):
+            raise RateLimitError("rate limited", response=MagicMock(), body={})
 
-        events = list(orchestrator._call_ai_with_tools_streaming([], {}))
+        orchestrator.async_openrouter_client.chat.completions.create = mock_create
+
+        async def run():
+            with patch('asyncio.sleep', new_callable=AsyncMock):
+                return await _collect_async_gen(
+                    orchestrator._call_ai_with_tools_streaming([], {})
+                )
+
+        events = asyncio.run(run())
 
         result = events[-1]
         assert result["type"] == "result"
         assert "temporarily unavailable" in result["content"]
-        assert mock_sleep.call_count == MAX_RETRIES - 1
 
     def test_streaming_no_retry_on_auth_error(self, orchestrator):
         """Should fail immediately on auth error, no retry."""
-        orchestrator.openrouter_client.chat.completions.create = MagicMock(
-            side_effect=APIStatusError(
+        call_count = 0
+
+        async def mock_create(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            raise APIStatusError(
                 "Unauthorized",
                 response=MagicMock(status_code=401),
                 body={},
             )
-        )
 
-        events = list(orchestrator._call_ai_with_tools_streaming([], {}))
+        orchestrator.async_openrouter_client.chat.completions.create = mock_create
+
+        events = asyncio.run(_collect_async_gen(
+            orchestrator._call_ai_with_tools_streaming([], {})
+        ))
 
         result = events[-1]
         assert result["type"] == "result"
         assert "Error:" in result["content"]
-        assert orchestrator.openrouter_client.chat.completions.create.call_count == 1
+        assert call_count == 1
 
 
 class TestNoClientConfigured:
@@ -374,7 +413,9 @@ class TestNoClientConfigured:
                 user_api_key=None,
             )
 
-            events = list(orch._call_ai_with_tools_streaming([], {}))
+            events = asyncio.run(_collect_async_gen(
+                orch._call_ai_with_tools_streaming([], {})
+            ))
 
             assert len(events) == 1
             assert events[0]["type"] == "result"

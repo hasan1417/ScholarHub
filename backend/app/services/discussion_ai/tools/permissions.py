@@ -42,11 +42,14 @@ TOOL_MIN_ROLE: Dict[str, str] = {
     "trigger_search_ui": "viewer",
     "focus_on_papers": "viewer",
     "analyze_across_papers": "viewer",
+    "compare_papers": "viewer",
+    "suggest_research_gaps": "viewer",
     "get_project_papers": "viewer",
     "get_project_info": "viewer",
     "get_created_artifacts": "viewer",
     "get_channel_resources": "viewer",
     "get_channel_papers": "viewer",
+    "export_citations": "viewer",
 
     # === Write tools (editor+) ===
     "add_to_library": "editor",
@@ -55,6 +58,8 @@ TOOL_MIN_ROLE: Dict[str, str] = {
     "generate_section_from_discussion": "editor",
     "create_artifact": "editor",
     "analyze_reference": "editor",
+    "annotate_reference": "editor",
+    "generate_abstract": "editor",
 
     # === Admin tools (admin/owner only) ===
     "update_project_info": "admin",

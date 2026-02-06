@@ -1,5 +1,5 @@
 from sqlalchemy import Column, DateTime, Enum, Float, ForeignKey, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -68,6 +68,7 @@ class ProjectReference(Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
+    annotations = Column(JSONB, default=dict)
     confidence = Column(Float)
     decided_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     decided_at = Column(DateTime(timezone=True))

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
+from typing import Any, AsyncGenerator, Dict, List, Optional, TYPE_CHECKING
 
 from app.services.discussion_ai.tools import build_tool_registry
 from app.services.discussion_ai.mixins import (
@@ -61,6 +61,7 @@ When asked to create a paper or literature review:
 - Search results = ABSTRACTS ONLY. Library papers with ingested PDFs = FULL TEXT.
 - For content-heavy requests (lit reviews, methodology comparisons): call add_to_library with ingest_pdfs=True FIRST, then write content.
 - When asked about a specific paper: check "Papers with FULL TEXT available" in context above. If listed, call get_reference_details BEFORE answering. Only offer to ingest if NOT already in library.
+- When user asks a detailed question about a paper WITHOUT full text: answer from the abstract, then offer: "I only have the abstract. Want me to ingest the PDF for deeper analysis?" Do NOT repeat this offer for the same paper.
 
 ## SEARCH BEHAVIOR
 
@@ -87,6 +88,17 @@ When asked to create a paper or literature review:
 7. Always confirm what you created by name
 8. When user confirms an action ("yes", "do it", "all") → CALL the tool immediately, don't just respond with text
 
+## DATA INTEGRITY
+NEVER fabricate statistics, results, percentages, p-values, or specific findings.
+If you don't have actual data from a paper (via full text or abstract), say "I'd need the full text for specific numbers."
+Only quote findings that appear in the context you have. When summarizing across papers, attribute each finding to its source.
+
+## ACADEMIC WRITING (when creating or updating papers)
+- Use formal academic tone — no contractions or colloquialisms
+- Use hedging language: "findings suggest", "results indicate", "evidence supports"
+- Every factual claim MUST be backed by \cite{{}} — aim for 1-2 citations per paragraph minimum
+- Structure sections with clear topic sentences and logical transitions
+
 Project: {project_title} | Channel: {channel_name}
 {context_summary}"""
 
@@ -96,6 +108,15 @@ HISTORY_REMINDER = (
     "When user confirms an action → call the tool immediately. "
     "Never list papers from memory — only from tool results."
 )
+
+# Stage-adaptive hints injected based on AI memory's research_state.stage
+STAGE_HINTS = {
+    "exploring": "The researcher is exploring broadly. Help narrow the topic, suggest search directions, ask about goals.",
+    "refining": "The researcher is refining their scope. Suggest specific comparisons, help formulate concrete research questions.",
+    "finding_papers": "The researcher is actively searching. Prioritize search efficiency — suggest batch searches, related papers, semantic search.",
+    "analyzing": "The researcher is analyzing papers in depth. Suggest PDF ingestion for full text, offer cross-paper analysis, highlight contradictions.",
+    "writing": "The researcher is writing. Focus on citations, section generation, academic tone, structure, and flow.",
+}
 
 
 class ToolOrchestrator(MemoryMixin, SearchToolsMixin, LibraryToolsMixin, AnalysisToolsMixin):
@@ -154,7 +175,7 @@ class ToolOrchestrator(MemoryMixin, SearchToolsMixin, LibraryToolsMixin, Analysi
             logger.exception(f"Error in handle_message: {e}")
             return self._error_response(str(e))
 
-    def handle_message_streaming(
+    async def handle_message_streaming(
         self,
         project: "Project",
         channel: "ProjectDiscussionChannel",
@@ -165,16 +186,15 @@ class ToolOrchestrator(MemoryMixin, SearchToolsMixin, LibraryToolsMixin, Analysi
         conversation_history: Optional[List[Dict[str, str]]] = None,
         reasoning_mode: bool = False,
         current_user: Optional["User"] = None,
-    ) -> Generator[Dict[str, Any], None, None]:
-        """
-        Handle a user message with streaming response.
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Handle a user message with async streaming response.
 
         Yields:
             dict: Either {"type": "token", "content": "..."} for content tokens,
+                  {"type": "status", ...} for tool status updates,
                   or {"type": "result", "data": {...}} at the end with full response.
         """
         try:
-            # Build request context (thread-safe - local variable)
             ctx = self._build_request_context(
                 project,
                 channel,
@@ -186,11 +206,10 @@ class ToolOrchestrator(MemoryMixin, SearchToolsMixin, LibraryToolsMixin, Analysi
                 recent_search_id=recent_search_id,
             )
 
-            # Build messages for LLM
             messages = self._build_messages(project, channel, message, recent_search_results, conversation_history, ctx=ctx)
 
-            # Execute with streaming
-            yield from self._execute_with_tools_streaming(messages, ctx)
+            async for event in self._execute_with_tools_streaming(messages, ctx):
+                yield event
 
         except Exception as e:
             logger.exception(f"Error in handle_message_streaming: {e}")
@@ -309,6 +328,18 @@ class ToolOrchestrator(MemoryMixin, SearchToolsMixin, LibraryToolsMixin, Analysi
             context_summary=full_context,
         )
 
+        # Inject stage-adaptive hint from AI memory
+        memory_dict = self._get_ai_memory(channel)
+        research_stage = memory_dict.get("research_state", {}).get("stage", "exploring")
+        stage_hint = STAGE_HINTS.get(research_stage, "")
+        if stage_hint:
+            system_prompt += f"\n\n## CURRENT RESEARCH STAGE: {research_stage}\n{stage_hint}"
+
+        # Inject formal research question if available
+        research_question = memory_dict.get("facts", {}).get("research_question")
+        if research_question:
+            system_prompt += f"\nThe researcher's question: \"{research_question}\" — tailor suggestions to this."
+
         messages = [{"role": "system", "content": system_prompt}]
 
         # Add role-based permission notice for viewers
@@ -420,115 +451,14 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
             "focus_on_papers": "Loading papers into focus",
             "analyze_across_papers": "Analyzing across focused papers",
             "generate_section_from_discussion": "Generating section from discussion",
+            # New researcher tooling
+            "export_citations": "Exporting citations",
+            "compare_papers": "Comparing papers",
+            "suggest_research_gaps": "Analyzing research gaps",
+            "generate_abstract": "Generating abstract",
+            "annotate_reference": "Annotating reference",
         }
         return tool_messages.get(tool_name, "Processing")
-
-    def _execute_with_tools_streaming(
-        self,
-        messages: List[Dict],
-        ctx: Dict[str, Any],
-    ) -> Generator[Dict[str, Any], None, None]:
-        """Execute with tool calling and streaming."""
-        max_iterations = 8
-        iteration = 0
-        all_tool_results = []
-        accumulated_content = []
-
-        logger.debug(f"[Streaming] Starting tool execution with model: {self.model}")
-
-        while iteration < max_iterations:
-            iteration += 1
-            logger.debug(f"[Streaming] Iteration {iteration}")
-
-            # Stream the AI response
-            response_content = ""
-            tool_calls = []
-
-            for event in self._call_ai_with_tools_streaming(messages, ctx):
-                if event["type"] == "token":
-                    accumulated_content.append(event["content"])
-                    yield event  # Stream token to client
-                elif event["type"] == "result":
-                    response_content = event["content"]
-                    tool_calls = event.get("tool_calls", [])
-
-            logger.debug(f"[Streaming] AI returned {len(tool_calls)} tool calls: {[tc.get('name') for tc in tool_calls]}")
-
-            if not tool_calls:
-                # No more tool calls, we're done
-                logger.debug("[Streaming] No tool calls, finishing")
-                break
-
-            # Send status event for each tool call so frontend can show dynamic loading
-            for tc in tool_calls:
-                tool_name = tc.get("name", "")
-                status_message = self._get_tool_status_message(tool_name)
-                yield {"type": "status", "tool": tool_name, "message": status_message}
-
-            # Execute tool calls (not streamed, but usually fast)
-            tool_results = self._execute_tool_calls(tool_calls, ctx)
-            all_tool_results.extend(tool_results)
-
-            # Add assistant message with tool calls
-            formatted_tool_calls = [
-                {
-                    "id": tc["id"],
-                    "type": "function",
-                    "function": {
-                        "name": tc["name"],
-                        "arguments": json.dumps(tc["arguments"]),
-                    }
-                }
-                for tc in tool_calls
-            ]
-
-            messages.append({
-                "role": "assistant",
-                "content": response_content or "",
-                "tool_calls": formatted_tool_calls,
-            })
-
-            # Add tool results
-            for tool_call, result in zip(tool_calls, tool_results):
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call["id"],
-                    "content": json.dumps(result, default=str),
-                })
-
-        # Build final result
-        final_message = "".join(accumulated_content)
-        logger.debug(f"[Streaming] Complete. Tools called: {[t['name'] for t in all_tool_results]}")
-        actions = self._extract_actions(final_message, all_tool_results)
-        logger.debug(f"[Streaming] Extracted {len(actions)} actions: {[a.get('type') for a in actions]}")
-
-        # Update AI memory after successful response
-        contradiction_warning = None
-        try:
-            contradiction_warning = self.update_memory_after_exchange(
-                ctx["channel"],
-                ctx["user_message"],
-                final_message,
-                ctx.get("conversation_history", []),
-            )
-            if contradiction_warning:
-                logger.info(f"Contradiction detected: {contradiction_warning}")
-        except Exception as mem_err:
-            logger.error(f"Failed to update AI memory: {mem_err}")
-
-        yield {
-            "type": "result",
-            "data": {
-                "message": final_message,
-                "actions": actions,
-                "citations": [],
-                "model_used": self.model,
-                "reasoning_used": ctx.get("reasoning_mode", False),
-                "tools_called": [t["name"] for t in all_tool_results] if all_tool_results else [],
-                "conversation_state": {},
-                "memory_warning": contradiction_warning,  # Include contradiction warning
-            }
-        }
 
     def _execute_with_tools(
         self,
@@ -708,7 +638,10 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
             from app.models import ProjectReference, Reference, ProjectDiscussionChannelResource
 
             # Papers added through this channel (optimized JOIN query)
-            channel_papers = self.db.query(Reference.id, Reference.title, Reference.year, Reference.status).join(
+            channel_papers = self.db.query(
+                Reference.id, Reference.title, Reference.year, Reference.status,
+                ProjectReference.annotations,
+            ).join(
                 ProjectReference, ProjectReference.reference_id == Reference.id
             ).filter(
                 ProjectReference.project_id == project.id,
@@ -720,7 +653,10 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
                 for ref in channel_papers:
                     title = (ref.title[:60] if ref.title else "Untitled")
                     ft_marker = " [FULL TEXT]" if ref.status in ("ingested", "analyzed") else ""
-                    lines.append(f"  . \"{title}...\" ({ref.year or 'n/a'}){ft_marker} - ref_id: {ref.id}")
+                    tags_str = ""
+                    if ref.annotations and ref.annotations.get("tags"):
+                        tags_str = f" [tags: {', '.join(ref.annotations['tags'])}]"
+                    lines.append(f"  . \"{title}...\" ({ref.year or 'n/a'}){ft_marker}{tags_str} - ref_id: {ref.id}")
                 lines.append("  -> User can refer to these as 'papers we added', 'papers from earlier'")
 
             # Channel resources
@@ -765,12 +701,25 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
         """
         raise NotImplementedError("Subclasses must override _call_ai_with_tools")
 
-    def _call_ai_with_tools_streaming(self, messages: List[Dict], ctx: Dict[str, Any]) -> Generator[Dict[str, Any], None, None]:
-        """Call AI provider with tool definitions (streaming).
+    async def _call_ai_with_tools_streaming(self, messages: List[Dict], ctx: Dict[str, Any]) -> AsyncGenerator[Dict[str, Any], None]:
+        """Call AI provider with tool definitions (async streaming).
 
         Subclasses (e.g. OpenRouterOrchestrator) must override this method.
         """
         raise NotImplementedError("Subclasses must override _call_ai_with_tools_streaming")
+        yield  # Make it an async generator  # noqa: unreachable
+
+    async def _execute_with_tools_streaming(
+        self,
+        messages: List[Dict],
+        ctx: Dict[str, Any],
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Execute with tool calling and async streaming.
+
+        Subclasses (e.g. OpenRouterOrchestrator) must override this method.
+        """
+        raise NotImplementedError("Subclasses must override _execute_with_tools_streaming")
+        yield  # Make it an async generator  # noqa: unreachable
 
     def _execute_tool_calls(self, tool_calls: List[Dict], ctx: Dict[str, Any]) -> List[Dict]:
         """Execute the tool calls and return results."""

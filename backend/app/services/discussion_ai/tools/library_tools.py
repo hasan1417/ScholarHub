@@ -98,6 +98,63 @@ GET_CHANNEL_PAPERS_SCHEMA = {
     },
 }
 
+EXPORT_CITATIONS_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "export_citations",
+        "description": "Export citations from the project library in a specific format (BibTeX, APA, MLA, or Chicago). Use when user asks to 'export citations', 'get BibTeX', 'format references', etc. Can export selected references by ID, currently focused papers, or all library papers.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "reference_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "UUIDs of specific references to export. If empty, uses scope parameter.",
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["bibtex", "apa", "mla", "chicago"],
+                    "description": "Citation format to export in.",
+                    "default": "bibtex",
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["selected", "focused", "all"],
+                    "description": "Which papers to export: 'selected' (by reference_ids), 'focused' (currently focused papers), 'all' (entire project library).",
+                    "default": "selected",
+                },
+            },
+        },
+    },
+}
+
+ANNOTATE_REFERENCE_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "annotate_reference",
+        "description": "Add a note or tags to a library reference for organization. Use when user asks to 'tag this paper', 'add a note to this reference', 'mark as key paper', etc.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "reference_id": {
+                    "type": "string",
+                    "description": "UUID of the library reference to annotate.",
+                },
+                "note": {
+                    "type": "string",
+                    "description": "Free-text note to add to the reference.",
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tags to add, e.g. ['methodology', 'key-paper'].",
+                },
+            },
+            "required": ["reference_id"],
+        },
+    },
+}
+
 ADD_TO_LIBRARY_SCHEMA = {
     "type": "function",
     "function": {
@@ -147,6 +204,14 @@ def _handle_get_channel_papers(orchestrator: Any, ctx: Dict[str, Any], args: Dic
     return orchestrator._tool_get_channel_papers(ctx)
 
 
+def _handle_export_citations(orchestrator: Any, ctx: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
+    return orchestrator._tool_export_citations(ctx, **args)
+
+
+def _handle_annotate_reference(orchestrator: Any, ctx: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
+    return orchestrator._tool_annotate_reference(ctx, **args)
+
+
 def _handle_add_to_library(orchestrator: Any, ctx: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
     return orchestrator._tool_add_to_library(ctx, **args)
 
@@ -181,6 +246,16 @@ TOOL_SPECS: List[ToolSpec] = [
         name="get_channel_papers",
         schema=GET_CHANNEL_PAPERS_SCHEMA,
         handler=_handle_get_channel_papers,
+    ),
+    ToolSpec(
+        name="export_citations",
+        schema=EXPORT_CITATIONS_SCHEMA,
+        handler=_handle_export_citations,
+    ),
+    ToolSpec(
+        name="annotate_reference",
+        schema=ANNOTATE_REFERENCE_SCHEMA,
+        handler=_handle_annotate_reference,
     ),
     ToolSpec(
         name="add_to_library",

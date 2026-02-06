@@ -1442,6 +1442,67 @@ class LibraryToolsMixin:
             },
         }
 
+    def _tool_generate_abstract(
+        self,
+        ctx: Dict[str, Any],
+        paper_id: str,
+        max_words: int = 250,
+    ) -> Dict:
+        """Generate a structured abstract for an existing paper based on its content."""
+        from app.models import ResearchPaper
+        from uuid import UUID
+
+        project = ctx["project"]
+
+        try:
+            paper_uuid = UUID(paper_id)
+        except ValueError:
+            return {"status": "error", "message": "Invalid paper ID format."}
+
+        paper = self.db.query(ResearchPaper).filter(
+            ResearchPaper.id == paper_uuid,
+            ResearchPaper.project_id == project.id,
+        ).first()
+
+        if not paper:
+            return {"status": "error", "message": "Paper not found in this project."}
+
+        # Extract content from content_json or plain content
+        content = ""
+        if paper.content_json and paper.content_json.get("latex_source"):
+            content = paper.content_json["latex_source"]
+        elif paper.content:
+            content = paper.content
+
+        if not content or len(content.strip()) < 50:
+            return {
+                "status": "error",
+                "message": "Paper has insufficient content to generate an abstract.",
+            }
+
+        # Strip LaTeX commands for readability
+        readable = self._latex_to_markdown(content)
+        # Truncate to ~8000 chars to fit context limits
+        if len(readable) > 8000:
+            readable = readable[:8000] + "\n\n[Content truncated...]"
+
+        content_preview = readable[:500]
+
+        instruction = (
+            f"Generate a structured abstract (background, methods, results, conclusion) "
+            f"in {max_words} words for this paper. "
+            "Base the abstract ONLY on the content provided below. "
+            "Do not invent findings or methods not present in the text."
+        )
+
+        return {
+            "status": "success",
+            "paper_title": paper.title,
+            "content_preview": content_preview,
+            "full_content": readable,
+            "instruction": instruction,
+        }
+
     def _tool_update_project_info(
         self,
         ctx: Dict[str, Any],
@@ -1643,4 +1704,259 @@ class LibraryToolsMixin:
             return {
                 "status": "error",
                 "message": f"Failed to update project: {str(e)}",
+            }
+
+    def _tool_export_citations(
+        self,
+        ctx: Dict[str, Any],
+        reference_ids: Optional[List[str]] = None,
+        format: str = "bibtex",
+        scope: str = "selected",
+    ) -> Dict:
+        """Export citations from the project library in a specific format."""
+        from uuid import UUID
+        from app.models import Reference, ProjectReference
+
+        project = ctx["project"]
+        references: List[Any] = []
+
+        if scope == "selected" and reference_ids:
+            # Query specific references by ID, ensuring they belong to the project
+            for ref_id_str in reference_ids:
+                try:
+                    ref_uuid = UUID(ref_id_str)
+                except ValueError:
+                    continue
+                ref = (
+                    self.db.query(Reference)
+                    .join(ProjectReference, ProjectReference.reference_id == Reference.id)
+                    .filter(
+                        ProjectReference.project_id == project.id,
+                        Reference.id == ref_uuid,
+                    )
+                    .first()
+                )
+                if ref:
+                    references.append(ref)
+
+        elif scope == "focused":
+            # Get focused papers from AI memory
+            channel = ctx.get("channel")
+            if channel:
+                memory = self._get_ai_memory(channel)
+                focused_papers = memory.get("focused_papers", [])
+                for fp in focused_papers:
+                    ref_id_str = fp.get("reference_id")
+                    if not ref_id_str:
+                        continue
+                    try:
+                        ref_uuid = UUID(ref_id_str)
+                    except ValueError:
+                        continue
+                    ref = (
+                        self.db.query(Reference)
+                        .join(ProjectReference, ProjectReference.reference_id == Reference.id)
+                        .filter(
+                            ProjectReference.project_id == project.id,
+                            Reference.id == ref_uuid,
+                        )
+                        .first()
+                    )
+                    if ref:
+                        references.append(ref)
+
+            if not references:
+                return {
+                    "status": "error",
+                    "message": "No focused papers found. Use focus_on_papers first, or use scope='all' to export all library references.",
+                }
+
+        elif scope == "all":
+            references = (
+                self.db.query(Reference)
+                .join(ProjectReference, ProjectReference.reference_id == Reference.id)
+                .filter(ProjectReference.project_id == project.id)
+                .limit(100)
+                .all()
+            )
+
+        else:
+            return {
+                "status": "error",
+                "message": "No references specified. Provide reference_ids with scope='selected', or use scope='focused' or scope='all'.",
+            }
+
+        if not references:
+            return {
+                "status": "error",
+                "message": "No references found to export. Make sure your library has papers added.",
+            }
+
+        # Format citations
+        used_keys: set = set()
+        formatted_entries = []
+
+        for ref in references:
+            authors_str = (
+                ref.authors
+                if isinstance(ref.authors, str)
+                else ", ".join(ref.authors or [])
+            )
+            title = ref.title or "Untitled"
+            year = str(ref.year) if ref.year else "n.d."
+            journal = ref.journal or ""
+            doi = ref.doi or ""
+            url = ref.url or ""
+
+            paper_dict = {
+                "title": title,
+                "authors": authors_str,
+                "year": ref.year,
+            }
+            cite_key = self._generate_citation_key(paper_dict, used_keys)
+
+            if format == "bibtex":
+                # Build BibTeX entry
+                lines = [f"@article{{{cite_key},"]
+                lines.append(f"  title = {{{title}}},")
+                lines.append(f"  author = {{{authors_str}}},")
+                lines.append(f"  year = {{{year}}},")
+                if journal:
+                    lines.append(f"  journal = {{{journal}}},")
+                if doi:
+                    lines.append(f"  doi = {{{doi}}},")
+                if url:
+                    lines.append(f"  url = {{{url}}},")
+                lines.append("}")
+                formatted_entries.append("\n".join(lines))
+
+            elif format == "apa":
+                # APA: Authors (Year). Title. Journal. doi
+                parts = [f"{authors_str} ({year}). {title}."]
+                if journal:
+                    parts.append(f" *{journal}*.")
+                if doi:
+                    parts.append(f" https://doi.org/{doi}")
+                formatted_entries.append("".join(parts))
+
+            elif format == "mla":
+                # MLA: Authors. "Title." Journal, Year.
+                parts = [f'{authors_str}. "{title}."']
+                if journal:
+                    parts.append(f" *{journal}*,")
+                parts.append(f" {year}.")
+                formatted_entries.append("".join(parts))
+
+            elif format == "chicago":
+                # Chicago: Authors. "Title." Journal (Year). doi
+                parts = [f'{authors_str}. "{title}."']
+                if journal:
+                    parts.append(f" *{journal}*")
+                parts.append(f" ({year}).")
+                if doi:
+                    parts.append(f" https://doi.org/{doi}")
+                formatted_entries.append("".join(parts))
+
+        separator = "\n\n" if format == "bibtex" else "\n"
+        citations_text = separator.join(formatted_entries)
+
+        return {
+            "status": "success",
+            "format": format,
+            "count": len(formatted_entries),
+            "citations": citations_text,
+        }
+
+    def _tool_annotate_reference(
+        self,
+        ctx: Dict[str, Any],
+        reference_id: str,
+        note: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+    ) -> Dict:
+        """Add a note or tags to a library reference for organization."""
+        from datetime import datetime, timezone
+        from uuid import UUID
+        from app.models import Reference, ProjectReference
+
+        project = ctx["project"]
+
+        try:
+            ref_uuid = UUID(reference_id)
+        except ValueError:
+            return {"status": "error", "message": "Invalid reference ID format."}
+
+        # Query the ProjectReference (where annotations live) joined with Reference
+        project_ref = (
+            self.db.query(ProjectReference)
+            .join(Reference, ProjectReference.reference_id == Reference.id)
+            .filter(
+                ProjectReference.project_id == project.id,
+                ProjectReference.reference_id == ref_uuid,
+            )
+            .first()
+        )
+
+        if not project_ref:
+            return {
+                "status": "error",
+                "message": "Reference not found in this project's library.",
+            }
+
+        if not note and not tags:
+            return {
+                "status": "error",
+                "message": "Provide a note and/or tags to add to the reference.",
+            }
+
+        # Load or initialize annotations
+        annotations = dict(project_ref.annotations or {})
+        if "notes" not in annotations:
+            annotations["notes"] = []
+        if "tags" not in annotations:
+            annotations["tags"] = []
+
+        # Append note with timestamp
+        if note:
+            annotations["notes"].append({
+                "text": note,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+
+        # Merge tags (dedup)
+        if tags:
+            existing_tags = set(annotations["tags"])
+            for tag in tags:
+                tag = tag.strip().lower()
+                if tag and tag not in existing_tags:
+                    annotations["tags"].append(tag)
+                    existing_tags.add(tag)
+
+        # Save - assign new dict to trigger SQLAlchemy change detection
+        project_ref.annotations = annotations
+
+        try:
+            self.db.commit()
+            self.db.refresh(project_ref)
+
+            # Get the reference title for the response
+            ref = self.db.query(Reference).filter(Reference.id == ref_uuid).first()
+            ref_title = ref.title if ref else "Unknown"
+
+            return {
+                "status": "success",
+                "message": f"Annotated reference '{ref_title}'.",
+                "annotations": {
+                    "notes": annotations["notes"],
+                    "tags": annotations["tags"],
+                    "notes_count": len(annotations["notes"]),
+                    "tags_count": len(annotations["tags"]),
+                },
+            }
+        except Exception as e:
+            self.db.rollback()
+            logger.exception("Error annotating reference")
+            return {
+                "status": "error",
+                "message": f"Failed to annotate reference: {str(e)}",
             }
