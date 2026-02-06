@@ -55,7 +55,7 @@ from app.schemas.project_discussion import (
     DiscussionAssistantRequest,
     DiscussionAssistantResponse,
     DiscussionAssistantExchangeResponse,
-    DiscussionAssistantSuggestedAction,
+
     DiscussionChannelCreate,
     DiscussionChannelResourceCreate,
     DiscussionChannelResourceResponse,
@@ -95,6 +95,43 @@ _slug_regex = re.compile(r"[^a-z0-9]+")
 def _slugify(value: str) -> str:
     base = _slug_regex.sub("-", value.lower()).strip("-")
     return base or "channel"
+
+
+def _build_citations(result_dict: Dict[str, Any]) -> List[DiscussionAssistantCitation]:
+    """Build citation objects from an AI result dict."""
+    return [
+        DiscussionAssistantCitation(
+            origin=c.get("origin"),
+            origin_id=c.get("origin_id"),
+            label=c.get("label", ""),
+            resource_type=c.get("resource_type"),
+        )
+        for c in result_dict.get("citations", [])
+    ]
+
+
+def _build_actions(result_dict: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Build suggested actions from an AI result dict."""
+    return [
+        {
+            "action_type": a.get("type", a.get("action_type", "")),
+            "summary": a.get("summary", ""),
+            "payload": a.get("payload", {}),
+        }
+        for a in result_dict.get("actions", [])
+    ]
+
+
+def _build_ai_response(result_dict: Dict[str, Any], model: str) -> DiscussionAssistantResponse:
+    """Build a DiscussionAssistantResponse from an orchestrator result dict."""
+    return DiscussionAssistantResponse(
+        message=result_dict.get("message", ""),
+        citations=_build_citations(result_dict),
+        reasoning_used=result_dict.get("reasoning_used", False),
+        model=result_dict.get("model_used", model),
+        usage=result_dict.get("usage"),
+        suggested_actions=_build_actions(result_dict),
+    )
 
 
 def _generate_unique_slug(db: Session, project_id: UUID, base: str) -> str:
@@ -1458,31 +1495,7 @@ def invoke_discussion_assistant(
                             logger.warning(f"Failed to update status message: {e}")
 
                 if final_result:
-                    citations = [
-                        DiscussionAssistantCitation(
-                            origin=c.get("origin"),
-                            origin_id=c.get("origin_id"),
-                            label=c.get("label", ""),
-                            resource_type=c.get("resource_type"),
-                        )
-                        for c in final_result.get("citations", [])
-                    ]
-                    suggested_actions = [
-                        {
-                            "action_type": a.get("type", a.get("action_type", "")),
-                            "summary": a.get("summary", ""),
-                            "payload": a.get("payload", {}),
-                        }
-                        for a in final_result.get("actions", [])
-                    ]
-                    response_model = DiscussionAssistantResponse(
-                        message=final_result.get("message", ""),
-                        citations=citations,
-                        reasoning_used=final_result.get("reasoning_used", False),
-                        model=final_result.get("model_used", selected_model),
-                        usage=None,
-                        suggested_actions=suggested_actions,
-                    )
+                    response_model = _build_ai_response(final_result, selected_model)
                     payload_dict = response_model.model_dump(mode="json")
                     conversation_state = final_result.get("conversation_state", {})
 
@@ -1566,31 +1579,7 @@ def invoke_discussion_assistant(
                         yield "data: " + json.dumps({"type": "status", "tool": event.get("tool", ""), "message": event.get("message", "Processing")}) + "\n\n"
                     elif event.get("type") == "result":
                         final_data = event.get("data", {})
-                        citations = [
-                            DiscussionAssistantCitation(
-                                origin=c.get("origin"),
-                                origin_id=c.get("origin_id"),
-                                label=c.get("label", ""),
-                                resource_type=c.get("resource_type"),
-                            )
-                            for c in final_data.get("citations", [])
-                        ]
-                        suggested_actions = [
-                            {
-                                "action_type": a.get("type", a.get("action_type", "")),
-                                "summary": a.get("summary", ""),
-                                "payload": a.get("payload", {}),
-                            }
-                            for a in final_data.get("actions", [])
-                        ]
-                        response_model = DiscussionAssistantResponse(
-                            message=final_data.get("message", ""),
-                            citations=citations,
-                            reasoning_used=final_data.get("reasoning_used", False),
-                            model=final_data.get("model_used", selected_model),
-                            usage=None,
-                            suggested_actions=suggested_actions,
-                        )
+                        response_model = _build_ai_response(final_data, selected_model)
                         yield "data: " + json.dumps({"type": "result", "payload": response_model.model_dump(mode="json")}) + "\n\n"
                     elif event.get("type") == "error":
                         yield "data: " + json.dumps({"type": "error", "message": event.get("message", "Error")}) + "\n\n"
@@ -1620,32 +1609,7 @@ def invoke_discussion_assistant(
         current_user=current_user,
     )
 
-    citations = [
-        DiscussionAssistantCitation(
-            origin=c.get("origin"),
-            origin_id=c.get("origin_id"),
-            label=c.get("label", ""),
-            resource_type=c.get("resource_type"),
-        )
-        for c in result.get("citations", [])
-    ]
-    suggested_actions = [
-        {
-            "action_type": a.get("type", a.get("action_type", "")),
-            "summary": a.get("summary", ""),
-            "payload": a.get("payload", {}),
-        }
-        for a in result.get("actions", [])
-    ]
-
-    response = DiscussionAssistantResponse(
-        message=result.get("message", ""),
-        citations=citations,
-        reasoning_used=result.get("reasoning_used", False),
-        model=result.get("model_used", model),
-        usage=None,
-        suggested_actions=suggested_actions,
-    )
+    response = _build_ai_response(result, model)
 
     # Persist exchange
     exchange_id = str(uuid4())
@@ -1702,28 +1666,8 @@ def list_discussion_assistant_history(
             response_payload = DiscussionAssistantResponse(**exchange.response)
         except Exception:
             # Fallback to basic structure if stored payload is malformed
-            response_payload = DiscussionAssistantResponse(
-                message=exchange.response.get("message", ""),
-                citations=[
-                    DiscussionAssistantCitation(
-                        origin=item.get("origin"),
-                        origin_id=item.get("origin_id"),
-                        label=item.get("label", ""),
-                        resource_type=item.get("resource_type"),
-                    )
-                    for item in exchange.response.get("citations", [])
-                ],
-                reasoning_used=bool(exchange.response.get("reasoning_used")),
-                model=str(exchange.response.get("model", "")),
-                usage=exchange.response.get("usage"),
-                suggested_actions=[
-                    DiscussionAssistantSuggestedAction(
-                        action_type=item.get("action_type", ""),
-                        summary=item.get("summary", ""),
-                        payload=item.get("payload", {}),
-                    )
-                    for item in exchange.response.get("suggested_actions", [])
-                ],
+            response_payload = _build_ai_response(
+                exchange.response, str(exchange.response.get("model", ""))
             )
 
         author_payload = _build_assistant_author_payload(exchange.author)
