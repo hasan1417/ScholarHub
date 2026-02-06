@@ -157,6 +157,8 @@ def _normalize_fallback_models(raw: Any) -> List[Dict[str, Any]]:
             normalized["supports_reasoning"] = item.get("supports_reasoning")
         if "supports_tools" in item:
             normalized["supports_tools"] = item.get("supports_tools")
+        if "context_length" in item:
+            normalized["context_length"] = item.get("context_length")
         models.append(normalized)
     return models
 
@@ -230,6 +232,7 @@ def _get_cached_models() -> Optional[List[Dict[str, Any]]]:
         if isinstance(models, list) and models:
             _model_cache["models"] = models
             _model_cache["timestamp"] = now
+            _sync_context_limits(models)
             return models
     except Exception:
         return None
@@ -247,6 +250,21 @@ def _cache_models(models: List[Dict[str, Any]]) -> None:
         client.setex(REDIS_CACHE_KEY, MODEL_CACHE_TTL_SECONDS, json.dumps(models))
     except Exception:
         pass
+
+
+def _sync_context_limits(models: List[Dict[str, Any]]) -> None:
+    """Push context_length data from model list into token_utils dynamic limits."""
+    from app.services.discussion_ai.token_utils import update_context_limits
+
+    limits: Dict[str, int] = {}
+    for model in models:
+        model_id = model.get("id")
+        ctx_len = model.get("context_length")
+        if model_id and ctx_len and isinstance(ctx_len, int):
+            limits[model_id] = ctx_len
+    if limits:
+        update_context_limits(limits)
+        logger.info("Updated dynamic context limits for %d models", len(limits))
 
 
 def _fetch_openrouter_models(api_key: Optional[str]) -> List[Dict[str, Any]]:
@@ -287,15 +305,20 @@ def _fetch_openrouter_models(api_key: Optional[str]) -> List[Dict[str, Any]]:
                     supports_reasoning = True
                 if any(param in supported_params for param in TOOLS_PARAM_KEYS):
                     supports_tools = True
-            models.append(
-                {
-                    "id": model_id,
-                    "name": name,
-                    "provider": provider,
-                    "supports_reasoning": supports_reasoning,
-                    "supports_tools": supports_tools,
-                }
-            )
+            entry: Dict[str, Any] = {
+                "id": model_id,
+                "name": name,
+                "provider": provider,
+                "supports_reasoning": supports_reasoning,
+                "supports_tools": supports_tools,
+            }
+            context_length = item.get("context_length")
+            if context_length and isinstance(context_length, (int, float)):
+                entry["context_length"] = int(context_length)
+            models.append(entry)
+
+        # Push context limits to token_utils for dynamic model awareness
+        _sync_context_limits(models)
         return models
     except Exception as exc:
         logger.warning("Failed to fetch OpenRouter models: %s", exc)

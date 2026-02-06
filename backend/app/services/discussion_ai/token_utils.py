@@ -11,44 +11,34 @@ import tiktoken
 
 logger = logging.getLogger(__name__)
 
-# Model context limits (in tokens)
-# Conservative estimates leaving room for response generation
-MODEL_CONTEXT_LIMITS: Dict[str, int] = {
-    # OpenAI models
+# Hardcoded fallback limits — used only when OpenRouter API data is unavailable.
+# These are conservative estimates leaving room for response generation.
+_FALLBACK_CONTEXT_LIMITS: Dict[str, int] = {
     "openai/gpt-4o": 120000,
     "openai/gpt-4o-mini": 120000,
     "openai/gpt-4-turbo": 120000,
     "openai/gpt-4": 8000,
     "openai/gpt-3.5-turbo": 14000,
     "openai/o1": 120000,
-    "openai/o1-mini": 120000,
-    "openai/o1-preview": 120000,
     "openai/gpt-5.2-20251211": 120000,
-    # Anthropic models
-    "anthropic/claude-3-opus": 190000,
-    "anthropic/claude-3-sonnet": 190000,
-    "anthropic/claude-3-haiku": 190000,
     "anthropic/claude-3.5-sonnet": 190000,
-    "anthropic/claude-3.5-haiku": 190000,
     "anthropic/claude-sonnet-4": 190000,
     "anthropic/claude-opus-4": 190000,
-    # Google models
-    "google/gemini-pro": 28000,
     "google/gemini-pro-1.5": 1000000,
-    "google/gemini-2.0-flash-exp:free": 1000000,
-    "google/gemini-2.0-flash-thinking-exp:free": 1000000,
-    # DeepSeek models
     "deepseek/deepseek-chat": 60000,
     "deepseek/deepseek-r1": 60000,
-    # Meta models
-    "meta-llama/llama-3-70b-instruct": 8000,
-    "meta-llama/llama-3.1-405b-instruct": 120000,
-    # Qwen models
-    "qwen/qwen-2.5-72b-instruct": 28000,
 }
 
 # Default limit for unknown models (conservative)
 DEFAULT_CONTEXT_LIMIT = 28000
+
+# Dynamic limits populated from OpenRouter API at runtime
+_dynamic_context_limits: Dict[str, int] = {}
+
+
+def update_context_limits(limits: Dict[str, int]) -> None:
+    """Update dynamic context limits from API metadata (called by openrouter_orchestrator)."""
+    _dynamic_context_limits.update(limits)
 
 # Reserve tokens for response generation
 RESPONSE_TOKEN_RESERVE = 4000
@@ -123,16 +113,23 @@ def count_messages_tokens(messages: List[Dict[str, str]], model: str = "gpt-4") 
 
 
 def get_context_limit(model: str) -> int:
-    """Get the context limit for a model."""
-    # Try exact match first
-    if model in MODEL_CONTEXT_LIMITS:
-        return MODEL_CONTEXT_LIMITS[model]
+    """Get the context limit for a model.
 
-    # Try matching by model family — longest prefix first to avoid
-    # short patterns shadowing longer ones (e.g. gpt-4 vs gpt-4-turbo)
+    Checks dynamic limits (from OpenRouter API) first, then hardcoded fallbacks.
+    """
+    # 1. Dynamic limits from API (most accurate, auto-updated)
+    if model in _dynamic_context_limits:
+        return _dynamic_context_limits[model]
+
+    # 2. Hardcoded fallback — exact match
+    if model in _FALLBACK_CONTEXT_LIMITS:
+        return _FALLBACK_CONTEXT_LIMITS[model]
+
+    # 3. Prefix matching (longest first) across both dynamic and fallback
+    all_limits = {**_FALLBACK_CONTEXT_LIMITS, **_dynamic_context_limits}
     best_match = None
     best_len = 0
-    for model_pattern, limit in MODEL_CONTEXT_LIMITS.items():
+    for model_pattern, limit in all_limits.items():
         prefix = model_pattern.rsplit("-", 1)[0]
         if model.startswith(prefix) and len(prefix) > best_len:
             best_match = limit
