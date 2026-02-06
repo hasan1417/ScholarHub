@@ -1565,22 +1565,41 @@ def invoke_discussion_assistant(
             {"exchange": exchange_payload},
         )
 
+        # Capture scalar IDs before starting thread to avoid detached instance errors
+        bg_project_id = project.id
+        bg_channel_id = channel.id
+        bg_user_id = current_user.id
+        bg_question_text = payload.question
+        bg_reasoning = payload.reasoning or False
+        bg_search_id = payload.recent_search_id
+
         # Define background processing function
         def run_ai_in_background():
             try:
                 bg_db = SessionLocal()
                 try:
+                    # Re-fetch ORM objects in this thread's session
+                    bg_project = bg_db.query(Project).filter_by(id=bg_project_id).first()
+                    bg_channel = bg_db.query(ProjectDiscussionChannel).filter_by(id=bg_channel_id).first()
+                    bg_user = bg_db.query(User).filter_by(id=bg_user_id).first()
+
+                    if not bg_project or not bg_channel:
+                        raise ValueError("Project or channel not found in background thread")
+
+                    # Create a new ToolOrchestrator with this thread's db session
+                    bg_orchestrator = ToolOrchestrator(_discussion_ai_core, bg_db)
+
                     # Run the AI processing
-                    result = tool_orchestrator.handle_message(
-                        project,
-                        channel,
-                        payload.question,
+                    result = bg_orchestrator.handle_message(
+                        bg_project,
+                        bg_channel,
+                        bg_question_text,
                         recent_search_results=search_results_list,
-                        recent_search_id=payload.recent_search_id,
+                        recent_search_id=bg_search_id,
                         previous_state_dict=previous_state_dict,
                         conversation_history=conversation_history,
-                        reasoning_mode=payload.reasoning or False,
-                        current_user=current_user,
+                        reasoning_mode=bg_reasoning,
+                        current_user=bg_user,
                     )
 
                     # Build response
@@ -1625,22 +1644,22 @@ def invoke_discussion_assistant(
                     # Broadcast completion
                     completed_exchange = {
                         "id": exchange_id,
-                        "question": payload.question,
+                        "question": bg_question_text,
                         "response": completed_payload,
                         "created_at": exchange_created_at,
                         "author": author_info,
                         "status": "completed",
                     }
                     _broadcast_discussion_event(
-                        project.id,
-                        channel.id,
+                        bg_project_id,
+                        bg_channel_id,
                         "assistant_reply",
                         {"exchange": completed_exchange},
                     )
 
                     # Increment usage
                     try:
-                        SubscriptionService.increment_usage(bg_db, current_user.id, "discussion_ai_calls")
+                        SubscriptionService.increment_usage(bg_db, bg_user_id, "discussion_ai_calls")
                     except Exception:
                         pass
 
@@ -1658,8 +1677,8 @@ def invoke_discussion_assistant(
 
                     # Broadcast failure
                     _broadcast_discussion_event(
-                        project.id,
-                        channel.id,
+                        bg_project_id,
+                        bg_channel_id,
                         "assistant_failed",
                         {"exchange_id": exchange_id, "error": "Processing failed"},
                     )

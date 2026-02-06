@@ -23,6 +23,46 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Pre-compiled regex patterns (avoid recompilation per call)
+import re as _re
+_CITE_PATTERN = _re.compile(r'\\cite\{([^}]+)\}')
+_SECTION_PATTERN_CACHE: Dict[str, "_re.Pattern[str]"] = {}
+
+# LaTeX special characters that must be escaped in untrusted text
+_LATEX_SPECIAL_CHARS = str.maketrans({
+    '\\': r'\textbackslash{}',
+    '{': r'\{',
+    '}': r'\}',
+    '$': r'\$',
+    '&': r'\&',
+    '#': r'\#',
+    '%': r'\%',
+    '_': r'\_',
+    '^': r'\^{}',
+    '~': r'\~{}',
+})
+
+
+def _escape_latex(text: str) -> str:
+    """Escape LaTeX special characters in untrusted text (titles, authors, etc.)."""
+    if not text:
+        return text
+    return text.translate(_LATEX_SPECIAL_CHARS)
+
+
+def _normalize_title(t: str) -> str:
+    """Normalize a title for duplicate comparison: lowercase, strip whitespace/punctuation."""
+    t = (t or "").lower().strip()
+    t = _re.sub(r'\s+', ' ', t)
+    t = _re.sub(r'[^\w\s]', '', t)
+    return t
+
+
+def _normalize_author(a: str) -> str:
+    """Normalize an author name for comparison: extract last name, lowercase."""
+    return (a or "").lower().strip().split()[-1] if a and a.strip() else ""
+
+
 # Available template IDs for create_paper tool
 AVAILABLE_TEMPLATES = list(CONFERENCE_TEMPLATES.keys())
 
@@ -310,7 +350,7 @@ class ToolOrchestrator:
             )
 
             # Build messages for LLM
-            messages = self._build_messages(project, channel, message, recent_search_results, conversation_history)
+            messages = self._build_messages(project, channel, message, recent_search_results, conversation_history, ctx=ctx)
 
             # Execute with tools
             return self._execute_with_tools(messages, ctx)
@@ -352,7 +392,7 @@ class ToolOrchestrator:
             )
 
             # Build messages for LLM
-            messages = self._build_messages(project, channel, message, recent_search_results, conversation_history)
+            messages = self._build_messages(project, channel, message, recent_search_results, conversation_history, ctx=ctx)
 
             # Execute with streaming
             yield from self._execute_with_tools_streaming(messages, ctx)
@@ -421,9 +461,6 @@ class ToolOrchestrator:
         user_role, is_owner = self._get_user_role_for_project(project, current_user)
         logger.debug(f"[Permission] User role: {user_role}, is_owner: {is_owner}")
 
-        # Store role for use in _build_messages (for role-aware system prompts)
-        self._current_user_role = user_role
-
         return {
             "project": project,
             "channel": channel,
@@ -446,6 +483,7 @@ class ToolOrchestrator:
         message: str,
         recent_search_results: Optional[List[Dict]],
         conversation_history: Optional[List[Dict[str, str]]],
+        ctx: Optional[Dict[str, Any]] = None,
     ) -> List[Dict]:
         """Build the messages array for the LLM with smart token-based context management."""
         from app.services.discussion_ai.token_utils import (
@@ -480,7 +518,7 @@ class ToolOrchestrator:
 
         # Add role-based permission notice for viewers
         # Viewers have NO tools - they can only chat about existing content
-        user_role = getattr(self, '_current_user_role', None)
+        user_role = ctx.get("user_role") if ctx else None
         if user_role == "viewer":
             viewer_notice = """
 CRITICAL - VIEWER ACCESS ONLY:
@@ -821,11 +859,10 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
         lines.append("## Available Resources")
 
         # Get project references with full text info using JOIN (optimized - single query)
-        # No limit - let AI see all references in the library
         from app.models import Reference
         refs_with_status = self.db.query(Reference.id, Reference.title, Reference.status).join(
             ProjectReference, ProjectReference.reference_id == Reference.id
-        ).filter(ProjectReference.project_id == project.id).all()
+        ).filter(ProjectReference.project_id == project.id).limit(1000).all()
 
         ref_count = len(refs_with_status)
         if ref_count > 0:
@@ -1393,26 +1430,24 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 if title:
                     library_titles.add(title.lower().strip())
 
-        # Create event loop FIRST before any async objects
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
         try:
-            # Create discovery service (needs event loop to exist)
-            discovery_service = PaperDiscoveryService()
             sources = ["arxiv", "semantic_scholar", "openalex", "crossref", "pubmed", "europe_pmc"]
             max_results = min(count, 20)  # Cap at 20 results
 
             # Request more to account for filtering (open access + library duplicates)
             search_max = max_results * 3
 
+            async def _run_search():
+                discovery_service = PaperDiscoveryService()
+                return await discovery_service.discover_papers(
+                    query=query,
+                    max_results=search_max,
+                    sources=sources,
+                    fast_mode=True,
+                )
+
             # Run async search
-            result = loop.run_until_complete(discovery_service.discover_papers(
-                query=query,
-                max_results=search_max,
-                sources=sources,
-                fast_mode=True,
-            ))
+            result = asyncio.run(_run_search())
 
             # Filter for open access if requested
             source_papers = result.papers
@@ -1483,8 +1518,6 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 "message": f"Search failed: {str(e)}",
                 "papers": [],
             }
-        finally:
-            loop.close()
 
     def _tool_get_project_papers(self, ctx: Dict[str, Any], include_content: bool = False) -> Dict:
         """Get user's draft papers in the project."""
@@ -1494,7 +1527,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 
         papers = self.db.query(ResearchPaper).filter(
             ResearchPaper.project_id == project.id
-        ).all()
+        ).limit(200).all()
 
         result = {
             "count": len(papers),
@@ -1593,7 +1626,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 
         resources = self.db.query(ProjectDiscussionChannelResource).filter(
             ProjectDiscussionChannelResource.channel_id == channel.id
-        ).all()
+        ).limit(500).all()
 
         return {
             "count": len(resources),
@@ -1668,6 +1701,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             self.db.query(Reference)
             .join(ProjectReference, ProjectReference.reference_id == Reference.id)
             .filter(ProjectReference.project_id == project.id)
+            .limit(1000)
             .all()
         )
 
@@ -1695,8 +1729,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             return {"linked": 0, "message": "No references available to match against (no recent search results and no project library references)"}
 
         # Extract all citation keys from \cite{key1, key2} commands
-        cite_pattern = r'\\cite\{([^}]+)\}'
-        cite_matches = re.findall(cite_pattern, latex_content)
+        cite_matches = _CITE_PATTERN.findall(latex_content)
 
         # Flatten and clean citation keys
         citation_keys = set()
@@ -2141,6 +2174,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             self.db.query(Reference)
             .join(ProjectReference, ProjectReference.reference_id == Reference.id)
             .filter(ProjectReference.project_id == project.id)
+            .limit(1000)
             .all()
         )
 
@@ -2169,8 +2203,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             paper_by_key[key] = paper
 
         # Extract citation keys from content
-        cite_pattern = r'\\cite\{([^}]+)\}'
-        cite_matches = re.findall(cite_pattern, content)
+        cite_matches = _CITE_PATTERN.findall(content)
         citation_keys = set()
         for match in cite_matches:
             for key in match.split(','):
@@ -2203,12 +2236,18 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 year = paper.get("year", "")
                 journal = paper.get("journal", "")
 
+                # Escape untrusted text to prevent LaTeX injection (e.g. \write18 RCE)
+                safe_authors = _escape_latex(str(authors))
+                safe_title = _escape_latex(str(title))
+                safe_journal = _escape_latex(str(journal)) if journal else ""
+                safe_year = _escape_latex(str(year)) if year else ""
+
                 # Format: \bibitem{key} Author(s). \textit{Title}. Journal, Year.
-                entry = f"\\bibitem{{{cite_key}}} {authors}. \\textit{{{title}}}."
-                if journal:
-                    entry += f" {journal},"
-                if year:
-                    entry += f" {year}."
+                entry = f"\\bibitem{{{cite_key}}} {safe_authors}. \\textit{{{safe_title}}}."
+                if safe_journal:
+                    entry += f" {safe_journal},"
+                if safe_year:
+                    entry += f" {safe_year}."
                 bibliography_entries.append(entry)
             else:
                 unmatched_keys.append(cite_key)
@@ -2444,6 +2483,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         content: str,
         format: str = "markdown",
         artifact_type: str = "document",
+        _fallback_depth: int = 0,
     ) -> Dict:
         """Create a downloadable artifact and save to database."""
         import base64
@@ -2474,8 +2514,10 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 
                 if result.returncode != 0:
                     logger.error(f"Pandoc error: {result.stderr}")
-                    # Fall back to markdown
-                    return self._tool_create_artifact(ctx, title, content, "markdown", artifact_type)
+                    # Fall back to markdown (with depth guard to prevent infinite recursion)
+                    if _fallback_depth >= 1:
+                        return {"status": "error", "message": "PDF generation failed and fallback also failed."}
+                    return self._tool_create_artifact(ctx, title, content, "markdown", artifact_type, _fallback_depth=_fallback_depth + 1)
 
                 with open(pdf_path, 'rb') as pdf_file:
                     pdf_bytes = pdf_file.read()
@@ -2487,7 +2529,9 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 
             except Exception as e:
                 logger.error(f"PDF generation failed: {e}")
-                return self._tool_create_artifact(ctx, title, content, "markdown", artifact_type)
+                if _fallback_depth >= 1:
+                    return {"status": "error", "message": f"PDF generation failed: {e}"}
+                return self._tool_create_artifact(ctx, title, content, "markdown", artifact_type, _fallback_depth=_fallback_depth + 1)
             finally:
                 # Always clean up temp files
                 if md_path and os.path.exists(md_path):
@@ -3102,12 +3146,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 return {"source": None, "source_title": paper_identifier, "papers": []}
 
         # Run async function
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            result = loop.run_until_complete(fetch_related())
-        finally:
-            loop.close()
+        result = asyncio.run(fetch_related())
 
         papers_data = result.get("papers", [])
         source_title = result.get("source_title", paper_identifier)
@@ -3206,12 +3245,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             embedding_service = get_embedding_service()
 
             # Run async embedding in sync context
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                query_embedding = loop.run_until_complete(embedding_service.embed(query))
-            finally:
-                loop.close()
+            query_embedding = asyncio.run(embedding_service.embed(query))
 
         except Exception as e:
             logger.error(f"[SemanticSearch] Failed to embed query: {e}")
@@ -3379,20 +3413,8 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 if isinstance(paper_authors, str):
                     paper_authors = [a.strip() for a in paper_authors.split(",")]
 
-                # Normalize title for comparison: lowercase, strip extra whitespace/punctuation
-                def normalize_title(t: str) -> str:
-                    import re
-                    t = (t or "").lower().strip()
-                    t = re.sub(r'\s+', ' ', t)  # Collapse multiple spaces
-                    t = re.sub(r'[^\w\s]', '', t)  # Remove punctuation
-                    return t
-
-                # Normalize author name for comparison
-                def normalize_author(a: str) -> str:
-                    return (a or "").lower().strip().split()[-1]  # Use last name only
-
-                normalized_title = normalize_title(title)
-                normalized_authors = set(normalize_author(a) for a in paper_authors if a)
+                normalized_title = _normalize_title(title)
+                normalized_authors = set(_normalize_author(a) for a in paper_authors if a)
 
                 # 1. Check by DOI first (most reliable)
                 if doi:
@@ -3405,15 +3427,15 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 if not existing_ref:
                     all_refs = self.db.query(Reference).filter(
                         Reference.owner_id == project.created_by
-                    ).all()
+                    ).limit(5000).all()
                     for ref in all_refs:
-                        ref_normalized_title = normalize_title(ref.title or "")
+                        ref_normalized_title = _normalize_title(ref.title or "")
                         # Title must match
                         if ref_normalized_title != normalized_title:
                             continue
                         # Check author overlap (at least one author in common)
                         ref_authors = ref.authors or []
-                        ref_normalized_authors = set(normalize_author(a) for a in ref_authors if a)
+                        ref_normalized_authors = set(_normalize_author(a) for a in ref_authors if a)
                         if normalized_authors & ref_normalized_authors:  # Intersection
                             existing_ref = ref
                             logger.info(f"[Dedup] Found duplicate by title+author: '{title}' matches '{ref.title}'")
@@ -3877,7 +3899,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             # Pre-fetch library references for matching
             library_refs = self.db.query(Reference).join(
                 ProjectReference, ProjectReference.reference_id == Reference.id
-            ).filter(ProjectReference.project_id == project.id).all()
+            ).filter(ProjectReference.project_id == project.id).limit(1000).all()
 
             for ref in library_refs:
                 if ref.doi:
@@ -4136,7 +4158,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             # Get all project references for matching
             references = self.db.query(Reference).join(
                 ProjectReference, ProjectReference.reference_id == Reference.id
-            ).filter(ProjectReference.project_id == project.id).all()
+            ).filter(ProjectReference.project_id == project.id).limit(1000).all()
 
             # Build lookup maps
             doi_to_ref = {}
@@ -4185,14 +4207,14 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                         norm_a = math.sqrt(sum(x * x for x in a))
                         norm_b = math.sqrt(sum(y * y for y in b))
                         return dot / (norm_a * norm_b) if norm_a and norm_b else 0.0
-                    except:
+                    except Exception:
                         return 0.0
 
                 # For each paper with chunks, find the most relevant chunks
                 for paper_idx, paper, ref in papers_with_chunks:
                     chunks = self.db.query(DocumentChunk).filter(
                         DocumentChunk.document_id == ref.document_id
-                    ).all()
+                    ).limit(500).all()
 
                     if not chunks:
                         papers_abstract_only.append((paper_idx, paper))
@@ -4211,7 +4233,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                                 try:
                                     import json as _json
                                     emb = _json.loads(emb)
-                                except:
+                                except (json.JSONDecodeError, ValueError):
                                     emb = None
 
                             if emb:
@@ -4591,7 +4613,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         try:
             references = self.db.query(Reference).filter(
                 Reference.project_id == project.id
-            ).all()
+            ).limit(1000).all()
         except Exception as e:
             logger.error(f"Failed to fetch references for refresh: {e}")
             return focused_papers
@@ -4962,26 +4984,27 @@ Return ONLY valid JSON, no explanation:"""
                 ai_response,
                 existing_facts,
             )
-            self.reset_exchange_counter(channel)
+            # Reset counter inline (avoid extra save)
+            memory["_exchanges_since_fact_update"] = 0
         else:
-            # Increment counter for rate limiting
-            self.increment_exchange_counter(channel)
+            # Increment counter inline (avoid extra save)
+            memory["_exchanges_since_fact_update"] = memory.get("_exchanges_since_fact_update", 0) + 1
 
         # Prune stale data periodically (every 10 exchanges)
         exchange_count = memory.get("_exchanges_since_fact_update", 0)
         if exchange_count % 10 == 0:
-            self.prune_stale_memory(channel)
-
-        # Save updated memory
-        self._save_ai_memory(channel, memory)
+            self._prune_stale_memory_inline(memory)
 
         # Phase 3: Update research state and long-term memory (lightweight, do always)
         try:
-            self.update_research_state(channel, user_message, ai_response)
-            self.track_unanswered_question(channel, user_message, ai_response)
-            self.update_long_term_memory(channel, user_message, ai_response)
+            self._update_research_state_inline(memory, user_message, ai_response)
+            self._track_unanswered_question_inline(memory, user_message, ai_response)
+            self._update_long_term_memory_inline(memory, user_message, ai_response)
         except Exception as e:
             logger.error(f"Failed to update Phase 3 memory: {e}")
+
+        # Single save for all memory mutations
+        self._save_ai_memory(channel, memory)
 
         return contradiction_warning
 
@@ -5136,7 +5159,8 @@ Return ONLY valid JSON, no explanation:"""
             if age > max_age_seconds:
                 return None
             return cached["result"]
-        except Exception:
+        except (KeyError, ValueError, TypeError) as e:
+            logger.debug(f"Tool cache lookup failed for {tool_name}: {e}")
             return None
 
     def prune_stale_memory(
@@ -5166,7 +5190,7 @@ Return ONLY valid JSON, no explanation:"""
                 age = (datetime.now(timezone.utc) - cached_time).total_seconds()
                 if age > cache_max_age_seconds:
                     stale_keys.append(tool_name)
-            except Exception:
+            except (KeyError, ValueError, TypeError):
                 stale_keys.append(tool_name)
 
         for key in stale_keys:
@@ -5195,6 +5219,152 @@ Return ONLY valid JSON, no explanation:"""
         if modified:
             memory["facts"] = facts
             self._save_ai_memory(channel, memory)
+
+    def _prune_stale_memory_inline(
+        self,
+        memory: Dict[str, Any],
+        cache_max_age_seconds: int = 600,
+        max_papers: int = 10,
+        max_decisions: int = 10,
+        max_methodology_notes: int = 8,
+    ) -> None:
+        """Prune stale data from memory dict in-place (no DB read/save)."""
+        from datetime import datetime, timezone
+
+        tool_cache = memory.get("tool_cache", {})
+        stale_keys = []
+        for tool_name, cached in tool_cache.items():
+            try:
+                cached_time = datetime.fromisoformat(cached.get("timestamp", ""))
+                if cached_time.tzinfo is None:
+                    cached_time = cached_time.replace(tzinfo=timezone.utc)
+                age = (datetime.now(timezone.utc) - cached_time).total_seconds()
+                if age > cache_max_age_seconds:
+                    stale_keys.append(tool_name)
+            except (KeyError, ValueError, TypeError):
+                stale_keys.append(tool_name)
+
+        for key in stale_keys:
+            del tool_cache[key]
+        memory["tool_cache"] = tool_cache
+
+        facts = memory.get("facts", {})
+        if len(facts.get("papers_discussed", [])) > max_papers:
+            facts["papers_discussed"] = facts["papers_discussed"][-max_papers:]
+        if len(facts.get("decisions_made", [])) > max_decisions:
+            facts["decisions_made"] = facts["decisions_made"][-max_decisions:]
+        if len(facts.get("methodology_notes", [])) > max_methodology_notes:
+            facts["methodology_notes"] = facts["methodology_notes"][-max_methodology_notes:]
+        memory["facts"] = facts
+
+    def _update_research_state_inline(
+        self,
+        memory: Dict[str, Any],
+        user_message: str,
+        ai_response: str,
+    ) -> None:
+        """Update research state in memory dict in-place (no DB read/save)."""
+        from datetime import datetime, timezone
+
+        research_state = memory.get("research_state", {
+            "stage": "exploring",
+            "stage_confidence": 0.5,
+            "stage_history": [],
+        })
+        current_stage = research_state.get("stage", "exploring")
+        new_stage, confidence = self.detect_research_stage(
+            user_message, ai_response, current_stage
+        )
+        if new_stage != current_stage:
+            research_state.setdefault("stage_history", []).append({
+                "from": current_stage,
+                "to": new_stage,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "confidence": confidence,
+            })
+            research_state["stage_history"] = research_state["stage_history"][-10:]
+        research_state["stage"] = new_stage
+        research_state["stage_confidence"] = confidence
+        memory["research_state"] = research_state
+
+    def _track_unanswered_question_inline(
+        self,
+        memory: Dict[str, Any],
+        user_message: str,
+        ai_response: str,
+    ) -> None:
+        """Track unanswered questions in memory dict in-place (no DB read/save)."""
+        indicators = ["?", "how", "what", "why", "when", "where", "which", "can you", "could you"]
+        response_lower = ai_response.lower()
+        is_answered = any(phrase in response_lower for phrase in [
+            "here's", "here is", "i found", "the answer", "based on",
+            "according to", "the results show",
+        ])
+        if is_answered:
+            return
+
+        message_lower = user_message.lower()
+        is_question = any(ind in message_lower for ind in indicators)
+        if not is_question:
+            return
+
+        facts = memory.get("facts", {})
+        unanswered = facts.get("unanswered_questions", [])
+        question = user_message.strip()
+        if len(question) > 200:
+            question = question[:200] + "..."
+        if question not in unanswered:
+            unanswered.append(question)
+            facts["unanswered_questions"] = unanswered[-5:]
+            memory["facts"] = facts
+
+    def _update_long_term_memory_inline(
+        self,
+        memory: Dict[str, Any],
+        user_message: str,
+        ai_response: str,
+    ) -> None:
+        """Update long-term memory in memory dict in-place (no DB read/save)."""
+        long_term = memory.get("long_term", {
+            "user_preferences": [],
+            "rejected_approaches": [],
+            "successful_strategies": [],
+        })
+        message_lower = user_message.lower()
+
+        preference_patterns = [
+            "i prefer", "i like", "i want", "let's use", "we should use",
+            "i'd rather", "my preference is",
+        ]
+        for pattern in preference_patterns:
+            if pattern in message_lower:
+                idx = message_lower.find(pattern)
+                end_idx = message_lower.find(".", idx)
+                if end_idx == -1:
+                    end_idx = min(idx + 100, len(user_message))
+                pref = user_message[idx:end_idx].strip()
+                if pref and pref not in long_term.get("user_preferences", []):
+                    long_term.setdefault("user_preferences", []).append(pref)
+                    long_term["user_preferences"] = long_term["user_preferences"][-10:]
+                break
+
+        rejection_patterns = [
+            "i don't want", "not interested in", "avoid", "don't like",
+            "rejected", "ruled out", "won't work", "not suitable",
+        ]
+        for pattern in rejection_patterns:
+            if pattern in message_lower:
+                idx = message_lower.find(pattern)
+                end_idx = message_lower.find(".", idx)
+                if end_idx == -1:
+                    end_idx = min(idx + 100, len(user_message))
+                rejection = user_message[idx:end_idx].strip()
+                if rejection and rejection not in long_term.get("rejected_approaches", []):
+                    long_term.setdefault("rejected_approaches", []).append(rejection)
+                    long_term["rejected_approaches"] = long_term["rejected_approaches"][-10:]
+                break
+
+        memory["long_term"] = long_term
 
     def detect_contradictions(
         self,
