@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from uuid import UUID, uuid4
 
 import asyncio
@@ -74,7 +74,12 @@ from app.schemas.project_discussion import (
 )
 from app.core.config import settings
 from app.services.ai_service import AIService
-from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+from app.services.discussion_ai.openrouter_orchestrator import (
+    OpenRouterOrchestrator,
+    get_available_models_with_meta,
+)
+from app.api.utils.openrouter_access import resolve_openrouter_key_for_project
+from app.api.utils.request_dedup import check_and_set_request, clear_request
 from app.services.websocket_manager import connection_manager
 from app.services.subscription_service import SubscriptionService
 
@@ -242,36 +247,6 @@ def _serialize_channel(
         created_at=channel.created_at,
         updated_at=channel.updated_at,
         stats=stats_model,
-    )
-
-
-def _build_assistant_response_model(reply: AssistantReply) -> DiscussionAssistantResponse:
-    citations = [
-        DiscussionAssistantCitation(
-            origin=citation.origin,
-            origin_id=citation.origin_id,
-            label=citation.label,
-            resource_type=citation.resource_type,
-        )
-        for citation in reply.citations
-    ]
-
-    suggested_actions = [
-        {
-            "action_type": action.action_type,
-            "summary": action.summary,
-            "payload": action.payload,
-        }
-        for action in reply.suggested_actions
-    ]
-
-    return DiscussionAssistantResponse(
-        message=reply.message,
-        citations=citations,
-        reasoning_used=reply.reasoning_used,
-        model=reply.model,
-        usage=reply.usage,
-        suggested_actions=suggested_actions,
     )
 
 
@@ -1167,6 +1142,59 @@ def delete_channel_resource(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+class OpenRouterModelInfo(BaseModel):
+    id: str
+    name: str
+    provider: str
+    supports_reasoning: bool = False
+
+
+class OpenRouterModelListResponse(BaseModel):
+    models: List[OpenRouterModelInfo]
+    source: str
+    warning: Optional[str] = None
+    key_source: Optional[str] = None
+
+
+@router.get("/projects/{project_id}/discussion/models")
+def list_openrouter_models(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    include_meta: bool = Query(False),
+) -> Union[List[OpenRouterModelInfo], OpenRouterModelListResponse]:
+    """List available OpenRouter models."""
+    project = get_project_or_404(db, project_id)
+    ensure_project_member(db, project, current_user)
+
+    discussion_settings = project.discussion_settings or {"enabled": True, "model": "openai/gpt-5.2-20251211"}
+    use_owner_key_for_team = bool(discussion_settings.get("use_owner_key_for_team", False))
+    resolution = resolve_openrouter_key_for_project(
+        db,
+        current_user,
+        project,
+        use_owner_key_for_team=use_owner_key_for_team,
+    )
+
+    meta = get_available_models_with_meta(
+        include_reasoning=True,
+        api_key=resolution.get("api_key"),
+        use_env_key=False,
+    )
+    models = [OpenRouterModelInfo(**m) for m in meta["models"]]
+    warning = resolution.get("warning") or meta.get("warning")
+
+    if include_meta:
+        return OpenRouterModelListResponse(
+            models=models,
+            source=meta.get("source") or "fallback",
+            warning=warning,
+            key_source=resolution.get("source") or "none",
+        )
+
+    return models
+
+
 @router.post(
     "/projects/{project_id}/discussion/channels/{channel_id}/assistant",
     response_model=DiscussionAssistantResponse,
@@ -1177,16 +1205,66 @@ def invoke_discussion_assistant(
     payload: DiscussionAssistantRequest,
     background_tasks: BackgroundTasks,
     stream: bool = Query(False),
-    background: bool = Query(False, description="Run AI in background, return immediately"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_verified_user),
 ):
+    """
+    Invoke the AI assistant using OpenRouter.
+
+    Model and API key are determined by project settings:
+    - Model: from project.discussion_settings.model
+    - API Key: project owner's key (fallback to current user's key)
+    """
     project = get_project_or_404(db, project_id)
     ensure_project_member(db, project, current_user)
     channel = _get_channel_or_404(db, project, channel_id)
 
+    # Get discussion settings from project
+    discussion_settings = project.discussion_settings or {"enabled": True, "model": "openai/gpt-5.2-20251211"}
+
+    # Check if discussion AI is enabled for this project
+    if not discussion_settings.get("enabled", True):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Discussion AI is disabled for this project",
+        )
+
+    # Use model from project settings
+    model = discussion_settings.get("model", "openai/gpt-5.2-20251211")
+
+    # Determine API key based on user tier + project settings
+    use_owner_key_for_team = bool(discussion_settings.get("use_owner_key_for_team", False))
+    resolution = resolve_openrouter_key_for_project(
+        db,
+        current_user,
+        project,
+        use_owner_key_for_team=use_owner_key_for_team,
+    )
+    api_key_to_use = resolution.get("api_key")
+    key_source = resolution.get("source") or "none"
+
+    if resolution.get("error_status"):
+        raise HTTPException(
+            status_code=int(resolution["error_status"]),
+            detail={
+                "error": "no_api_key" if resolution["error_status"] == 402 else "invalid_api_key",
+                "message": resolution.get("error_detail") or "OpenRouter API key issue.",
+            },
+        )
+
+    if not api_key_to_use:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "error": "no_api_key",
+                "message": "No API key available. Add your OpenRouter key or ask the project owner to enable key sharing.",
+            },
+        )
+
+    logger.info(f"Using {key_source} OpenRouter API key for Discussion AI")
+
     # Check subscription limit for discussion AI calls
-    allowed, current, limit = SubscriptionService.check_feature_limit(
+    allowed, current_usage, limit = SubscriptionService.check_feature_limit(
         db, current_user.id, "discussion_ai_calls"
     )
     if not allowed:
@@ -1195,9 +1273,9 @@ def invoke_discussion_assistant(
             detail={
                 "error": "limit_exceeded",
                 "feature": "discussion_ai_calls",
-                "current": current,
+                "current": current_usage,
                 "limit": limit,
-                "message": f"You have reached your AI assistant limit ({current}/{limit} calls this month). Upgrade to Pro for more AI calls.",
+                "message": f"You have reached your AI assistant limit ({current_usage}/{limit} calls this month). Upgrade to Pro for more AI calls.",
             },
         )
 
@@ -1210,26 +1288,23 @@ def invoke_discussion_assistant(
             "display": display_name,
         },
     }
-    logger.info(f"🔍 AI Assistant - User: {current_user.email}, display_name: '{display_name}'")
+    logger.info(f"AI Assistant - User: {current_user.email}, model: {model} (from project settings)")
 
     # M2 Security Fix: Fetch search results from server cache instead of trusting client data
-    # This prevents prompt injection via crafted paper titles/abstracts
     from app.services.discussion_ai.search_cache import get_search_results
 
     search_results_list = None
     if payload.recent_search_id:
-        # Fetch from server-side cache (trusted source)
         search_results_list = get_search_results(payload.recent_search_id)
         if search_results_list:
             logger.info(f"AI Assistant - Loaded {len(search_results_list)} papers from server cache (search_id={payload.recent_search_id})")
         else:
             logger.warning(f"AI Assistant - No cached results for search_id={payload.recent_search_id}, ignoring client data")
 
-    # Log if client sent results but we're ignoring them (security measure)
     if payload.recent_search_results and not search_results_list:
         logger.info(f"AI Assistant - Ignoring {len(payload.recent_search_results)} client-provided search results (not in server cache)")
 
-    # Load previous conversation state from the most recent exchange
+    # Load previous conversation state
     previous_state_dict = None
     last_exchange = (
         db.query(ProjectDiscussionAssistantExchange)
@@ -1242,14 +1317,14 @@ def invoke_discussion_assistant(
     )
     if last_exchange and last_exchange.conversation_state:
         previous_state_dict = last_exchange.conversation_state
-        logger.info(
-            "Loaded previous state: clarification_asked=%s, phase=%s",
-            previous_state_dict.get("clarification_asked", False),
-            previous_state_dict.get("phase", "initial"),
-        )
 
-    # Create tool orchestrator with DB access
-    tool_orchestrator = ToolOrchestrator(_discussion_ai_core, db)
+    # Create OpenRouter orchestrator with the determined API key
+    orchestrator = OpenRouterOrchestrator(
+        _discussion_ai_core,
+        db,
+        model=model,
+        user_api_key=api_key_to_use,
+    )
 
     # Convert conversation history if provided
     conversation_history = None
@@ -1264,12 +1339,33 @@ def invoke_discussion_assistant(
         exchange_id = str(uuid4())
         exchange_created_at = datetime.utcnow().isoformat() + "Z"
 
+        # Check for duplicate request using idempotency key
+        if payload.idempotency_key:
+            is_new, existing_exchange_id = check_and_set_request(
+                payload.idempotency_key,
+                exchange_id,
+            )
+            if not is_new and existing_exchange_id:
+                logger.info(f"Duplicate request detected, returning existing exchange: {existing_exchange_id}")
+                def duplicate_response():
+                    yield f"data: {json.dumps({'type': 'duplicate', 'exchange_id': existing_exchange_id})}\n\n"
+                return StreamingResponse(
+                    duplicate_response(),
+                    media_type="text/event-stream",
+                    headers={
+                        "Cache-Control": "no-cache",
+                        "Connection": "keep-alive",
+                        "X-Duplicate-Request": "true",
+                        "X-Existing-Exchange-Id": existing_exchange_id,
+                    },
+                )
+
         # Save exchange immediately with status="processing"
         initial_response = DiscussionAssistantResponse(
             message="",
             citations=[],
             reasoning_used=False,
-            model="gpt-5.2",
+            model=model,
             usage=None,
             suggested_actions=[],
         )
@@ -1303,28 +1399,30 @@ def invoke_discussion_assistant(
         event_queue: queue.Queue = queue.Queue()
         processing_done = threading.Event()
 
-        # Capture IDs before starting thread to avoid detached instance errors
-        project_id = project.id
-        channel_id = channel.id
+        # Capture IDs before starting thread
+        proj_id = project.id
+        chan_id = channel.id
         user_id = current_user.id
         question_text = payload.question
         reasoning_enabled = payload.reasoning or False
+        selected_model = model
+        user_key = api_key_to_use
 
         def run_ai_processing():
             """Background thread that runs AI and puts events in queue."""
-            # Create own database session for thread safety
             thread_db = SessionLocal()
             try:
-                # Re-fetch objects in this thread's session
-                thread_project = thread_db.query(Project).filter_by(id=project_id).first()
-                thread_channel = thread_db.query(ProjectDiscussionChannel).filter_by(id=channel_id).first()
+                thread_project = thread_db.query(Project).filter_by(id=proj_id).first()
+                thread_channel = thread_db.query(ProjectDiscussionChannel).filter_by(id=chan_id).first()
                 thread_user = thread_db.query(User).filter_by(id=user_id).first()
 
                 if not thread_project or not thread_channel:
                     raise ValueError("Project or channel not found")
 
-                # Create a new ToolOrchestrator with thread's db session
-                thread_orchestrator = ToolOrchestrator(_discussion_ai_core, thread_db)
+                thread_orchestrator = OpenRouterOrchestrator(
+                    _discussion_ai_core, thread_db, model=selected_model,
+                    user_api_key=user_key,
+                )
 
                 final_result = None
                 for event in thread_orchestrator.handle_message_streaming(
@@ -1342,7 +1440,6 @@ def invoke_discussion_assistant(
                     if event.get("type") == "result":
                         final_result = event.get("data", {})
                     elif event.get("type") == "status":
-                        # Update status in database so returning users see current progress
                         status_msg = event.get("message", "Processing...")
                         try:
                             exchange_record = thread_db.query(ProjectDiscussionAssistantExchange).filter_by(
@@ -1351,17 +1448,15 @@ def invoke_discussion_assistant(
                             if exchange_record:
                                 exchange_record.status_message = status_msg
                                 thread_db.commit()
-                                # Broadcast status update via WebSocket
                                 asyncio.run(_broadcast_discussion_event(
-                                    project_id,
-                                    channel_id,
+                                    proj_id,
+                                    chan_id,
                                     "assistant_status",
                                     {"exchange_id": exchange_id, "status_message": status_msg},
                                 ))
                         except Exception as e:
                             logger.warning(f"Failed to update status message: {e}")
 
-                # Processing complete - save result
                 if final_result:
                     citations = [
                         DiscussionAssistantCitation(
@@ -1384,17 +1479,16 @@ def invoke_discussion_assistant(
                         message=final_result.get("message", ""),
                         citations=citations,
                         reasoning_used=final_result.get("reasoning_used", False),
-                        model=final_result.get("model_used", "gpt-5.2"),
+                        model=final_result.get("model_used", selected_model),
                         usage=None,
                         suggested_actions=suggested_actions,
                     )
                     payload_dict = response_model.model_dump(mode="json")
                     conversation_state = final_result.get("conversation_state", {})
 
-                    # Persist completed result
                     _persist_assistant_exchange(
-                        project_id,
-                        channel_id,
+                        proj_id,
+                        chan_id,
                         user_id,
                         exchange_id,
                         question_text,
@@ -1404,10 +1498,9 @@ def invoke_discussion_assistant(
                         status="completed",
                     )
 
-                    # Broadcast completion
                     asyncio.run(_broadcast_discussion_event(
-                        project_id,
-                        channel_id,
+                        proj_id,
+                        chan_id,
                         "assistant_reply",
                         {"exchange": {
                             "id": exchange_id,
@@ -1419,18 +1512,16 @@ def invoke_discussion_assistant(
                         }},
                     ))
 
-                    # Increment usage
                     try:
                         SubscriptionService.increment_usage(thread_db, user_id, "discussion_ai_calls")
                     except Exception:
                         pass
 
             except Exception as exc:
-                logger.exception("Background AI processing failed", exc_info=exc)
-                # Save error state
+                logger.exception("AI processing failed", exc_info=exc)
                 _persist_assistant_exchange(
-                    project_id,
-                    channel_id,
+                    proj_id,
+                    chan_id,
                     user_id,
                     exchange_id,
                     question_text,
@@ -1441,8 +1532,8 @@ def invoke_discussion_assistant(
                     status_message="Processing failed. Please try again.",
                 )
                 asyncio.run(_broadcast_discussion_event(
-                    project_id,
-                    channel_id,
+                    proj_id,
+                    chan_id,
                     "assistant_failed",
                     {"exchange_id": exchange_id, "error": "Processing failed"},
                 ))
@@ -1450,27 +1541,23 @@ def invoke_discussion_assistant(
             finally:
                 event_queue.put(None)  # Signal end
                 processing_done.set()
-                thread_db.close()  # Close thread's database session
+                thread_db.close()
 
-        # Start AI processing in background thread
         ai_thread = threading.Thread(target=run_ai_processing, daemon=True)
         ai_thread.start()
 
-        def tool_event_iterator():
+        def stream_events():
             """Stream events from the queue to the client."""
             try:
                 while True:
                     try:
-                        # Wait for events with timeout to allow checking if we should stop
                         event = event_queue.get(timeout=0.5)
                     except queue.Empty:
-                        # No event yet, check if processing is done
                         if processing_done.is_set():
                             break
                         continue
 
                     if event is None:
-                        # End signal
                         break
 
                     if event.get("type") == "token":
@@ -1478,7 +1565,6 @@ def invoke_discussion_assistant(
                     elif event.get("type") == "status":
                         yield "data: " + json.dumps({"type": "status", "tool": event.get("tool", ""), "message": event.get("message", "Processing")}) + "\n\n"
                     elif event.get("type") == "result":
-                        # Final result - the background thread handles persistence
                         final_data = event.get("data", {})
                         citations = [
                             DiscussionAssistantCitation(
@@ -1501,7 +1587,7 @@ def invoke_discussion_assistant(
                             message=final_data.get("message", ""),
                             citations=citations,
                             reasoning_used=final_data.get("reasoning_used", False),
-                            model=final_data.get("model_used", "gpt-5.2"),
+                            model=final_data.get("model_used", selected_model),
                             usage=None,
                             suggested_actions=suggested_actions,
                         )
@@ -1510,199 +1596,19 @@ def invoke_discussion_assistant(
                         yield "data: " + json.dumps({"type": "error", "message": event.get("message", "Error")}) + "\n\n"
 
             except GeneratorExit:
-                # Client disconnected - AI thread continues in background
                 logger.info(f"Client disconnected, AI processing continues in background for exchange {exchange_id}")
             except Exception as exc:
                 logger.exception("Streaming error", exc_info=exc)
                 yield "data: " + json.dumps({"type": "error", "message": "Stream error"}) + "\n\n"
 
-        return StreamingResponse(tool_event_iterator(), media_type="text/event-stream")
-
-    # Background mode: Start processing in background thread, return immediately
-    if background:
-        exchange_id = str(uuid4())
-        exchange_created_at = datetime.utcnow().isoformat() + "Z"
-
-        # Create exchange record with status="processing"
-        processing_response = DiscussionAssistantResponse(
-            message="",
-            citations=[],
-            reasoning_used=False,
-            model="gpt-5.2",
-            usage=None,
-            suggested_actions=[],
-        )
-        payload_dict = processing_response.model_dump(mode="json")
-
-        # Save initial processing record
-        _persist_assistant_exchange(
-            project.id,
-            channel.id,
-            current_user.id,
-            exchange_id,
-            payload.question,
-            payload_dict,
-            exchange_created_at,
-            {},
-            status="processing",
-            status_message="Thinking",
+        return StreamingResponse(
+            stream_events(),
+            media_type="text/event-stream",
+            headers={"X-Exchange-Id": exchange_id},
         )
 
-        # Broadcast that processing has started
-        exchange_payload = {
-            "id": exchange_id,
-            "question": payload.question,
-            "response": payload_dict,
-            "created_at": exchange_created_at,
-            "author": author_info,
-            "status": "processing",
-            "status_message": "Thinking",
-        }
-        _broadcast_discussion_event(
-            project.id,
-            channel.id,
-            "assistant_processing",
-            {"exchange": exchange_payload},
-        )
-
-        # Capture scalar IDs before starting thread to avoid detached instance errors
-        bg_project_id = project.id
-        bg_channel_id = channel.id
-        bg_user_id = current_user.id
-        bg_question_text = payload.question
-        bg_reasoning = payload.reasoning or False
-        bg_search_id = payload.recent_search_id
-
-        # Define background processing function
-        def run_ai_in_background():
-            try:
-                bg_db = SessionLocal()
-                try:
-                    # Re-fetch ORM objects in this thread's session
-                    bg_project = bg_db.query(Project).filter_by(id=bg_project_id).first()
-                    bg_channel = bg_db.query(ProjectDiscussionChannel).filter_by(id=bg_channel_id).first()
-                    bg_user = bg_db.query(User).filter_by(id=bg_user_id).first()
-
-                    if not bg_project or not bg_channel:
-                        raise ValueError("Project or channel not found in background thread")
-
-                    # Create a new ToolOrchestrator with this thread's db session
-                    bg_orchestrator = ToolOrchestrator(_discussion_ai_core, bg_db)
-
-                    # Run the AI processing
-                    result = bg_orchestrator.handle_message(
-                        bg_project,
-                        bg_channel,
-                        bg_question_text,
-                        recent_search_results=search_results_list,
-                        recent_search_id=bg_search_id,
-                        previous_state_dict=previous_state_dict,
-                        conversation_history=conversation_history,
-                        reasoning_mode=bg_reasoning,
-                        current_user=bg_user,
-                    )
-
-                    # Build response
-                    citations = [
-                        DiscussionAssistantCitation(
-                            origin=c.get("origin"),
-                            origin_id=c.get("origin_id"),
-                            label=c.get("label", ""),
-                            resource_type=c.get("resource_type"),
-                        )
-                        for c in result.get("citations", [])
-                    ]
-                    suggested_actions = [
-                        {
-                            "action_type": a.get("type", a.get("action_type", "")),
-                            "summary": a.get("summary", ""),
-                            "payload": a.get("payload", {}),
-                        }
-                        for a in result.get("actions", [])
-                    ]
-                    response_model = DiscussionAssistantResponse(
-                        message=result.get("message", ""),
-                        citations=citations,
-                        reasoning_used=result.get("reasoning_used", False),
-                        model=result.get("model_used", "gpt-5.2"),
-                        usage=None,
-                        suggested_actions=suggested_actions,
-                    )
-                    completed_payload = response_model.model_dump(mode="json")
-
-                    # Update the exchange with completed result
-                    exchange = bg_db.query(ProjectDiscussionAssistantExchange).filter_by(
-                        id=UUID(exchange_id)
-                    ).first()
-                    if exchange:
-                        exchange.response = completed_payload
-                        exchange.status = "completed"
-                        exchange.status_message = None
-                        exchange.conversation_state = result.get("conversation_state", {})
-                        bg_db.commit()
-
-                    # Broadcast completion
-                    completed_exchange = {
-                        "id": exchange_id,
-                        "question": bg_question_text,
-                        "response": completed_payload,
-                        "created_at": exchange_created_at,
-                        "author": author_info,
-                        "status": "completed",
-                    }
-                    _broadcast_discussion_event(
-                        bg_project_id,
-                        bg_channel_id,
-                        "assistant_reply",
-                        {"exchange": completed_exchange},
-                    )
-
-                    # Increment usage
-                    try:
-                        SubscriptionService.increment_usage(bg_db, bg_user_id, "discussion_ai_calls")
-                    except Exception:
-                        pass
-
-                except Exception as exc:
-                    logger.exception("Background AI processing failed", exc_info=exc)
-                    # Update exchange with error
-                    exchange = bg_db.query(ProjectDiscussionAssistantExchange).filter_by(
-                        id=UUID(exchange_id)
-                    ).first()
-                    if exchange:
-                        exchange.status = "failed"
-                        exchange.status_message = "Processing failed. Please try again."
-                        exchange.response = {"message": "An error occurred while processing your request.", "citations": [], "suggested_actions": []}
-                        bg_db.commit()
-
-                    # Broadcast failure
-                    _broadcast_discussion_event(
-                        bg_project_id,
-                        bg_channel_id,
-                        "assistant_failed",
-                        {"exchange_id": exchange_id, "error": "Processing failed"},
-                    )
-                finally:
-                    bg_db.close()
-            except Exception as exc:
-                logger.exception("Background thread error", exc_info=exc)
-
-        # Start background thread
-        thread = threading.Thread(target=run_ai_in_background, daemon=True)
-        thread.start()
-
-        # Return immediately with processing status
-        return DiscussionAssistantResponse(
-            message="",
-            citations=[],
-            reasoning_used=False,
-            model="gpt-5.2",
-            usage=None,
-            suggested_actions=[],
-        )
-
-    # Non-streaming: Call the tool-based orchestrator with state tracking
-    result = tool_orchestrator.handle_message(
+    # Non-streaming mode
+    result = orchestrator.handle_message(
         project,
         channel,
         payload.question,
@@ -1714,7 +1620,6 @@ def invoke_discussion_assistant(
         current_user=current_user,
     )
 
-    # Convert orchestrator result to API response format
     citations = [
         DiscussionAssistantCitation(
             origin=c.get("origin"),
@@ -1724,7 +1629,6 @@ def invoke_discussion_assistant(
         )
         for c in result.get("citations", [])
     ]
-
     suggested_actions = [
         {
             "action_type": a.get("type", a.get("action_type", "")),
@@ -1734,60 +1638,37 @@ def invoke_discussion_assistant(
         for a in result.get("actions", [])
     ]
 
-    # Include tools called in the response for debugging
-    tools_called = result.get("tools_called", [])
-    message = result.get("message", "")
-    if tools_called:
-        logger.info(f"Tools called: {tools_called}")
-
-    response_model = DiscussionAssistantResponse(
-        message=message,
+    response = DiscussionAssistantResponse(
+        message=result.get("message", ""),
         citations=citations,
-        reasoning_used=result.get("reasoning_used", True),
-        model=result.get("model_used", "gpt-5.2"),
+        reasoning_used=result.get("reasoning_used", False),
+        model=result.get("model_used", model),
         usage=None,
         suggested_actions=suggested_actions,
     )
 
-    # Extract conversation state for persistence
-    conversation_state = result.get("conversation_state", {})
-    logger.info(
-        "New conversation state: clarification_asked=%s, phase=%s",
-        conversation_state.get("clarification_asked", False),
-        conversation_state.get("phase", "initial"),
-    )
-
-    # Persist and broadcast
-    exchange_payload = {
-        "id": str(uuid4()),
-        "question": payload.question,
-        "response": response_model.model_dump(mode="json"),
-        "created_at": datetime.utcnow().isoformat() + "Z",
-        "author": author_info,
-    }
-    background_tasks.add_task(
-        _persist_assistant_exchange,
+    # Persist exchange
+    exchange_id = str(uuid4())
+    exchange_created_at = datetime.utcnow().isoformat() + "Z"
+    _persist_assistant_exchange(
         project.id,
         channel.id,
         current_user.id,
-        exchange_payload["id"],
+        exchange_id,
         payload.question,
-        exchange_payload["response"],
-        exchange_payload["created_at"],
-        conversation_state,  # Pass the new state to persist
-    )
-    background_tasks.add_task(
-        _broadcast_discussion_event,
-        project.id,
-        channel.id,
-        "assistant_reply",
-        {"exchange": exchange_payload},
+        response.model_dump(mode="json"),
+        exchange_created_at,
+        result.get("conversation_state", {}),
+        status="completed",
     )
 
-    # Increment usage counter after successful AI call
-    SubscriptionService.increment_usage(db, current_user.id, "discussion_ai_calls")
+    # Increment usage
+    try:
+        SubscriptionService.increment_usage(db, current_user.id, "discussion_ai_calls")
+    except Exception:
+        pass
 
-    return response_model
+    return response
 
 
 @router.get(

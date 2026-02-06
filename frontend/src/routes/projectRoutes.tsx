@@ -3,7 +3,6 @@ import ProjectsHome from '../pages/projects/ProjectsHome'
 import ProjectLayout from '../pages/projects/ProjectLayout'
 import ProjectOverview from '../pages/projects/ProjectOverview'
 import ProjectDiscussion from '../pages/projects/ProjectDiscussion'
-import ProjectDiscussionOR from '../pages/projects/ProjectDiscussionOR'
 import ProjectSyncSpace from '../pages/projects/ProjectSyncSpace'
 import ProjectPapers from '../pages/projects/ProjectPapers'
 import ProjectDiscovery from '../pages/projects/ProjectDiscovery'
@@ -39,10 +38,6 @@ export const projectRoutes: RouteObject[] = [
           {
             path: 'discussion',
             element: <ProjectDiscussion />,
-          },
-          {
-            path: 'discussion-or',
-            element: <ProjectDiscussionOR />,
           },
           {
             path: 'sync-space',

@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ChevronDown, Sparkles, Check } from 'lucide-react'
 import clsx from 'clsx'
 
-import { openRouterAgentAPI, openRouterDiscussionAPI } from '../../services/api'
+import { openRouterAgentAPI, projectDiscussionAPI } from '../../services/api'
 import { OpenRouterModel, OpenRouterModelsResponse } from '../../types'
 
 export interface OpenRouterModelOption {
@@ -77,7 +77,7 @@ export function useOpenRouterModels(projectId?: string, enabled: boolean = true)
     queryKey: ['openrouter-models', 'v3', projectId ?? 'agent'],
     queryFn: async () => {
       const response = projectId
-        ? await openRouterDiscussionAPI.listModels(projectId)
+        ? await projectDiscussionAPI.listModels(projectId)
         : await openRouterAgentAPI.listModels()
       return response.data
     },

@@ -814,6 +814,12 @@ export const projectDiscussionAPI = {
   deleteTask: (projectId: string, taskId: string) =>
     api.delete<void>(`/projects/${projectId}/discussion/tasks/${taskId}`),
 
+  listModels: (projectId: string, includeMeta: boolean = true) =>
+    api.get<OpenRouterModel[] | OpenRouterModelsResponse>(
+      `/projects/${projectId}/discussion/models`,
+      { params: { include_meta: includeMeta } }
+    ),
+
   invokeAssistant: (
     projectId: string,
     channelId: string,
@@ -922,27 +928,6 @@ export const projectDiscussionAPI = {
 
   deleteArtifact: (projectId: string, channelId: string, artifactId: string) =>
     api.delete(`/projects/${projectId}/discussion/channels/${channelId}/artifacts/${artifactId}`),
-}
-
-// OpenRouter Discussion API endpoints
-export const openRouterDiscussionAPI = {
-  listModels: (projectId: string, includeMeta: boolean = true) =>
-    api.get<OpenRouterModel[] | OpenRouterModelsResponse>(
-      `/projects/${projectId}/discussion-or/models`,
-      { params: { include_meta: includeMeta } }
-    ),
-
-  invokeAssistant: (
-    projectId: string,
-    channelId: string,
-    payload: DiscussionAssistantRequest,
-    model: string = 'openai/gpt-5.2'
-  ) =>
-    api.post<DiscussionAssistantResponse>(
-      `/projects/${projectId}/discussion-or/channels/${channelId}/assistant`,
-      payload,
-      { params: { model } }
-    ),
 }
 
 // OpenRouter Agent API endpoints

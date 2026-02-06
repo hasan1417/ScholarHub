@@ -12,12 +12,10 @@ ORDERED_TOOL_NAMES: List[str] = [
     "get_reference_details",
     "analyze_reference",
     "search_papers",
-    "get_related_papers",
     "get_project_papers",
     "get_project_info",
     "update_project_info",
     "get_channel_resources",
-    "get_channel_papers",
     "create_paper",
     "update_paper",
     "create_artifact",
@@ -58,10 +56,6 @@ def build_tool_registry() -> ToolRegistry:
         spec = specs.pop(name, None)
         if spec:
             registry.register(spec)
-
-    # Register any remaining specs (should not happen, but keeps registry complete).
-    for name in sorted(specs.keys()):
-        registry.register(specs[name])
 
     return registry
 

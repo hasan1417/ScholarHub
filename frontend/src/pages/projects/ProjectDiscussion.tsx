@@ -1,22 +1,58 @@
+/**
+ * Discussion AI Page
+ *
+ * AI-powered research assistant with multi-model support via OpenRouter.
+ * Supports GPT, Claude, Gemini, DeepSeek, and more.
+ */
+
 import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { MessageCircle, Loader2, AlertCircle, Plus, Sparkles, X, Bot, FileText, BookOpen, Calendar, Check, ChevronDown, ChevronRight, FilePlus, Pencil, CheckSquare, Search, Download, MoreHorizontal, FolderOpen, ListTodo, Puzzle, Hash, CheckCircle, Library, Menu } from 'lucide-react'
+import {
+  MessageCircle,
+  Loader2,
+  AlertCircle,
+  Plus,
+  Sparkles,
+  X,
+  Bot,
+  FileText,
+  BookOpen,
+  Calendar,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  FilePlus,
+  Pencil,
+  Search,
+  Download,
+  MoreHorizontal,
+  FolderOpen,
+  Puzzle,
+  Hash,
+  CheckCircle,
+  Library,
+  Menu,
+} from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { formatDistanceToNow } from 'date-fns'
 import { useProjectContext } from './ProjectLayout'
 import { useAuth } from '../../contexts/AuthContext'
-import { projectDiscussionAPI, buildApiUrl, refreshAuthToken, researchPapersAPI, projectReferencesAPI, projectMeetingsAPI } from '../../services/api'
+import {
+  projectDiscussionAPI,
+  projectsAPI,
+  buildApiUrl,
+  refreshAuthToken,
+  researchPapersAPI,
+  projectReferencesAPI,
+  projectMeetingsAPI,
+} from '../../services/api'
 import discussionWebsocket from '../../services/discussionWebsocket'
 import {
   DiscussionMessage,
   DiscussionThread as DiscussionThreadType,
   DiscussionChannelSummary,
-  DiscussionChannelResource,
-  DiscussionTask,
-  DiscussionTaskCreate,
-  DiscussionTaskUpdate,
   DiscussionChannelResourceCreate,
   DiscussionAssistantResponse,
   DiscussionAssistantSuggestedAction,
@@ -29,15 +65,16 @@ import MessageInput from '../../components/discussion/MessageInput'
 import DiscussionThread from '../../components/discussion/DiscussionThread'
 import DiscussionChannelSidebar from '../../components/discussion/DiscussionChannelSidebar'
 import ChannelResourcePanel from '../../components/discussion/ChannelResourcePanel'
-import ChannelTaskDrawer from '../../components/discussion/ChannelTaskDrawer'
 import ChannelArtifactsPanel from '../../components/discussion/ChannelArtifactsPanel'
 import { DiscoveredPaper, IngestionStatus } from '../../components/discussion/DiscoveredPaperCard'
 import { DiscoveryQueuePanel, PaperIngestionState, IngestionStatesMap } from '../../components/discussion/DiscoveryQueuePanel'
 import { getProjectUrlId } from '../../utils/urlId'
+import { modelSupportsReasoning, useOpenRouterModels } from '../../components/discussion/ModelSelector'
 
+// Types
 type AssistantExchange = {
   id: string
-  channelId: string // Channel this exchange belongs to
+  channelId: string
   question: string
   response: DiscussionAssistantResponse
   createdAt: Date
@@ -45,15 +82,18 @@ type AssistantExchange = {
   appliedActions: string[]
   status: 'pending' | 'streaming' | 'complete'
   displayMessage: string
-  statusMessage?: string // Dynamic status message showing what the AI is doing
+  statusMessage?: string
+  isWaitingForTools?: boolean // True when tokens paused but result not yet received
   author?: { id?: string; name?: { display?: string; first?: string; last?: string } | string }
-  fromHistory?: boolean // true if loaded from history, false if created in current session
+  fromHistory?: boolean
+  model?: string
 }
 
 type ConversationItem =
   | { kind: 'thread'; timestamp: number; thread: DiscussionThreadType }
   | { kind: 'assistant'; timestamp: number; exchange: AssistantExchange }
 
+// Utility functions
 const stripActionsBlock = (value: string): string =>
   value
     .replace(/<actions>[\s\S]*?<\/actions>/gi, '')
@@ -73,18 +113,13 @@ const buildCitationLookup = (citations: DiscussionAssistantResponse['citations']
   return lookup
 }
 
-const formatAssistantMessage = (
-  message: string,
-  lookup: Map<string, string>,
-): string => {
+const formatAssistantMessage = (message: string, lookup: Map<string, string>): string => {
   if (!message) return ''
-
   const replaced = message.replace(/\[(resource|message):([^\]]+)\]/gi, (_, origin, identifier) => {
     const key = `${origin}:${identifier}`.toLowerCase()
     const label = lookup.get(key)
     return label ? `**${label}**` : ''
   })
-
   return stripActionsBlock(replaced).replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim()
 }
 
@@ -101,6 +136,7 @@ const ASSISTANT_SCOPE_OPTIONS = [
   { id: 'references', label: 'References' },
 ]
 
+
 const ProjectDiscussion = () => {
   const { project } = useProjectContext()
   const { user } = useAuth()
@@ -112,25 +148,63 @@ const ProjectDiscussion = () => {
   const historyChannelRef = useRef<string | null>(null)
   const assistantAbortController = useRef<AbortController | null>(null)
   const STORAGE_PREFIX = `assistantHistory:${project.id}`
+  const { models: openrouterModels, warning: openrouterWarning } = useOpenRouterModels(project.id)
 
   const buildStorageKey = useCallback(
     (channelId: string | null) => {
       if (!channelId) return null
       return `${STORAGE_PREFIX}:${channelId}`
     },
-    [STORAGE_PREFIX],
+    [STORAGE_PREFIX]
   )
 
+  // Fetch project discussion settings (model is now a project-level setting)
+  const discussionSettingsQuery = useQuery({
+    queryKey: ['project-discussion-settings', project.id],
+    queryFn: async () => {
+      const response = await projectsAPI.getDiscussionSettings(project.id)
+      return response.data
+    },
+    staleTime: 30000,
+  })
+
+  // Get model from project settings (read-only for non-owners)
+  const selectedModel =
+    openrouterModels.find((model) => model.id === discussionSettingsQuery.data?.model)?.id ||
+    openrouterModels[0]?.id
+  const discussionEnabled = discussionSettingsQuery.data?.enabled ?? true
+  const ownerHasApiKey = discussionSettingsQuery.data?.owner_has_api_key ?? false
+  const viewerHasApiKey = discussionSettingsQuery.data?.viewer_has_api_key ?? false
+  const serverKeyAvailable = discussionSettingsQuery.data?.server_key_available ?? false
+  const useOwnerKeyForTeam = discussionSettingsQuery.data?.use_owner_key_for_team ?? false
+  const isOwner = user?.id === project.created_by
+  const isViewer = project.current_user_role === 'viewer'
+  const ownerKeyAvailableForViewer = isOwner ? ownerHasApiKey : ownerHasApiKey && useOwnerKeyForTeam
+  const hasAnyApiKey = viewerHasApiKey || serverKeyAvailable || ownerKeyAvailableForViewer
+  const noKeyMessage = isOwner
+    ? 'AI commands require an API key. Add your OpenRouter key in Settings.'
+    : ownerHasApiKey && !ownerKeyAvailableForViewer
+      ? 'AI commands require an API key. The project owner has a key but has not enabled sharing. Add your own key or ask them to enable sharing.'
+      : 'AI commands require an API key. Add your OpenRouter key or ask the project owner to enable key sharing.'
+
+  // Turn off reasoning when model doesn't support it
+  useEffect(() => {
+    if (!modelSupportsReasoning(selectedModel, openrouterModels)) {
+      setAssistantReasoning(false)
+    }
+  }, [selectedModel, openrouterModels])
+
+  // Core state
   const [replyingTo, setReplyingTo] = useState<{ id: string; userName: string } | null>(null)
   const [editingMessage, setEditingMessage] = useState<{ id: string; content: string } | null>(null)
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null)
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
-const [isCreateChannelModalOpen, setIsCreateChannelModalOpen] = useState(false)
-const [newChannelName, setNewChannelName] = useState('')
-const [newChannelDescription, setNewChannelDescription] = useState('')
-const [newChannelScope, setNewChannelScope] = useState<ChannelScopeConfig | null>(null) // null = project-wide
-const [isChannelSettingsOpen, setIsChannelSettingsOpen] = useState(false)
-const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary | null>(null)
+  const [isCreateChannelModalOpen, setIsCreateChannelModalOpen] = useState(false)
+  const [newChannelName, setNewChannelName] = useState('')
+  const [newChannelDescription, setNewChannelDescription] = useState('')
+  const [newChannelScope, setNewChannelScope] = useState<ChannelScopeConfig | null>(null)
+  const [isChannelSettingsOpen, setIsChannelSettingsOpen] = useState(false)
+  const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary | null>(null)
   const [assistantReasoning, setAssistantReasoning] = useState(false)
   const [assistantHistory, setAssistantHistory] = useState<AssistantExchange[]>([])
   const [assistantScope, setAssistantScope] = useState<string[]>(['transcripts', 'papers', 'references'])
@@ -138,18 +212,57 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
   const toggleAssistantScope = useCallback((value: string) => {
     setAssistantScope((prev) => {
       if (prev.includes(value)) {
-        if (prev.length === 1) {
-          return prev
-        }
+        if (prev.length === 1) return prev
         return prev.filter((item) => item !== value)
       }
       return [...prev, value]
     })
   }, [])
-  const [openDialog, setOpenDialog] = useState<'resources' | 'tasks' | 'artifacts' | 'discoveries' | null>(null)
+
+  // Toggle resource in newChannelScope for create channel modal
+  const toggleNewChannelScopeResource = useCallback((type: 'paper' | 'reference' | 'meeting', id: string) => {
+    setNewChannelScope((prev) => {
+      const keyMap = { paper: 'paper_ids', reference: 'reference_ids', meeting: 'meeting_ids' } as const
+      const key = keyMap[type]
+
+      if (prev === null) {
+        return { [key]: [id] } as ChannelScopeConfig
+      }
+
+      const currentIds = prev[key] || []
+      if (currentIds.includes(id)) {
+        const filtered = currentIds.filter((existingId) => existingId !== id)
+        const newScope = { ...prev, [key]: filtered.length > 0 ? filtered : null }
+        const hasAny = newScope.paper_ids?.length || newScope.reference_ids?.length || newScope.meeting_ids?.length
+        return hasAny ? newScope : null
+      }
+
+      return { ...prev, [key]: [...currentIds, id] }
+    })
+  }, [])
+
+  const [openDialog, setOpenDialog] = useState<'resources' | 'artifacts' | 'discoveries' | null>(null)
   const [channelMenuOpen, setChannelMenuOpen] = useState(false)
   const [aiContextExpanded, setAiContextExpanded] = useState(false)
   const channelMenuRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
+
+  // Auto-scroll to bottom when new messages arrive
+  const scrollToBottom = useCallback(() => {
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTo({
+        top: messagesContainerRef.current.scrollHeight,
+        behavior: 'smooth'
+      })
+    }
+  }, [])
+
+  // Scroll to bottom when assistant history changes or channel switches
+  useEffect(() => {
+    // Small delay to ensure content is rendered
+    const timer = setTimeout(scrollToBottom, 100)
+    return () => clearTimeout(timer)
+  }, [assistantHistory.length, activeChannelId, scrollToBottom])
 
   // Paper creation dialog state
   const [paperCreationDialog, setPaperCreationDialog] = useState<{
@@ -163,14 +276,19 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     suggestedKeywords: string[]
   } | null>(null)
 
-  // Reference search results state - stored per channel to preserve when switching
-  const [searchResultsByChannel, setSearchResultsByChannel] = useState<Record<string, {
-    exchangeId: string
-    papers: DiscoveredPaper[]
-    query: string
-    isSearching: boolean
-    searchId?: string
-  }>>({})
+  // Reference search results state - stored per channel
+  const [searchResultsByChannel, setSearchResultsByChannel] = useState<
+    Record<
+      string,
+      {
+        exchangeId: string
+        papers: DiscoveredPaper[]
+        query: string
+        isSearching: boolean
+        searchId?: string  // Track search_id for correlation with library_update
+      }
+    >
+  >({})
 
   // Ingestion state - managed here, passed to DiscoveryQueuePanel
   const [ingestionStatesByChannel, setIngestionStatesByChannel] = useState<
@@ -199,12 +317,10 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     })
   }, [activeChannelId])
 
-  // Track channel switch to prevent brief notification flash during transitions
-  // With the batched state updates fix, this is mainly a safety net
+  // Track channel switch to prevent notification flash
   const [isChannelSwitching, setIsChannelSwitching] = useState(false)
   const prevChannelRef = useRef<string | null>(null)
 
-  // Use useLayoutEffect to synchronously hide notification before paint
   useLayoutEffect(() => {
     if (prevChannelRef.current !== null && prevChannelRef.current !== activeChannelId) {
       setIsChannelSwitching(true)
@@ -212,7 +328,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     prevChannelRef.current = activeChannelId
   }, [activeChannelId])
 
-  // Re-enable after state updates are batched (very brief delay)
   useEffect(() => {
     if (isChannelSwitching) {
       const timer = setTimeout(() => setIsChannelSwitching(false), 50)
@@ -220,32 +335,28 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     }
   }, [isChannelSwitching])
 
-  // Dismissed paper IDs - persisted to localStorage per project
+  // Dismissed paper IDs - persisted to localStorage
   const dismissedPapersKey = project?.id ? `scholarhub_dismissed_papers_${project.id}` : null
   const [dismissedPaperIds, setDismissedPaperIds] = useState<Set<string>>(() => {
     if (!dismissedPapersKey) return new Set()
     try {
       const stored = localStorage.getItem(dismissedPapersKey)
-      if (stored) {
-        return new Set(JSON.parse(stored))
-      }
+      if (stored) return new Set(JSON.parse(stored))
     } catch {
-      // Ignore localStorage errors
+      // Ignore
     }
     return new Set()
   })
 
-  // Persist dismissed papers to localStorage when they change
   useEffect(() => {
     if (!dismissedPapersKey) return
     try {
       localStorage.setItem(dismissedPapersKey, JSON.stringify([...dismissedPaperIds]))
     } catch {
-      // Ignore localStorage errors
+      // Ignore
     }
   }, [dismissedPaperIds, dismissedPapersKey])
 
-  // Reset all dismissed papers
   const resetDismissedPapers = useCallback(() => {
     setDismissedPaperIds(new Set())
     if (dismissedPapersKey) {
@@ -253,89 +364,101 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     }
   }, [dismissedPapersKey])
 
-  // Get current channel's search results (filtering out dismissed papers)
+  // Get current channel's search results (filtering out dismissed)
   const referenceSearchResults = useMemo(() => {
     if (!activeChannelId) return null
     const raw = searchResultsByChannel[activeChannelId]
     if (!raw) return null
     return {
       ...raw,
-      papers: raw.papers.filter(p => !dismissedPaperIds.has(p.id))
+      papers: raw.papers.filter((p) => !dismissedPaperIds.has(p.id)),
     }
   }, [activeChannelId, searchResultsByChannel, dismissedPaperIds])
 
-  // Helper to set search results for a specific channel
-  const setReferenceSearchResults = useCallback((
-    value: { exchangeId: string; channelId: string; papers: DiscoveredPaper[]; query: string; isSearching: boolean; searchId?: string } | null
-  ) => {
-    if (!value) {
-      // Clear results for current channel
-      if (activeChannelId) {
-        setSearchResultsByChannel(prev => {
-          const next = { ...prev }
-          delete next[activeChannelId]
-          return next
-        })
+  const setReferenceSearchResults = useCallback(
+    (
+      value: {
+        exchangeId: string
+        channelId: string
+        papers: DiscoveredPaper[]
+        query: string
+        isSearching: boolean
+        searchId?: string  // Track search_id for correlation with library_update
+      } | null
+    ) => {
+      if (!value) {
+        if (activeChannelId) {
+          setSearchResultsByChannel((prev) => {
+            const next = { ...prev }
+            delete next[activeChannelId]
+            return next
+          })
+        }
+        return
       }
-      return
-    }
-    // Set results for the specified channel
-    setSearchResultsByChannel(prev => ({
-      ...prev,
-      [value.channelId]: {
-        exchangeId: value.exchangeId,
-        papers: value.papers,
-        query: value.query,
-        isSearching: value.isSearching,
-        searchId: value.searchId,
+      setSearchResultsByChannel((prev) => ({
+        ...prev,
+        [value.channelId]: {
+          exchangeId: value.exchangeId,
+          papers: value.papers,
+          query: value.query,
+          isSearching: value.isSearching,
+          searchId: value.searchId,
+        },
+      }))
+    },
+    [activeChannelId]
+  )
+
+  // Discovery queue - stored per channel
+  const [discoveryQueueByChannel, setDiscoveryQueueByChannel] = useState<
+    Record<
+      string,
+      {
+        papers: DiscoveredPaper[]
+        query: string
+        isSearching: boolean
+        notification: string | null
       }
-    }))
-  }, [activeChannelId])
+    >
+  >({})
 
-  // Discovery queue - stored per channel to preserve when switching
-  const [discoveryQueueByChannel, setDiscoveryQueueByChannel] = useState<Record<string, {
-    papers: DiscoveredPaper[]
-    query: string
-    isSearching: boolean
-    notification: string | null
-    searchId?: string
-  }>>({})
-
-  // Track channels where user has dismissed the notification (prevents re-showing from history)
-  // Persisted to localStorage per project
+  // Track dismissed notification channels
   const dismissedNotificationsKey = project?.id ? `scholarhub_dismissed_notifications_${project.id}` : null
   const [dismissedNotificationChannels, setDismissedNotificationChannels] = useState<Set<string>>(() => {
     if (!dismissedNotificationsKey) return new Set()
     try {
       const stored = localStorage.getItem(dismissedNotificationsKey)
-      if (stored) {
-        return new Set(JSON.parse(stored))
-      }
+      if (stored) return new Set(JSON.parse(stored))
     } catch {
-      // Ignore localStorage errors
+      // Ignore
     }
     return new Set()
   })
 
-  // Persist dismissed notifications to localStorage when they change
   useEffect(() => {
     if (!dismissedNotificationsKey) return
     try {
       localStorage.setItem(dismissedNotificationsKey, JSON.stringify([...dismissedNotificationChannels]))
     } catch {
-      // Ignore localStorage errors
+      // Ignore
     }
   }, [dismissedNotificationChannels, dismissedNotificationsKey])
 
-  // Get current channel's discovery queue (filtering out dismissed papers)
+  // Get current channel's discovery queue
   const discoveryQueue = useMemo(() => {
     if (!activeChannelId) {
       return { papers: [], query: '', isSearching: false, notification: null }
     }
-    const raw = discoveryQueueByChannel[activeChannelId] || { papers: [], query: '', isSearching: false, notification: null }
+    const raw = discoveryQueueByChannel[activeChannelId] || {
+      papers: [],
+      query: '',
+      isSearching: false,
+      notification: null,
+    }
     return {
       ...raw,
-      papers: raw.papers.filter(p => !dismissedPaperIds.has(p.id))
+      papers: raw.papers.filter((p) => !dismissedPaperIds.has(p.id)),
     }
   }, [activeChannelId, discoveryQueueByChannel, dismissedPaperIds])
 
@@ -344,10 +467,10 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     if (!activeChannelId) return 0
     const raw = discoveryQueueByChannel[activeChannelId]
     if (!raw?.papers) return 0
-    return raw.papers.filter(p => dismissedPaperIds.has(p.id)).length
+    return raw.papers.filter((p) => dismissedPaperIds.has(p.id)).length
   }, [activeChannelId, discoveryQueueByChannel, dismissedPaperIds])
 
-  // Compute ingestion summary for notification bar - derived from unified ingestion state
+  // Ingestion summary for notification bar - derived from unified ingestion state
   const ingestionSummary = useMemo(() => {
     const states = Object.values(currentIngestionStates)
     if (states.length === 0) return null
@@ -375,61 +498,61 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     }
   }, [currentIngestionStates])
 
-  // Helper to set discovery queue for current channel
-  const setDiscoveryQueue = useCallback((
-    value: React.SetStateAction<{
-      papers: DiscoveredPaper[]
-      query: string
-      isSearching: boolean
-      notification: string | null
-      searchId?: string
-    }>
-  ) => {
-    if (!activeChannelId) return
-    setDiscoveryQueueByChannel(prev => {
-      const currentQueue = prev[activeChannelId] || { papers: [], query: '', isSearching: false, notification: null }
-      const newQueue = typeof value === 'function' ? value(currentQueue) : value
-      return {
-        ...prev,
-        [activeChannelId]: { ...currentQueue, ...newQueue }
-      }
-    })
-  }, [activeChannelId])
-
-  // Handler to dismiss a paper from search results and discovery queue
-  const handleDismissPaper = useCallback((paperId: string) => {
-    if (!activeChannelId) return
-
-    // Persist dismissed paper ID to localStorage
-    setDismissedPaperIds(prev => new Set([...prev, paperId]))
-
-    // Remove from search results
-    setSearchResultsByChannel(prev => {
-      const current = prev[activeChannelId]
-      if (!current) return prev
-      return {
-        ...prev,
-        [activeChannelId]: {
-          ...current,
-          papers: current.papers.filter(p => p.id !== paperId)
+  const setDiscoveryQueue = useCallback(
+    (
+      value: React.SetStateAction<{
+        papers: DiscoveredPaper[]
+        query: string
+        isSearching: boolean
+        notification: string | null
+      }>
+    ) => {
+      if (!activeChannelId) return
+      setDiscoveryQueueByChannel((prev) => {
+        const currentQueue = prev[activeChannelId] || {
+          papers: [],
+          query: '',
+          isSearching: false,
+          notification: null,
         }
-      }
-    })
+        const newQueue = typeof value === 'function' ? value(currentQueue) : value
+        return { ...prev, [activeChannelId]: newQueue }
+      })
+    },
+    [activeChannelId]
+  )
 
-    // Remove from discovery queue
-    setDiscoveryQueueByChannel(prev => {
-      const current = prev[activeChannelId]
-      if (!current) return prev
-      return {
-        ...prev,
-        [activeChannelId]: {
-          ...current,
-          papers: current.papers.filter(p => p.id !== paperId)
+  const handleDismissPaper = useCallback(
+    (paperId: string) => {
+      if (!activeChannelId) return
+      setDismissedPaperIds((prev) => new Set([...prev, paperId]))
+      setSearchResultsByChannel((prev) => {
+        const current = prev[activeChannelId]
+        if (!current) return prev
+        return {
+          ...prev,
+          [activeChannelId]: {
+            ...current,
+            papers: current.papers.filter((p) => p.id !== paperId),
+          },
         }
-      }
-    })
-  }, [activeChannelId])
+      })
+      setDiscoveryQueueByChannel((prev) => {
+        const current = prev[activeChannelId]
+        if (!current) return prev
+        return {
+          ...prev,
+          [activeChannelId]: {
+            ...current,
+            papers: current.papers.filter((p) => p.id !== paperId),
+          },
+        }
+      })
+    },
+    [activeChannelId]
+  )
 
+  // Paper form state
   const [paperFormData, setPaperFormData] = useState({
     title: '',
     paperType: 'research',
@@ -440,6 +563,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
   })
   const [keywordInput, setKeywordInput] = useState('')
 
+  // Viewer display name
   const viewerDisplayName = useMemo(() => {
     if (!user) return 'You'
     const parts = [user.first_name, user.last_name].filter(Boolean).join(' ').trim()
@@ -450,150 +574,80 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
   const resolveAuthorLabel = useCallback(
     (author?: AssistantExchange['author']) => {
       if (!author) return 'Someone'
-
-      // If it's the current user, always use consistent name
       const sameUser = Boolean(author.id && user?.id && author.id === user.id)
-      if (sameUser) {
-        return viewerDisplayName || 'You'
-      }
-
-      // If author.name is a string, use it directly
-      if (typeof author.name === 'string' && author.name.trim()) {
-        return author.name.trim()
-      }
-
-      // If author.name is an object, try display first, then combine first + last
+      if (sameUser) return viewerDisplayName || 'You'
+      if (typeof author.name === 'string' && author.name.trim()) return author.name.trim()
       if (author.name && typeof author.name === 'object') {
         const nameObj = author.name as { display?: string; first?: string; last?: string }
-
-        if (nameObj.display?.trim()) {
-          return nameObj.display.trim()
-        }
-
+        if (nameObj.display?.trim()) return nameObj.display.trim()
         const first = nameObj.first?.trim() || ''
         const last = nameObj.last?.trim() || ''
         const combined = [first, last].filter(Boolean).join(' ')
-        if (first || last) {
-          return combined
-        }
+        if (first || last) return combined
       }
-
       return 'Someone'
     },
-    [user?.id, viewerDisplayName],
+    [user?.id, viewerDisplayName]
   )
 
-  const startTypewriter = useCallback(
-    (entryId: string, fullText: string) => {
-      if (typingTimers.current[entryId]) {
-        window.clearTimeout(typingTimers.current[entryId])
-        delete typingTimers.current[entryId]
-      }
-
-      const text = fullText || ''
-      if (!text) {
-        setAssistantHistory((prev) =>
-          prev.map((entry) =>
-            entry.id === entryId
-              ? {
-                  ...entry,
-                  displayMessage: '',
-                  status: 'complete',
-                  completedAt: entry.completedAt ?? new Date(),
-                }
-              : entry,
-          ),
-        )
-        return
-      }
-
-      let index = 0
-
-      const step = () => {
-        index += 1
-        const slice = text.slice(0, index)
-        setAssistantHistory((prev) =>
-          prev.map((entry) =>
-            entry.id === entryId
-              ? {
-                  ...entry,
-                  displayMessage: slice,
-                  status: index >= text.length ? 'complete' : 'streaming',
-                  completedAt:
-                    index >= text.length ? entry.completedAt ?? new Date() : entry.completedAt,
-                }
-              : entry,
-          ),
-        )
-
-        if (index < text.length) {
-          const cadence = Math.max(15, Math.min(60, Math.floor(1000 / text.length)))
-          typingTimers.current[entryId] = window.setTimeout(step, cadence)
-        } else {
-          delete typingTimers.current[entryId]
-        }
-      }
-
-      setAssistantHistory((prev) =>
-        prev.map((entry) =>
-          entry.id === entryId
-            ? {
-                ...entry,
-                displayMessage: '',
-                status: 'streaming',
-                completedAt: entry.completedAt,
-              }
-            : entry,
-        ),
-      )
-
-      typingTimers.current[entryId] = window.setTimeout(step, 40)
-    },
-    [setAssistantHistory],
+  // Get current model info
+  const currentModelInfo = useMemo(
+    () => openrouterModels.find((m) => m.id === selectedModel) || openrouterModels[0],
+    [selectedModel, openrouterModels]
   )
-
-  useEffect(() => {
-    return () => {
-      Object.values(typingTimers.current).forEach((timerId) => window.clearTimeout(timerId))
-      typingTimers.current = {}
-      streamingFlags.current = {}
-    }
-  }, [])
-
-  // Close channel menu when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (channelMenuRef.current && !channelMenuRef.current.contains(event.target as Node)) {
-        setChannelMenuOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
 
   const [showArchivedChannels, setShowArchivedChannels] = useState(false)
 
+  // ========== QUERIES ==========
+
+  // Channels query
   const channelsQuery = useQuery({
     queryKey: ['projectDiscussionChannels', project.id],
     queryFn: async () => {
-      // Always fetch all channels including archived - filtering happens in sidebar
-      const response = await projectDiscussionAPI.listChannels(project.id, { includeArchived: true })
+      const response = await projectDiscussionAPI.listChannels(project.id)
       return response.data
     },
+    staleTime: 30000,
   })
 
-  const assistantHistoryQuery = useQuery({
-    queryKey: ['projectDiscussionAssistantHistory', project.id, activeChannelId],
+  const channels = useMemo(() => {
+    const all = channelsQuery.data ?? []
+    return showArchivedChannels ? all : all.filter((c) => !c.is_archived)
+  }, [channelsQuery.data, showArchivedChannels])
+
+  // Auto-select first channel or default
+  useEffect(() => {
+    if (!activeChannelId && channels.length > 0) {
+      const defaultChannel = channels.find((c) => c.is_default)
+      setActiveChannelId(defaultChannel?.id ?? channels[0].id)
+    }
+  }, [channels, activeChannelId])
+
+  // Messages query
+  const {
+    data: threadsData,
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
+    queryKey: ['projectDiscussion', project.id, activeChannelId],
     queryFn: async () => {
       if (!activeChannelId) return []
-      const response = await projectDiscussionAPI.listAssistantHistory(project.id, activeChannelId)
+      const response = await projectDiscussionAPI.listThreads(project.id, { channelId: activeChannelId })
       return response.data
     },
     enabled: Boolean(activeChannelId),
-    placeholderData: [], // Return empty immediately when channel changes to prevent stale data
+    staleTime: 10000,
   })
 
-  // Query for artifacts count (for badge display)
+  const orderedThreads = useMemo(() => {
+    if (!threadsData) return []
+    return [...threadsData].sort(
+      (a, b) => new Date(a.message.created_at).getTime() - new Date(b.message.created_at).getTime()
+    )
+  }, [threadsData])
+
+  // Artifacts query
   const artifactsQuery = useQuery({
     queryKey: ['channel-artifacts', project.id, activeChannelId],
     queryFn: async () => {
@@ -603,8 +657,24 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     },
     enabled: Boolean(activeChannelId),
   })
+
   const artifactsCount = artifactsQuery.data?.length ?? 0
 
+  // Assistant history query (fetch from server to restore processing state)
+  const assistantHistoryQuery = useQuery({
+    queryKey: ['assistant-history', project.id, activeChannelId],
+    queryFn: async () => {
+      if (!activeChannelId) return []
+      const response = await projectDiscussionAPI.listAssistantHistory(project.id, activeChannelId)
+      return response.data
+    },
+    enabled: Boolean(activeChannelId),
+    placeholderData: [], // Return empty immediately when channel changes
+    staleTime: 0, // Always consider data stale
+    refetchOnMount: 'always', // Always refetch when component mounts or channel changes
+  })
+
+  // Transform server history to AssistantExchange format, handling processing status
   const serverAssistantHistory = useMemo<AssistantExchange[]>(() => {
     if (!assistantHistoryQuery.data || !activeChannelId) return []
 
@@ -613,13 +683,13 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       const response = item.response
       const lookup = buildCitationLookup(response.citations)
 
-      // Handle processing status from server
+      // Handle processing status from server - this restores loading state after refresh/channel switch
       const isProcessing = item.status === 'processing'
       const isFailed = item.status === 'failed'
 
       return {
         id: item.id,
-        channelId: activeChannelId, // Server history is filtered by channel
+        channelId: activeChannelId,
         question: item.question,
         response,
         createdAt,
@@ -629,379 +699,70 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         statusMessage: isProcessing ? (item.status_message || 'Thinking') : (isFailed ? (item.status_message || 'Processing failed') : undefined),
         displayMessage: isProcessing ? '' : formatAssistantMessage(response.message, lookup),
         author: item.author ?? undefined,
-        fromHistory: true, // Loaded from server, don't auto-trigger actions
+        fromHistory: true,
+        isWaitingForTools: isProcessing, // Show loading indicator for processing exchanges
       }
     })
   }, [assistantHistoryQuery.data, activeChannelId])
 
-  // Clear history when channel changes - search results and discovery queue are preserved per channel
-  useEffect(() => {
-    setAssistantHistory([])
-    // Don't clear referenceSearchResults or discoveryQueue - they're stored per channel now
-    historyChannelRef.current = activeChannelId
-  }, [activeChannelId])
-
-  useEffect(() => {
-    setOpenDialog(null)
-  }, [activeChannelId])
-
-  // Merge server history with local unsynced entries
-  useEffect(() => {
-    if (!activeChannelId) return
-
-    // Merge server data with local unsynced entries (entries created during streaming)
-    setAssistantHistory((prev) => {
-      const idsFromServer = new Set(serverAssistantHistory.map((entry) => entry.id))
-      // Map questions from server to their IDs (for replacing local entry IDs)
-      const questionToServerIdMap = new Map<string, string>()
-      serverAssistantHistory.forEach((entry) => {
-        questionToServerIdMap.set(entry.question.toLowerCase().trim(), entry.id)
-      })
-
-      // Find local entries that have duplicates in server (same question, different ID)
-      // We need to update referenceSearchResults if its exchangeId matches a removed local entry
-      const localIdsToServerIds = new Map<string, string>()
-      prev.forEach((entry) => {
-        if (!idsFromServer.has(entry.id)) {
-          const serverId = questionToServerIdMap.get(entry.question.toLowerCase().trim())
-          if (serverId) {
-            localIdsToServerIds.set(entry.id, serverId)
-          }
-        }
-      })
-
-      // Filter local entries: keep only if not in server by ID AND not duplicate by question
-      const unsynced = prev.filter((entry) => {
-        // Already in server by ID - skip
-        if (idsFromServer.has(entry.id)) return false
-        // Same question exists in server - this is a duplicate with different ID
-        if (questionToServerIdMap.has(entry.question.toLowerCase().trim())) return false
-        return true
-      })
-
-      // Update referenceSearchResults if its exchangeId was a local ID that's now replaced
-      if (localIdsToServerIds.size > 0 && activeChannelId) {
-        setSearchResultsByChannel(prevByChannel => {
-          const currentResults = prevByChannel[activeChannelId]
-          if (!currentResults) return prevByChannel
-          const newServerId = localIdsToServerIds.get(currentResults.exchangeId)
-          if (newServerId) {
-            return {
-              ...prevByChannel,
-              [activeChannelId]: { ...currentResults, exchangeId: newServerId }
-            }
-          }
-          return prevByChannel
-        })
-      }
-
-      // Build map of existing appliedActions to preserve them during merge
-      const existingAppliedActions = new Map<string, string[]>()
-      prev.forEach((entry) => {
-        if (entry.appliedActions.length > 0) {
-          existingAppliedActions.set(entry.id, entry.appliedActions)
-        }
-      })
-
-      // Merge server entries (preserving appliedActions from local state) with unsynced local entries
-      const mergedServerEntries = serverAssistantHistory.map((entry) => {
-        const existingActions = existingAppliedActions.get(entry.id)
-        if (existingActions && existingActions.length > 0) {
-          return { ...entry, appliedActions: existingActions }
-        }
-        return entry
-      })
-
-      const merged = [...mergedServerEntries, ...unsynced].sort(
-        (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
-      )
-      return merged
-    })
-  }, [serverAssistantHistory, activeChannelId])
-
-  useEffect(() => {
-    if (!openDialog) return
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setOpenDialog(null)
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [openDialog])
-
-  const allChannels = (channelsQuery.data as DiscussionChannelSummary[] | undefined) ?? []
-  const channels = useMemo(
-    () => allChannels.filter((channel) => !channel.is_default),
-    [allChannels],
-  )
-
-  // Removed automatic channel selection - users should explicitly select a channel
-  // Previously auto-selected first channel which caused poor UX (auto-scrolling to bottom of long chats)
-  useEffect(() => {
-    // Only clear activeChannelId if the selected channel no longer exists
-    if (activeChannelId && !channels.some((channel) => channel.id === activeChannelId)) {
-      setActiveChannelId(null)
-    }
-  }, [channels, activeChannelId])
-
-  // Clear UI state when channel changes
-  useEffect(() => {
-    setReplyingTo(null)
-    setEditingMessage(null)
-    setAssistantReasoning(false)
-    Object.values(typingTimers.current).forEach((timerId) => window.clearTimeout(timerId))
-    typingTimers.current = {}
-    streamingFlags.current = {}
-  }, [activeChannelId])
-
-  // Fetch discussion threads
-  const {
-    data: threads,
-    isLoading,
-    isError,
-    error,
-  } = useQuery({
-    queryKey: ['projectDiscussion', project.id, activeChannelId],
+  // Resources query (for channel scope)
+  const resourcesQuery = useQuery({
+    queryKey: ['channel-resources', project.id, activeChannelId],
     queryFn: async () => {
-      const response = await projectDiscussionAPI.listThreads(project.id, {
-        channelId: activeChannelId ?? undefined,
-      })
+      if (!activeChannelId) return []
+      const response = await projectDiscussionAPI.listChannelResources(project.id, activeChannelId)
       return response.data
     },
     enabled: Boolean(activeChannelId),
-    refetchInterval: 10000, // Refresh every 10 seconds for near-real-time updates
   })
 
-  const orderedThreads = useMemo(() => {
-    if (!threads) return []
-    return [...threads].reverse()
-  }, [threads])
-
-  const conversationItems = useMemo<ConversationItem[]>(() => {
-    const items: ConversationItem[] = orderedThreads.map((thread) => ({
-      kind: 'thread',
-      timestamp: new Date(thread.message.created_at).getTime(),
-      thread,
-    }))
-    assistantHistory.forEach((exchange) => {
-      items.push({
-        kind: 'assistant',
-        timestamp: exchange.createdAt.getTime(),
-        exchange,
-      })
-    })
-    return items.sort((a, b) => a.timestamp - b.timestamp)
-  }, [orderedThreads, assistantHistory])
-
-  const handleDiscussionEvent = useCallback(
-    (payload: any) => {
-      if (!payload || payload.project_id !== project.id) {
-        return
-      }
-      if (!activeChannelId || payload.channel_id !== activeChannelId) {
-        return
-      }
-
-      // Handle assistant processing started (background mode)
-      if (payload.event === 'assistant_processing') {
-        const exchange = payload.exchange
-        if (!exchange) return
-        // Skip if this is from the current user - they already have a local streaming entry
-        // The WebSocket broadcast is mainly for other users or when returning to the page
-        if (exchange.author?.id && user?.id && exchange.author.id === user.id) {
-          // Check if there's already ANY streaming/pending entry (local ID won't match server ID)
-          setAssistantHistory((prev) => {
-            // If any entry is currently streaming or pending, skip adding duplicate
-            // (local entries start as 'pending' before tokens arrive, then become 'streaming')
-            if (prev.some((entry) => entry.status === 'streaming' || entry.status === 'pending')) return prev
-            // Also skip if this exact server ID already exists
-            if (prev.some((entry) => entry.id === exchange.id)) return prev
-            const entry: AssistantExchange = {
-              id: exchange.id,
-              channelId: activeChannelId, // Track which channel this belongs to
-              question: exchange.question || '',
-              response: { message: '', citations: [], reasoning_used: false, model: '', usage: undefined, suggested_actions: [] },
-              createdAt: exchange.created_at ? new Date(exchange.created_at) : new Date(),
-              appliedActions: [],
-              status: 'streaming',
-              statusMessage: exchange.status_message || 'Processing...',
-              displayMessage: '',
-              author: exchange.author,
-              fromHistory: true,
-            }
-            return [...prev, entry]
-          })
-        }
-        return
-      }
-
-      // Handle assistant status updates (live progress updates)
-      if (payload.event === 'assistant_status') {
-        const exchangeId = payload.exchange_id
-        const statusMessage = payload.status_message
-        if (!exchangeId || !statusMessage) return
-        setAssistantHistory((prev) =>
-          prev.map((entry) =>
-            entry.id === exchangeId && entry.status === 'streaming'
-              ? { ...entry, statusMessage }
-              : entry
-          )
-        )
-        return
-      }
-
-      if (payload.event === 'assistant_reply') {
-        const exchange = payload.exchange
-        if (!exchange) {
-          return
-        }
-        const exchangeId: string = exchange.id || createAssistantEntryId()
-
-        // Skip if from same user - they already have the response via SSE stream
-        // Only process replies from other users or when user returned to page mid-processing
-        if (exchange.author?.id && user?.id && exchange.author.id === user.id) {
-          // Check if we have a processing entry that needs to be updated
-          setAssistantHistory((prev) => {
-            const existingIndex = prev.findIndex((entry) => entry.id === exchangeId)
-            if (existingIndex >= 0 && prev[existingIndex].statusMessage) {
-              // Update processing entry with completed response
-              const response: DiscussionAssistantResponse = exchange.response || {
-                message: '',
-                citations: [],
-                reasoning_used: false,
-                model: '',
-                usage: undefined,
-                suggested_actions: [],
-              }
-              const lookup = buildCitationLookup(response.citations || [])
-              const formatted = formatAssistantMessage(response.message || '', lookup)
-              const updated = [...prev]
-              updated[existingIndex] = {
-                ...updated[existingIndex],
-                response,
-                status: 'complete',
-                statusMessage: undefined,
-                displayMessage: formatted,
-                completedAt: new Date(),
-              }
-              return updated
-            }
-            // Same user, not processing - skip (they already have it via SSE)
-            return prev
-          })
-          return
-        }
-
-        // New exchange from another user
-        setAssistantHistory((prev) => {
-          if (prev.some((entry) => entry.id === exchangeId)) {
-            return prev
-          }
-          const response: DiscussionAssistantResponse = exchange.response || {
-            message: '',
-            citations: [],
-            reasoning_used: false,
-            model: '',
-            usage: undefined,
-            suggested_actions: [],
-          }
-          const createdAt = exchange.created_at ? new Date(exchange.created_at) : new Date()
-          const lookup = buildCitationLookup(response.citations || [])
-          const formatted = formatAssistantMessage(response.message || '', lookup)
-          const entry: AssistantExchange = {
-            id: exchangeId,
-            channelId: activeChannelId, // Track which channel this belongs to
-            question: exchange.question || '',
-            response,
-            createdAt,
-            completedAt: createdAt,
-            appliedActions: [],
-            status: 'complete',
-            displayMessage: formatted,
-            author: exchange.author,
-            fromHistory: true,
-          }
-          return [...prev, entry]
-        })
-
-        // Only invalidate history for other users' replies
-        queryClient.invalidateQueries({
-          queryKey: ['projectDiscussionAssistantHistory', project.id, activeChannelId],
-          exact: false,
-        })
-        return
-      }
-
-      if (
-        payload.event === 'message_created' ||
-        payload.event === 'message_updated' ||
-        payload.event === 'message_deleted'
-      ) {
-        queryClient.invalidateQueries({ queryKey: ['projectDiscussion', project.id, activeChannelId] })
-        queryClient.invalidateQueries({ queryKey: ['projectDiscussionStats', project.id, activeChannelId] })
-      }
+  // Available resources for scope picker
+  const availablePapersQuery = useQuery({
+    queryKey: ['papers', project.id],
+    queryFn: async () => {
+      const response = await researchPapersAPI.getPapers({ projectId: project.id })
+      return response.data.papers
     },
-    [project.id, activeChannelId, queryClient, user?.id],
-  )
+    staleTime: 60000,
+    enabled: isCreateChannelModalOpen || isChannelSettingsOpen,
+  })
 
-  useEffect(() => {
-    discussionWebsocket.on('discussion_event', handleDiscussionEvent)
-    return () => {
-      discussionWebsocket.off('discussion_event', handleDiscussionEvent)
-    }
-  }, [handleDiscussionEvent])
+  const availableReferencesQuery = useQuery({
+    queryKey: ['projectReferences', project.id],
+    queryFn: async () => {
+      const response = await projectReferencesAPI.list(project.id)
+      return response.data.references
+    },
+    staleTime: 60000,
+    enabled: isCreateChannelModalOpen || isChannelSettingsOpen,
+  })
 
-  useEffect(() => {
-    let cancelled = false
-    if (!activeChannelId) {
-      discussionWebsocket.disconnect()
-      return
-    }
+  const availableMeetingsQuery = useQuery({
+    queryKey: ['meetings', project.id],
+    queryFn: async () => {
+      const response = await projectMeetingsAPI.listMeetings(project.id)
+      return response.data.meetings
+    },
+    staleTime: 60000,
+    enabled: isCreateChannelModalOpen || isChannelSettingsOpen,
+  })
 
-    const connect = async () => {
-      try {
-        const token = await refreshAuthToken()
-        if (cancelled) return
-        await discussionWebsocket.connect(project.id, activeChannelId, token)
-      } catch (error) {
-        console.error('Failed to connect to discussion websocket', error)
-      }
-    }
+  // Project objectives for paper creation
+  const projectObjectives = useMemo(() => {
+    return (project as { objectives?: string[] }).objectives ?? []
+  }, [project])
 
-    connect()
+  // ========== MUTATIONS ==========
 
-    return () => {
-      cancelled = true
-      discussionWebsocket.disconnect()
-    }
-  }, [project.id, activeChannelId])
-
+  // Channel mutations
   const createChannelMutation = useMutation({
-    mutationFn: async ({
-      name,
-      description,
-      scope,
-    }: {
-      name: string
-      description?: string | null
-      scope?: ChannelScopeConfig | null
-    }) => {
-      const payload: { name: string; description?: string; scope?: ChannelScopeConfig } = {
-        name,
-        description: description && description.trim().length > 0 ? description.trim() : undefined,
-      }
-      if (scope) {
-        payload.scope = scope
-      }
-      const response = await projectDiscussionAPI.createChannel(project.id, payload)
+    mutationFn: async (data: { name: string; description?: string; scope?: ChannelScopeConfig | null }) => {
+      const response = await projectDiscussionAPI.createChannel(project.id, data)
       return response.data
     },
-    onSuccess: (channel) => {
+    onSuccess: (newChannel) => {
       queryClient.invalidateQueries({ queryKey: ['projectDiscussionChannels', project.id] })
-      queryClient.invalidateQueries({ queryKey: ['projectDiscussionStats', project.id, channel.id] })
-      queryClient.invalidateQueries({ queryKey: ['projectDiscussion', project.id, channel.id] })
-      setActiveChannelId(channel.id)
+      setActiveChannelId(newChannel.id)
       setIsCreateChannelModalOpen(false)
       setNewChannelName('')
       setNewChannelDescription('')
@@ -1025,22 +786,14 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       const response = await projectDiscussionAPI.updateChannel(project.id, channelId, payload)
       return response.data
     },
-    onSuccess: (channel) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projectDiscussionChannels', project.id] })
-      queryClient.invalidateQueries({ queryKey: ['projectDiscussionStats', project.id, channel.id] })
-      queryClient.invalidateQueries({ queryKey: ['projectDiscussion', project.id, channel.id] })
       setIsChannelSettingsOpen(false)
       setSettingsChannel(null)
-
-      if (channel.is_archived && activeChannelId === channel.id) {
-        const otherChannels = channels.filter((c) => c.id !== channel.id && !c.is_archived)
-        const fallback = otherChannels[0] ?? null
-        setActiveChannelId(fallback ? fallback.id : null)
-      }
     },
     onError: (error: any) => {
       console.error('Failed to update channel:', error)
-      const message = error?.response?.data?.detail || 'Unable to update channel right now. Please try again.'
+      const message = error?.response?.data?.detail || 'Failed to update channel. Please try again.'
       alert(message)
     },
   })
@@ -1049,1543 +802,24 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     mutationFn: async (channelId: string) => {
       await projectDiscussionAPI.deleteChannel(project.id, channelId)
     },
-    onSuccess: (_, deletedChannelId) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projectDiscussionChannels', project.id] })
       setIsChannelSettingsOpen(false)
       setSettingsChannel(null)
-
-      // Switch to another channel if the deleted one was active
-      if (activeChannelId === deletedChannelId) {
-        const otherChannels = channels.filter((c) => c.id !== deletedChannelId)
-        const fallback = otherChannels.find((c) => c.is_default) ?? otherChannels[0] ?? null
-        setActiveChannelId(fallback ? fallback.id : null)
+      if (channels.length > 1) {
+        const remaining = channels.filter((c) => c.id !== activeChannelId)
+        setActiveChannelId(remaining[0]?.id ?? null)
+      } else {
+        setActiveChannelId(null)
       }
     },
     onError: (error) => {
       console.error('Failed to delete channel:', error)
-      alert('Unable to delete channel. Please try again.')
+      alert('Failed to delete channel. Please try again.')
     },
   })
 
-  const resourcesQuery = useQuery<DiscussionChannelResource[]>({
-    queryKey: ['projectDiscussionChannelResources', project.id, activeChannelId],
-    queryFn: async () => {
-      if (!activeChannelId) return []
-      const response = await projectDiscussionAPI.listChannelResources(project.id, activeChannelId)
-      return response.data
-    },
-    enabled: Boolean(activeChannelId),
-    staleTime: 30_000,
-  })
-
-  const tasksQuery = useQuery<DiscussionTask[]>({
-    queryKey: ['projectDiscussionTasks', project.id, activeChannelId],
-    queryFn: async () => {
-      if (!activeChannelId) return []
-      const response = await projectDiscussionAPI.listTasks(project.id, {
-        channelId: activeChannelId,
-      })
-      return response.data
-    },
-    enabled: Boolean(activeChannelId),
-    staleTime: 15_000,
-  })
-
-  // Count pending tasks (open + in_progress) for badge display
-  const pendingTasksCount = useMemo(() => {
-    if (!tasksQuery.data) return 0
-    return tasksQuery.data.filter(t => t.status === 'open' || t.status === 'in_progress').length
-  }, [tasksQuery.data])
-
-  // Fetch available resources for scope picker
-  const availablePapersQuery = useQuery<ResearchPaper[]>({
-    queryKey: ['scopePapers', project.id],
-    queryFn: async () => {
-      const response = await researchPapersAPI.getPapers({ projectId: project.id, limit: 200 })
-      return response.data.papers as ResearchPaper[]
-    },
-    enabled: isCreateChannelModalOpen || isChannelSettingsOpen,
-    staleTime: 60_000,
-  })
-
-  const availableReferencesQuery = useQuery<ProjectReferenceSuggestion[]>({
-    queryKey: ['scopeReferences', project.id],
-    queryFn: async () => {
-      const response = await projectReferencesAPI.list(project.id, { status: 'approved' })
-      return response.data.references as ProjectReferenceSuggestion[]
-    },
-    enabled: isCreateChannelModalOpen || isChannelSettingsOpen,
-    staleTime: 60_000,
-  })
-
-  const availableMeetingsQuery = useQuery<MeetingSummary[]>({
-    queryKey: ['scopeMeetings', project.id],
-    queryFn: async () => {
-      const response = await projectMeetingsAPI.listMeetings(project.id)
-      return response.data.meetings as MeetingSummary[]
-    },
-    enabled: isCreateChannelModalOpen || isChannelSettingsOpen,
-    staleTime: 60_000,
-  })
-
-  const createTaskMutation = useMutation({
-    mutationFn: async (payload: DiscussionTaskCreate) => {
-      if (!activeChannelId) throw new Error('Channel not selected')
-      const response = await projectDiscussionAPI.createTask(project.id, activeChannelId, payload)
-      return response.data
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projectDiscussionTasks', project.id, activeChannelId] })
-    },
-    onError: (error) => {
-      console.error('Failed to create task:', error)
-      alert('Unable to create task right now. Please try again.')
-    },
-  })
-
-  const paperActionMutation = useMutation({
-    mutationFn: async (params: { actionType: string; payload: Record<string, unknown> }) => {
-      const response = await projectDiscussionAPI.executePaperAction(
-        project.id,
-        params.actionType,
-        params.payload
-      )
-      return response.data
-    },
-    onSuccess: (data, variables) => {
-      if (data.success) {
-        // Navigate to paper if created
-        if (variables.actionType === 'create_paper' && (data.url_id || data.paper_id)) {
-          navigate(`/projects/${getProjectUrlId(project)}/papers/${data.url_id || data.paper_id}`)
-        }
-        // Invalidate paper queries if edited
-        if (variables.actionType === 'edit_paper') {
-          queryClient.invalidateQueries({ queryKey: ['papers', project.id] })
-          queryClient.invalidateQueries({ queryKey: ['paper'] })
-        }
-      }
-    },
-    onError: (error) => {
-      console.error('Paper action failed:', error)
-      alert('Failed to execute paper action. Please try again.')
-    },
-  })
-
-  // Search references mutation
-  const searchReferencesMutation = useMutation({
-    mutationFn: async (params: { query: string; exchangeId: string; openAccessOnly?: boolean; maxResults?: number }) => {
-      const response = await projectDiscussionAPI.searchReferences(
-        project.id,
-        params.query,
-        { maxResults: params.maxResults || 10, openAccessOnly: params.openAccessOnly }
-      )
-      return { ...response.data, exchangeId: params.exchangeId }
-    },
-    onMutate: (params) => {
-      // Capture the channel ID at mutation start - use this in onSuccess/onError
-      const originalChannelId = activeChannelId || ''
-      // Clear dismissed state for this channel - new search should show results
-      if (originalChannelId) {
-        setDismissedNotificationChannels(prev => {
-          const next = new Set(prev)
-          next.delete(originalChannelId)
-          return next
-        })
-      }
-      // Set searching state
-      const currentResults = originalChannelId ? searchResultsByChannel[originalChannelId] : null
-      setReferenceSearchResults({
-        exchangeId: params.exchangeId,
-        channelId: originalChannelId,
-        papers: currentResults?.exchangeId === params.exchangeId ? currentResults.papers : [],
-        query: params.query,
-        isSearching: true,
-        searchId: params.exchangeId,
-      })
-      // Also update discovery queue - auto-clear with notification
-      setDiscoveryQueue((prev) => {
-        const previousCount = prev.papers.length
-        return {
-          papers: [],
-          query: params.query,
-          isSearching: true,
-          notification: previousCount > 0
-            ? `Cleared ${previousCount} previous ${previousCount === 1 ? 'discovery' : 'discoveries'}. Searching...`
-            : null,
-          searchId: params.exchangeId,
-        }
-      })
-      // Return context with original channel ID
-      return { originalChannelId }
-    },
-    onSuccess: (data, _params, context) => {
-      // Use the original channel ID from when the mutation started
-      const channelId = context?.originalChannelId || activeChannelId || ''
-      // Replace papers (not accumulate) - new search replaces old results
-      const papers = data.papers || []
-      setReferenceSearchResults({
-        exchangeId: data.exchangeId,
-        channelId: channelId,
-        papers: papers,
-        query: data.query,
-        isSearching: false,
-        searchId: data.exchangeId,
-      })
-      // Also replace discovery queue for the original channel
-      // Clear old ingestion status when new search results arrive
-      setIngestionStatesByChannel(prev => {
-        const next = { ...prev }
-        delete next[channelId]
-        return next
-      })
-      // Only update discovery queue if still in the same channel
-      if (channelId === activeChannelId) {
-        setDiscoveryQueue({
-          papers: papers,
-          query: data.query,
-          isSearching: false,
-          notification: `Found ${papers.length} paper${papers.length !== 1 ? 's' : ''} for "${data.query}"`,
-          searchId: data.exchangeId,
-        })
-      } else {
-        // Store in the original channel's discovery queue
-        setDiscoveryQueueByChannel(prev => ({
-          ...prev,
-          [channelId]: {
-            papers: papers,
-            query: data.query,
-            isSearching: false,
-            notification: `Found ${papers.length} paper${papers.length !== 1 ? 's' : ''} for "${data.query}"`,
-            searchId: data.exchangeId,
-          }
-        }))
-      }
-    },
-    onError: (error, params, context) => {
-      console.error('Reference search failed:', error)
-      const channelId = context?.originalChannelId || activeChannelId || ''
-      const currentResults = channelId ? searchResultsByChannel[channelId] : null
-      setReferenceSearchResults({
-        exchangeId: params.exchangeId,
-        channelId: channelId,
-        papers: currentResults?.exchangeId === params.exchangeId ? (currentResults.papers || []) : [],
-        query: params.query,
-        isSearching: false,
-        searchId: params.exchangeId,
-      })
-      // Also update discovery queue on error
-      setDiscoveryQueue((prev) => ({
-        ...prev,
-        isSearching: false,
-        notification: 'Search failed. Please try again.',
-      }))
-    },
-  })
-
-  // Parse project objectives from scope string
-  const projectObjectives = useMemo(() => {
-    if (!project.scope) return []
-    const entries = project.scope.split(/\r?\n|•/)
-    const parsed: string[] = []
-    for (const entry of entries) {
-      const cleaned = entry.replace(/^\s*\d+[\).\-\s]*/, '').trim()
-      if (cleaned) {
-        parsed.push(cleaned)
-      }
-    }
-    return parsed
-  }, [project.scope])
-
-  // Handle paper creation dialog submission
-  const handlePaperCreationSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!paperCreationDialog) return
-
-    const { title, paperType, authoringMode, abstract, keywords, objectives } = paperFormData
-    if (!title.trim()) {
-      alert('Please enter a paper title.')
-      return
-    }
-
-    const payload = {
-      title: title.trim(),
-      paper_type: paperType,
-      authoring_mode: authoringMode,
-      abstract: abstract.trim() || undefined,
-      keywords: keywords.length > 0 ? keywords : undefined,
-      objectives: objectives.length > 0 ? objectives : undefined,
-    }
-
-    paperActionMutation.mutate(
-      { actionType: 'create_paper', payload },
-      {
-        onSuccess: (data) => {
-          if (data.success) {
-            markActionApplied(paperCreationDialog.exchangeId, `${paperCreationDialog.exchangeId}:${paperCreationDialog.actionIndex}`)
-            setPaperCreationDialog(null)
-            setPaperFormData({
-              title: '',
-              paperType: 'research',
-              authoringMode: 'latex',
-              abstract: '',
-              keywords: [],
-              objectives: [],
-            })
-          } else {
-            alert(data.message || 'Failed to create paper')
-          }
-        },
-      }
-    )
-  }
-
-  // Add keyword handler
-  const handleAddKeyword = () => {
-    const keyword = keywordInput.trim()
-    if (keyword && !paperFormData.keywords.includes(keyword)) {
-      setPaperFormData((prev) => ({
-        ...prev,
-        keywords: [...prev.keywords, keyword],
-      }))
-      setKeywordInput('')
-    }
-  }
-
-  // Remove keyword handler
-  const handleRemoveKeyword = (keyword: string) => {
-    setPaperFormData((prev) => ({
-      ...prev,
-      keywords: prev.keywords.filter((k) => k !== keyword),
-    }))
-  }
-
-  // Toggle objective handler
-  const handleToggleObjective = (objective: string) => {
-    setPaperFormData((prev) => ({
-      ...prev,
-      objectives: prev.objectives.includes(objective)
-        ? prev.objectives.filter((o) => o !== objective)
-        : [...prev.objectives, objective],
-    }))
-  }
-
-  const updateTaskMutation = useMutation({
-    mutationFn: async ({ taskId, payload }: { taskId: string; payload: DiscussionTaskUpdate }) => {
-      const response = await projectDiscussionAPI.updateTask(project.id, taskId, payload)
-      return response.data
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projectDiscussionTasks', project.id, activeChannelId] })
-    },
-    onError: (error) => {
-      console.error('Failed to update task:', error)
-      alert('Unable to update task right now.')
-    },
-  })
-
-  const deleteTaskMutation = useMutation({
-    mutationFn: async (taskId: string) => {
-      await projectDiscussionAPI.deleteTask(project.id, taskId)
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projectDiscussionTasks', project.id, activeChannelId] })
-    },
-    onError: (error) => {
-      console.error('Failed to delete task:', error)
-      alert('Unable to delete task right now.')
-    },
-  })
-
-  const createResourceMutation = useMutation({
-    mutationFn: async (payload: DiscussionChannelResourceCreate) => {
-      if (!activeChannelId) throw new Error('Channel not selected')
-      const response = await projectDiscussionAPI.createChannelResource(project.id, activeChannelId, payload)
-      return response.data
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projectDiscussionChannelResources', project.id, activeChannelId] })
-    },
-    onError: (error) => {
-      console.error('Failed to link resource:', error)
-      alert('Unable to link this resource right now.')
-    },
-  })
-
-  const deleteResourceMutation = useMutation({
-    mutationFn: async (resourceId: string) => {
-      if (!activeChannelId) throw new Error('Channel not selected')
-      await projectDiscussionAPI.deleteChannelResource(project.id, activeChannelId, resourceId)
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projectDiscussionChannelResources', project.id, activeChannelId] })
-    },
-    onError: (error) => {
-      console.error('Failed to unlink resource:', error)
-      alert('Unable to unlink this resource right now.')
-    },
-  })
-
-  const handleDismissAllPapers = () => {
-    // Only clear the notification text, keep papers for the discovery panel
-    setDiscoveryQueue((prev) => ({
-      ...prev,
-      notification: null,
-    }))
-    // Mark this channel as having dismissed notification bar (prevents re-showing)
-    // Papers remain accessible via the Discoveries menu
-    if (activeChannelId) {
-      setDismissedNotificationChannels(prev => new Set([...prev, activeChannelId]))
-    }
-  }
-
-  const assistantMutation = useMutation({
-    mutationFn: async (variables: {
-      id: string
-      question: string
-      reasoning: boolean
-      scope: string[]
-      recentSearchResults?: Array<{ title: string; authors?: string; year?: number; source?: string }>
-      recentSearchId?: string
-      conversationHistory?: Array<{ role: string; content: string }>
-    }) => {
-      if (!activeChannelId) throw new Error('Channel not selected')
-
-      const url = buildApiUrl(
-        `/projects/${project.id}/discussion/channels/${activeChannelId}/assistant?stream=true`,
-      )
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        Accept: 'text/event-stream',
-      }
-
-      const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null
-      if (token) {
-        headers.Authorization = `Bearer ${token}`
-      }
-
-      const body = JSON.stringify({
-        question: variables.question,
-        reasoning: variables.reasoning,
-        scope: variables.scope,
-        recent_search_results: variables.recentSearchResults,
-        recent_search_id: variables.recentSearchId,
-        conversation_history: variables.conversationHistory,
-      })
-
-      // Create abort controller for this request
-      assistantAbortController.current = new AbortController()
-      const signal = assistantAbortController.current.signal
-
-      const execute = async () =>
-        fetch(url, {
-          method: 'POST',
-          headers,
-          body,
-          credentials: 'include',
-          signal,
-        })
-
-      let response = await execute()
-
-      if (response.status === 401 || response.status === 403) {
-        try {
-          const refreshed = await refreshAuthToken()
-          headers.Authorization = `Bearer ${refreshed}`
-          response = await execute()
-        } catch (refreshError) {
-          console.error('Assistant auth refresh failed', refreshError)
-          throw new Error('Assistant authentication failed; please sign in again.')
-        }
-      }
-
-      if (!response.ok) {
-        throw new Error(`Assistant request failed with status ${response.status}`)
-      }
-
-      const contentType = response.headers.get('content-type') || ''
-      if (!response.body || !contentType.includes('text/event-stream')) {
-        const json = (await response.json()) as DiscussionAssistantResponse
-        return json
-      }
-
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder('utf-8')
-      let buffer = ''
-      let rawText = ''
-      let finalPayload: DiscussionAssistantResponse | null = null
-
-      const buildFallback = (message?: string): DiscussionAssistantResponse => {
-        const partial = stripActionsBlock(rawText)
-        const fallbackMessage = message
-          ? partial
-            ? `${partial}\n\n_${message}_`
-            : message
-          : partial
-        return {
-          message: fallbackMessage || 'Scholar AI did not return a response.',
-          citations: [],
-          reasoning_used: variables.reasoning,
-          model: '',
-          usage: undefined,
-          suggested_actions: [],
-        }
-      }
-
-      outer: while (true) {
-        const { value, done } = await reader.read()
-        if (done) {
-          break
-        }
-        buffer += decoder.decode(value, { stream: true })
-
-        while (true) {
-          const separatorIndex = buffer.indexOf('\n\n')
-          if (separatorIndex === -1) {
-            break
-          }
-
-          const rawEvent = buffer.slice(0, separatorIndex)
-          buffer = buffer.slice(separatorIndex + 2)
-
-          const dataLine = rawEvent.split('\n').find((line) => line.startsWith('data:'))
-          if (!dataLine) {
-            continue
-          }
-
-          const payloadText = dataLine.replace(/^data:\s*/, '').trim()
-          if (!payloadText) {
-            continue
-          }
-
-          try {
-            const event = JSON.parse(payloadText) as {
-              type: string
-              content?: string
-              payload?: DiscussionAssistantResponse
-              message?: string
-              tool?: string
-            }
-
-            if (event.type === 'token' && typeof event.content === 'string') {
-              streamingFlags.current[variables.id] = true
-              rawText += event.content
-              const partial = stripActionsBlock(rawText)
-              setAssistantHistory((prev) =>
-                prev.map((entry) =>
-                  entry.id === variables.id
-                    ? {
-                        ...entry,
-                        displayMessage: partial,
-                        status: 'streaming',
-                        statusMessage: undefined, // Clear status when tokens start streaming
-                      }
-                    : entry,
-                ),
-              )
-            } else if (event.type === 'status' && event.message) {
-              // Update status message to show what the AI is doing
-              setAssistantHistory((prev) =>
-                prev.map((entry) =>
-                  entry.id === variables.id
-                    ? {
-                        ...entry,
-                        statusMessage: event.message,
-                      }
-                    : entry,
-                ),
-              )
-            } else if (event.type === 'result' && event.payload) {
-              finalPayload = event.payload
-            } else if (event.type === 'error') {
-              const errMessage = event.message?.trim() || 'Scholar AI encountered an issue while replying.'
-              finalPayload = buildFallback(errMessage)
-              break outer
-            }
-          } catch (parseError) {
-            console.error('Failed to parse assistant stream event', parseError)
-          }
-        }
-      }
-
-      if (buffer.trim()) {
-        try {
-          const residual = buffer.trim()
-          if (residual.startsWith('data:')) {
-            const payloadText = residual.replace(/^data:\s*/, '').trim()
-            if (payloadText) {
-              const event = JSON.parse(payloadText)
-              if (event?.type === 'result' && event.payload) {
-                finalPayload = event.payload as DiscussionAssistantResponse
-              }
-            }
-          }
-        } catch (parseError) {
-          console.error('Failed to parse trailing assistant stream event', parseError)
-        }
-      }
-
-      try {
-        await reader.cancel()
-      } catch (cancelError) {
-        console.debug('Assistant stream reader cancel failed (safe to ignore)', cancelError)
-      }
-
-      if (!finalPayload) {
-        finalPayload = buildFallback()
-      }
-
-      return finalPayload
-    },
-    onMutate: async (variables) => {
-      if (!activeChannelId) {
-        throw new Error('Channel not selected')
-      }
-      const entryId = variables.id || createAssistantEntryId()
-      const placeholder: AssistantExchange = {
-        id: entryId,
-        channelId: activeChannelId, // Track which channel this exchange belongs to
-        question: variables.question,
-        response: {
-          message: '',
-          citations: [],
-          reasoning_used: variables.reasoning,
-          model: '',
-          usage: undefined,
-          suggested_actions: [],
-        },
-        createdAt: new Date(),
-        appliedActions: [],
-        status: 'pending',
-        displayMessage: '',
-        author: {
-          id: user?.id,
-          name: {
-            display: viewerDisplayName,
-            first: user?.first_name,
-            last: user?.last_name,
-          },
-        },
-        fromHistory: false, // Created in current session, can auto-trigger
-      }
-      setAssistantHistory((prev) => [...prev, placeholder])
-      return { entryId, channelId: activeChannelId }
-    },
-    onSuccess: (data, variables, context) => {
-      const entryId = context?.entryId || createAssistantEntryId()
-      const originalChannelId = context?.channelId
-      const finishedAt = new Date()
-
-      // CRITICAL: If user switched channels while request was processing, don't add to wrong channel
-      // BUT we still need to store search results for the original channel
-      if (originalChannelId && originalChannelId !== activeChannelId) {
-        // Store any search_results in the original channel before returning
-        const searchResultsAction = data.suggested_actions?.find(
-          (action: DiscussionAssistantSuggestedAction) => action.action_type === 'search_results'
-        )
-        if (searchResultsAction) {
-          const payload = searchResultsAction.payload as { query?: string; papers?: DiscoveredPaper[] } | undefined
-          const papers = payload?.papers || []
-          const query = payload?.query || ''
-          if (papers.length > 0) {
-            // Clear old ingestion status when new search results arrive
-            setIngestionStatesByChannel(prev => {
-              const next = { ...prev }
-              delete next[originalChannelId]
-              return next
-            })
-            // Clear dismissed notification state for this channel (new search = show new results)
-            setDismissedNotificationChannels(prev => {
-              const next = new Set(prev)
-              next.delete(originalChannelId)
-              return next
-            })
-            // Store results for the ORIGINAL channel
-            setSearchResultsByChannel(prev => ({
-              ...prev,
-              [originalChannelId]: {
-                exchangeId: entryId,
-                papers: papers,
-                query: query,
-                isSearching: false,
-              }
-            }))
-            // Also store in discovery queue for original channel
-            setDiscoveryQueueByChannel(prev => ({
-              ...prev,
-              [originalChannelId]: {
-                papers: papers,
-                query: query,
-                isSearching: false,
-                notification: `Found ${papers.length} paper${papers.length !== 1 ? 's' : ''} for "${query}"`,
-              }
-            }))
-          }
-        }
-        return
-      }
-
-      // First update the exchange in history so it has the response with suggested_actions
-      setAssistantHistory((prev) => {
-      const exists = prev.some((entry) => entry.id === entryId)
-      if (!exists) {
-        return [
-          ...prev,
-          {
-            id: entryId,
-            channelId: originalChannelId || activeChannelId || '', // Track which channel this exchange belongs to
-            question: variables.question,
-            response: data,
-            createdAt: finishedAt,
-            completedAt: finishedAt,
-            appliedActions: [],
-            status: 'streaming',
-            displayMessage: '',
-            author: {
-              id: user?.id,
-              name: {
-                display: viewerDisplayName,
-                first: user?.first_name,
-                last: user?.last_name,
-              },
-            },
-            fromHistory: false, // Created in current session, can auto-trigger
-          },
-        ]
-      }
-
-        return prev.map((entry) =>
-          entry.id === entryId
-            ? {
-                ...entry,
-                response: data,
-                completedAt: finishedAt,
-                status: 'streaming',
-                displayMessage: streamingFlags.current[entryId] ? entry.displayMessage : '',
-                author:
-                  entry.author || {
-                    id: user?.id,
-                    name: {
-                      display: viewerDisplayName,
-                      first: user?.first_name,
-                      last: user?.last_name,
-                    },
-                  },
-              }
-            : entry,
-        )
-      })
-
-      // Process search_results AFTER history update so exchange has suggested_actions when rendering
-      const searchResultsAction = data.suggested_actions?.find(
-        (action: DiscussionAssistantSuggestedAction) => action.action_type === 'search_results'
-      )
-      if (searchResultsAction && originalChannelId) {
-        const payload = searchResultsAction.payload as { query?: string; papers?: DiscoveredPaper[]; search_id?: string } | undefined
-        const papers = payload?.papers || []
-        const query = payload?.query || ''
-        const searchId = payload?.search_id || entryId
-        if (papers.length > 0) {
-          // Clear old ingestion status when new search results arrive
-          setIngestionStatesByChannel(prev => {
-            const next = { ...prev }
-            delete next[originalChannelId]
-            return next
-          })
-          setSearchResultsByChannel(prev => ({
-            ...prev,
-            [originalChannelId]: {
-              exchangeId: entryId,
-              papers: papers,
-              query: query,
-              isSearching: false,
-              searchId,
-            }
-          }))
-          setDiscoveryQueueByChannel(prev => ({
-            ...prev,
-            [originalChannelId]: {
-              papers: papers,
-              query: query,
-              isSearching: false,
-              notification: `Found ${papers.length} paper${papers.length !== 1 ? 's' : ''} for "${query}"`,
-              searchId,
-            }
-          }))
-        }
-      }
-
-      // Process library_update immediately so ingestion status shows without delay
-      const libraryUpdateAction = data.suggested_actions?.find(
-        (action: DiscussionAssistantSuggestedAction) => action.action_type === 'library_update'
-      )
-      if (libraryUpdateAction && originalChannelId) {
-        const payload = libraryUpdateAction.payload as { updates?: { index: number; reference_id: string; ingestion_status: string }[]; search_id?: string } | undefined
-        const updates = payload?.updates || []
-        const currentSearchId = discoveryQueueByChannel[originalChannelId]?.searchId
-        const shouldApply = !(payload?.search_id && currentSearchId && payload.search_id !== currentSearchId)
-        if (shouldApply && updates.length > 0) {
-          // Clear dismissed state so notification shows
-          setDismissedNotificationChannels(prev => {
-            const next = new Set(prev)
-            next.delete(originalChannelId)
-            return next
-          })
-          // Convert index-based updates to paper ID-based ingestion states
-          // Get papers from discoveryQueueByChannel or searchResultsByChannel
-          const channelPapers = discoveryQueueByChannel[originalChannelId]?.papers ||
-            searchResultsByChannel[originalChannelId]?.papers || []
-          setIngestionStatesByChannel(prev => {
-            const channelStates = prev[originalChannelId] || {}
-            const newStates = { ...channelStates }
-            for (const u of updates) {
-              const paper = channelPapers[u.index]
-              if (paper) {
-                newStates[paper.id] = {
-                  referenceId: u.reference_id,
-                  status: u.ingestion_status as IngestionStatus,
-                  isAdding: false,
-                }
-              }
-            }
-            return { ...prev, [originalChannelId]: newStates }
-          })
-        }
-      }
-
-      const lookup = buildCitationLookup(data.citations)
-      const formatted = formatAssistantMessage(data.message, lookup)
-      const wasStreamed = streamingFlags.current[entryId]
-      if (wasStreamed) {
-        setAssistantHistory((prev) =>
-          prev.map((entry) =>
-            entry.id === entryId
-              ? {
-                  ...entry,
-                  displayMessage: formatted,
-                  status: 'complete',
-                  completedAt: entry.completedAt ?? finishedAt,
-                  author:
-                    entry.author || {
-                      id: user?.id,
-                      name: {
-                        display: viewerDisplayName,
-                        first: user?.first_name,
-                        last: user?.last_name,
-                      },
-                    },
-                }
-              : entry,
-          ),
-        )
-        delete streamingFlags.current[entryId]
-        return
-      }
-
-      startTypewriter(entryId, formatted)
-    },
-    onError: (error, _variables, context) => {
-      // Don't show error for cancelled requests
-      if (error instanceof Error && error.name === 'AbortError') {
-        console.log('Assistant request was cancelled')
-        if (context?.entryId) {
-          setAssistantHistory((prev) => prev.filter((entry) => entry.id !== context.entryId))
-          delete streamingFlags.current[context.entryId]
-        }
-        return
-      }
-      console.error('Failed to invoke assistant:', error)
-      if (context?.entryId) {
-        setAssistantHistory((prev) => prev.filter((entry) => entry.id !== context.entryId))
-        delete streamingFlags.current[context.entryId]
-      }
-      alert('Unable to reach Scholar AI right now. Please try again.')
-    },
-  })
-
-  // Cancel the current assistant request
-  const cancelAssistantRequest = useCallback(() => {
-    if (assistantAbortController.current) {
-      assistantAbortController.current.abort()
-      assistantAbortController.current = null
-    }
-  }, [])
-
-  const markActionApplied = useCallback((exchangeId: string, actionKey: string) => {
-    setAssistantHistory((prev) =>
-      prev.map((entry) =>
-        entry.id === exchangeId
-          ? { ...entry, appliedActions: [...entry.appliedActions, actionKey] }
-          : entry,
-      ),
-    )
-  }, [])
-
-  // Check if user's message is actually a search request (not just a conversational response)
-  const isSearchRequest = (userQuestion: string): boolean => {
-    const q = userQuestion.toLowerCase().trim()
-    // Must contain search-related keywords to be considered a search request
-    const searchKeywords = [
-      'search', 'find', 'look for', 'looking for', 'papers', 'references',
-      'articles', 'literature', 'publications', 'research on', 'about'
-    ]
-    // Research question patterns that trigger deep search
-    const researchQuestionKeywords = [
-      'what are the', 'what is the', 'how do', 'how does', 'how are',
-      'main approaches', 'approaches to', 'methods for', 'techniques for',
-      'state of the art', 'state-of-the-art', 'overview', 'comprehensive',
-      'survey', 'review of', 'summary of', 'explain', 'describe'
-    ]
-    // Short messages or confirmations are NOT search requests
-    if (q.length < 10) return false
-    // Skip pure conversational responses (but NOT "please search...", "please find..." which are valid)
-    if (/^(yes|no|ok|okay|sure|thanks|thank you|i want|i need|option|a|b|c|\d+)(\s|$)/i.test(q)) return false
-    // Must have at least one search keyword OR be a research question
-    return searchKeywords.some(kw => q.includes(kw)) || researchQuestionKeywords.some(kw => q.includes(kw))
-  }
-
-  // Extract search topic from user's original question ONLY if it's clearly a search request
-  // Returns empty string if not a search request, so AI's query from action payload is used instead
-  const extractSearchTopic = (userQuestion: string): string => {
-    // Only extract topic if user explicitly asked for a search
-    const patterns = [
-      /(?:search|find|look)\s+(?:for\s+)?(?:\d+\s+)?(?:papers?|references?|articles?)?\s*(?:about|on|regarding|related to)\s+(.+)/i,
-      /(?:papers?|references?|articles?)\s+(?:about|on|regarding)\s+(.+)/i,
-      /(?:search|find|look)\s+(?:for\s+)?(?:\d+\s+)?(?:papers?|references?|articles?)\s+(?:on|about)\s+(.+)/i,
-    ]
-    for (const pattern of patterns) {
-      const match = userQuestion.match(pattern)
-      if (match && match[1]) {
-        return match[1].trim()
-      }
-    }
-    // If user didn't explicitly ask for a search, return empty so AI's query is used
-    return ''
-  }
-
-  // Auto-trigger search_references and batch_search_references actions when AI suggests them
-  // search_results actions are processed even for history entries (papers already in payload)
-  useEffect(() => {
-    // Find exchanges with search actions that haven't been applied yet
-    for (const exchange of assistantHistory) {
-      if (exchange.status !== 'complete') continue
-
-      const actions = exchange.response?.suggested_actions || []
-      for (let idx = 0; idx < actions.length; idx++) {
-        const action = actions[idx]
-        const actionKey = `${exchange.id}:${idx}`
-        if (exchange.appliedActions.includes(actionKey)) continue
-
-        // Handle search_results - papers already fetched by backend, just display them
-        if (action.action_type === 'search_results') {
-          const payload = action.payload as { query?: string; papers?: DiscoveredPaper[]; total_found?: number; search_id?: string } | undefined
-          const papers = payload?.papers || []
-          const query = payload?.query || ''
-          const searchId = payload?.search_id || exchange.id
-          if (papers.length === 0) continue
-
-          // Only process if exchange belongs to current channel
-          if (!activeChannelId) continue
-          if (exchange.channelId && exchange.channelId !== activeChannelId) continue
-
-          // Check if user has dismissed notifications for this channel
-          const isChannelDismissed = dismissedNotificationChannels.has(activeChannelId)
-
-          // For history entries + dismissed channel, skip restoring discoveryQueue
-          // For fresh responses, clear dismissed state so notification shows
-          if (isChannelDismissed) {
-            if (exchange.fromHistory) {
-              // History entry - keep notification hidden, but still populate discoveryQueue
-              // so papers are accessible in the Discovery drawer
-              // Always mark action as applied to prevent re-processing
-              markActionApplied(exchange.id, actionKey)
-              // Always use current action's papers (newer exchanges overwrite older ones)
-              setReferenceSearchResults({
-                exchangeId: exchange.id,
-                channelId: activeChannelId,
-                papers: papers,
-                query: query,
-                isSearching: false,
-                searchId,
-              })
-              // Populate discoveryQueue so papers show in drawer (notification bar stays hidden)
-              setDiscoveryQueue({
-                papers: papers,
-                query: query,
-                isSearching: false,
-                notification: null, // No notification since channel is dismissed
-                searchId,
-              })
-              continue
-            } else {
-              // Fresh response - clear dismissed state so notification shows
-              setDismissedNotificationChannels(prev => {
-                const next = new Set(prev)
-                next.delete(activeChannelId)
-                return next
-              })
-            }
-          }
-
-          // Always mark action as applied to prevent re-processing on next render
-          markActionApplied(exchange.id, actionKey)
-
-          // Clear old ingestion status so search results notification shows
-          setIngestionStatesByChannel(prev => {
-            const next = { ...prev }
-            delete next[activeChannelId]
-            return next
-          })
-
-          // Always use current action's papers (newer exchanges overwrite older ones)
-          setReferenceSearchResults({
-            exchangeId: exchange.id,
-            channelId: activeChannelId,
-            papers: papers,
-            query: query,
-            isSearching: false,
-            searchId,
-          })
-
-          // Restore discoveryQueue.papers so notification bar shows them
-          setDiscoveryQueue({
-            papers: papers,
-            query: query,
-            isSearching: false,
-            notification: `Found ${papers.length} papers`,
-            searchId,
-          })
-          // Continue to process all actions - React batches state updates
-          continue
-        }
-
-        // Handle library_update - auto-apply ingestion status from AI's add_to_library
-        if (action.action_type === 'library_update') {
-          console.log('[ProjectDiscussion] Found library_update action:', action)
-          const payload = action.payload as { updates?: { index: number; reference_id: string; ingestion_status: string }[]; search_id?: string } | undefined
-          const updates = payload?.updates || []
-
-          // Only process if exchange belongs to current channel
-          if (!activeChannelId) {
-            console.log('[ProjectDiscussion] Skipping - no activeChannelId')
-            continue
-          }
-          if (exchange.channelId && exchange.channelId !== activeChannelId) {
-            console.log('[ProjectDiscussion] Skipping - channel mismatch:', exchange.channelId, 'vs', activeChannelId)
-            continue
-          }
-          const currentSearchId = discoveryQueueByChannel[activeChannelId]?.searchId
-          if (payload?.search_id && currentSearchId && payload.search_id !== currentSearchId) {
-            markActionApplied(exchange.id, actionKey)
-            continue
-          }
-          if (!payload?.search_id && exchange.fromHistory) {
-            markActionApplied(exchange.id, actionKey)
-            continue
-          }
-
-          // Check if there's a NEWER exchange with search_results - if so, skip this old library_update
-          // This prevents old ingestion notifications from overwriting new search results
-          const exchangeIndex = assistantHistory.findIndex(e => e.id === exchange.id)
-          const hasNewerSearchResults = assistantHistory.slice(exchangeIndex + 1).some(laterExchange => {
-            if (laterExchange.status !== 'complete') return false
-            const laterActions = laterExchange.response?.suggested_actions || []
-            return laterActions.some(a => a.action_type === 'search_results')
-          })
-          if (hasNewerSearchResults) {
-            console.log('[ProjectDiscussion] Skipping old library_update - newer search_results exists')
-            markActionApplied(exchange.id, actionKey)
-            continue
-          }
-
-          // For history entries, skip if user dismissed notifications for this channel
-          // For fresh responses, always show and clear dismissed state
-          if (exchange.fromHistory && dismissedNotificationChannels.has(activeChannelId)) {
-            console.log('[ProjectDiscussion] Skipping history library_update - channel dismissed:', activeChannelId)
-            continue
-          }
-
-          // Fresh library_update - clear dismissed state so notification shows
-          if (!exchange.fromHistory && dismissedNotificationChannels.has(activeChannelId)) {
-            setDismissedNotificationChannels(prev => {
-              const next = new Set(prev)
-              next.delete(activeChannelId)
-              return next
-            })
-          }
-
-          markActionApplied(exchange.id, actionKey)
-          console.log('[ProjectDiscussion] Processing', updates.length, 'library updates for channel', activeChannelId)
-
-          if (updates.length > 0) {
-            // Convert index-based updates to paper ID-based ingestion states
-            const channelPapers = discoveryQueue.papers.length > 0
-              ? discoveryQueue.papers
-              : (discoveryQueueByChannel[activeChannelId]?.papers || searchResultsByChannel[activeChannelId]?.papers || [])
-            setIngestionStatesByChannel(prev => {
-              const channelStates = prev[activeChannelId] || {}
-              const newStates = { ...channelStates }
-              for (const u of updates) {
-                const paper = channelPapers[u.index]
-                if (paper) {
-                  newStates[paper.id] = {
-                    referenceId: u.reference_id,
-                    status: u.ingestion_status as IngestionStatus,
-                    isAdding: false,
-                  }
-                }
-              }
-              return { ...prev, [activeChannelId]: newStates }
-            })
-          }
-          // Continue to process all actions - React batches state updates
-          continue
-        }
-
-        // Handle single search_references (legacy - triggers frontend search)
-        // ONLY auto-trigger if user's message looks like a search request
-        // This prevents triggering on conversational responses like "yes", "i want", "one page"
-        // Skip for history entries - don't re-trigger API calls when returning to page
-        if (action.action_type === 'search_references') {
-          if (exchange.fromHistory) continue  // Don't re-trigger for history
-          // Skip if user's message wasn't a search request
-          if (!isSearchRequest(exchange.question)) continue
-          // Extract topic from user's original question (AI tends to over-expand)
-          const userTopic = extractSearchTopic(exchange.question)
-          const query = userTopic || String(action.payload?.query || '').trim()
-          if (!query) continue
-          const openAccessOnly = Boolean(action.payload?.open_access_only)
-          const maxResults = Number(action.payload?.max_results) || 10
-          markActionApplied(exchange.id, actionKey)
-          searchReferencesMutation.mutate({
-            query,
-            exchangeId: exchange.id,
-            openAccessOnly,
-            maxResults,
-          })
-          return // Only trigger one at a time
-        }
-
-        // Handle batch_search_references (multi-topic search)
-        // Skip for history entries - don't re-trigger API calls when returning to page
-        if (action.action_type === 'batch_search_references') {
-          if (exchange.fromHistory) continue  // Don't re-trigger for history
-          const queries = action.payload?.queries as Array<{ topic: string; query: string; max_results?: number }> | undefined
-          if (!queries || queries.length === 0) continue
-          const openAccessOnly = Boolean(action.payload?.open_access_only)
-          markActionApplied(exchange.id, actionKey)
-
-          // Set searching state
-          const batchQuery = queries.map(q => q.topic).join(', ')
-          if (!activeChannelId) continue
-          // Clear dismissed state for this channel - new search should show results
-          setDismissedNotificationChannels(prev => {
-            const next = new Set(prev)
-            next.delete(activeChannelId)
-            return next
-          })
-          setReferenceSearchResults({
-            exchangeId: exchange.id,
-            channelId: activeChannelId,
-            papers: [],
-            query: batchQuery,
-            isSearching: true,
-            searchId: exchange.id,
-          })
-          setDiscoveryQueue(() => ({
-            papers: [],
-            query: batchQuery,
-            isSearching: true,
-            notification: `Searching ${queries.length} topics...`,
-            searchId: exchange.id,
-          }))
-
-          // Execute batch search
-          projectDiscussionAPI.batchSearchReferences(project.id, queries, { openAccessOnly })
-            .then((response) => {
-              // Flatten all papers from all topics
-              const allPapers = response.data.results.flatMap(result =>
-                result.papers.map(paper => ({
-                  ...paper,
-                  _topic: result.topic, // Tag with topic for display
-                }))
-              )
-              // Update reference search results - replace, not accumulate
-              setReferenceSearchResults({
-                exchangeId: exchange.id,
-                channelId: activeChannelId || '',
-                papers: allPapers,
-                query: batchQuery,
-                isSearching: false,
-                searchId: exchange.id,
-              })
-              // Update discovery queue - replace, not accumulate
-              setDiscoveryQueue({
-                papers: allPapers,
-                query: batchQuery,
-                isSearching: false,
-                notification: `Found ${allPapers.length} paper${allPapers.length !== 1 ? 's' : ''} across ${queries.length} topics`,
-                searchId: exchange.id,
-              })
-            })
-            .catch((error) => {
-              console.error('Auto batch search failed:', error)
-              const currentResults = activeChannelId ? searchResultsByChannel[activeChannelId] : null
-              if (currentResults) {
-                setReferenceSearchResults({
-                  exchangeId: exchange.id,
-                  channelId: activeChannelId || '',
-                  papers: currentResults.papers,
-                  query: currentResults.query,
-                  isSearching: false,
-                  searchId: exchange.id,
-                })
-              }
-              setDiscoveryQueue(prev => ({
-                papers: prev?.papers ?? [],
-                query: prev?.query ?? '',
-                isSearching: false,
-                notification: 'Batch search failed. Please try again.',
-              }))
-            })
-          return // Only trigger one at a time
-        }
-
-        // Handle paper_updated - refresh paper view when AI updates a paper
-        if (action.action_type === 'paper_updated') {
-          markActionApplied(exchange.id, actionKey)
-          // Invalidate paper queries to refresh the view
-          queryClient.invalidateQueries({ queryKey: ['papers', project.id] })
-          queryClient.invalidateQueries({ queryKey: ['paper'] })
-          // Continue processing other actions (don't return)
-        }
-      }
-    }
-  }, [assistantHistory, markActionApplied, searchReferencesMutation, project.id, queryClient, activeChannelId, searchResultsByChannel, setReferenceSearchResults])
-
-  const handleSuggestedAction = (
-    exchange: AssistantExchange,
-    action: DiscussionAssistantSuggestedAction,
-    index: number,
-  ) => {
-    if (!activeChannelId) {
-      alert('Select a channel before accepting assistant suggestions.')
-      return
-    }
-
-    const actionKey = `${exchange.id}:${index}`
-    if (exchange.appliedActions.includes(actionKey)) {
-      return
-    }
-
-    if (action.action_type === 'create_task') {
-      const title = String(action.payload?.title || '').trim()
-      if (!title) {
-        alert('The assistant suggestion is missing a task title. Please create the task manually.')
-        return
-      }
-      const description = action.payload?.description ? String(action.payload.description) : undefined
-      const messageId = action.payload?.message_id ? String(action.payload.message_id) : undefined
-      if (!window.confirm(`Create task "${title}"?`)) {
-        return
-      }
-      const taskPayload: DiscussionTaskCreate = {
-        title,
-        description: description || undefined,
-        message_id: messageId || undefined,
-      }
-      createTaskMutation.mutate(taskPayload, {
-        onSuccess: () => markActionApplied(exchange.id, actionKey),
-        onError: (error) => {
-          console.error('Failed to create task from assistant suggestion:', error)
-          alert('Unable to create task right now. Please try again.')
-        },
-      })
-      return
-    }
-
-    if (action.action_type === 'create_paper') {
-      const title = String(action.payload?.title || '').trim()
-      const paperType = String(action.payload?.paper_type || 'research').trim()
-      const authoringMode = String(action.payload?.authoring_mode || 'latex').trim()
-      const abstract = String(action.payload?.abstract || '').trim()
-      const suggestedKeywords = Array.isArray(action.payload?.keywords) ? action.payload.keywords : []
-
-      // Open the paper creation dialog instead of directly creating
-      setPaperCreationDialog({
-        open: true,
-        exchangeId: exchange.id,
-        actionIndex: index,
-        suggestedTitle: title,
-        suggestedType: paperType,
-        suggestedMode: authoringMode,
-        suggestedAbstract: abstract,
-        suggestedKeywords: suggestedKeywords,
-      })
-      // Initialize form with suggested values
-      setPaperFormData({
-        title: title,
-        paperType: paperType,
-        authoringMode: authoringMode,
-        abstract: abstract,
-        keywords: suggestedKeywords,
-        objectives: [],
-      })
-      return
-    }
-
-    if (action.action_type === 'edit_paper') {
-      const paperId = action.payload?.paper_id
-      const original = String(action.payload?.original || '').trim()
-      const proposed = String(action.payload?.proposed || '').trim()
-      const description = String(action.payload?.description || 'Apply suggested edit')
-      if (!paperId || !original || !proposed) {
-        alert('The assistant suggestion is missing required edit information.')
-        return
-      }
-      if (!window.confirm(`Apply edit: ${description}?`)) {
-        return
-      }
-      paperActionMutation.mutate(
-        { actionType: 'edit_paper', payload: action.payload as Record<string, unknown> },
-        {
-          onSuccess: (data) => {
-            if (data.success) {
-              markActionApplied(exchange.id, actionKey)
-              alert('Edit applied successfully!')
-            } else {
-              alert(data.message || 'Failed to apply edit')
-            }
-          },
-        }
-      )
-      return
-    }
-
-    if (action.action_type === 'search_references') {
-      // Extract topic from user's original question (AI tends to over-expand)
-      const userTopic = extractSearchTopic(exchange.question)
-      const query = userTopic || String(action.payload?.query || '').trim()
-      if (!query) {
-        alert('The assistant suggestion is missing a search query.')
-        return
-      }
-      const openAccessOnly = Boolean(action.payload?.open_access_only)
-      const maxResults = Number(action.payload?.max_results) || 10
-      // Mark action as applied immediately (search is being triggered)
-      markActionApplied(exchange.id, actionKey)
-      // Trigger the search
-      searchReferencesMutation.mutate({
-        query,
-        exchangeId: exchange.id,
-        openAccessOnly,
-        maxResults,
-      })
-      return
-    }
-
-    // Handle batch search across multiple topics
-    if (action.action_type === 'batch_search_references') {
-      const queries = action.payload?.queries as Array<{ topic: string; query: string; max_results?: number }> | undefined
-      if (!queries || queries.length === 0) {
-        alert('The batch search is missing queries.')
-        return
-      }
-      const openAccessOnly = Boolean(action.payload?.open_access_only)
-      markActionApplied(exchange.id, actionKey)
-
-      // Clear dismissed state for this channel - new search should show results
-      if (activeChannelId) {
-        setDismissedNotificationChannels(prev => {
-          const next = new Set(prev)
-          next.delete(activeChannelId)
-          return next
-        })
-      }
-
-      // Set searching state
-      const batchQuery = queries.map(q => q.topic).join(', ')
-      setReferenceSearchResults({
-        exchangeId: exchange.id,
-        channelId: activeChannelId || '',
-        papers: [],
-        query: batchQuery,
-        isSearching: true,
-        searchId: exchange.id,
-      })
-      setDiscoveryQueue(() => ({
-        papers: [],
-        query: batchQuery,
-        isSearching: true,
-        notification: `Searching ${queries.length} topics...`,
-        searchId: exchange.id,
-      }))
-
-      // Execute batch search
-      projectDiscussionAPI.batchSearchReferences(project.id, queries, { openAccessOnly })
-        .then((response) => {
-          // Flatten all papers from all topics
-          const allPapers = response.data.results.flatMap(result =>
-            result.papers.map(paper => ({
-              ...paper,
-              _topic: result.topic, // Tag with topic for display
-            }))
-          )
-          // Update reference search results - replace, not accumulate
-          setReferenceSearchResults({
-            exchangeId: exchange.id,
-            channelId: activeChannelId || '',
-            papers: allPapers,
-            query: batchQuery,
-            isSearching: false,
-            searchId: exchange.id,
-          })
-          // Update discovery queue - replace, not accumulate
-          setDiscoveryQueue({
-            papers: allPapers,
-            query: batchQuery,
-            isSearching: false,
-            notification: `Found ${allPapers.length} paper${allPapers.length !== 1 ? 's' : ''} across ${queries.length} topics`,
-            searchId: exchange.id,
-          })
-        })
-        .catch((error) => {
-          console.error('Batch search failed:', error)
-          const currentResults = activeChannelId ? searchResultsByChannel[activeChannelId] : null
-          if (currentResults) {
-            setReferenceSearchResults({
-              exchangeId: exchange.id,
-              channelId: activeChannelId || '',
-              papers: currentResults.papers,
-              query: currentResults.query,
-              isSearching: false,
-              searchId: exchange.id,
-            })
-          }
-          setDiscoveryQueue(prev => ({
-            papers: prev?.papers ?? [],
-            query: prev?.query ?? '',
-            isSearching: false,
-            notification: 'Batch search failed. Please try again.',
-          }))
-          alert('Batch search failed. Please try again.')
-        })
-      return
-    }
-
-    // Handle paper_updated - paper was already updated, just refresh view
-    if (action.action_type === 'paper_updated') {
-      markActionApplied(exchange.id, actionKey)
-      queryClient.invalidateQueries({ queryKey: ['papers', project.id] })
-      queryClient.invalidateQueries({ queryKey: ['paper'] })
-      return
-    }
-
-    // Handle search_results - papers already fetched, just display them
-    if (action.action_type === 'search_results') {
-      const payload = action.payload as { query?: string; papers?: DiscoveredPaper[]; total_found?: number; search_id?: string } | undefined
-      const papers = payload?.papers || []
-      const query = payload?.query || ''
-      const searchId = payload?.search_id || exchange.id
-      markActionApplied(exchange.id, actionKey)
-
-      // Display results in Discovery Queue panel - replace, not accumulate
-      // Only show if exchange belongs to current channel
-      if (papers.length > 0 && (!exchange.channelId || exchange.channelId === activeChannelId)) {
-        setReferenceSearchResults({
-          exchangeId: exchange.id,
-          channelId: activeChannelId || '',
-          papers: papers,  // Replace with new papers
-          query: query,
-          isSearching: false,
-          searchId,
-        })
-        // Also replace discoveryQueue (not accumulate)
-        setDiscoveryQueue({
-          papers: papers,
-          query: query,
-          isSearching: false,
-          notification: `Found ${papers.length} papers`,
-          searchId,
-        })
-      }
-      return
-    }
-
-    // Handle library_update - ingestion status updates from AI's add_to_library tool
-    if (action.action_type === 'library_update') {
-      const payload = action.payload as { updates?: { index: number; reference_id: string; ingestion_status: string }[]; search_id?: string } | undefined
-      const updates = payload?.updates || []
-      markActionApplied(exchange.id, actionKey)
-
-      const currentSearchId = activeChannelId ? discoveryQueueByChannel[activeChannelId]?.searchId : undefined
-      if (payload?.search_id && currentSearchId && payload.search_id !== currentSearchId) {
-        return
-      }
-      if (updates.length > 0 && activeChannelId) {
-        // Convert index-based updates to paper ID-based ingestion states
-        const channelPapers = discoveryQueue.papers.length > 0
-          ? discoveryQueue.papers
-          : (discoveryQueueByChannel[activeChannelId]?.papers || searchResultsByChannel[activeChannelId]?.papers || [])
-        setIngestionStatesByChannel(prev => {
-          const channelStates = prev[activeChannelId] || {}
-          const newStates = { ...channelStates }
-          for (const u of updates) {
-            const paper = channelPapers[u.index]
-            if (paper) {
-              newStates[paper.id] = {
-                referenceId: u.reference_id,
-                status: u.ingestion_status as IngestionStatus,
-                isAdding: false,
-              }
-            }
-          }
-          return { ...prev, [activeChannelId]: newStates }
-        })
-      }
-      return
-    }
-
-    if (action.action_type === 'artifact_created') {
-      const title = String(action.payload?.title || 'download').trim()
-      const filename = String(action.payload?.filename || `${title}.md`).trim()
-      const contentBase64 = String(action.payload?.content_base64 || '')
-      const mimeType = String(action.payload?.mime_type || 'text/plain')
-
-      if (!contentBase64) {
-        alert('The artifact is missing content.')
-        return
-      }
-
-      // Properly decode base64 to binary and trigger download
-      try {
-        const binaryString = atob(contentBase64)
-        const bytes = new Uint8Array(binaryString.length)
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i)
-        }
-        const blob = new Blob([bytes], { type: mimeType })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = filename
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        URL.revokeObjectURL(url)
-        markActionApplied(exchange.id, actionKey)
-        // Refresh artifacts panel to show the new artifact
-        queryClient.invalidateQueries({ queryKey: ['channel-artifacts', project.id, activeChannelId] })
-      } catch (e) {
-        console.error('Failed to decode artifact:', e)
-        alert('Failed to download artifact.')
-      }
-      return
-    }
-
-    alert('This assistant suggestion type is not yet supported.')
-  }
-
-  // Create message mutation
+  // Message mutations
   const createMessageMutation = useMutation({
     mutationFn: async (content: string) => {
       const response = await projectDiscussionAPI.createMessage(project.id, {
@@ -2601,51 +835,31 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           ['projectDiscussion', project.id, activeChannelId],
           (existingThreads) => {
             const threads = existingThreads ?? []
-
             if (!createdMessage.parent_id) {
               const alreadyExists = threads.some((thread) => thread.message.id === createdMessage.id)
-              if (alreadyExists) {
-                return threads
-              }
-
-              const newThread: DiscussionThreadType = {
-                message: createdMessage,
-                replies: [],
-              }
+              if (alreadyExists) return threads
+              const newThread: DiscussionThreadType = { message: createdMessage, replies: [] }
               return [newThread, ...threads]
             }
-
             let updated = false
             const nextThreads = threads.map((thread) => {
-              if (thread.message.id !== createdMessage.parent_id) {
-                return thread
-              }
-
+              if (thread.message.id !== createdMessage.parent_id) return thread
               const replies = thread.replies ?? []
-              if (replies.some((reply) => reply.id === createdMessage.id)) {
-                return thread
-              }
-
+              if (replies.some((reply) => reply.id === createdMessage.id)) return thread
               updated = true
               const sortedReplies = [...replies, createdMessage].sort(
-                (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+                (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
               )
-
               return {
                 ...thread,
-                message: {
-                  ...thread.message,
-                  reply_count: thread.message.reply_count + 1,
-                },
+                message: { ...thread.message, reply_count: thread.message.reply_count + 1 },
                 replies: sortedReplies,
               }
             })
-
             return updated ? nextThreads : threads
-          },
+          }
         )
       }
-
       queryClient.invalidateQueries({ queryKey: ['projectDiscussion', project.id, activeChannelId] })
       queryClient.invalidateQueries({ queryKey: ['projectDiscussionStats', project.id, activeChannelId] })
       setReplyingTo(null)
@@ -2656,7 +870,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     },
   })
 
-  // Update message mutation
   const updateMessageMutation = useMutation({
     mutationFn: async ({ messageId, content }: { messageId: string; content: string }) => {
       const response = await projectDiscussionAPI.updateMessage(project.id, messageId, { content })
@@ -2672,7 +885,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     },
   })
 
-  // Delete message mutation
   const deleteMessageMutation = useMutation({
     mutationFn: async (messageId: string) => {
       await projectDiscussionAPI.deleteMessage(project.id, messageId)
@@ -2687,13 +899,453 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     },
   })
 
-  // Scroll to bottom when new messages arrive
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [conversationItems])
+  // Resource mutations
+  const createResourceMutation = useMutation({
+    mutationFn: async (payload: DiscussionChannelResourceCreate) => {
+      if (!activeChannelId) throw new Error('No channel selected')
+      const response = await projectDiscussionAPI.createChannelResource(project.id, activeChannelId, payload)
+      return response.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['channel-resources', project.id, activeChannelId] })
+    },
+    onError: (error) => {
+      console.error('Failed to create resource:', error)
+      alert('Failed to add resource. Please try again.')
+    },
+  })
 
-  // Save assistant history to localStorage - only trigger on assistantHistory changes
-  // Use ref to track which channel the history belongs to, not activeChannelId dependency
+  const deleteResourceMutation = useMutation({
+    mutationFn: async (resourceId: string) => {
+      if (!activeChannelId) throw new Error('No channel selected')
+      await projectDiscussionAPI.deleteChannelResource(project.id, activeChannelId, resourceId)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['channel-resources', project.id, activeChannelId] })
+    },
+    onError: (error) => {
+      console.error('Failed to delete resource:', error)
+      alert('Failed to remove resource. Please try again.')
+    },
+  })
+
+  // Paper action mutation
+  const paperActionMutation = useMutation({
+    mutationFn: async ({
+      actionType,
+      payload,
+    }: {
+      actionType: string
+      payload: Record<string, unknown>
+    }) => {
+      const response = await projectDiscussionAPI.executePaperAction(project.id, actionType, payload)
+      return response.data
+    },
+    onSuccess: (data) => {
+      if (data.paper_id) {
+        queryClient.invalidateQueries({ queryKey: ['papers', project.id] })
+        queryClient.invalidateQueries({ queryKey: ['paper', data.paper_id] })
+      }
+    },
+    onError: (error) => {
+      console.error('Paper action failed:', error)
+      alert('Failed to perform paper action. Please try again.')
+    },
+  })
+
+  // Search references mutation
+  const searchReferencesMutation = useMutation({
+    mutationFn: async ({
+      query,
+      exchangeId,
+      openAccessOnly,
+      maxResults,
+    }: {
+      query: string
+      exchangeId: string
+      openAccessOnly: boolean
+      maxResults: number
+    }) => {
+      setReferenceSearchResults({
+        exchangeId,
+        channelId: activeChannelId || '',
+        papers: [],
+        query,
+        isSearching: true,
+      })
+      // Clear dismissed state for fresh search
+      if (activeChannelId) {
+        setDismissedNotificationChannels((prev) => {
+          const next = new Set(prev)
+          next.delete(activeChannelId)
+          return next
+        })
+      }
+      setDiscoveryQueue({
+        papers: [],
+        query,
+        isSearching: true,
+        notification: `Searching for "${query}"...`,
+      })
+
+      const response = await projectDiscussionAPI.searchReferences(project.id, query, { openAccessOnly, maxResults })
+      return { papers: response.data.papers, exchangeId, query }
+    },
+    onSuccess: ({ papers, exchangeId, query }) => {
+      setReferenceSearchResults({
+        exchangeId,
+        channelId: activeChannelId || '',
+        papers,
+        query,
+        isSearching: false,
+      })
+      setDiscoveryQueue({
+        papers,
+        query,
+        isSearching: false,
+        notification: `Found ${papers.length} paper${papers.length !== 1 ? 's' : ''}`,
+      })
+    },
+    onError: (error) => {
+      console.error('Reference search failed:', error)
+      setDiscoveryQueue((prev) => ({
+        papers: prev?.papers ?? [],
+        query: prev?.query ?? '',
+        isSearching: false,
+        notification: 'Search failed. Please try again.',
+      }))
+    },
+  })
+
+  // ========== HELPER FUNCTIONS ==========
+
+  const markActionApplied = useCallback((exchangeId: string, actionKey: string) => {
+    setAssistantHistory((prev) =>
+      prev.map((entry) => {
+        if (entry.id !== exchangeId) return entry
+        if (entry.appliedActions.includes(actionKey)) return entry
+        return { ...entry, appliedActions: [...entry.appliedActions, actionKey] }
+      })
+    )
+  }, [])
+
+  // Handle dismiss notification bar only (keeps papers in queue)
+  const handleDismissNotification = useCallback(() => {
+    if (!activeChannelId) return
+    // Only mark channel notification as dismissed, don't remove papers from queue
+    setDismissedNotificationChannels((prev) => new Set([...prev, activeChannelId]))
+  }, [activeChannelId])
+
+  const cancelAssistantRequest = useCallback(() => {
+    if (assistantAbortController.current) {
+      assistantAbortController.current.abort()
+      assistantAbortController.current = null
+    }
+    // Mark any pending entries as complete with error
+    setAssistantHistory((prev) =>
+      prev.map((entry) => {
+        if (entry.status !== 'complete') {
+          return {
+            ...entry,
+            status: 'complete' as const,
+            displayMessage: entry.displayMessage || '(Request cancelled)',
+            completedAt: new Date(),
+          }
+        }
+        return entry
+      })
+    )
+  }, [])
+
+  // ========== OPENROUTER ASSISTANT MUTATION ==========
+
+  const assistantMutation = useMutation({
+    mutationFn: async ({
+      id,
+      question,
+      reasoning,
+      scope,
+      recentSearchResults,
+      recentSearchId,
+      conversationHistory,
+    }: {
+      id: string
+      question: string
+      reasoning: boolean
+      scope: string[]
+      recentSearchResults?: Array<{
+        title: string
+        authors?: string
+        year?: number
+        source?: string
+        abstract?: string
+        doi?: string
+        url?: string
+        pdf_url?: string
+        is_open_access?: boolean
+      }>
+      recentSearchId?: string  // Track search_id for library_update correlation
+      conversationHistory?: Array<{ role: string; content: string }>
+    }) => {
+      if (!activeChannelId) throw new Error('No channel selected')
+
+      // Create placeholder entry
+      const entry: AssistantExchange = {
+        id,
+        channelId: activeChannelId,
+        question,
+        response: {
+          message: '',
+          citations: [],
+          reasoning_used: reasoning,
+          model: selectedModel,
+          usage: undefined,
+          suggested_actions: [],
+        },
+        createdAt: new Date(),
+        appliedActions: [],
+        status: 'pending',
+        displayMessage: '',
+        model: selectedModel,
+        author: { id: user?.id, name: { display: viewerDisplayName } },
+      }
+
+      setAssistantHistory((prev) => [...prev, entry])
+
+      // Build request body
+      const body = JSON.stringify({
+        question,
+        reasoning,
+        scope,
+        conversation_history: conversationHistory,
+        recent_search_results: recentSearchResults?.map((paper) => ({
+          title: paper.title,
+          authors: paper.authors || '',
+          year: paper.year,
+          source: paper.source,
+          abstract: paper.abstract,
+          doi: paper.doi,
+          url: paper.url,
+          pdf_url: paper.pdf_url,
+          is_open_access: paper.is_open_access,
+        })),
+        recent_search_id: recentSearchId,  // For library_update correlation
+      })
+
+      // OpenRouter endpoint with streaming (model is determined by project settings)
+      const url = buildApiUrl(
+        `/projects/${project.id}/discussion/channels/${activeChannelId}/assistant?stream=true`
+      )
+
+      const controller = new AbortController()
+      assistantAbortController.current = controller
+
+      // Get fresh token
+      let token = localStorage.getItem('access_token')
+      if (!token) {
+        const refreshed = await refreshAuthToken()
+        token = refreshed || localStorage.getItem('access_token')
+      }
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body,
+        signal: controller.signal,
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`Request failed: ${response.status} ${errorText}`)
+      }
+
+      if (!response.body) {
+        throw new Error('No response body')
+      }
+
+      // Stream processing
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let accumulatedContent = ''
+      let finalResult: DiscussionAssistantResponse | null = null
+
+      streamingFlags.current[id] = true
+      setAssistantHistory((prev) =>
+        prev.map((e) => (e.id === id ? { ...e, status: 'streaming' } : e))
+      )
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue
+            const jsonStr = line.slice(6).trim()
+            if (!jsonStr || jsonStr === '[DONE]') continue
+
+            try {
+              const event = JSON.parse(jsonStr)
+
+              if (event.type === 'token') {
+                const isFirstToken = accumulatedContent === ''
+                accumulatedContent += event.content || ''
+
+                if (isFirstToken) {
+                  // Update immediately on first token to hide spinner and clear tool waiting state
+                  setAssistantHistory((prev) =>
+                    prev.map((e) =>
+                      e.id === id
+                        ? { ...e, displayMessage: stripActionsBlock(accumulatedContent), isWaitingForTools: false }
+                        : e
+                    )
+                  )
+                } else {
+                  // Throttle subsequent UI updates
+                  if (typingTimers.current[id]) {
+                    clearTimeout(typingTimers.current[id])
+                  }
+                  typingTimers.current[id] = window.setTimeout(() => {
+                    setAssistantHistory((prev) =>
+                      prev.map((e) =>
+                        e.id === id
+                          ? { ...e, displayMessage: stripActionsBlock(accumulatedContent) }
+                          : e
+                      )
+                    )
+                  }, 30)
+                }
+              } else if (event.type === 'status') {
+                // Tool is being executed - set status message and flag
+                setAssistantHistory((prev) =>
+                  prev.map((e) =>
+                    e.id === id ? { ...e, statusMessage: event.message, isWaitingForTools: true } : e
+                  )
+                )
+              } else if (event.type === 'result') {
+                finalResult = event.payload
+              } else if (event.type === 'error') {
+                throw new Error(event.message || 'Stream error')
+              }
+            } catch (parseError) {
+              console.warn('Failed to parse SSE event:', parseError)
+            }
+          }
+        }
+      } finally {
+        streamingFlags.current[id] = false
+        if (typingTimers.current[id]) {
+          clearTimeout(typingTimers.current[id])
+          delete typingTimers.current[id]
+        }
+      }
+
+      if (!finalResult) {
+        finalResult = {
+          message: accumulatedContent,
+          citations: [],
+          reasoning_used: reasoning,
+          model: selectedModel,
+          usage: undefined,
+          suggested_actions: [],
+        }
+      }
+
+      return { id, result: finalResult }
+    },
+    onSuccess: ({ id, result }) => {
+      if (!result) return
+      setAssistantHistory((prev) =>
+        prev.map((entry) => {
+          if (entry.id !== id) return entry
+          const citationLookup = buildCitationLookup(result.citations ?? [])
+          const formattedMessage = formatAssistantMessage(result.message ?? '', citationLookup)
+          return {
+            ...entry,
+            response: result,
+            status: 'complete' as const,
+            completedAt: new Date(),
+            displayMessage: formattedMessage,
+            isWaitingForTools: false,
+            statusMessage: undefined,
+          }
+        })
+      )
+      assistantAbortController.current = null
+    },
+    onError: (error, variables) => {
+      // Check if this was a user-initiated cancel (AbortError)
+      const isAbort = error.name === 'AbortError' || error.message?.includes('abort')
+      if (isAbort) {
+        // User cancelled - cancelAssistantRequest already handled the state update
+        console.log('Request cancelled by user')
+        assistantAbortController.current = null
+        return
+      }
+
+      console.error('OpenRouter assistant error:', error)
+      setAssistantHistory((prev) =>
+        prev.map((entry) => {
+          if (entry.id !== variables.id) return entry
+          return {
+            ...entry,
+            status: 'complete' as const,
+            completedAt: new Date(),
+            displayMessage: `Error: ${error.message || 'Request failed'}`,
+            response: {
+              ...entry.response,
+              message: `Error: ${error.message || 'Request failed'}`,
+            },
+          }
+        })
+      )
+      assistantAbortController.current = null
+    },
+  })
+
+  // ========== LOAD ASSISTANT HISTORY ==========
+
+  // Clear history when channel changes
+  useEffect(() => {
+    setAssistantHistory([])
+    historyChannelRef.current = activeChannelId
+  }, [activeChannelId])
+
+  // Merge server history with local unsynced entries
+  useEffect(() => {
+    if (!activeChannelId) return
+
+    // Merge server data with local unsynced entries (entries created during streaming)
+    setAssistantHistory((prev) => {
+      const idsFromServer = new Set(serverAssistantHistory.map((entry) => entry.id))
+
+      // Keep local entries that don't exist on server yet (currently streaming)
+      // but filter out any that have been completed on server
+      const localOnlyEntries = prev.filter((entry) => {
+        // If this entry exists on server, use server version instead
+        if (idsFromServer.has(entry.id)) return false
+        // Keep local streaming/pending entries
+        if (entry.status === 'streaming' || entry.status === 'pending') return true
+        return false
+      })
+
+      // Combine server history with local-only entries
+      const merged = [...serverAssistantHistory, ...localOnlyEntries]
+
+      // Sort by creation time
+      return merged.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+    })
+  }, [serverAssistantHistory, activeChannelId])
+
+  // Save assistant history to localStorage
   useEffect(() => {
     if (typeof window === 'undefined') return
     const channelId = historyChannelRef.current
@@ -2715,6 +1367,354 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     }
   }, [assistantHistory, buildStorageKey])
 
+  // ========== WEBSOCKET SETUP ==========
+
+  // Connect to WebSocket for real-time updates
+  useEffect(() => {
+    if (!project.id || !activeChannelId) return
+
+    const token = localStorage.getItem('access_token') || ''
+    discussionWebsocket.connect(project.id, activeChannelId, token)
+  }, [project.id, activeChannelId])
+
+  // Handle discussion events from WebSocket (messages + assistant events)
+  const handleDiscussionEvent = useCallback(
+    (payload: any) => {
+      if (!payload || payload.project_id !== project.id) return
+      if (!activeChannelId || payload.channel_id !== activeChannelId) return
+
+      // Handle real-time message events (new messages from other users)
+      if (payload.event === 'message_created' || payload.event === 'message_updated') {
+        queryClient.invalidateQueries({ queryKey: ['projectDiscussion', project.id, activeChannelId] })
+        return
+      }
+
+      if (payload.event === 'message_deleted') {
+        const messageId = payload.message_id
+        if (messageId) {
+          queryClient.setQueryData<DiscussionThreadType[] | undefined>(
+            ['projectDiscussion', project.id, activeChannelId],
+            (threads) => {
+              if (!threads) return threads
+              return threads.filter((t) => t.message.id !== messageId)
+            }
+          )
+        }
+        return
+      }
+
+      // Handle assistant processing started (restores state after channel switch/refresh)
+      if (payload.event === 'assistant_processing') {
+        const exchange = payload.exchange
+        if (!exchange) return
+
+        // Skip if from same user who already has local streaming entry
+        if (exchange.author?.id && user?.id && exchange.author.id === user.id) {
+          setAssistantHistory((prev) => {
+            if (prev.some((entry) => entry.status === 'streaming' || entry.status === 'pending')) return prev
+            if (prev.some((entry) => entry.id === exchange.id)) return prev
+            const entry: AssistantExchange = {
+              id: exchange.id,
+              channelId: activeChannelId,
+              question: exchange.question || '',
+              response: { message: '', citations: [], reasoning_used: false, model: '', usage: undefined, suggested_actions: [] },
+              createdAt: exchange.created_at ? new Date(exchange.created_at) : new Date(),
+              appliedActions: [],
+              status: 'streaming',
+              statusMessage: exchange.status_message || 'Processing...',
+              displayMessage: '',
+              author: exchange.author,
+              fromHistory: true,
+              isWaitingForTools: true,
+            }
+            return [...prev, entry]
+          })
+        }
+        return
+      }
+
+      // Handle assistant status updates (live progress)
+      if (payload.event === 'assistant_status') {
+        const exchangeId = payload.exchange_id
+        const statusMessage = payload.status_message
+        if (!exchangeId || !statusMessage) return
+
+        // Update local state immediately
+        setAssistantHistory((prev) =>
+          prev.map((entry) =>
+            entry.id === exchangeId && entry.status === 'streaming'
+              ? { ...entry, statusMessage, isWaitingForTools: true }
+              : entry
+          )
+        )
+
+        // Also update the query cache so server data stays in sync
+        queryClient.setQueryData<typeof assistantHistoryQuery.data>(
+          ['assistant-history', project.id, activeChannelId],
+          (old) => {
+            if (!old) return old
+            return old.map((item) =>
+              item.id === exchangeId
+                ? { ...item, status_message: statusMessage }
+                : item
+            )
+          }
+        )
+        return
+      }
+
+      // Handle assistant reply completed
+      if (payload.event === 'assistant_reply') {
+        const exchange = payload.exchange
+        if (!exchange) return
+        const exchangeId: string = exchange.id
+
+        // Update existing processing entry
+        setAssistantHistory((prev) => {
+          const existingIndex = prev.findIndex((entry) => entry.id === exchangeId)
+          if (existingIndex >= 0) {
+            const response: DiscussionAssistantResponse = exchange.response || {
+              message: '',
+              citations: [],
+              reasoning_used: false,
+              model: '',
+              usage: undefined,
+              suggested_actions: [],
+            }
+            const lookup = buildCitationLookup(response.citations || [])
+            const formatted = formatAssistantMessage(response.message || '', lookup)
+            const updated = [...prev]
+            updated[existingIndex] = {
+              ...updated[existingIndex],
+              response,
+              status: 'complete',
+              statusMessage: undefined,
+              displayMessage: formatted,
+              completedAt: new Date(),
+              isWaitingForTools: false,
+            }
+            return updated
+          }
+          return prev
+        })
+        // Refresh the query to get latest data
+        queryClient.invalidateQueries({ queryKey: ['assistant-history', project.id, activeChannelId] })
+      }
+    },
+    [project.id, activeChannelId, user?.id, queryClient]
+  )
+
+  // Subscribe to WebSocket discussion events
+  useEffect(() => {
+    discussionWebsocket.on('discussion_event', handleDiscussionEvent)
+    return () => {
+      discussionWebsocket.off('discussion_event', handleDiscussionEvent)
+    }
+  }, [handleDiscussionEvent])
+
+  // Close channel menu on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (channelMenuRef.current && !channelMenuRef.current.contains(event.target as Node)) {
+        setChannelMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Scroll to bottom when new messages arrive
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [assistantHistory, orderedThreads])
+
+  // ========== CONVERSATION ITEMS ==========
+
+  const conversationItems = useMemo<ConversationItem[]>(() => {
+    const items: ConversationItem[] = []
+
+    for (const thread of orderedThreads) {
+      items.push({
+        kind: 'thread',
+        timestamp: new Date(thread.message.created_at).getTime(),
+        thread,
+      })
+    }
+
+    for (const exchange of assistantHistory) {
+      items.push({
+        kind: 'assistant',
+        timestamp: exchange.createdAt.getTime(),
+        exchange,
+      })
+    }
+
+    return items.sort((a, b) => a.timestamp - b.timestamp)
+  }, [orderedThreads, assistantHistory])
+
+  // ========== ACTION PROCESSING ==========
+
+  // Process search_results and library_update actions
+  useEffect(() => {
+    // Track latest search_id per channel within this loop
+    // This ensures we only show ingestion states for the LATEST search
+    const latestSearchIdByChannel: Record<string, string> = {}
+
+    // First pass: Find the latest search_id for each channel
+    for (const exchange of assistantHistory) {
+      if (exchange.status !== 'complete') continue
+      if (!exchange.response?.suggested_actions) continue
+      const channelId = exchange.channelId || activeChannelId
+      if (!channelId) continue
+
+      for (const action of exchange.response.suggested_actions) {
+        if (action.action_type === 'search_results') {
+          const payload = action.payload as { search_id?: string } | undefined
+          if (payload?.search_id) {
+            latestSearchIdByChannel[channelId] = payload.search_id
+          }
+        }
+      }
+    }
+
+    // Second pass: Process actions
+    for (const exchange of assistantHistory) {
+      if (exchange.status !== 'complete') continue
+      if (!exchange.response?.suggested_actions) continue
+
+      for (let i = 0; i < exchange.response.suggested_actions.length; i++) {
+        const action = exchange.response.suggested_actions[i]
+        const actionKey = `${exchange.id}:${i}`
+        if (exchange.appliedActions.includes(actionKey)) continue
+
+        // Handle search_results action
+        if (action.action_type === 'search_results') {
+          const payload = action.payload as { query?: string; papers?: DiscoveredPaper[]; total_found?: number; search_id?: string } | undefined
+          const papers = payload?.papers || []
+          const query = payload?.query || ''
+          const searchId = payload?.search_id
+
+          if (!activeChannelId) continue
+          if (exchange.channelId && exchange.channelId !== activeChannelId) continue
+
+          markActionApplied(exchange.id, actionKey)
+
+          if (papers.length > 0) {
+            // Clear dismissed state for this channel - new search should show results
+            if (!exchange.fromHistory) {
+              setDismissedNotificationChannels((prev) => {
+                const next = new Set(prev)
+                next.delete(activeChannelId)
+                return next
+              })
+              // Clear previous ingestion states so new search notification takes priority
+              setIngestionStatesByChannel((prev) => {
+                const next = { ...prev }
+                delete next[activeChannelId]
+                return next
+              })
+            }
+
+            setReferenceSearchResults({
+              exchangeId: exchange.id,
+              channelId: activeChannelId,
+              papers: papers,
+              query: query,
+              isSearching: false,
+              searchId: searchId,
+            })
+            setDiscoveryQueue({
+              papers: papers,
+              query: query,
+              isSearching: false,
+              notification: `Found ${papers.length} papers`,
+            })
+          }
+          continue
+        }
+
+        // Handle library_update action
+        if (action.action_type === 'library_update') {
+          const payload = action.payload as { search_id?: string; updates?: { index: number; reference_id: string; ingestion_status: string }[] } | undefined
+          const updates = payload?.updates || []
+          const searchId = payload?.search_id
+
+          if (!activeChannelId) continue
+          if (exchange.channelId && exchange.channelId !== activeChannelId) continue
+
+          // SKIP if this library_update is for an OLD search (not the latest)
+          // This prevents stale ingestion notifications from previous searches
+          const latestSearchId = latestSearchIdByChannel[activeChannelId]
+          if (searchId && latestSearchId && searchId !== latestSearchId) {
+            markActionApplied(exchange.id, actionKey)
+            continue  // Skip this library_update - it's from an old search
+          }
+
+          // For history entries, skip if user dismissed notifications
+          if (exchange.fromHistory && dismissedNotificationChannels.has(activeChannelId)) continue
+
+          // Fresh library_update - clear dismissed state
+          if (!exchange.fromHistory && dismissedNotificationChannels.has(activeChannelId)) {
+            setDismissedNotificationChannels((prev) => {
+              const next = new Set(prev)
+              next.delete(activeChannelId)
+              return next
+            })
+          }
+
+          markActionApplied(exchange.id, actionKey)
+
+          // Convert AI updates to ingestion state keyed by paper ID
+          // Find papers from matching search_results action (using search_id), not from React state
+          // This ensures it works on page refresh when state hasn't been updated yet
+          if (updates.length > 0) {
+            let queuePapers: DiscoveredPaper[] = []
+
+            // First try to find papers from history using search_id
+            if (searchId) {
+              for (const hist of assistantHistory) {
+                if (hist.status !== 'complete' || !hist.response?.suggested_actions) continue
+                for (const act of hist.response.suggested_actions) {
+                  if (act.action_type === 'search_results') {
+                    const srPayload = act.payload as { search_id?: string; papers?: DiscoveredPaper[] } | undefined
+                    if (srPayload?.search_id === searchId && srPayload?.papers) {
+                      queuePapers = srPayload.papers
+                      break
+                    }
+                  }
+                }
+                if (queuePapers.length > 0) break
+              }
+            }
+
+            // Fallback to React state if history lookup failed
+            if (queuePapers.length === 0) {
+              queuePapers = discoveryQueueByChannel[activeChannelId]?.papers || []
+            }
+
+            setIngestionStatesByChannel((prev) => {
+              const channelStates = { ...(prev[activeChannelId] || {}) }
+              for (const u of updates) {
+                const paper = queuePapers[u.index]
+                if (paper) {
+                  channelStates[paper.id] = {
+                    referenceId: u.reference_id,
+                    status: u.ingestion_status as IngestionStatus,
+                    isAdding: u.ingestion_status === 'pending',
+                  }
+                }
+              }
+              return { ...prev, [activeChannelId]: channelStates }
+            })
+          }
+          continue
+        }
+      }
+    }
+  }, [assistantHistory, markActionApplied, activeChannelId, setReferenceSearchResults, setDiscoveryQueue, dismissedNotificationChannels])
+
+  // ========== EVENT HANDLERS ==========
+
   const handleSendMessage = (content: string) => {
     const trimmed = content.trim()
     if (!trimmed) return
@@ -2725,10 +1725,8 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         alert('Select a channel before asking Scholar AI.')
         return
       }
-      // Prevent double-submit while AI is processing
-      if (assistantMutation.isPending) {
-        return
-      }
+      if (assistantMutation.isPending) return
+
       const commandBody = trimmed.slice(1).trim()
       if (!commandBody) {
         alert('Add a command after the slash (e.g., /reason What should we do next?).')
@@ -2759,15 +1757,18 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         alert('Add a question after the slash (e.g., /reason What is next?) to ask Scholar AI.')
         return
       }
+
       const entryId = createAssistantEntryId()
-      // Pass recent search results for conversational context
-      // Prefer reference search results first, fall back to discovery queue
-      const papersToSend = (referenceSearchResults?.papers?.length ?? 0) > 0
-        ? referenceSearchResults?.papers ?? []
-        : discoveryQueue.papers
+
+      // Build search results context
+      const papersToSend =
+        (referenceSearchResults?.papers?.length ?? 0) > 0
+          ? referenceSearchResults?.papers ?? []
+          : discoveryQueue.papers
+
       const recentSearchResults = papersToSend.map((p) => ({
         title: p.title,
-        authors: p.authors?.slice(0, 3).join(', '),
+        authors: Array.isArray(p.authors) ? p.authors.slice(0, 3).join(', ') : p.authors,
         year: p.year,
         source: p.source,
         abstract: p.abstract,
@@ -2776,8 +1777,8 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         pdf_url: p.pdf_url,
         is_open_access: p.is_open_access,
       }))
-      const recentSearchId = referenceSearchResults?.searchId ?? discoveryQueue.searchId
-      // Build conversation history from previous exchanges
+
+      // Build conversation history
       const conversationHistory: Array<{ role: string; content: string }> = []
       for (const exchange of assistantHistory) {
         if (exchange.question) {
@@ -2787,12 +1788,20 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           conversationHistory.push({ role: 'assistant', content: exchange.response.message })
         }
       }
-      assistantMutation.mutate({ id: entryId, question, reasoning, scope: assistantScope, recentSearchResults, recentSearchId, conversationHistory })
-      // Don't clear search results here - they will be replaced when new search results arrive
-      // This keeps previous search results visible until a new paper search completes
+
+      assistantMutation.mutate({
+        id: entryId,
+        question,
+        reasoning,
+        scope: assistantScope,
+        recentSearchResults,
+        recentSearchId: referenceSearchResults?.searchId,  // For library_update correlation
+        conversationHistory,
+      })
       return
     }
 
+    // Regular message
     if (!activeChannelId && !editingMessage) {
       alert('Select a channel before sending messages.')
       return
@@ -2821,13 +1830,8 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     }
   }
 
-  const handleCancelReply = () => {
-    setReplyingTo(null)
-  }
-
-  const handleCancelEdit = () => {
-    setEditingMessage(null)
-  }
+  const handleCancelReply = () => setReplyingTo(null)
+  const handleCancelEdit = () => setEditingMessage(null)
 
   const handleOpenCreateChannel = () => {
     setNewChannelName('')
@@ -2836,35 +1840,11 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     setIsCreateChannelModalOpen(true)
   }
 
-  const toggleScopeResource = (
-    type: 'paper' | 'reference' | 'meeting',
-    id: string,
-    setScope: React.Dispatch<React.SetStateAction<ChannelScopeConfig | null>>
-  ) => {
-    setScope((prev) => {
-      const keyMap = { paper: 'paper_ids', reference: 'reference_ids', meeting: 'meeting_ids' } as const
-      const key = keyMap[type]
-
-      if (prev === null) {
-        // Switching from project-wide to specific scope
-        return { [key]: [id] } as ChannelScopeConfig
-      }
-
-      const currentIds = prev[key] || []
-      if (currentIds.includes(id)) {
-        const filtered = currentIds.filter((existingId) => existingId !== id)
-        const newScope = { ...prev, [key]: filtered.length > 0 ? filtered : null }
-        // If all scope arrays are empty/null, return null (project-wide)
-        const hasAny = newScope.paper_ids?.length || newScope.reference_ids?.length || newScope.meeting_ids?.length
-        return hasAny ? newScope : null
-      }
-
-      return { ...prev, [key]: [...currentIds, id] }
-    })
-  }
-
   const handleCloseCreateChannel = () => {
     setIsCreateChannelModalOpen(false)
+    setNewChannelName('')
+    setNewChannelDescription('')
+    setNewChannelScope(null)
   }
 
   const handleCreateChannelSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -2873,7 +1853,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
       alert('Channel name is required.')
       return
     }
-
     createChannelMutation.mutate({
       name: newChannelName.trim(),
       description: newChannelDescription.trim() || undefined,
@@ -2881,8 +1860,171 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     })
   }
 
+  const handleToggleArchive = (channel: DiscussionChannelSummary) => {
+    if (channel.is_default) return
+    const action = channel.is_archived ? 'unarchive' : 'archive'
+    if (!window.confirm(`Are you sure you want to ${action} "${channel.name}"?`)) return
+
+    updateChannelMutation.mutate({
+      channelId: channel.id,
+      payload: { is_archived: !channel.is_archived },
+    })
+  }
+
+  const handleMobileChannelSelect = (channelId: string) => {
+    setActiveChannelId(channelId)
+    setIsMobileSidebarOpen(false)
+  }
+
+  // Paper form handlers
+  const handleAddKeyword = () => {
+    const kw = keywordInput.trim()
+    if (kw && !paperFormData.keywords.includes(kw)) {
+      setPaperFormData((prev) => ({ ...prev, keywords: [...prev.keywords, kw] }))
+    }
+    setKeywordInput('')
+  }
+
+  const handleRemoveKeyword = (keyword: string) => {
+    setPaperFormData((prev) => ({
+      ...prev,
+      keywords: prev.keywords.filter((k) => k !== keyword),
+    }))
+  }
+
+  const handleToggleObjective = (objective: string) => {
+    setPaperFormData((prev) => {
+      if (prev.objectives.includes(objective)) {
+        return { ...prev, objectives: prev.objectives.filter((o) => o !== objective) }
+      }
+      return { ...prev, objectives: [...prev.objectives, objective] }
+    })
+  }
+
+  const handlePaperCreationSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!paperFormData.title.trim()) {
+      alert('Paper title is required.')
+      return
+    }
+    if (!paperCreationDialog) return
+
+    paperActionMutation.mutate(
+      {
+        actionType: 'create_paper',
+        payload: {
+          title: paperFormData.title.trim(),
+          paper_type: paperFormData.paperType,
+          authoring_mode: paperFormData.authoringMode,
+          abstract: paperFormData.abstract.trim() || undefined,
+          keywords: paperFormData.keywords.length > 0 ? paperFormData.keywords : undefined,
+          objectives: paperFormData.objectives.length > 0 ? paperFormData.objectives : undefined,
+        },
+      },
+      {
+        onSuccess: (data) => {
+          if (data.paper_id && paperCreationDialog) {
+            markActionApplied(paperCreationDialog.exchangeId, `${paperCreationDialog.exchangeId}:${paperCreationDialog.actionIndex}`)
+          }
+          setPaperCreationDialog(null)
+          setPaperFormData({
+            title: '',
+            paperType: 'research',
+            authoringMode: 'latex',
+            abstract: '',
+            keywords: [],
+            objectives: [],
+          })
+        },
+      }
+    )
+  }
+
+  const handleSuggestedAction = (
+    exchange: AssistantExchange,
+    action: DiscussionAssistantSuggestedAction,
+    index: number
+  ) => {
+    if (!activeChannelId) {
+      alert('Select a channel before accepting assistant suggestions.')
+      return
+    }
+
+    const actionKey = `${exchange.id}:${index}`
+    if (exchange.appliedActions.includes(actionKey)) return
+
+    if (action.action_type === 'create_paper') {
+      const title = String(action.payload?.title || '').trim()
+      const paperType = String(action.payload?.paper_type || 'research').trim()
+      const authoringMode = String(action.payload?.authoring_mode || 'latex').trim()
+      const abstract = String(action.payload?.abstract || '').trim()
+      const suggestedKeywords = Array.isArray(action.payload?.keywords) ? action.payload.keywords : []
+
+      setPaperCreationDialog({
+        open: true,
+        exchangeId: exchange.id,
+        actionIndex: index,
+        suggestedTitle: title,
+        suggestedType: paperType,
+        suggestedMode: authoringMode,
+        suggestedAbstract: abstract,
+        suggestedKeywords: suggestedKeywords,
+      })
+      setPaperFormData({
+        title: title,
+        paperType: paperType,
+        authoringMode: authoringMode,
+        abstract: abstract,
+        keywords: suggestedKeywords,
+        objectives: [],
+      })
+      return
+    }
+
+    if (action.action_type === 'artifact_created') {
+      const title = String(action.payload?.title || 'download').trim()
+      const filename = String(action.payload?.filename || `${title}.md`).trim()
+      const contentBase64 = String(action.payload?.content_base64 || '')
+      const mimeType = String(action.payload?.mime_type || 'text/plain')
+
+      if (!contentBase64) {
+        alert('The artifact is missing content.')
+        return
+      }
+
+      try {
+        const binaryString = atob(contentBase64)
+        const bytes = new Uint8Array(binaryString.length)
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i)
+        }
+        const blob = new Blob([bytes], { type: mimeType })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = filename
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+        markActionApplied(exchange.id, actionKey)
+        queryClient.invalidateQueries({ queryKey: ['channel-artifacts', project.id, activeChannelId] })
+      } catch (e) {
+        console.error('Failed to decode artifact:', e)
+        alert('Failed to download artifact.')
+      }
+      return
+    }
+
+    alert('This assistant suggestion type is not yet supported.')
+  }
+
+  // ========== DERIVED STATE ==========
+
   const activeChannel = channels.find((channel) => channel.id === activeChannelId) ?? null
   const hasAssistantHistory = assistantHistory.length > 0
+
+  // ========== RENDER HELPERS ==========
 
   const renderDiscussionContent = () => {
     if (isLoading || channelsQuery.isLoading) {
@@ -2915,7 +2057,9 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           <div className="text-center">
             <MessageCircle className="mx-auto h-10 w-10 sm:h-12 sm:w-12 text-gray-300 dark:text-slate-600" />
             <h3 className="mt-3 sm:mt-4 text-xs sm:text-sm font-medium text-gray-900 dark:text-slate-100">No messages yet</h3>
-            <p className="mt-1 text-xs sm:text-sm text-gray-500 dark:text-slate-400">Start the conversation by sending a message or ask Scholar AI for help.</p>
+            <p className="mt-1 text-xs sm:text-sm text-gray-500 dark:text-slate-400">
+              Start the conversation by sending a message or ask Scholar AI for help using /{currentModelInfo.name}.
+            </p>
           </div>
         </div>
       )
@@ -2926,209 +2070,207 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         {conversationItems.map((item) => {
           if (item.kind === 'assistant') {
             const { exchange } = item
-          const citationLookup = buildCitationLookup(exchange.response.citations)
-          const formattedMessage = formatAssistantMessage(exchange.response.message, citationLookup)
-          const askedLabel = formatDistanceToNow(exchange.createdAt, { addSuffix: true })
-          const answerLabel = exchange.completedAt
-            ? formatDistanceToNow(exchange.completedAt, { addSuffix: true })
-            : askedLabel
-          const displayedMessage = exchange.displayMessage || formattedMessage
-          const showTyping = !displayedMessage && exchange.status !== 'complete'
-          const authorLabel = resolveAuthorLabel(exchange.author)
-          const avatarText = authorLabel.trim().charAt(0).toUpperCase() || 'U'
-          const promptBubbleClass = 'inline-block max-w-full sm:max-w-fit rounded-xl sm:rounded-2xl bg-purple-50/70 px-3 py-1.5 sm:px-4 sm:py-2 shadow-sm ring-2 ring-purple-200 transition dark:bg-purple-500/15 dark:ring-purple-400/40 dark:shadow-purple-900/30'
-          const responseBubbleClass = 'inline-block max-w-full sm:max-w-fit rounded-xl sm:rounded-2xl bg-white px-3 py-1.5 sm:px-4 sm:py-2 transition dark:bg-slate-800/70 dark:ring-1 dark:ring-slate-700'
-          return (
-            <div key={exchange.id} className="border-b border-gray-100 pb-3 sm:pb-4 last:border-b-0 dark:border-slate-700">
-              <div className="space-y-3 sm:space-y-4 pt-3 sm:pt-4">
-                <div className="flex items-start gap-2 sm:gap-3">
-                  <div className="flex h-6 w-6 sm:h-8 sm:w-8 flex-shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs sm:text-sm font-medium text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-200">
-                    {avatarText}
-                  </div>
-                  <div className="flex min-w-0 flex-1 flex-col">
-                    <div className="mb-1 flex flex-wrap items-center gap-1.5 sm:gap-2">
-                      <span className="text-xs sm:text-sm font-medium text-gray-900">{authorLabel}</span>
-                      <span className="text-[10px] sm:text-xs text-gray-500">{askedLabel}</span>
-                      <span className="inline-flex items-center gap-0.5 sm:gap-1 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[9px] sm:text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-200">
-                        <Bot className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                        AI prompt
-                      </span>
+            const citationLookup = buildCitationLookup(exchange.response.citations)
+            const formattedMessage = formatAssistantMessage(exchange.response.message, citationLookup)
+            const askedLabel = formatDistanceToNow(exchange.createdAt, { addSuffix: true })
+            const answerLabel = exchange.completedAt
+              ? formatDistanceToNow(exchange.completedAt, { addSuffix: true })
+              : askedLabel
+            const displayedMessage = exchange.displayMessage || formattedMessage
+            const showTyping = !displayedMessage && exchange.status !== 'complete'
+            // Show tool execution indicator when we have content but tools are being executed
+            const isExecutingTools = displayedMessage && exchange.isWaitingForTools && exchange.status !== 'complete'
+            const authorLabel = resolveAuthorLabel(exchange.author)
+            const avatarText = authorLabel.trim().charAt(0).toUpperCase() || 'U'
+            const modelName = exchange.model
+              ? openrouterModels.find((m) => m.id === exchange.model)?.name || exchange.model
+              : currentModelInfo.name
+
+            const promptBubbleClass = 'inline-block max-w-full sm:max-w-fit rounded-xl sm:rounded-2xl bg-purple-50/70 px-3 py-1.5 sm:px-4 sm:py-2 shadow-sm ring-2 ring-purple-200 transition dark:bg-purple-500/15 dark:ring-purple-400/40 dark:shadow-purple-900/30'
+            const responseBubbleClass = 'inline-block max-w-full sm:max-w-fit rounded-xl sm:rounded-2xl bg-white px-3 py-1.5 sm:px-4 sm:py-2 transition dark:bg-slate-800/70 dark:ring-1 dark:ring-slate-700'
+
+            return (
+              <div key={exchange.id} className="border-b border-gray-100 pb-3 sm:pb-4 last:border-b-0 dark:border-slate-700">
+                <div className="space-y-3 sm:space-y-4 pt-3 sm:pt-4">
+                  {/* User question */}
+                  <div className="flex items-start gap-2 sm:gap-3">
+                    <div className="flex h-6 w-6 sm:h-8 sm:w-8 flex-shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs sm:text-sm font-medium text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-200">
+                      {avatarText}
                     </div>
-                    <div className={promptBubbleClass}>
-                      <p className="text-xs sm:text-sm text-gray-700 break-words">{exchange.question}</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2 sm:gap-3">
-                  <div className="flex h-6 w-6 sm:h-8 sm:w-8 flex-shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs sm:text-sm font-medium text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-200">
-                    AI
-                  </div>
-                  <div className="flex min-w-0 flex-1 flex-col">
-                    <div className="mb-1 flex flex-wrap items-center gap-1.5 sm:gap-2">
-                      <span className="text-xs sm:text-sm font-medium text-gray-900">Scholar AI</span>
-                      <span className="text-[10px] sm:text-xs text-gray-500">{answerLabel}</span>
-                      {exchange.response.reasoning_used && (
-                        <span className="inline-flex items-center gap-0.5 sm:gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] sm:text-[10px] font-medium text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-200">
-                          <Sparkles className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                          Reasoning
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <div className="mb-1 flex flex-wrap items-center gap-1.5 sm:gap-2">
+                        <span className="text-xs sm:text-sm font-medium text-gray-900 dark:text-slate-100">{authorLabel}</span>
+                        <span className="text-[10px] sm:text-xs text-gray-500">{askedLabel}</span>
+                        <span className="inline-flex items-center gap-0.5 sm:gap-1 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[9px] sm:text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-200">
+                          <Bot className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                          {modelName}
                         </span>
-                      )}
+                      </div>
+                      <div className={promptBubbleClass}>
+                        <p className="text-xs sm:text-sm text-gray-700 dark:text-slate-200 break-words">{exchange.question}</p>
+                      </div>
                     </div>
-                    <div className={responseBubbleClass}>
-                      {showTyping ? (
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-3">
-                            <div className="flex items-center gap-2.5 text-sm font-medium text-indigo-600 dark:text-indigo-300">
-                              <div className="relative">
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              </div>
-                              <span>{exchange.statusMessage || 'Thinking'}...</span>
-                            </div>
-                            <button
-                              onClick={cancelAssistantRequest}
-                              className="ml-auto flex h-6 w-6 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
-                              title="Cancel"
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <div className="h-1 w-1 animate-pulse rounded-full bg-indigo-400 dark:bg-indigo-500" style={{ animationDelay: '0ms' }} />
-                            <div className="h-1 w-1 animate-pulse rounded-full bg-indigo-400 dark:bg-indigo-500" style={{ animationDelay: '150ms' }} />
-                            <div className="h-1 w-1 animate-pulse rounded-full bg-indigo-400 dark:bg-indigo-500" style={{ animationDelay: '300ms' }} />
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="prose prose-sm max-w-none text-gray-900 prose-headings:text-gray-900 prose-p:leading-relaxed prose-li:marker:text-gray-400 dark:prose-invert prose-p:text-xs sm:prose-p:text-sm prose-headings:text-sm sm:prose-headings:text-base prose-li:text-xs sm:prose-li:text-sm">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {displayedMessage}
-                          </ReactMarkdown>
-                        </div>
-                      )}
+                  </div>
+                  {/* AI response */}
+                  <div className="flex items-start gap-2 sm:gap-3">
+                    <div className="flex h-6 w-6 sm:h-8 sm:w-8 flex-shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs sm:text-sm font-medium text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-200">
+                      AI
                     </div>
-                    {!showTyping && exchange.response.citations.length > 0 && (
-                      <div className="mt-2 sm:mt-3 space-y-1 sm:space-y-1.5">
-                        <p className="text-[10px] sm:text-xs font-medium text-slate-500 dark:text-slate-400">Sources Used:</p>
-                        <div className="flex flex-wrap gap-1.5 sm:gap-2">
-                          {exchange.response.citations.map((citation) => {
-                            const getResourceIcon = (resourceType?: string) => {
-                              switch (resourceType) {
-                                case 'paper':
-                                  return <FileText className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-blue-500" />
-                                case 'reference':
-                                  return <BookOpen className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-emerald-500" />
-                                case 'meeting':
-                                  return <Calendar className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-purple-500" />
-                                default:
-                                  return <FileText className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-slate-400" />
-                              }
-                            }
-                            return (
-                              <div
-                                key={`${exchange.id}-${citation.origin}-${citation.origin_id}`}
-                                className="inline-flex items-center gap-1 sm:gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-1 sm:px-2.5 sm:py-1.5 text-[10px] sm:text-xs dark:border-slate-700 dark:bg-slate-800"
-                              >
-                                {getResourceIcon(citation.resource_type ?? undefined)}
-                                <span className="font-medium text-slate-700 dark:text-slate-200 truncate max-w-[100px] sm:max-w-none">
-                                  {citation.label}
-                                </span>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
-                    {/* Paper created/updated actions - show View/Write buttons */}
-                    {!showTyping && exchange.response.suggested_actions?.some(a => a.action_type === 'paper_created' || a.action_type === 'paper_updated') && (
-                      <div className="mt-2 sm:mt-3 flex flex-wrap gap-1.5 sm:gap-2">
-                        {exchange.response.suggested_actions
-                          .filter(a => a.action_type === 'paper_created' || a.action_type === 'paper_updated')
-                          .map((action, idx) => {
-                            const urlId = action.payload?.url_id || action.payload?.paper_id
-                            const title = action.payload?.title || 'Paper'
-                            return (
-                              <div key={idx} className="inline-flex items-center gap-1.5 sm:gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1.5 sm:px-3 sm:py-2 dark:border-emerald-400/30 dark:bg-emerald-500/10">
-                                <FileText className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
-                                <span className="text-xs sm:text-sm font-medium text-emerald-700 dark:text-emerald-300 truncate max-w-[100px] sm:max-w-[200px]">{title}</span>
-                                <div className="ml-1 sm:ml-2 flex gap-0.5 sm:gap-1 flex-shrink-0">
-                                  <button
-                                    onClick={() => navigate(`/projects/${getProjectUrlId(project)}/papers/${urlId}`)}
-                                    className="rounded px-1.5 py-0.5 text-[10px] sm:text-xs font-medium text-emerald-600 hover:bg-emerald-100 dark:text-emerald-400 dark:hover:bg-emerald-500/20"
-                                  >
-                                    View
-                                  </button>
-                                  <button
-                                    onClick={() => navigate(`/projects/${getProjectUrlId(project)}/papers/${urlId}/editor`)}
-                                    className="rounded px-1.5 py-0.5 text-[10px] sm:text-xs font-medium text-emerald-600 hover:bg-emerald-100 dark:text-emerald-400 dark:hover:bg-emerald-500/20"
-                                  >
-                                    Write
-                                  </button>
-                                </div>
-                              </div>
-                            )
-                          })}
-                      </div>
-                    )}
-                    {!showTyping && exchange.response.suggested_actions && exchange.response.suggested_actions.filter(a =>
-                      a.action_type !== 'paper_created' &&
-                      a.action_type !== 'paper_updated' &&
-                      a.action_type !== 'library_update' &&
-                      a.action_type !== 'search_results'
-                    ).length > 0 && (
-                      <div className="mt-2 space-y-1">
-                        <p className="text-[10px] sm:text-[11px] uppercase tracking-wide text-gray-400">Suggested actions</p>
-                        <div className="flex flex-wrap gap-1.5 sm:gap-2">
-                          {exchange.response.suggested_actions.filter(a =>
-                            // Filter out internal actions that update UI but shouldn't show as suggested actions
-                            a.action_type !== 'paper_created' &&
-                            a.action_type !== 'paper_updated' &&
-                            a.action_type !== 'library_update' &&
-                            a.action_type !== 'search_results'
-                          ).map((action, idx) => {
-                            const actionKey = `${exchange.id}:${idx}`
-                            const applied = exchange.appliedActions.includes(actionKey)
-                            const isPending = createTaskMutation.isPending || paperActionMutation.isPending || searchReferencesMutation.isPending
-                            const getActionIcon = () => {
-                              if (applied) return <Check className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                              switch (action.action_type) {
-                                case 'create_paper': return <FilePlus className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                                case 'edit_paper': return <Pencil className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                                case 'paper_updated': return <FileText className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                                case 'create_task': return <CheckSquare className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                                case 'search_references': return <Search className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                                case 'artifact_created': return <Download className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                                default: return <Sparkles className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                              }
-                            }
-                            return (
-                              <button
-                                key={actionKey}
-                                type="button"
-                                onClick={() => handleSuggestedAction(exchange, action, idx)}
-                                disabled={applied || isPending}
-                                className={`inline-flex items-center gap-1 sm:gap-1.5 rounded-full border px-2 py-0.5 sm:px-3 sm:py-1 text-[10px] sm:text-xs font-medium transition ${applied ? 'border-emerald-300 bg-emerald-50 text-emerald-600 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-200' : 'border-indigo-200 bg-white text-indigo-600 hover:bg-indigo-50 dark:border-indigo-400/40 dark:bg-slate-800/70 dark:text-indigo-200 dark:hover:bg-indigo-500/10'}`}
-                              >
-                                {getActionIcon()}
-                                <span className="truncate max-w-[80px] sm:max-w-none">{applied ? 'Applied' : action.summary}</span>
-                              </button>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
-                    {!showTyping && (
-                      <div className="mt-1.5 sm:mt-2 flex flex-wrap items-center gap-2 sm:gap-3 text-[9px] sm:text-[11px] text-gray-400 dark:text-slate-500">
-                        {exchange.response.model && <span className="hidden sm:inline">Model: {exchange.response.model}</span>}
-                        {exchange.response.usage && typeof exchange.response.usage['total_tokens'] === 'number' && (
-                          <span className="hidden sm:inline">Total tokens: {exchange.response.usage['total_tokens'] as number}</span>
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <div className="mb-1 flex flex-wrap items-center gap-1.5 sm:gap-2">
+                        <span className="text-xs sm:text-sm font-medium text-gray-900 dark:text-slate-100">Scholar AI</span>
+                        <span className="text-[10px] sm:text-xs text-gray-500">{answerLabel}</span>
+                        {exchange.response.reasoning_used && (
+                          <span className="inline-flex items-center gap-0.5 sm:gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] sm:text-[10px] font-medium text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-200">
+                            <Sparkles className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                            Reasoning
+                          </span>
                         )}
                       </div>
-                    )}
+                      <div className={responseBubbleClass}>
+                        {showTyping ? (
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-2.5 text-sm font-medium text-indigo-600 dark:text-indigo-300">
+                                <div className="relative">
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                </div>
+                                <span>{exchange.statusMessage || 'Thinking'}...</span>
+                              </div>
+                              <button
+                                onClick={cancelAssistantRequest}
+                                className="ml-auto flex h-6 w-6 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
+                                title="Cancel"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <div className="h-1 w-1 animate-pulse rounded-full bg-indigo-400 dark:bg-indigo-500" style={{ animationDelay: '0ms' }} />
+                              <div className="h-1 w-1 animate-pulse rounded-full bg-indigo-400 dark:bg-indigo-500" style={{ animationDelay: '150ms' }} />
+                              <div className="h-1 w-1 animate-pulse rounded-full bg-indigo-400 dark:bg-indigo-500" style={{ animationDelay: '300ms' }} />
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="prose prose-sm max-w-none text-gray-900 prose-headings:text-gray-900 prose-p:leading-relaxed prose-li:marker:text-gray-400 dark:prose-invert prose-p:text-xs sm:prose-p:text-sm prose-headings:text-sm sm:prose-headings:text-base prose-li:text-xs sm:prose-li:text-sm">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {displayedMessage}
+                            </ReactMarkdown>
+                          </div>
+                        )}
+                        {/* Tool execution indicator - shown when processing tools after initial message */}
+                        {isExecutingTools && (
+                          <div className="mt-3 flex items-center gap-2 text-sm text-indigo-600 dark:text-indigo-400">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <span>{exchange.statusMessage}...</span>
+                          </div>
+                        )}
+                      </div>
+                      {/* Citations */}
+                      {!showTyping && exchange.response.citations.length > 0 && (
+                        <div className="mt-2 sm:mt-3 space-y-1 sm:space-y-1.5">
+                          <p className="text-[10px] sm:text-xs font-medium text-slate-500 dark:text-slate-400">Sources Used:</p>
+                          <div className="flex flex-wrap gap-1.5 sm:gap-2">
+                            {exchange.response.citations.map((citation) => {
+                              const getResourceIcon = (resourceType?: string) => {
+                                switch (resourceType) {
+                                  case 'paper': return <FileText className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-blue-500" />
+                                  case 'reference': return <BookOpen className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-emerald-500" />
+                                  case 'meeting': return <Calendar className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-purple-500" />
+                                  default: return <FileText className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-slate-400" />
+                                }
+                              }
+                              return (
+                                <div
+                                  key={`${exchange.id}-${citation.origin}-${citation.origin_id}`}
+                                  className="inline-flex items-center gap-1 sm:gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-1 sm:px-2.5 sm:py-1.5 text-[10px] sm:text-xs dark:border-slate-700 dark:bg-slate-800"
+                                >
+                                  {getResourceIcon(citation.resource_type ?? undefined)}
+                                  <span className="font-medium text-slate-700 dark:text-slate-200 truncate max-w-[100px] sm:max-w-none">
+                                    {citation.label}
+                                  </span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      {/* Paper created/updated actions */}
+                      {!showTyping && exchange.response.suggested_actions?.some(a => a.action_type === 'paper_created' || a.action_type === 'paper_updated') && (
+                        <div className="mt-2 sm:mt-3 flex flex-wrap gap-1.5 sm:gap-2">
+                          {exchange.response.suggested_actions
+                            .filter(a => a.action_type === 'paper_created' || a.action_type === 'paper_updated')
+                            .map((action, idx) => {
+                              const urlId = action.payload?.url_id || action.payload?.paper_id
+                              return (
+                                <button
+                                  key={idx}
+                                  onClick={() => navigate(`/projects/${getProjectUrlId(project)}/papers/${urlId}`)}
+                                  className="inline-flex items-center gap-1.5 sm:gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm font-medium text-emerald-700 hover:bg-emerald-100 dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20 transition-colors"
+                                >
+                                  <FileText className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-600 dark:text-emerald-400" />
+                                  View Paper
+                                </button>
+                              )
+                            })}
+                        </div>
+                      )}
+                      {/* Suggested actions */}
+                      {!showTyping && exchange.response.suggested_actions && exchange.response.suggested_actions.filter(a =>
+                        a.action_type !== 'paper_created' &&
+                        a.action_type !== 'paper_updated' &&
+                        a.action_type !== 'library_update' &&
+                        a.action_type !== 'search_results'
+                      ).length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          <p className="text-[10px] sm:text-[11px] uppercase tracking-wide text-gray-400">Suggested actions</p>
+                          <div className="flex flex-wrap gap-1.5 sm:gap-2">
+                            {exchange.response.suggested_actions.filter(a =>
+                              a.action_type !== 'paper_created' &&
+                              a.action_type !== 'paper_updated' &&
+                              a.action_type !== 'library_update' &&
+                              a.action_type !== 'search_results'
+                            ).map((action, idx) => {
+                              const actionKey = `${exchange.id}:${idx}`
+                              const applied = exchange.appliedActions.includes(actionKey)
+                              const isPending = paperActionMutation.isPending || searchReferencesMutation.isPending
+                              const getActionIcon = () => {
+                                if (applied) return <Check className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                                switch (action.action_type) {
+                                  case 'create_paper': return <FilePlus className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                                  case 'edit_paper': return <Pencil className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                                  case 'search_references': return <Search className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                                  case 'artifact_created': return <Download className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                                  default: return <Sparkles className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                                }
+                              }
+                              return (
+                                <button
+                                  key={actionKey}
+                                  type="button"
+                                  onClick={() => handleSuggestedAction(exchange, action, idx)}
+                                  disabled={applied || isPending}
+                                  className={`inline-flex items-center gap-1 sm:gap-1.5 rounded-full border px-2 py-0.5 sm:px-3 sm:py-1 text-[10px] sm:text-xs font-medium transition ${applied ? 'border-emerald-300 bg-emerald-50 text-emerald-600 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-200' : 'border-indigo-200 bg-white text-indigo-600 hover:bg-indigo-50 dark:border-indigo-400/40 dark:bg-slate-800/70 dark:text-indigo-200 dark:hover:bg-indigo-500/10'}`}
+                                >
+                                  {getActionIcon()}
+                                  <span className="truncate max-w-[80px] sm:max-w-none">{applied ? 'Applied' : action.summary}</span>
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      {/* Model info */}
+                      {!showTyping && (
+                        <div className="mt-1.5 sm:mt-2 flex flex-wrap items-center gap-2 sm:gap-3 text-[9px] sm:text-[11px] text-gray-400 dark:text-slate-500">
+                          <span>Model: {modelName}</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          )
+            )
           }
 
           const { thread } = item
@@ -3148,24 +2290,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
     )
   }
 
-  const handleToggleArchive = (channel: DiscussionChannelSummary) => {
-    if (channel.is_default) return
-    const action = channel.is_archived ? 'unarchive' : 'archive'
-    if (!window.confirm(`Are you sure you want to ${action} “${channel.name}”?`)) {
-      return
-    }
-
-    updateChannelMutation.mutate({
-      channelId: channel.id,
-      payload: { is_archived: !channel.is_archived },
-    })
-  }
-
-  // Close mobile sidebar when a channel is selected
-  const handleMobileChannelSelect = (channelId: string) => {
-    setActiveChannelId(channelId)
-    setIsMobileSidebarOpen(false)
-  }
+  // ========== MAIN RENDER ==========
 
   return (
     <>
@@ -3199,10 +2324,10 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
               channels={channels}
               activeChannelId={activeChannelId}
               onSelectChannel={handleMobileChannelSelect}
-              onCreateChannel={handleOpenCreateChannel}
+              onCreateChannel={isViewer ? undefined : handleOpenCreateChannel}
               isCreating={createChannelMutation.isPending}
-              onArchiveToggle={handleToggleArchive}
-              onOpenSettings={(channel) => {
+              onArchiveToggle={isViewer ? undefined : handleToggleArchive}
+              onOpenSettings={isViewer ? undefined : (channel) => {
                 setSettingsChannel(channel)
                 setIsChannelSettingsOpen(true)
                 setIsMobileSidebarOpen(false)
@@ -3214,17 +2339,17 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         </div>
       </div>
 
-      <div className="flex h-[calc(100vh-120px)] sm:h-[calc(100vh-140px)] md:h-[calc(100vh-160px)] min-h-[20rem] sm:min-h-[24rem] md:min-h-[32rem] w-full gap-2 md:gap-3 overflow-hidden">
-        {/* Desktop sidebar - hidden on mobile */}
+      <div className="flex h-[calc(100vh-80px)] sm:h-[calc(100vh-90px)] md:h-[calc(100vh-100px)] min-h-[24rem] sm:min-h-[28rem] md:min-h-[36rem] w-full gap-2 md:gap-3 overflow-hidden">
+        {/* Desktop sidebar */}
         <div className="hidden md:block flex-shrink-0">
           <DiscussionChannelSidebar
             channels={channels}
             activeChannelId={activeChannelId}
             onSelectChannel={setActiveChannelId}
-            onCreateChannel={handleOpenCreateChannel}
+            onCreateChannel={isViewer ? undefined : handleOpenCreateChannel}
             isCreating={createChannelMutation.isPending}
-            onArchiveToggle={handleToggleArchive}
-            onOpenSettings={(channel) => {
+            onArchiveToggle={isViewer ? undefined : handleToggleArchive}
+            onOpenSettings={isViewer ? undefined : (channel) => {
               setSettingsChannel(channel)
               setIsChannelSettingsOpen(true)
             }}
@@ -3233,7 +2358,9 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           />
         </div>
 
+        {/* Main content */}
         <div className="flex flex-1 min-h-0 min-w-0 flex-col rounded-xl md:rounded-2xl border border-gray-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900/40">
+          {/* Header */}
           <div className="flex items-center justify-between border-b border-gray-200 px-2 py-2 sm:px-3 sm:py-3 md:p-4 dark:border-slate-700">
             <div className="flex items-center gap-2 min-w-0 flex-1">
               {/* Mobile menu button */}
@@ -3250,16 +2377,11 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                     <Hash className="h-4 w-4 flex-shrink-0 text-indigo-500 dark:text-indigo-400" />
                   )}
                   <h2 className="text-sm sm:text-base md:text-lg font-semibold text-gray-900 dark:text-slate-100 truncate">
-                    {activeChannel ? activeChannel.name : 'Project Discussion'}
+                    {activeChannel ? activeChannel.name : 'OpenRouter Discussion'}
                   </h2>
                   {activeChannel?.is_default && (
                     <span className="hidden sm:inline flex-shrink-0 rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
                       Default
-                    </span>
-                  )}
-                  {activeChannel?.is_archived && (
-                    <span className="hidden sm:inline flex-shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
-                      Archived
                     </span>
                   )}
                 </div>
@@ -3268,9 +2390,18 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                 )}
               </div>
             </div>
-            {activeChannel && (
-              <div className="flex items-center gap-1.5 sm:gap-2 text-sm text-gray-600 dark:text-slate-400 flex-shrink-0">
-                {/* Channel actions dropdown menu */}
+            {/* Model badge and channel menu */}
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+              {/* Model badge - configured in Project Settings */}
+              <div
+                className="hidden sm:flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-xs text-gray-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                title="AI model - configure in Project Settings"
+              >
+                <Bot className="h-3.5 w-3.5" />
+                <span className="max-w-[100px] truncate">{currentModelInfo.name}</span>
+              </div>
+
+              {activeChannel && (
                 <div className="relative" ref={channelMenuRef}>
                   <button
                     type="button"
@@ -3278,11 +2409,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                     className="inline-flex items-center gap-1 rounded-lg border border-gray-200 p-1.5 sm:p-2 text-gray-600 transition hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
                   >
                     <MoreHorizontal className="h-4 w-4" />
-                    {pendingTasksCount > 0 && (
-                      <span className="ml-0.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-indigo-500 px-1 text-[10px] font-semibold text-white">
-                        {pendingTasksCount}
-                      </span>
-                    )}
                     {artifactsCount > 0 && (
                       <span className="ml-0.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold text-white">
                         {artifactsCount}
@@ -3300,10 +2426,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                       {activeChannel.scope && (
                         <button
                           type="button"
-                          onClick={() => {
-                            setOpenDialog('resources')
-                            setChannelMenuOpen(false)
-                          }}
+                          onClick={() => { setOpenDialog('resources'); setChannelMenuOpen(false) }}
                           className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 transition hover:bg-gray-50 dark:text-slate-200 dark:hover:bg-slate-700"
                         >
                           <FolderOpen className="h-4 w-4 text-indigo-500" />
@@ -3312,28 +2435,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                       )}
                       <button
                         type="button"
-                        onClick={() => {
-                          setOpenDialog('tasks')
-                          setChannelMenuOpen(false)
-                        }}
-                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-sm text-gray-700 transition hover:bg-gray-50 dark:text-slate-200 dark:hover:bg-slate-700"
-                      >
-                        <div className="flex items-center gap-2">
-                          <ListTodo className="h-4 w-4 text-indigo-500" />
-                          Channel tasks
-                        </div>
-                        {pendingTasksCount > 0 && (
-                          <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-indigo-500 px-1.5 text-[10px] font-semibold text-white">
-                            {pendingTasksCount}
-                          </span>
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setOpenDialog('artifacts')
-                          setChannelMenuOpen(false)
-                        }}
+                        onClick={() => { setOpenDialog('artifacts'); setChannelMenuOpen(false) }}
                         className="flex w-full items-center justify-between gap-2 px-3 py-2 text-sm text-gray-700 transition hover:bg-gray-50 dark:text-slate-200 dark:hover:bg-slate-700"
                       >
                         <div className="flex items-center gap-2">
@@ -3348,10 +2450,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                       </button>
                       <button
                         type="button"
-                        onClick={() => {
-                          setOpenDialog('discoveries')
-                          setChannelMenuOpen(false)
-                        }}
+                        onClick={() => { setOpenDialog('discoveries'); setChannelMenuOpen(false) }}
                         className="flex w-full items-center justify-between gap-2 px-3 py-2 text-sm text-gray-700 transition hover:bg-gray-50 dark:text-slate-200 dark:hover:bg-slate-700"
                       >
                         <div className="flex items-center gap-2">
@@ -3367,22 +2466,29 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                     </div>
                   )}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
 
           {activeChannel ? (
             <>
+              {/* Messages area */}
               <div className="flex flex-1 min-h-0 overflow-hidden p-2 sm:p-3 md:p-4">
-                <div className="flex-1 min-h-0 overflow-y-auto pr-1 sm:pr-2">
+                <div
+                  ref={messagesContainerRef}
+                  className="flex-1 min-h-0 overflow-y-auto scroll-smooth pr-1 sm:pr-2"
+                  style={{
+                    scrollbarWidth: 'thin',
+                    scrollbarColor: 'rgb(203 213 225) transparent',
+                  }}
+                >
                   {renderDiscussionContent()}
                 </div>
               </div>
 
-              {/* Floating discovery notification bar - evolves based on state */}
+              {/* Floating notification bar */}
               {!isChannelSwitching && (discoveryQueue.papers.length > 0 || ingestionSummary) && (
                 <>
-                  {/* State 1: Processing papers - blue progress bar (highest priority) */}
                   {ingestionSummary?.isProcessing ? (
                     <div className="mx-2 sm:mx-4 mb-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 sm:px-4 sm:py-2.5 shadow-sm dark:border-blue-500/30 dark:bg-blue-900/20">
                       <div className="flex items-center gap-2 sm:gap-3">
@@ -3390,9 +2496,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                           <Loader2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-spin text-blue-600 dark:text-blue-400" />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-xs sm:text-sm font-medium text-blue-800 dark:text-blue-200">
-                            Adding papers to library...
-                          </p>
+                          <p className="text-xs sm:text-sm font-medium text-blue-800 dark:text-blue-200">Adding papers to library...</p>
                           <p className="text-[10px] sm:text-xs text-blue-600 dark:text-blue-400">
                             {ingestionSummary.successCount} of {ingestionSummary.totalAdded} processed
                           </p>
@@ -3407,7 +2511,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                       </button>
                     </div>
                   ) : ingestionSummary?.isAllSuccess ? (
-                    /* State 2: All papers successfully added - green success bar */
                     <div className="mx-2 sm:mx-4 mb-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 sm:px-4 sm:py-2.5 shadow-sm dark:border-emerald-500/30 dark:bg-emerald-900/20">
                       <div className="flex items-center gap-2 sm:gap-3">
                         <div className="flex h-7 w-7 sm:h-8 sm:w-8 flex-shrink-0 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-500/20">
@@ -3417,9 +2520,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                           <p className="text-xs sm:text-sm font-medium text-emerald-800 dark:text-emerald-200">
                             {ingestionSummary.totalAdded} paper{ingestionSummary.totalAdded !== 1 ? 's' : ''} added to library
                           </p>
-                          <p className="text-[10px] sm:text-xs text-emerald-600 dark:text-emerald-400">
-                            All with full text available
-                          </p>
+                          <p className="text-[10px] sm:text-xs text-emerald-600 dark:text-emerald-400">All with full text available</p>
                         </div>
                       </div>
                       <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
@@ -3434,12 +2535,12 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                           type="button"
                           onClick={() => {
                             if (activeChannelId) {
-                              setIngestionStatesByChannel(prev => {
+                              setIngestionStatesByChannel((prev) => {
                                 const next = { ...prev }
                                 delete next[activeChannelId]
                                 return next
                               })
-                              handleDismissAllPapers()
+                              handleDismissNotification()
                             }
                           }}
                           className="rounded-lg px-2 py-1 sm:px-2 sm:py-1.5 text-[10px] sm:text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
@@ -3449,7 +2550,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                       </div>
                     </div>
                   ) : ingestionSummary && ingestionSummary.needsAttention > 0 ? (
-                    /* State 3: Papers added but some need attention - amber warning bar */
                     <div className="mx-2 sm:mx-4 mb-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 sm:px-4 sm:py-2.5 shadow-sm dark:border-amber-500/30 dark:bg-amber-900/20">
                       <div className="flex items-center gap-2 sm:gap-3">
                         <div className="flex h-7 w-7 sm:h-8 sm:w-8 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-500/20">
@@ -3457,23 +2557,9 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                         </div>
                         <div className="min-w-0">
                           <p className="text-xs sm:text-sm font-medium text-amber-800 dark:text-amber-200">
-                            <span className="hidden sm:inline">{ingestionSummary.totalAdded} added</span>
-                            <span className="sm:hidden">{ingestionSummary.totalAdded} added</span>
-                            {ingestionSummary.successCount > 0 && (
-                              <span className="hidden sm:inline mx-1.5 text-emerald-600 dark:text-emerald-400">
-                                • {ingestionSummary.successCount} full text
-                              </span>
-                            )}
-                            {ingestionSummary.needsAttention > 0 && (
-                              <span className="hidden sm:inline mx-1.5 text-amber-600 dark:text-amber-400">
-                                • {ingestionSummary.needsAttention} need PDF
-                              </span>
-                            )}
+                            {ingestionSummary.totalAdded} added • {ingestionSummary.needsAttention} need PDF
                           </p>
-                          <p className="text-[10px] sm:text-xs text-amber-600 dark:text-amber-400">
-                            <span className="hidden sm:inline">Some papers need manual PDF upload</span>
-                            <span className="sm:hidden">{ingestionSummary.needsAttention} need PDF upload</span>
-                          </p>
+                          <p className="text-[10px] sm:text-xs text-amber-600 dark:text-amber-400">Some papers need manual PDF upload</p>
                         </div>
                       </div>
                       <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
@@ -3488,22 +2574,21 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                           type="button"
                           onClick={() => {
                             if (activeChannelId) {
-                              setIngestionStatesByChannel(prev => {
+                              setIngestionStatesByChannel((prev) => {
                                 const next = { ...prev }
                                 delete next[activeChannelId]
                                 return next
                               })
-                              handleDismissAllPapers()
+                              handleDismissNotification()
                             }
                           }}
-                          className="rounded-lg px-2 py-1 sm:px-2 sm:py-1.5 text-[10px] sm:text-xs font-medium text-amber-700 transition hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-500/20"
+                          className="rounded-lg px-2 py-1 text-[10px] sm:text-xs font-medium text-amber-700 transition hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-500/20"
                         >
                           Dismiss
                         </button>
                       </div>
                     </div>
                   ) : discoveryQueue.papers.length > 0 && activeChannelId && !dismissedNotificationChannels.has(activeChannelId) ? (
-                    /* State 4: Papers found but not yet added - amber discovery bar (hidden if dismissed) */
                     <div className="mx-2 sm:mx-4 mb-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 sm:px-4 sm:py-2.5 shadow-sm dark:border-amber-500/30 dark:bg-amber-900/20">
                       <div className="flex items-center gap-2 sm:gap-3">
                         <div className="flex h-7 w-7 sm:h-8 sm:w-8 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-500/20">
@@ -3539,8 +2624,8 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                         </button>
                         <button
                           type="button"
-                          onClick={handleDismissAllPapers}
-                          className="rounded-lg px-2 py-1 sm:px-2 sm:py-1.5 text-[10px] sm:text-xs font-medium text-amber-700 transition hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-500/20"
+                          onClick={handleDismissNotification}
+                          className="rounded-lg px-2 py-1 text-[10px] sm:text-xs font-medium text-amber-700 transition hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-500/20"
                         >
                           Dismiss
                         </button>
@@ -3550,6 +2635,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                 </>
               )}
 
+              {/* AI Context toggle */}
               <div className="border-t border-gray-100 bg-white px-2 py-1.5 sm:px-4 sm:py-2 text-xs text-gray-600 dark:border-slate-800 dark:bg-slate-900/40">
                 <button
                   type="button"
@@ -3586,27 +2672,53 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                                 ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-500/20 dark:text-indigo-100'
                                 : 'border-gray-200 text-gray-600 hover:border-indigo-200 hover:text-indigo-600 dark:border-slate-700 dark:text-slate-300 dark:hover:border-indigo-400/60'
                             }`}
-                        >
-                          {option.label}
-                        </button>
-                      )
-                    })}
+                          >
+                            {option.label}
+                          </button>
+                        )
+                      })}
                     </div>
                   </div>
                 )}
               </div>
 
+              {/* AI availability warning */}
+              {!discussionEnabled && (
+                <div className="mx-3 mb-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                  <AlertCircle className="mr-1.5 inline-block h-3.5 w-3.5" />
+                  Discussion AI is disabled for this project. Contact the project owner to enable it.
+                </div>
+              )}
+              {discussionEnabled && !hasAnyApiKey && (
+                <div className="mx-3 mb-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                  <AlertCircle className="mr-1.5 inline-block h-3.5 w-3.5" />
+                  {noKeyMessage}
+                </div>
+              )}
+              {discussionEnabled && hasAnyApiKey && openrouterWarning && (
+                <div className="mx-3 mb-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                  <AlertCircle className="mr-1.5 inline-block h-3.5 w-3.5" />
+                  {openrouterWarning}
+                </div>
+              )}
+
+              {/* Message input */}
               <MessageInput
                 onSend={handleSendMessage}
-                placeholder="Type a message… use / to ask Scholar AI for help"
+                placeholder={discussionEnabled && hasAnyApiKey
+                  ? `Type a message… use / to ask ${currentModelInfo.name} for help`
+                  : 'Type a message…'
+                }
                 replyingTo={replyingTo}
                 onCancelReply={handleCancelReply}
                 editingMessage={editingMessage}
                 onCancelEdit={handleCancelEdit}
                 isSubmitting={createMessageMutation.isPending || updateMessageMutation.isPending}
                 reasoningEnabled={assistantReasoning}
-                onToggleReasoning={() => setAssistantReasoning((prev) => !prev)}
+                onToggleReasoning={discussionEnabled && hasAnyApiKey ? () => setAssistantReasoning((prev) => !prev) : undefined}
                 reasoningPending={assistantMutation.isPending}
+                reasoningSupported={discussionEnabled && hasAnyApiKey && modelSupportsReasoning(selectedModel, openrouterModels)}
+                aiGenerating={assistantMutation.isPending}
               />
             </>
           ) : (
@@ -3617,7 +2729,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                   <>
                     <h3 className="mt-3 sm:mt-4 text-sm sm:text-base font-semibold text-gray-900 dark:text-slate-100">Create a channel to start the conversation</h3>
                     <p className="mt-1.5 sm:mt-2 text-xs sm:text-sm text-gray-500 dark:text-slate-400">
-                      Organize discussions by topic, meeting, or workstream. Once a channel is created, messages and AI tools will appear here.
+                      Organize discussions by topic, meeting, or workstream.
                     </p>
                     <button
                       type="button"
@@ -3632,17 +2744,18 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                   <>
                     <h3 className="mt-3 sm:mt-4 text-sm sm:text-base font-semibold text-gray-900 dark:text-slate-100">Select a channel to view the conversation</h3>
                     <p className="mt-1.5 sm:mt-2 text-xs sm:text-sm text-gray-500 dark:text-slate-400">
-                      <span className="hidden sm:inline">Choose a channel from the sidebar to see messages and start chatting with your team, or create a new channel to organize discussions.</span>
-                      <span className="sm:hidden">Tap the menu icon to choose a channel and start chatting.</span>
+                      <span className="hidden sm:inline">Choose a channel from the sidebar to see messages.</span>
+                      <span className="sm:hidden">Tap the menu icon to choose a channel.</span>
                     </p>
                   </>
                 )}
               </div>
             </div>
           )}
-    </div>
-  </div>
+        </div>
+      </div>
 
+      {/* Dialogs */}
       {openDialog && activeChannel && (
         <div
           className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-gray-900/40 sm:px-4 backdrop-blur-sm dark:bg-black/70"
@@ -3655,7 +2768,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
             <div className="flex items-start justify-between border-b border-gray-200 px-4 py-3 sm:px-5 sm:py-4 dark:border-slate-700">
               <div className="min-w-0 flex-1 pr-2">
                 <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100 truncate">
-                  {openDialog === 'resources' ? 'Channel resources' : openDialog === 'artifacts' ? 'Channel artifacts' : openDialog === 'discoveries' ? 'Paper Discoveries' : 'Channel tasks'}
+                  {openDialog === 'resources' ? 'Channel resources' : openDialog === 'artifacts' ? 'Channel artifacts' : 'Paper Discoveries'}
                 </h3>
                 <p className="text-[10px] sm:text-xs text-gray-500 dark:text-slate-400 truncate">
                   {openDialog === 'resources'
@@ -3671,7 +2784,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                 type="button"
                 onClick={() => setOpenDialog(null)}
                 className="flex-shrink-0 inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-700"
-                aria-label="Close channel dialog"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -3692,7 +2804,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                   projectId={project.id}
                   channelId={activeChannel.id}
                 />
-              ) : openDialog === 'discoveries' ? (
+              ) : (
                 <DiscoveryQueuePanel
                   papers={discoveryQueue.papers}
                   query={discoveryQueue.query}
@@ -3700,21 +2812,10 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                   isSearching={discoveryQueue.isSearching}
                   notification={discoveryQueue.notification}
                   onDismiss={handleDismissPaper}
-                  onDismissAll={handleDismissAllPapers}
+                  onDismissAll={handleDismissNotification}
                   onClearNotification={() => setDiscoveryQueue((prev) => ({ ...prev, notification: null }))}
                   ingestionStates={currentIngestionStates}
                   onIngestionStateChange={handleIngestionStateChange}
-                />
-              ) : (
-                <ChannelTaskDrawer
-                  tasks={tasksQuery.data ?? []}
-                  loading={tasksQuery.isLoading || createTaskMutation.isPending}
-                  error={tasksQuery.isError ? (tasksQuery.error as Error) : null}
-                  onCreateTask={(payload) => createTaskMutation.mutate(payload)}
-                  onUpdateTask={(taskId, payload) => updateTaskMutation.mutate({ taskId, payload })}
-                  onDeleteTask={(taskId) => deleteTaskMutation.mutate(taskId)}
-                  allowCreate={Boolean(activeChannelId)}
-                  defaultMessageId={replyingTo?.id ?? editingMessage?.id ?? null}
                 />
               )}
             </div>
@@ -3722,6 +2823,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
         </div>
       )}
 
+      {/* Create Channel Modal */}
       {isCreateChannelModalOpen && (
         <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-gray-900/40 backdrop-blur-sm dark:bg-black/70">
           <div className="w-full sm:max-w-md max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white p-4 sm:p-6 shadow-xl transition-colors dark:bg-slate-900/90">
@@ -3731,10 +2833,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
             </p>
             <form className="mt-3 sm:mt-4 space-y-3 sm:space-y-4" onSubmit={handleCreateChannelSubmit}>
               <div>
-                <label
-                  htmlFor="channel-name"
-                  className="text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-slate-300"
-                >
+                <label htmlFor="channel-name" className="text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-slate-300">
                   Channel name
                 </label>
                 <input
@@ -3748,12 +2847,8 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                   required
                 />
               </div>
-
               <div>
-                <label
-                  htmlFor="channel-description"
-                  className="text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-slate-300"
-                >
+                <label htmlFor="channel-description" className="text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-slate-300">
                   Description <span className="text-gray-400 dark:text-slate-500">(optional)</span>
                 </label>
                 <textarea
@@ -3766,7 +2861,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                   placeholder="Describe the focus of this channel"
                 />
               </div>
-
+              {/* AI Context Scope */}
               <div>
                 <label className="text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-slate-300">
                   AI Context Scope
@@ -3789,13 +2884,13 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                   </button>
 
                   {newChannelScope !== null && (
-                    <div className="mt-3 max-h-64 overflow-y-auto rounded-lg border border-gray-200 dark:border-slate-700">
+                    <div className="mt-3 max-h-48 overflow-y-auto rounded-lg border border-gray-200 dark:border-slate-700">
                       <ResourceScopePicker
                         scope={newChannelScope}
                         papers={availablePapersQuery.data || []}
                         references={availableReferencesQuery.data || []}
                         meetings={availableMeetingsQuery.data || []}
-                        onToggle={(type, id) => toggleScopeResource(type, id, setNewChannelScope)}
+                        onToggle={toggleNewChannelScopeResource}
                         isLoading={availablePapersQuery.isLoading || availableReferencesQuery.isLoading || availableMeetingsQuery.isLoading}
                       />
                     </div>
@@ -3812,7 +2907,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                   )}
                 </div>
               </div>
-
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
@@ -3827,40 +2921,13 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                   disabled={createChannelMutation.isPending}
                   className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300 dark:disabled:bg-indigo-500/40"
                 >
-                  {createChannelMutation.isPending && (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  )}
+                  {createChannelMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
                   Create channel
                 </button>
               </div>
             </form>
           </div>
         </div>
-      )}
-
-      {isChannelSettingsOpen && settingsChannel && (
-        <ChannelSettingsModal
-          channel={settingsChannel}
-          onClose={() => {
-            setIsChannelSettingsOpen(false)
-            setSettingsChannel(null)
-          }}
-          onSave={(payload) => {
-            updateChannelMutation.mutate({
-              channelId: settingsChannel.id,
-              payload,
-            })
-          }}
-          onDelete={() => {
-            deleteChannelMutation.mutate(settingsChannel.id)
-          }}
-          isSaving={updateChannelMutation.isPending}
-          isDeleting={deleteChannelMutation.isPending}
-          papers={availablePapersQuery.data || []}
-          references={availableReferencesQuery.data || []}
-          meetings={availableMeetingsQuery.data || []}
-          isLoadingResources={availablePapersQuery.isLoading || availableReferencesQuery.isLoading || availableMeetingsQuery.isLoading}
-        />
       )}
 
       {/* Paper Creation Dialog */}
@@ -3877,9 +2944,7 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                 <X className="h-5 w-5 text-gray-500" />
               </button>
             </div>
-
             <form onSubmit={handlePaperCreationSubmit} className="space-y-3 sm:space-y-4">
-              {/* Title */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
                   Paper Title <span className="text-red-500">*</span>
@@ -3893,8 +2958,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                   required
                 />
               </div>
-
-              {/* Paper Type & Authoring Mode */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <div>
                   <label className="block text-xs sm:text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Paper Type</label>
@@ -3920,8 +2983,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                   </select>
                 </div>
               </div>
-
-              {/* Abstract */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Abstract (optional)</label>
                 <textarea
@@ -3932,8 +2993,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                   placeholder="Brief abstract or description"
                 />
               </div>
-
-              {/* Keywords */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Keywords</label>
                 <div className="flex gap-2 mb-2">
@@ -3978,8 +3037,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                   </div>
                 )}
               </div>
-
-              {/* Objectives */}
               {projectObjectives.length > 0 && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
@@ -4018,8 +3075,6 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
                   </p>
                 </div>
               )}
-
-              {/* Actions */}
               <div className="flex justify-end gap-3 pt-2">
                 <button
                   type="button"
@@ -4041,11 +3096,37 @@ const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary 
           </div>
         </div>
       )}
+
+      {/* Channel Settings Modal */}
+      {isChannelSettingsOpen && settingsChannel && (
+        <ChannelSettingsModal
+          channel={settingsChannel}
+          onClose={() => {
+            setIsChannelSettingsOpen(false)
+            setSettingsChannel(null)
+          }}
+          onSave={(payload) => {
+            updateChannelMutation.mutate({
+              channelId: settingsChannel.id,
+              payload,
+            })
+          }}
+          onDelete={() => {
+            deleteChannelMutation.mutate(settingsChannel.id)
+          }}
+          isSaving={updateChannelMutation.isPending}
+          isDeleting={deleteChannelMutation.isPending}
+          papers={availablePapersQuery.data || []}
+          references={availableReferencesQuery.data || []}
+          meetings={availableMeetingsQuery.data || []}
+          isLoadingResources={availablePapersQuery.isLoading || availableReferencesQuery.isLoading || availableMeetingsQuery.isLoading}
+        />
+      )}
     </>
   )
 }
 
-// Resource Scope Picker Component
+// Resource scope picker for channel settings
 const ResourceScopePicker = ({
   scope,
   papers,
@@ -4242,6 +3323,7 @@ const ResourceScopePicker = ({
   )
 }
 
+// Channel settings modal component
 const ChannelSettingsModal = ({
   channel,
   onClose,
@@ -4309,7 +3391,6 @@ const ChannelSettingsModal = ({
     const currentScope = channel.scope ?? null
     const newScope = scope
     if (JSON.stringify(currentScope) !== JSON.stringify(newScope)) {
-      // Send empty object {} for project-wide (backend will convert to null)
       payload.scope = newScope === null ? { paper_ids: null, reference_ids: null, meeting_ids: null } : newScope
     }
 
@@ -4416,7 +3497,7 @@ const ChannelSettingsModal = ({
           {confirmDelete && (
             <div className="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-500/30 dark:bg-red-500/10">
               <p className="text-sm text-red-700 dark:text-red-300">
-                This will permanently delete the channel and all its messages, tasks, and artifacts.
+                This will permanently delete the channel and all its messages and artifacts.
               </p>
               <p className="mt-2 text-xs text-red-600 dark:text-red-400">
                 Type <strong>{channel.name}</strong> to confirm:

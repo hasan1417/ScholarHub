@@ -1,7 +1,6 @@
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { Video, Sparkles } from 'lucide-react'
 import ProjectDiscussion from './ProjectDiscussion'
-import ProjectDiscussionOR from './ProjectDiscussionOR'
 import ProjectSyncSpace from './ProjectSyncSpace'
 import SubTabs, { SubTab } from '../../components/navigation/SubTabs'
 
@@ -47,7 +46,7 @@ const ProjectCollaborate = () => {
         <Routes>
           <Route index element={<Navigate to="chat-beta" replace />} />
           <Route path="chat" element={<ProjectDiscussion />} />
-          <Route path="chat-beta" element={<ProjectDiscussionOR />} />
+          <Route path="chat-beta" element={<ProjectDiscussion />} />
           <Route path="meetings" element={<ProjectSyncSpace />} />
         </Routes>
       </div>
