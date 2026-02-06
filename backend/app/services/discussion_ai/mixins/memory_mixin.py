@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.services.discussion_ai.utils import sanitize_for_context
+
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
     from app.models import ProjectDiscussionChannel
@@ -493,12 +495,12 @@ Return ONLY valid JSON, no explanation:"""
         if focused_papers:
             lines.append("## FOCUSED PAPERS (Use analyze_across_papers for questions about these)")
             for i, p in enumerate(focused_papers, 1):
-                paper_line = f"[{i}] {p.get('title', 'Untitled')}"
+                paper_line = f"[{i}] <paper-title>{sanitize_for_context(p.get('title', 'Untitled'), 300)}</paper-title>"
                 if p.get('authors'):
                     authors = p['authors']
                     if isinstance(authors, list):
                         authors = ', '.join(authors[:2]) + ('...' if len(authors) > 2 else '')
-                    paper_line += f" - {authors}"
+                    paper_line += f" - {sanitize_for_context(str(authors), 200)}"
                 if p.get('year'):
                     paper_line += f" ({p['year']})"
                 if p.get('has_full_text'):

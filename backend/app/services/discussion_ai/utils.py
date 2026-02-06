@@ -40,6 +40,28 @@ def _escape_latex(text: str) -> str:
     return text.translate(_LATEX_SPECIAL_CHARS)
 
 
+# Regex to strip ASCII control characters (except common whitespace)
+_CONTROL_CHAR_RE = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]')
+
+
+def sanitize_for_context(text: str, max_length: int = 500) -> str:
+    """Sanitize untrusted text before embedding into AI system context.
+
+    Prevents prompt injection by:
+    1. Stripping control characters that could fake section boundaries
+    2. Truncating to a safe length
+    3. Collapsing excessive newlines that could push instructions out of view
+    """
+    if not text:
+        return text
+    text = _CONTROL_CHAR_RE.sub('', text)
+    # Collapse 3+ consecutive newlines into 2
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    if len(text) > max_length:
+        text = text[:max_length] + '…'
+    return text
+
+
 def _normalize_title(t: str) -> str:
     """Normalize a title for duplicate comparison: lowercase, strip whitespace/punctuation."""
     t = (t or "").lower().strip()

@@ -11,6 +11,8 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
+from app.services.discussion_ai.utils import sanitize_for_context
+
 if TYPE_CHECKING:
     from app.models import Project
 
@@ -233,12 +235,12 @@ class AnalysisToolsMixin:
                 if p.get("pdf_url") or p.get("is_open_access"):
                     papers_with_pdf_url.append(i)
 
-            paper_summaries.append(f"{i}. {status} **{p['title']}** ({p.get('year', 'N/A')}) {depth}")
+            paper_summaries.append(f"{i}. {status} **{sanitize_for_context(p['title'], 300)}** ({p.get('year', 'N/A')}) {depth}")
             if p.get("authors"):
                 authors = p["authors"]
                 if isinstance(authors, list):
                     authors = ", ".join(authors[:3]) + ("..." if len(authors) > 3 else "")
-                paper_summaries.append(f"   Authors: {authors}")
+                paper_summaries.append(f"   Authors: {sanitize_for_context(str(authors), 300)}")
 
         # Build depth analysis message
         depth_info = {}
@@ -475,13 +477,13 @@ class AnalysisToolsMixin:
                 full_text_count += 1
                 rag_data = rag_context_by_paper[i]
 
-                context_parts = [f"### Paper {i + 1}: {paper.get('title', 'Untitled')} [Full Text - RAG Retrieved]"]
-                context_parts.append(f"**Authors:** {paper.get('authors', 'Unknown')}")
+                context_parts = [f"### Paper {i + 1}: <paper-title>{sanitize_for_context(paper.get('title', 'Untitled'), 300)}</paper-title> [Full Text - RAG Retrieved]"]
+                context_parts.append(f"**Authors:** <paper-authors>{sanitize_for_context(str(paper.get('authors', 'Unknown')), 300)}</paper-authors>")
                 context_parts.append(f"**Year:** {paper.get('year', 'N/A')}")
 
                 # Include abstract for context
                 if paper.get("abstract"):
-                    context_parts.append(f"**Abstract:** {paper['abstract'][:400]}...")
+                    context_parts.append(f"**Abstract:** <paper-abstract>{sanitize_for_context(paper['abstract'], 400)}</paper-abstract>")
 
                 # Include RAG-retrieved relevant content
                 context_parts.append(f"\n**Relevant Content ({rag_data['chunk_count']} passages retrieved for your question):**")
@@ -492,15 +494,15 @@ class AnalysisToolsMixin:
             elif paper.get("has_full_text") and (paper.get("summary") or paper.get("key_findings") or paper.get("methodology")):
                 # Paper has inline analysis data (from library ingestion) but no RAG chunks
                 full_text_count += 1
-                context_parts = [f"### Paper {i + 1}: {paper.get('title', 'Untitled')} [Full Text]"]
-                context_parts.append(f"**Authors:** {paper.get('authors', 'Unknown')}")
+                context_parts = [f"### Paper {i + 1}: <paper-title>{sanitize_for_context(paper.get('title', 'Untitled'), 300)}</paper-title> [Full Text]"]
+                context_parts.append(f"**Authors:** <paper-authors>{sanitize_for_context(str(paper.get('authors', 'Unknown')), 300)}</paper-authors>")
                 context_parts.append(f"**Year:** {paper.get('year', 'N/A')}")
 
                 if paper.get("abstract"):
-                    context_parts.append(f"**Abstract:** {paper['abstract'][:400]}")
+                    context_parts.append(f"**Abstract:** <paper-abstract>{sanitize_for_context(paper['abstract'], 400)}</paper-abstract>")
 
                 if paper.get("summary"):
-                    context_parts.append(f"**Summary:** {paper['summary']}")
+                    context_parts.append(f"**Summary:** {sanitize_for_context(paper['summary'], 1000)}")
                 if paper.get("key_findings"):
                     findings = paper["key_findings"]
                     if isinstance(findings, list):
@@ -524,12 +526,12 @@ class AnalysisToolsMixin:
             else:
                 # Abstract only
                 abstract_only_count += 1
-                context_parts = [f"### Paper {i + 1}: {paper.get('title', 'Untitled')} [Abstract Only]"]
-                context_parts.append(f"**Authors:** {paper.get('authors', 'Unknown')}")
+                context_parts = [f"### Paper {i + 1}: <paper-title>{sanitize_for_context(paper.get('title', 'Untitled'), 300)}</paper-title> [Abstract Only]"]
+                context_parts.append(f"**Authors:** <paper-authors>{sanitize_for_context(str(paper.get('authors', 'Unknown')), 300)}</paper-authors>")
                 context_parts.append(f"**Year:** {paper.get('year', 'N/A')}")
 
                 if paper.get("abstract"):
-                    context_parts.append(f"**Abstract:** {paper['abstract']}")
+                    context_parts.append(f"**Abstract:** <paper-abstract>{sanitize_for_context(paper['abstract'], 800)}</paper-abstract>")
 
                 paper_contexts.append("\n".join(context_parts))
 
@@ -614,7 +616,7 @@ class AnalysisToolsMixin:
         if focused_papers:
             context_parts.append(f"**Focused Papers ({len(focused_papers)}):**")
             for i, p in enumerate(focused_papers, 1):
-                paper_info = f"- [{i}] {p.get('title', 'Untitled')} ({p.get('year', 'N/A')})"
+                paper_info = f"- [{i}] <paper-title>{sanitize_for_context(p.get('title', 'Untitled'), 300)}</paper-title> ({p.get('year', 'N/A')})"
                 if p.get("key_findings"):
                     findings = p["key_findings"]
                     if isinstance(findings, list) and findings:
