@@ -145,7 +145,7 @@ def _handle_discover_topics(orchestrator: Any, ctx: Dict[str, Any], args: Dict[s
 
 
 def _handle_batch_search_papers(orchestrator: Any, ctx: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
-    return orchestrator._tool_batch_search_papers(**args)
+    return orchestrator._tool_batch_search_papers(ctx=ctx, **args)
 
 
 def _handle_get_related_papers(orchestrator: Any, ctx: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:

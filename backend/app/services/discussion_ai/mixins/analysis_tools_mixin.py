@@ -386,11 +386,20 @@ class AnalysisToolsMixin:
         rag_context_by_paper = {}
         rag_failed = False
 
-        if papers_with_chunks and self.ai_service and self.ai_service.openai_client:
+        if papers_with_chunks:
             try:
                 # Create embedding for the analysis question
-                embedding_response = self.ai_service.openai_client.embeddings.create(
-                    model=self.ai_service.embedding_model,
+                # Prefer OpenRouter client (uses user's configured key), fall back to direct OpenAI
+                embed_client = getattr(self, "openrouter_client", None) or (
+                    self.ai_service.openai_client if self.ai_service else None
+                )
+                if not embed_client:
+                    raise RuntimeError("No AI client available for embeddings")
+                embed_model = "openai/text-embedding-3-small" if getattr(self, "openrouter_client", None) else (
+                    getattr(self.ai_service, "embedding_model", "text-embedding-3-small")
+                )
+                embedding_response = embed_client.embeddings.create(
+                    model=embed_model,
                     input=analysis_question
                 )
                 query_embedding = embedding_response.data[0].embedding

@@ -251,15 +251,11 @@ class SearchToolsMixin:
         if not profile_text:
             return {"error": "Extracted text is empty for this reference."}
 
-        # Run AI analysis
-        import os
-        from openai import OpenAI
+        # Run AI analysis using the OpenRouter utility client
+        client, model = self._get_utility_client()
+        if not client:
+            return {"error": "No AI client available for analysis."}
 
-        api_key = os.getenv('OPENAI_API_KEY')
-        if not api_key:
-            return {"error": "OpenAI API key not configured."}
-
-        client = OpenAI(api_key=api_key)
         prompt = f"""Analyze this academic paper and provide a JSON response with the following fields:
 - summary: A 2-3 sentence summary of the paper
 - key_findings: An array of 3-5 key findings
@@ -275,7 +271,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 
         try:
             resp = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=1000,
                 temperature=0.3
@@ -540,7 +536,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 
     def _tool_discover_topics(self, area: str) -> Dict:
         """Use web search to discover specific topics in a broad area."""
-        client = self.ai_service.openai_client
+        client, model = self._get_utility_client()
         if not client:
             return {
                 "status": "error",
@@ -550,7 +546,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 
         try:
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=model,
                 messages=[
                     {
                         "role": "system",
@@ -595,8 +591,14 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 "topics": [],
             }
 
-    def _tool_batch_search_papers(self, topics: List) -> Dict:
-        """Search for papers on multiple topics at once."""
+    def _tool_batch_search_papers(self, ctx: Dict[str, Any], topics: List) -> Dict:
+        """Search for papers on multiple topics at once (server-side execution)."""
+        import asyncio
+        from uuid import uuid4
+        from app.services.paper_discovery_service import PaperDiscoveryService
+        from app.models import Reference, ProjectReference
+        from app.services.discussion_ai.search_cache import store_search_results
+
         logger.info(f"batch_search_papers called with topics: {topics}")
 
         if not topics:
@@ -622,9 +624,9 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 "message": "Invalid topics format - expected list of topic objects.",
             }
 
-        # Format topics for the batch search API
+        # Parse and validate topics (limit to 5)
         formatted_topics = []
-        for idx, t in enumerate(topics[:5]):  # Limit to 5 topics
+        for idx, t in enumerate(topics[:5]):
             try:
                 if isinstance(t, str):
                     try:
@@ -635,12 +637,10 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 if not isinstance(t, dict):
                     continue
 
-                # Get values with flexible key matching
                 topic_name = t.get("topic") or t.get('"topic"') or "Unknown"
                 query = t.get("query") or t.get('"query"') or str(topic_name)
                 max_results = t.get("max_results", 5)
 
-                # Clean up values
                 topic_name = str(topic_name).strip('"').strip("'")
                 query = str(query).strip('"').strip("'")
 
@@ -648,6 +648,9 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                     max_results = int(max_results) if max_results.isdigit() else 5
                 elif not isinstance(max_results, int):
                     max_results = 5
+
+                # Cap per-topic results at 5
+                max_results = min(max_results, 5)
 
                 formatted_topics.append({
                     "topic": topic_name,
@@ -665,13 +668,161 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 "message": "Could not parse any valid topics from the request.",
             }
 
+        # Build library lookup for deduplication (same as _tool_search_papers)
+        project = ctx.get("project")
+        library_dois: set = set()
+        library_titles: set = set()
+        if project:
+            refs = self.db.query(Reference.doi, Reference.title).join(
+                ProjectReference, ProjectReference.reference_id == Reference.id
+            ).filter(ProjectReference.project_id == project.id).all()
+            for doi, title in refs:
+                if doi:
+                    library_dois.add(doi.lower().replace("https://doi.org/", "").strip())
+                if title:
+                    library_titles.add(title.lower().strip())
+
+        # Execute searches concurrently across all topics
+        async def _search_topic(topic_info: Dict) -> Dict:
+            """Search a single topic and return results with metadata."""
+            topic_name = topic_info["topic"]
+            query = topic_info["query"]
+            max_res = topic_info["max_results"]
+            try:
+                discovery_service = PaperDiscoveryService()
+                result = await discovery_service.discover_papers(
+                    query=query,
+                    max_results=max_res * 3,  # Request more to account for filtering
+                    fast_mode=True,
+                )
+                return {
+                    "topic": topic_name,
+                    "query": query,
+                    "max_results": max_res,
+                    "papers": result.papers,
+                    "error": None,
+                }
+            except Exception as e:
+                logger.error(f"Search failed for topic '{topic_name}': {e}")
+                return {
+                    "topic": topic_name,
+                    "query": query,
+                    "max_results": max_res,
+                    "papers": [],
+                    "error": str(e),
+                }
+
+        async def _run_all_searches():
+            return await asyncio.gather(*[
+                _search_topic(t) for t in formatted_topics
+            ])
+
+        topic_search_results = asyncio.run(_run_all_searches())
+
+        # Process results: deduplicate across topics and filter library duplicates
+        seen_keys: set = set()
+        all_papers: list = []
+        topic_summaries: list = []
+        total_max = 25  # Overall cap
+
+        for topic_result in topic_search_results:
+            topic_name = topic_result["topic"]
+            max_res = topic_result["max_results"]
+            topic_papers: list = []
+
+            if topic_result["error"]:
+                topic_summaries.append({
+                    "topic": topic_name,
+                    "count": 0,
+                    "error": topic_result["error"],
+                })
+                continue
+
+            for p in topic_result["papers"]:
+                if len(all_papers) >= total_max:
+                    break
+                if len(topic_papers) >= max_res:
+                    break
+
+                # Cross-topic dedup using unique key
+                unique_key = p.get_unique_key() if hasattr(p, 'get_unique_key') else (p.doi or p.title or "")
+                if unique_key in seen_keys:
+                    continue
+                seen_keys.add(unique_key)
+
+                # Library dedup
+                if p.doi and p.doi.lower().replace("https://doi.org/", "").strip() in library_dois:
+                    continue
+                if p.title and p.title.lower().strip() in library_titles:
+                    continue
+
+                # Format paper (same as _tool_search_papers)
+                authors_list = []
+                if p.authors:
+                    if isinstance(p.authors, list):
+                        authors_list = [str(a) for a in p.authors]
+                    elif isinstance(p.authors, str):
+                        authors_list = [a.strip() for a in p.authors.replace(" and ", ", ").split(",") if a.strip()]
+                    else:
+                        authors_list = [str(p.authors)]
+
+                paper_dict = {
+                    "id": p.doi or p.url or f"paper-{len(all_papers)}",
+                    "title": p.title,
+                    "authors": authors_list,
+                    "year": p.year,
+                    "abstract": p.abstract,
+                    "doi": p.doi,
+                    "url": p.url or p.pdf_url,
+                    "pdf_url": p.pdf_url,
+                    "source": p.source,
+                    "is_open_access": getattr(p, 'is_open_access', False),
+                    "journal": getattr(p, 'journal', None) or getattr(p, 'venue', None),
+                    "topic": topic_name,
+                }
+                all_papers.append(paper_dict)
+                topic_papers.append(paper_dict)
+
+            topic_summaries.append({
+                "topic": topic_name,
+                "count": len(topic_papers),
+            })
+
+        if not all_papers:
+            error_topics = [ts for ts in topic_summaries if ts.get("error")]
+            if error_topics:
+                return {
+                    "status": "error",
+                    "message": f"All {len(formatted_topics)} topic searches failed. Errors: "
+                        + "; ".join(f"{t['topic']}: {t['error']}" for t in error_topics),
+                }
+            return {
+                "status": "success",
+                "message": f"No new papers found across {len(formatted_topics)} topics (they may already be in your library).",
+            }
+
+        # Cache results in Redis
+        search_id = str(uuid4())
+        ctx["last_search_id"] = search_id
+        store_search_results(search_id, all_papers)
+
+        # Build summary message
+        topic_summary_str = ", ".join(
+            f"{ts['topic']}: {ts['count']}" + (f" (error: {ts['error'][:30]})" if ts.get('error') else "")
+            for ts in topic_summaries
+        )
+
         return {
             "status": "success",
-            "message": f"Searching for papers on {len(formatted_topics)} topics",
+            "message": f"Found {len(all_papers)} papers across {len(formatted_topics)} topics ({topic_summary_str})",
+            "topic_results": topic_summaries,
             "action": {
-                "type": "batch_search_references",
+                "type": "search_results",
                 "payload": {
-                    "queries": formatted_topics,
+                    "query": f"Batch search: {', '.join(t['topic'] for t in formatted_topics)}",
+                    "papers": all_papers,
+                    "total_found": len(all_papers),
+                    "search_id": search_id,
                 },
             },
         }

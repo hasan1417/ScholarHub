@@ -201,10 +201,17 @@ class TestAIMemoryBasics:
             "key_quotes": []
         }
 
-        orchestrator._save_ai_memory(channel, memory)
+        # _save_ai_memory uses its own SessionLocal() for thread safety
+        # and flag_modified for JSONB change tracking, so we mock both.
+        mock_session = MagicMock()
+        mock_session.query.return_value.filter_by.return_value.first.return_value = channel
+
+        with patch("app.database.SessionLocal", return_value=mock_session), \
+             patch("app.services.discussion_ai.mixins.memory_mixin.flag_modified"):
+            orchestrator._save_ai_memory(channel, memory)
 
         assert channel.ai_memory == memory
-        assert db.committed == True
+        mock_session.commit.assert_called_once()
 
         print("✓ test_save_ai_memory passed")
 
@@ -1013,6 +1020,248 @@ class TestQuestionTracking:
         print("✓ test_memory_defaults_include_unanswered_questions passed")
 
 
+class TestDirectRQExtraction:
+    """Test direct regex-based research question extraction."""
+
+    def test_extract_rq_explicit_marker(self):
+        """Test extracting RQ from explicit 'my research question is:' marker."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        db = MockDB()
+        ai_service = MockAIService()
+        orchestrator = ToolOrchestrator(ai_service, db)
+
+        msg = "My research question is: How does social media usage affect academic performance among university students?"
+        rq = orchestrator._extract_research_question_direct(msg)
+
+        assert rq is not None
+        assert "social media" in rq.lower()
+        assert "academic performance" in rq.lower()
+
+        print("✓ test_extract_rq_explicit_marker passed")
+
+    def test_extract_rq_investigation(self):
+        """Test extracting RQ from 'I'm investigating...' pattern."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        db = MockDB()
+        ai_service = MockAIService()
+        orchestrator = ToolOrchestrator(ai_service, db)
+
+        msg = "I'm investigating the impact of social media on mental health outcomes in teenagers."
+        rq = orchestrator._extract_research_question_direct(msg)
+
+        assert rq is not None
+        assert "social media" in rq.lower()
+
+        print("✓ test_extract_rq_investigation passed")
+
+    def test_extract_rq_standalone_question(self):
+        """Test extracting standalone research question from short message."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        db = MockDB()
+        ai_service = MockAIService()
+        orchestrator = ToolOrchestrator(ai_service, db)
+
+        msg = "How does exposure to air pollution during childhood affect long-term cognitive development?"
+        rq = orchestrator._extract_research_question_direct(msg)
+
+        assert rq is not None
+        assert "air pollution" in rq.lower()
+
+        print("✓ test_extract_rq_standalone_question passed")
+
+    def test_extract_rq_no_match(self):
+        """Test that conversational questions don't extract as RQ."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        db = MockDB()
+        ai_service = MockAIService()
+        orchestrator = ToolOrchestrator(ai_service, db)
+
+        msg = "Can you help me find papers?"
+        rq = orchestrator._extract_research_question_direct(msg)
+
+        assert rq is None
+
+        print("✓ test_extract_rq_no_match passed")
+
+    def test_extract_rq_too_short(self):
+        """Test that trivially short questions don't extract."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        db = MockDB()
+        ai_service = MockAIService()
+        orchestrator = ToolOrchestrator(ai_service, db)
+
+        msg = "What is X?"
+        rq = orchestrator._extract_research_question_direct(msg)
+
+        assert rq is None
+
+        print("✓ test_extract_rq_too_short passed")
+
+
+class TestShouldUpdateFactsUrgency:
+    """Test urgency bypass for should_update_facts rate limiter."""
+
+    def test_urgent_message_bypasses_rate_limit(self):
+        """Test that a message with 'research question' triggers even at exchange 0."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        db = MockDB()
+        ai_service = MockAIService()
+        orchestrator = ToolOrchestrator(ai_service, db)
+
+        channel = MockChannel()
+        channel.ai_memory = {
+            "facts": {"research_topic": "NLP"},
+            "_exchanges_since_fact_update": 0,
+        }
+
+        long_response = "Here is a detailed analysis " * 50
+        should_update = orchestrator.should_update_facts(
+            channel, long_response, user_message="My research question is about transformers"
+        )
+
+        assert should_update is True
+
+        print("✓ test_urgent_message_bypasses_rate_limit passed")
+
+    def test_normal_message_respects_rate_limit(self):
+        """Test that 'tell me more' doesn't bypass rate limit."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        db = MockDB()
+        ai_service = MockAIService()
+        orchestrator = ToolOrchestrator(ai_service, db)
+
+        channel = MockChannel()
+        channel.ai_memory = {
+            "facts": {"research_topic": "NLP"},
+            "_exchanges_since_fact_update": 0,
+        }
+
+        long_response = "Here is a detailed analysis " * 50
+        should_update = orchestrator.should_update_facts(
+            channel, long_response, user_message="Tell me more about this."
+        )
+
+        assert should_update is False
+
+        print("✓ test_normal_message_respects_rate_limit passed")
+
+
+class TestUnansweredQuestionFixes:
+    """Test improved unanswered question tracking (false-positive fixes)."""
+
+    def test_declaration_not_tracked(self):
+        """Test that declarative statements aren't tracked as questions."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        db = MockDB()
+        ai_service = MockAIService()
+        orchestrator = ToolOrchestrator(ai_service, db)
+
+        memory = {
+            "facts": {"unanswered_questions": []},
+        }
+
+        # "I know how" is a declaration, not a question
+        orchestrator._track_unanswered_question_inline(
+            memory,
+            "I know how transformers work, right?",
+            "Great, let's build on that understanding.",
+        )
+
+        assert len(memory["facts"]["unanswered_questions"]) == 0
+
+        print("✓ test_declaration_not_tracked passed")
+
+    def test_real_question_tracked(self):
+        """Test that a real unanswered question is tracked."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        db = MockDB()
+        ai_service = MockAIService()
+        orchestrator = ToolOrchestrator(ai_service, db)
+
+        memory = {
+            "facts": {"unanswered_questions": []},
+        }
+
+        orchestrator._track_unanswered_question_inline(
+            memory,
+            "What datasets are commonly used for NER evaluation in biomedical text?",
+            "That's a great area to explore, let me think about it.",
+        )
+
+        assert len(memory["facts"]["unanswered_questions"]) >= 1
+
+        print("✓ test_real_question_tracked passed")
+
+    def test_short_message_excluded(self):
+        """Test that very short messages aren't tracked."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        db = MockDB()
+        ai_service = MockAIService()
+        orchestrator = ToolOrchestrator(ai_service, db)
+
+        memory = {
+            "facts": {"unanswered_questions": []},
+        }
+
+        orchestrator._track_unanswered_question_inline(
+            memory,
+            "What?",
+            "Could you clarify?",
+        )
+
+        assert len(memory["facts"]["unanswered_questions"]) == 0
+
+        print("✓ test_short_message_excluded passed")
+
+
+class TestIncrementalSummary:
+    """Test incremental summary generation for short sessions."""
+
+    def test_summary_generated_at_6_messages(self):
+        """Test that summary is generated when >= 6 messages and no existing summary."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+        from unittest.mock import patch, MagicMock
+
+        db = MockDB()
+        ai_service = MockAIService()
+        orchestrator = ToolOrchestrator(ai_service, db)
+
+        channel = MockChannel()
+        channel.ai_memory = {}
+
+        # Build 6 messages of conversation history
+        conversation_history = [
+            {"role": "user", "content": f"Message {i} about research topic with enough detail"}
+            for i in range(6)
+        ]
+
+        # Mock the summarization and save methods
+        with patch.object(orchestrator, '_summarize_old_messages', return_value="Test summary") as mock_summarize, \
+             patch.object(orchestrator, '_save_ai_memory') as mock_save, \
+             patch('app.services.discussion_ai.token_utils.should_summarize', return_value=False):
+            orchestrator.update_memory_after_exchange(
+                channel,
+                "Latest user message about the research",
+                "Here is a detailed response about the research topic. " * 50,
+                conversation_history,
+            )
+
+        # Verify summarization was called
+        mock_summarize.assert_called_once()
+
+        print("✓ test_summary_generated_at_6_messages passed")
+
+
 class TestSessionReturn:
     """Test welcome-back context generation."""
 
@@ -1105,6 +1354,11 @@ def run_all_tests():
         TestQuestionTracking,
         TestSessionReturn,
         TestResearchStages,
+        # Memory reliability fixes
+        TestDirectRQExtraction,
+        TestShouldUpdateFactsUrgency,
+        TestUnansweredQuestionFixes,
+        TestIncrementalSummary,
     ]
 
     passed = 0

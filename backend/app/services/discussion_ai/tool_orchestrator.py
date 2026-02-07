@@ -273,7 +273,7 @@ class ToolOrchestrator(MemoryMixin, SearchToolsMixin, LibraryToolsMixin, Analysi
 
         # Get user's role and owner status for permission checks
         user_role, is_owner = self._get_user_role_for_project(project, current_user)
-        logger.debug(f"[Permission] User role: {user_role}, is_owner: {is_owner}")
+        logger.debug(f"[Permission] User role: {user_role}, is_owner: {is_owner}, user: {current_user.id if current_user else 'None'}")
 
         return {
             "project": project,
@@ -736,11 +736,18 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
             logger.info(f"Executing tool: {name} with args: {args}")
 
             try:
-                # Enforce paper limit for search_papers
-                if name == "search_papers":
+                # Enforce paper limit for search_papers and batch_search_papers
+                if name in ("search_papers", "batch_search_papers"):
                     max_papers = ctx.get("max_papers", 100)
                     papers_so_far = ctx.get("papers_requested", 0)
-                    requested_count = args.get("count", 1)
+
+                    if name == "search_papers":
+                        requested_count = args.get("count", 1)
+                    else:
+                        # batch: sum of per-topic max_results (default 5 each)
+                        requested_count = sum(
+                            t.get("max_results", 5) for t in (args.get("topics") or [])[:5]
+                        )
 
                     if papers_so_far >= max_papers:
                         logger.debug(f"Paper limit reached: {papers_so_far}/{max_papers}")
@@ -753,12 +760,12 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
 
                     # Reduce count if it would exceed limit
                     remaining = max_papers - papers_so_far
-                    if requested_count > remaining:
+                    if name == "search_papers" and requested_count > remaining:
                         args["count"] = remaining
                         logger.debug(f"Reduced search count from {requested_count} to {remaining}")
 
                     # Track papers requested
-                    ctx["papers_requested"] = papers_so_far + args.get("count", 1)
+                    ctx["papers_requested"] = papers_so_far + min(requested_count, remaining)
 
                 # Check cache for cacheable tools
                 # NOTE: We no longer cache get_project_references since library can change frequently
@@ -808,7 +815,6 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
         ACTION_SUMMARIES = {
             "search_results": "View search results",
             "search_references": "Search for papers",
-            "batch_search_references": "Search multiple topics",
             "paper_created": "View created paper",
             "paper_updated": "View updated paper",
             "artifact_created": "Download artifact",

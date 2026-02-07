@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from sqlalchemy.orm.attributes import flag_modified
@@ -53,6 +54,24 @@ class MemoryMixin:
         "analyzing",      # Deep dive into specific papers/methods
         "writing",        # Drafting, synthesizing findings
     ]
+
+    def _get_utility_client(self) -> tuple:
+        """Return (client, model) for lightweight internal LLM calls.
+
+        Prefers the OpenRouter client (which uses the user's configured key)
+        and falls back to the direct OpenAI client if unavailable.
+        """
+        # OpenRouter client is set on OpenRouterOrchestrator instances
+        or_client = getattr(self, "openrouter_client", None)
+        if or_client:
+            return or_client, "openai/gpt-4o-mini"
+
+        # Fallback: direct OpenAI client from AIService
+        client = getattr(self.ai_service, "openai_client", None)
+        if client:
+            return client, "gpt-4o-mini"
+
+        return None, None
 
     def _refresh_focused_papers_with_library_data(
         self, focused_papers: List[Dict], project: "Project"
@@ -203,19 +222,36 @@ class MemoryMixin:
         }
 
     def _save_ai_memory(self, channel: "ProjectDiscussionChannel", memory: Dict[str, Any]) -> None:
-        """Save AI memory to channel."""
+        """Save AI memory to channel.
+
+        Uses a dedicated DB session to avoid thread-safety issues.
+        The orchestrator's self.db is a request-scoped session created in the
+        main async thread, but _save_ai_memory may be called from a thread pool
+        (via asyncio.to_thread in the streaming path). SQLAlchemy sessions are
+        not thread-safe, so we use our own session here.
+        """
+        from app.database import SessionLocal
+        from app.models import ProjectDiscussionChannel as ChannelModel
+
+        db = SessionLocal()
         try:
+            fresh_channel = db.query(ChannelModel).filter_by(id=channel.id).first()
+            if not fresh_channel:
+                logger.error(f"Channel {channel.id} not found when saving AI memory")
+                return
+            fresh_channel.ai_memory = memory
+            flag_modified(fresh_channel, "ai_memory")
+            db.commit()
+            # Also update the in-memory object so subsequent reads in the same
+            # request see the new data without another DB round-trip.
             channel.ai_memory = memory
-            # CRITICAL: Flag the JSON column as modified so SQLAlchemy detects the change
-            # Without this, mutating a JSON dict in-place won't be persisted
-            if hasattr(channel, "_sa_instance_state"):
-                flag_modified(channel, "ai_memory")
-            self.db.commit()
             logger.info(f"Saved AI memory for channel {channel.id} - focused_papers: {len(memory.get('focused_papers', []))}")
         except Exception as e:
             logger.error(f"Failed to save AI memory: {e}")
             logger.warning(f"[Memory] Memory save failed and was rolled back - conversation context may be lost")
-            self.db.rollback()
+            db.rollback()
+        finally:
+            db.close()
 
     def _summarize_old_messages(
         self,
@@ -270,12 +306,12 @@ Create a summary that:
 Summary:"""
 
         try:
-            client = self.ai_service.openai_client
+            client, model = self._get_utility_client()
             if not client:
                 return existing_summary or ""
 
             response = client.chat.completions.create(
-                model="gpt-4o-mini",  # Use faster/cheaper model for summarization
+                model=model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=500,
                 temperature=0.3,
@@ -290,14 +326,24 @@ Summary:"""
         user_message: str,
         ai_response: str,
         existing_facts: Dict[str, Any],
+        recent_messages: Optional[List[str]] = None,
+        existing_key_quotes: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
-        Extract structured research facts from the latest exchange.
+        Extract structured research facts and key quotes from the latest exchange.
         Updates existing facts with new information.
+        Returns merged facts dict (includes 'key_quotes' key for caller to extract).
         """
+        recent_ctx = ""
+        if recent_messages:
+            recent_ctx = "RECENT USER MESSAGES (for context):\n"
+            for i, msg in enumerate(recent_messages, 1):
+                recent_ctx += f"{i}. {msg[:300]}\n"
+            recent_ctx += "\n"
+
         prompt = f"""Analyze this research conversation exchange and extract key facts.
 
-USER MESSAGE:
+{recent_ctx}CURRENT USER MESSAGE:
 {user_message[:1000]}
 
 AI RESPONSE:
@@ -306,36 +352,35 @@ AI RESPONSE:
 EXISTING FACTS:
 {json.dumps(existing_facts, indent=2)}
 
+EXISTING KEY QUOTES:
+{json.dumps(existing_key_quotes or [], indent=2)}
+
 Extract and UPDATE the facts JSON. Only include new/changed information.
 Return a JSON object with these fields (keep existing values if not changed):
 - research_topic: Main research topic (string or null)
-- research_question: Formal research question if stated (e.g. "How does X affect Y in Z population?") — null if not yet articulated
+- research_question: The user's formal research question if stated or implied. Look carefully for questions like "How does X affect Y?" or statements like "I want to investigate X". This is HIGH PRIORITY — extract it if present in current or recent messages. Set to null ONLY if truly not articulated yet.
 - papers_discussed: Array of {{"title": "...", "author": "...", "relevance": "why discussed", "user_reaction": "positive/negative/neutral"}}
 - decisions_made: Array of decision strings (append new ones, don't remove old)
 - pending_questions: Array of unanswered questions (can remove if answered)
 - methodology_notes: Array of methodology-related notes
+- key_quotes: Array of important verbatim user statements worth preserving (goals, decisions, preferences, research focus, requirements). Extract the exact user wording, max 200 chars each. Only include genuinely significant statements, not casual remarks.
 
 Return ONLY valid JSON, no explanation:"""
 
         try:
-            client = self.ai_service.openai_client
+            client, model = self._get_utility_client()
             if not client:
                 return existing_facts
 
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=800,
                 temperature=0.2,
+                response_format={"type": "json_object"},
             )
 
             result_text = response.choices[0].message.content.strip()
-            # Try to parse JSON from response
-            if result_text.startswith("```"):
-                result_text = result_text.split("```")[1]
-                if result_text.startswith("json"):
-                    result_text = result_text[4:]
-
             new_facts = json.loads(result_text)
 
             # Merge with existing facts (append arrays, update scalars)
@@ -366,6 +411,14 @@ Return ONLY valid JSON, no explanation:"""
                 if note not in existing_notes:
                     merged.setdefault("methodology_notes", []).append(note)
 
+            # Merge key quotes (LLM-extracted, deduped, capped at 5)
+            all_quotes = list(existing_key_quotes or [])
+            for quote in new_facts.get("key_quotes", []):
+                q = quote[:200]
+                if q and q not in all_quotes:
+                    all_quotes.append(q)
+            merged["_key_quotes"] = all_quotes[-5:]
+
             return merged
 
         except Exception as e:
@@ -382,6 +435,8 @@ Return ONLY valid JSON, no explanation:"""
         important_patterns = [
             "I want", "I need", "I decided", "I prefer", "I'm focusing on",
             "my goal is", "the main", "specifically", "must have", "don't want",
+            "my research question", "I'm investigating", "I'm exploring",
+            "I'm studying", "I'd like to",
         ]
 
         message_lower = user_message.lower()
@@ -400,6 +455,37 @@ Return ONLY valid JSON, no explanation:"""
         # Keep only the last 5 quotes
         return existing_quotes[-5:]
 
+    def _extract_research_question_direct(self, user_message: str) -> Optional[str]:
+        """Extract research question directly from user message using patterns."""
+        msg = user_message.strip()
+
+        # Pattern 1: Explicit RQ markers
+        rq_markers = [
+            r"(?:my |the )?research question\s*(?:is|:)\s*[\"']?(.+?)[\"']?\s*$",
+            r"(?:my |the )?(?:rq|r\.q\.)\s*(?:is|:)\s*[\"']?(.+?)[\"']?\s*$",
+            r"I(?:'m| am) (?:trying to |wanting to )?(?:investigat|explor|study|examin|research)(?:e|ing)\s+(.+?)(?:\.|$)",
+            r"(?:I want to |I'd like to )(?:know|understand|find out|investigate)\s+(.+?)(?:\.|$)",
+        ]
+        for pattern in rq_markers:
+            match = re.search(pattern, msg, re.IGNORECASE | re.MULTILINE)
+            if match:
+                rq = match.group(1).strip().rstrip(".")
+                if len(rq) > 15:  # Skip trivially short matches
+                    return rq
+
+        # Pattern 2: Standalone question sentence (only if message is short & question-focused)
+        if len(msg) < 300 and msg.count("?") == 1:
+            sentences = re.split(r'(?<=[.!?])\s+', msg)
+            for s in sentences:
+                s = s.strip()
+                if s.endswith("?") and len(s) > 30:
+                    # Must look like a research question (not "can you help me?")
+                    non_rq_starts = ["can you", "could you", "will you", "would you", "do you", "are you", "is there", "have you"]
+                    if not any(s.lower().startswith(p) for p in non_rq_starts):
+                        return s
+
+        return None
+
     def update_memory_after_exchange(
         self,
         channel: "ProjectDiscussionChannel",
@@ -416,11 +502,18 @@ Return ONLY valid JSON, no explanation:"""
         memory = self._get_ai_memory(channel)
         contradiction_warning = None
 
-        # Extract key quotes from user message (cheap, do always)
+        # Regex-based key quote extraction as fallback
+        # (LLM-based extraction in _extract_research_facts is the primary source)
         memory["key_quotes"] = self._extract_key_quotes(
             user_message,
             memory.get("key_quotes", [])
         )
+
+        # Direct research question extraction (cheap regex, every exchange)
+        direct_rq = self._extract_research_question_direct(user_message)
+        if direct_rq:
+            memory.setdefault("facts", {})["research_question"] = direct_rq
+            logger.info(f"[Memory] Direct RQ extraction: {direct_rq[:80]}")
 
         # Check if we need to summarize (conversation exceeds token budget)
         # Use token-based check instead of message count
@@ -441,19 +534,40 @@ Return ONLY valid JSON, no explanation:"""
                     memory.get("summary"),
                 )
 
+        # Incremental summary for short sessions (no token overflow yet)
+        if not memory.get("summary") and len(conversation_history) >= 6:
+            memory["summary"] = self._summarize_old_messages(
+                conversation_history,
+                None,
+            )
+            logger.info("[Memory] Generated incremental summary for short session")
+
         # Rate-limited fact extraction (only every N exchanges or when needed)
-        if self.should_update_facts(channel, ai_response):
+        if self.should_update_facts(channel, ai_response, user_message=user_message):
             # Check for contradictions before updating facts
             existing_facts = memory.get("facts", {})
             if existing_facts.get("decisions_made") or existing_facts.get("research_topic"):
                 contradiction_warning = self.detect_contradictions(user_message, existing_facts)
 
-            # Extract research facts
-            memory["facts"] = self._extract_research_facts(
+            # Gather last 3 user messages from conversation history for context
+            recent_user_msgs = [
+                m["content"] for m in conversation_history
+                if m.get("role") == "user"
+            ][-3:]
+
+            # Extract research facts (also extracts key quotes)
+            extracted = self._extract_research_facts(
                 user_message,
                 ai_response,
                 existing_facts,
+                recent_messages=recent_user_msgs,
+                existing_key_quotes=memory.get("key_quotes", []),
             )
+            # Pull LLM-extracted key quotes out of facts into memory
+            llm_quotes = extracted.pop("_key_quotes", None)
+            if llm_quotes is not None:
+                memory["key_quotes"] = llm_quotes
+            memory["facts"] = extracted
             # Reset counter inline (avoid extra save)
             memory["_exchanges_since_fact_update"] = 0
         else:
@@ -808,27 +922,47 @@ Return ONLY valid JSON, no explanation:"""
         ai_response: str,
     ) -> None:
         """Track unanswered questions in memory dict in-place (no DB read/save)."""
-        indicators = ["?", "how", "what", "why", "when", "where", "which", "can you", "could you"]
-        response_lower = ai_response.lower()
-        is_answered = any(phrase in response_lower for phrase in [
-            "here's", "here is", "i found", "the answer", "based on",
-            "according to", "the results show",
-        ])
-        if is_answered:
+        msg = user_message.strip()
+
+        # Must contain a question mark and be substantial
+        if "?" not in msg or len(msg) < 30:
             return
 
-        message_lower = user_message.lower()
-        is_question = any(ind in message_lower for ind in indicators)
-        if not is_question:
+        # Check if AI gave a substantive answer
+        response_lower = ai_response.lower()
+        answered_indicators = [
+            "here's", "here is", "i found", "the answer", "based on",
+            "according to", "the results show", "this means", "in summary",
+            "the key finding", "research shows",
+        ]
+        if any(phrase in response_lower for phrase in answered_indicators):
+            return
+
+        # Extract the actual question sentence (the one with ?)
+        sentences = re.split(r'(?<=[.!?])\s+', msg)
+        question_sentence = None
+        for s in sentences:
+            if "?" in s and len(s.strip()) > 20:
+                question_sentence = s.strip()
+                break
+
+        if not question_sentence:
+            return
+
+        # Exclude non-questions (declarations that happen to contain ?)
+        q_lower = question_sentence.lower()
+        declarative_starts = [
+            "i know", "i think", "i believe", "i want", "i need",
+            "what i want", "what i need", "what i'm",
+        ]
+        if any(q_lower.startswith(d) for d in declarative_starts):
             return
 
         facts = memory.get("facts", {})
         unanswered = facts.get("unanswered_questions", [])
-        question = user_message.strip()
-        if len(question) > 200:
-            question = question[:200] + "..."
-        if question not in unanswered:
-            unanswered.append(question)
+        q = question_sentence[:200]
+        if q not in unanswered:
+            unanswered.append(q)
             facts["unanswered_questions"] = unanswered[-5:]
             memory["facts"] = facts
 
@@ -917,12 +1051,12 @@ If no contradiction, respond with exactly: NO_CONTRADICTION
 Response:"""
 
         try:
-            client = self.ai_service.openai_client
+            client, model = self._get_utility_client()
             if not client:
                 return None
 
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=150,
                 temperature=0.1,
@@ -945,6 +1079,7 @@ Response:"""
         ai_response: str,
         min_response_length: int = 200,
         min_exchanges_between_updates: int = 3,
+        user_message: str = "",
     ) -> bool:
         """
         Determine if we should run fact extraction on this exchange.
@@ -964,6 +1099,18 @@ Response:"""
 
         if not has_facts or exchange_count >= min_exchanges_between_updates:
             return True
+
+        # Urgency bypass: force extraction for high-signal messages
+        if user_message:
+            msg_lower = user_message.lower()
+            urgent_patterns = [
+                "research question", "i want to study", "i'm investigating",
+                "my topic is", "i decided", "i've decided", "let's go with",
+                "i'm focusing on", "my goal is", "the main question",
+                "i want to explore", "my thesis is about",
+            ]
+            if any(p in msg_lower for p in urgent_patterns):
+                return True
 
         return False
 
@@ -1037,9 +1184,13 @@ Response:"""
         stage_priority = ["writing", "analyzing", "finding_papers", "refining", "exploring"]
 
         # Count matches for each stage
+        # User message gets full weight; AI response gets reduced weight
+        # to prevent the AI's suggestions from driving stage detection.
         stage_scores = {}
         for stage, patterns in stage_indicators.items():
-            score = sum(1 for p in patterns if p in message_lower or p in response_lower)
+            user_score = sum(1 for p in patterns if p in message_lower)
+            ai_score = sum(1 for p in patterns if p in response_lower)
+            score = user_score + (ai_score * 0.3)
             stage_scores[stage] = score
 
         # Find the maximum score
@@ -1070,7 +1221,8 @@ Response:"""
         confidence = min(0.9, 0.5 + (best_score * 0.1))
 
         # Add inertia - prefer to stay in current stage unless strong signal
-        if best_stage != current_stage and best_score < 2:
+        # Threshold is 1.3 so one clear user match + partial AI confirmation suffices
+        if best_stage != current_stage and best_score < 1.3:
             return current_stage, 0.6
 
         return best_stage, confidence
