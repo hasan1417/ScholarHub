@@ -1,22 +1,33 @@
-# Manual QA: Memory System Reliability Fixes
+# Manual QA: Memory Reliability + Research Quality
 
 **Date:** 2026-02-07
 **Tester:** _______________
 **Channel IDs used:** _______________
 
+## Execution Rules (Deterministic)
+
+1. Use prompts exactly as written (no paraphrasing).
+2. Wait for the full AI response before checking DB state.
+3. Run the SQL check immediately after each test prompt.
+4. If a test says "New channel", do not reuse an old channel.
+5. Record the channel ID and message index for each test in Notes.
+6. Mark `Pass?` only when expected conditions are met exactly.
+
 ## How to Check Results
 
 ```sql
 SELECT
-  ai_memory->'facts'->'research_question' as rq,
-  ai_memory->'facts'->'research_topic' as topic,
+  id,
+  updated_at,
+  ai_memory->'facts'->>'research_question' as rq,
+  ai_memory->'facts'->>'research_topic' as topic,
   ai_memory->'facts'->'unanswered_questions' as unanswered,
   ai_memory->'facts'->'decisions_made' as decisions,
   ai_memory->'summary' as summary,
   ai_memory->'key_quotes' as quotes,
   ai_memory->'long_term'->'user_preferences' as prefs,
   ai_memory->'long_term'->'rejected_approaches' as rejections,
-  ai_memory->'research_state'->'stage' as stage
+  ai_memory->'research_state'->>'stage' as stage
 FROM project_discussion_channels
 WHERE id = '<YOUR_CHANNEL_ID>'
 ORDER BY updated_at DESC LIMIT 1;
@@ -46,7 +57,7 @@ ORDER BY updated_at DESC LIMIT 1;
 | Field | Expected | Actual | Pass? |
 |---|---|---|---|
 | `research_question` | **Unchanged** from Test 1 — must NOT be null | | [ ] |
-| `stage` | Should shift toward `"finding_papers"` | | [ ] |
+| `stage` | Exactly `"finding_papers"` | | [ ] |
 
 ---
 
@@ -105,13 +116,11 @@ ORDER BY updated_at DESC LIMIT 1;
 ## Test 7: Real Unanswered Question — Should Track (Fix 4)
 
 **Prompt:**
-> What evaluation metrics are most appropriate for measuring bias in large language models?
+> I still have an unanswered question for later: What evaluation metrics are most appropriate for measuring bias in large language models?
 
 | Field | Expected | Actual | Pass? |
 |---|---|---|---|
-| `unanswered_questions` | Contains this question **IF** the AI gave a vague/deferred response. Empty if AI answered substantively (containing "here's", "I found", "based on", etc.) | | [ ] |
-
-**Note:** This test outcome depends on the AI response quality. Check the AI response first to determine expected result.
+| `unanswered_questions` | Contains this question text (or a close paraphrase including "evaluation metrics" + "bias" + "large language models") | | [ ] |
 
 ---
 
@@ -172,6 +181,38 @@ ORDER BY updated_at DESC LIMIT 1;
 
 ---
 
+## Test 11: Search Query Quality — No Year Spam
+
+**Setup:** New channel.
+
+**Prompt:**
+> Find recent papers about social media usage and academic performance among university students.
+
+**How to inspect query:** Capture the actual `search_papers` query from tool payload/logs.
+
+| Field | Expected | Actual | Pass? |
+|---|---|---|---|
+| `search_papers.query` | Does **not** include raw year lists like `2020 2021 2022 2023` | | [ ] |
+| `search_papers.query` | Uses concise academic phrasing (not keyword dump) | | [ ] |
+
+---
+
+## Test 12: Search Query Quality — High-Signal Coverage
+
+**Setup:** New channel.
+
+**Prompt:**
+> I've decided to focus on the impact of sleep deprivation on cognitive function in medical residents. Find papers.
+
+**How to inspect query:** Capture the actual `search_papers` query from tool payload/logs.
+
+| Field | Expected | Actual | Pass? |
+|---|---|---|---|
+| `search_papers.query` | Includes at least 2 core concepts from prompt (`sleep deprivation`, `cognitive function`, `medical residents`) | | [ ] |
+| `search_papers.query` | Reasonably concise (roughly 4-10 terms) | | [ ] |
+
+---
+
 ## Summary Scorecard
 
 | # | Test | Description | Result |
@@ -182,12 +223,14 @@ ORDER BY updated_at DESC LIMIT 1;
 | 4 | Investigation RQ | `research_question` extracted from "I'm investigating..." | [ ] |
 | 5 | Standalone question | `research_question` extracted from plain "?" message | [ ] |
 | 6 | False positive filter | `unanswered_questions` empty for declarations | [ ] |
-| 7 | Real question tracked | `unanswered_questions` has entry (if AI didn't answer) | [ ] |
+| 7 | Real question tracked | `unanswered_questions` captures explicit "unanswered question for later" | [ ] |
 | 8 | Prefs & rejections | Both `user_preferences` and `rejected_approaches` populated | [ ] |
 | 9 | Incremental summary | `summary` not null after 6 exchanges | [ ] |
 | 10 | Context carryover | RQ survives across 3 messages | [ ] |
+| 11 | No year spam | Search query avoids raw year-list stuffing | [ ] |
+| 12 | High-signal query | Search query captures core concepts concisely | [ ] |
 
-**Overall: ___ / 10 passed**
+**Overall: ___ / 12 passed**
 
 ---
 

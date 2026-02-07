@@ -629,11 +629,18 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             tool_calls = []
             iteration_content = []
             has_tool_call = False
+            direct_search_fallback_candidate = (
+                iteration == 1
+                and self._is_direct_paper_search_request(ctx.get("user_message", ""))
+                and self._is_tool_available_for_ctx(ctx, "search_papers")
+            )
 
             async for event in self._call_ai_with_tools_streaming(messages, ctx):
                 if event["type"] == "token":
                     iteration_content.append(event["content"])
-                    if not has_tool_call:
+                    # For direct-search fallback candidates, hold tokens until we know whether
+                    # the model called a tool; this avoids showing a text-only clarification first.
+                    if not has_tool_call and not direct_search_fallback_candidate:
                         yield {"type": "token", "content": event["content"]}
                 elif event["type"] == "tool_call_detected":
                     has_tool_call = True
@@ -645,6 +652,28 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             logger.debug(f"[OpenRouter Async Streaming] Got {len(tool_calls)} tool calls: {[tc.get('name') for tc in tool_calls]}")
 
             if not tool_calls:
+                if direct_search_fallback_candidate:
+                    forced_query = self._build_fallback_search_query(ctx)
+                    forced_tool_call = {
+                        "id": "forced-search-1",
+                        "name": "search_papers",
+                        "arguments": {
+                            "query": forced_query,
+                            "count": 5,
+                            "open_access_only": False,
+                        },
+                    }
+                    logger.info(f"[OpenRouter Async] Applying direct-search fallback with query: {forced_query[:120]}")
+                    yield {
+                        "type": "status",
+                        "tool": "search_papers",
+                        "message": self._get_tool_status_message("search_papers"),
+                    }
+                    tool_results = await asyncio.to_thread(self._execute_tool_calls, [forced_tool_call], ctx)
+                    all_tool_results.extend(tool_results)
+                    final_content_chunks.append("Searching for papers now. Results will appear in the UI shortly.")
+                    break
+
                 logger.info("[OpenRouter Async Streaming] Final response - no more tool calls")
                 if iteration_content:
                     final_content_chunks.extend(iteration_content)

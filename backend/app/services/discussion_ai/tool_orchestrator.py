@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any, AsyncGenerator, Dict, List, Optional, TYPE_CHECKING
 
 from app.services.discussion_ai.tools import build_tool_registry
@@ -31,7 +32,8 @@ DISCUSSION_TOOL_REGISTRY = build_tool_registry()
 DISCUSSION_TOOLS = DISCUSSION_TOOL_REGISTRY.get_schema_list()  # Full list for reference
 
 # System prompt with adaptive workflow based on request clarity
-BASE_SYSTEM_PROMPT = r"""You are a research assistant helping with academic papers.
+BASE_SYSTEM_PROMPT = r"""You are a research assistant helping with academic papers for researchers and scholars.
+Prioritize research quality: precision, traceability to sources, and academically rigorous outputs over broad but noisy results.
 
 ## GOLDEN RULE: USE WHAT YOU HAVE
 
@@ -74,8 +76,16 @@ When asked to create a paper or literature review:
 
 **Vague topics** (e.g., "recent algorithms"): Use discover_topics first, then search specific topics.
 **User confirms multiple searches** ("all 6 please", "search all", "yes"): Call batch_search_papers immediately.
+**Direct paper-search requests** ("find/search/get papers on X"): call search_papers immediately with defaults.
+- Default `open_access_only=False` unless user explicitly asks for OA/PDF-only papers.
+- Default `count=5` unless user asks for a specific number.
+- Do NOT ask clarifying questions about optional filters (OA/count) before searching.
 
-**Query tips:** Use academic terminology, keep queries to 2-5 key terms. Include year only when user specifically mentions a timeframe.
+**Query quality (research-grade):**
+- Use concise, high-signal academic queries (typically 4-8 terms).
+- Include core concept + context/population + outcome/method when relevant.
+- Avoid keyword stuffing, synonym dumping, and raw year lists like "2020 2021 2022 2023".
+- Use timeframe terms only when the user asks for recency; phrase naturally (e.g., "recent", "last 5 years", "since 2020").
 
 ## GUIDELINES
 
@@ -480,6 +490,29 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
                 tool_calls = response.get("tool_calls", [])
 
                 if not tool_calls:
+                    # Deterministic fallback: for clear search intent, avoid text-only clarifications.
+                    if (
+                        iteration == 1
+                        and self._is_direct_paper_search_request(ctx.get("user_message", ""))
+                        and self._is_tool_available_for_ctx(ctx, "search_papers")
+                    ):
+                        forced_query = self._build_fallback_search_query(ctx)
+                        forced_tool_call = {
+                            "id": "forced-search-1",
+                            "name": "search_papers",
+                            "arguments": {
+                                "query": forced_query,
+                                "count": 5,
+                                "open_access_only": False,
+                            },
+                        }
+                        logger.info(f"Applying direct-search fallback with query: {forced_query[:120]}")
+                        forced_results = self._execute_tool_calls([forced_tool_call], ctx)
+                        all_tool_results.extend(forced_results)
+                        response = {
+                            "content": "Searching for papers now. Results will appear in the UI shortly.",
+                            "tool_calls": [forced_tool_call],
+                        }
                     break
 
                 # Execute tool calls
@@ -544,6 +577,138 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
         except Exception as e:
             logger.exception(f"Error in _execute_with_tools: {e}")
             return self._error_response(str(e))
+
+    def _is_direct_paper_search_request(self, user_message: str) -> bool:
+        """Return True if user explicitly asks to search/find papers now."""
+        if not user_message:
+            return False
+
+        msg = user_message.strip().lower()
+        if not msg:
+            return False
+
+        # Library requests should follow library tools, not external search.
+        library_markers = ("my library", "saved papers", "in the library", "project library")
+        if any(marker in msg for marker in library_markers):
+            return False
+
+        starts_with_search_action = any(
+            re.search(pattern, msg)
+            for pattern in (
+                r"^(?:can|could|would|will)\s+you\s+(?:find|search|look\s*up|get|retrieve)\b",
+                r"^(?:please\s+)?(?:find|search|look\s*up|get|retrieve)\b",
+            )
+        )
+        if not starts_with_search_action:
+            return False
+
+        return bool(
+            re.search(
+                r"\b(?:paper|papers|literature|article|articles|reference|references|studies|study)\b",
+                msg,
+            )
+        )
+
+    def _is_tool_available_for_ctx(self, ctx: Dict[str, Any], tool_name: str) -> bool:
+        """Check whether a tool is available to the current user role/context."""
+        tools = self._get_tools_for_user(ctx)
+        for tool in tools:
+            if isinstance(tool, dict) and tool.get("function", {}).get("name") == tool_name:
+                return True
+        return False
+
+    def _build_fallback_search_query(self, ctx: Dict[str, Any]) -> str:
+        """Build a reasonable fallback query for forced direct-search routing."""
+        user_message = (ctx.get("user_message") or "").strip()
+        topic_hint = ""
+
+        channel = ctx.get("channel")
+        if channel:
+            try:
+                memory = self._get_ai_memory(channel)
+                facts = memory.get("facts", {}) if isinstance(memory, dict) else {}
+                topic_hint = (
+                    (facts.get("research_topic") or "").strip()
+                    or (facts.get("research_question") or "").strip()
+                )
+            except Exception:
+                topic_hint = ""
+
+        cleaned_user = re.sub(
+            r"^(?:can|could|would|will)\s+you\s+(?:find|search|look\s*up|get|retrieve)\s+(?:me\s+)?",
+            "",
+            user_message,
+            flags=re.IGNORECASE,
+        )
+        cleaned_user = re.sub(
+            r"^(?:please\s+)?(?:find|search|look\s*up|get|retrieve)\s+(?:me\s+)?",
+            "",
+            cleaned_user,
+            flags=re.IGNORECASE,
+        )
+        cleaned_user = re.sub(r"\s+", " ", cleaned_user).strip(" ?.!")
+
+        # If user wording is deictic ("this topic"), anchor query to memory topic.
+        deictic_markers = ("this topic", "that topic", "this area", "that area", "this field")
+        user_is_deictic = any(marker in cleaned_user.lower() for marker in deictic_markers)
+
+        base_query = cleaned_user
+        if not base_query or user_is_deictic:
+            base_query = topic_hint or cleaned_user
+
+        # Prefer concise topic phrases over full question forms.
+        if base_query:
+            derived_topic = self._derive_research_topic_from_text(base_query)
+            if derived_topic:
+                base_query = derived_topic
+
+        query = re.sub(r"\s+", " ", (base_query or "").strip(" ?.!"))
+        return query[:300] if query else "academic research papers"
+
+    def _user_requested_open_access(self, user_message: str) -> bool:
+        """Return True if user explicitly requests OA/PDF-only results."""
+        if not user_message:
+            return False
+        msg = user_message.lower()
+        markers = (
+            "open access",
+            "oa only",
+            "only oa",
+            "pdf available",
+            "with pdf",
+            "full text only",
+            "only papers with pdf",
+        )
+        return any(marker in msg for marker in markers)
+
+    def _user_requested_count(self, user_message: str) -> bool:
+        """Return True if user explicitly asks for a specific number of papers."""
+        return self._extract_requested_paper_count(user_message) is not None
+
+    def _extract_requested_paper_count(self, user_message: str) -> Optional[int]:
+        """Extract explicit requested paper count from user text."""
+        if not user_message:
+            return None
+        msg = user_message.lower()
+
+        digit_match = re.search(r"\b(\d{1,3})\b", msg)
+        if digit_match:
+            value = int(digit_match.group(1))
+            return max(1, min(value, 50))
+
+        word_to_num = {
+            "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+            "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+        }
+        for word, value in word_to_num.items():
+            if re.search(rf"\b{word}\b", msg):
+                return value
+
+        if "few papers" in msg:
+            return 3
+        if "several papers" in msg:
+            return 7
+        return None
 
     def _build_context_summary(
         self,
@@ -736,6 +901,15 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
             logger.info(f"Executing tool: {name} with args: {args}")
 
             try:
+                # Deterministic query guardrail for direct search intents:
+                # build query from current user intent + memory, not prior assistant wording.
+                if name == "search_papers" and self._is_direct_paper_search_request(ctx.get("user_message", "")):
+                    requested_count = self._extract_requested_paper_count(ctx.get("user_message", ""))
+                    requested_oa = self._user_requested_open_access(ctx.get("user_message", ""))
+                    args["query"] = self._build_fallback_search_query(ctx)
+                    args["count"] = requested_count if requested_count is not None else 5
+                    args["open_access_only"] = requested_oa
+
                 # Enforce paper limit for search_papers and batch_search_papers
                 if name in ("search_papers", "batch_search_papers"):
                     max_papers = ctx.get("max_papers", 100)

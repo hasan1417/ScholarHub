@@ -1223,6 +1223,335 @@ class TestUnansweredQuestionFixes:
 
         print("✓ test_short_message_excluded passed")
 
+    def test_request_to_ai_not_tracked(self):
+        """'Can you find me papers?' is a request, not an unanswered question."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        memory = {"facts": {"unanswered_questions": []}}
+
+        orchestrator._track_unanswered_question_inline(
+            memory,
+            "Can you find me some recent papers on this topic?",
+            "Sure, let me search for those.",
+        )
+
+        assert len(memory["facts"]["unanswered_questions"]) == 0
+        print("✓ test_request_to_ai_not_tracked passed")
+
+    def test_could_you_request_not_tracked(self):
+        """'Could you summarize...' is a directive, not a research question."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        memory = {"facts": {"unanswered_questions": []}}
+
+        orchestrator._track_unanswered_question_inline(
+            memory,
+            "Could you summarize the main findings from these papers?",
+            "I'll look into that.",
+        )
+
+        assert len(memory["facts"]["unanswered_questions"]) == 0
+        print("✓ test_could_you_request_not_tracked passed")
+
+    def test_would_you_request_not_tracked(self):
+        """'Would you look into...' is a directive."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        memory = {"facts": {"unanswered_questions": []}}
+
+        orchestrator._track_unanswered_question_inline(
+            memory,
+            "Would you look into the methodology section of that paper?",
+            "Let me check that for you.",
+        )
+
+        assert len(memory["facts"]["unanswered_questions"]) == 0
+        print("✓ test_would_you_request_not_tracked passed")
+
+    def test_rq_declaration_not_tracked(self):
+        """'My research question is: ...' should not be an unanswered question."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        memory = {"facts": {"unanswered_questions": []}}
+
+        orchestrator._track_unanswered_question_inline(
+            memory,
+            "My research question is: How does social media usage affect academic performance among university students?",
+            "Great question! Let me help you explore that.",
+        )
+
+        assert len(memory["facts"]["unanswered_questions"]) == 0
+        print("✓ test_rq_declaration_not_tracked passed")
+
+    def test_genuine_research_question_still_tracked(self):
+        """A real research question with a vague AI response should still be tracked."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        memory = {"facts": {"unanswered_questions": []}}
+
+        orchestrator._track_unanswered_question_inline(
+            memory,
+            "What evaluation metrics are most appropriate for measuring bias in large language models?",
+            "That's an interesting area, I'll need to think about it.",
+        )
+
+        assert len(memory["facts"]["unanswered_questions"]) >= 1
+        print("✓ test_genuine_research_question_still_tracked passed")
+
+    def test_uppercase_request_not_tracked(self):
+        """Uppercase assistant requests should still be excluded."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        memory = {"facts": {"unanswered_questions": []}}
+
+        orchestrator._track_unanswered_question_inline(
+            memory,
+            "CAN YOU FIND PAPERS ON THIS TOPIC?",
+            "Sure, I can help with that.",
+        )
+
+        assert len(memory["facts"]["unanswered_questions"]) == 0
+        print("✓ test_uppercase_request_not_tracked passed")
+
+    def test_whitespace_prefixed_request_not_tracked(self):
+        """Leading/trailing whitespace should not affect request filtering."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        memory = {"facts": {"unanswered_questions": []}}
+
+        orchestrator._track_unanswered_question_inline(
+            memory,
+            "   Do you have recent papers on this method?   ",
+            "I can search for those.",
+        )
+
+        assert len(memory["facts"]["unanswered_questions"]) == 0
+        print("✓ test_whitespace_prefixed_request_not_tracked passed")
+
+    def test_is_there_request_not_tracked(self):
+        """'Is there ...?' helper request should not be tracked as unresolved."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        memory = {"facts": {"unanswered_questions": []}}
+
+        orchestrator._track_unanswered_question_inline(
+            memory,
+            "Is there any good benchmark paper for this area?",
+            "Yes, I can look that up.",
+        )
+
+        assert len(memory["facts"]["unanswered_questions"]) == 0
+        print("✓ test_is_there_request_not_tracked passed")
+
+    def test_answered_indicator_prevents_tracking(self):
+        """Substantive answer indicators should prevent unanswered tracking."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        memory = {"facts": {"unanswered_questions": []}}
+
+        orchestrator._track_unanswered_question_inline(
+            memory,
+            "What datasets are best for measuring hallucination in LLMs?",
+            "Based on current literature, common datasets include TruthfulQA and HaluEval.",
+        )
+
+        assert len(memory["facts"]["unanswered_questions"]) == 0
+        print("✓ test_answered_indicator_prevents_tracking passed")
+
+    def test_duplicate_question_not_added_twice(self):
+        """The same unresolved question should only be stored once."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        memory = {"facts": {"unanswered_questions": []}}
+
+        message = "What evaluation metrics are most appropriate for measuring bias in large language models?"
+        response = "That's an interesting area, I'll need to think about it."
+
+        orchestrator._track_unanswered_question_inline(memory, message, response)
+        orchestrator._track_unanswered_question_inline(memory, message, response)
+
+        assert len(memory["facts"]["unanswered_questions"]) == 1
+        print("✓ test_duplicate_question_not_added_twice passed")
+
+
+class TestDirectSearchRouting:
+    """Test deterministic direct-search routing helpers."""
+
+    def test_direct_search_request_detected(self):
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        assert orchestrator._is_direct_paper_search_request(
+            "Can you find me some recent papers on this topic?"
+        ) is True
+
+    def test_library_request_not_detected_as_external_search(self):
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        assert orchestrator._is_direct_paper_search_request(
+            "Can you find papers in my library about transformers?"
+        ) is False
+
+    def test_fallback_search_query_prefers_memory_topic_for_deictic_requests(self):
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        channel = MockChannel()
+        channel.ai_memory = {
+            "facts": {
+                "research_question": "How does social media usage affect academic performance among university students?",
+                "research_topic": "social media and academic performance",
+            }
+        }
+        ctx = {
+            "channel": channel,
+            "user_message": "Can you find me some recent papers on this topic?",
+        }
+
+        query = orchestrator._build_fallback_search_query(ctx)
+        assert query.lower() == "social media and academic performance"
+
+    def test_fallback_search_query_strips_request_prefix(self):
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        channel = MockChannel()
+        channel.ai_memory = {"facts": {}}
+        ctx = {
+            "channel": channel,
+            "user_message": "Can you find me some recent papers on this topic?",
+        }
+
+        query = orchestrator._build_fallback_search_query(ctx)
+        assert not query.lower().startswith("can you")
+        assert "recent papers on this topic" in query.lower()
+
+    def test_fallback_search_query_preserves_explicit_constraints(self):
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        channel = MockChannel()
+        channel.ai_memory = {
+            "facts": {
+                "research_question": "How does social media usage affect academic performance among university students?",
+                "research_topic": "social media and academic performance",
+            }
+        }
+        ctx = {
+            "channel": channel,
+            "user_message": "Can you find longitudinal papers about social media use and GPA among university students?",
+        }
+
+        query = orchestrator._build_fallback_search_query(ctx).lower()
+        assert "longitudinal" in query
+        assert "gpa" in query
+        assert "social media" in query
+
+    def test_user_requested_defaults_detection(self):
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        assert orchestrator._user_requested_open_access("find only open access papers") is True
+        assert orchestrator._user_requested_open_access("find papers on this topic") is False
+        assert orchestrator._user_requested_count("find 12 papers on this topic") is True
+        assert orchestrator._user_requested_count("find papers on this topic") is False
+
+    def test_execute_tool_calls_applies_direct_search_guardrail(self):
+        from unittest.mock import patch
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        channel = MockChannel()
+        channel.ai_memory = {
+            "facts": {
+                "research_question": "How does social media usage affect academic performance among university students?",
+                "research_topic": "social media and academic performance",
+            }
+        }
+
+        ctx = {
+            "user_message": "Can you find me some recent papers on this topic?",
+            "channel": channel,
+            "user_role": "admin",
+            "is_owner": True,
+        }
+        tool_calls = [{
+            "id": "tc-1",
+            "name": "search_papers",
+            "arguments": {
+                "query": "social media use academic performance university students longitudinal GPA recent",
+                "count": 10,
+                "open_access_only": True,
+            },
+        }]
+
+        captured_args = {}
+
+        def fake_execute(name, orch, run_ctx, args):
+            captured_args.update(args)
+            return {"status": "ok"}
+
+        with patch.object(orchestrator._tool_registry, "execute", side_effect=fake_execute):
+            results = orchestrator._execute_tool_calls(tool_calls, ctx)
+
+        assert results[0]["name"] == "search_papers"
+        assert captured_args["query"] == "social media and academic performance"
+        assert captured_args["count"] == 5
+        assert captured_args["open_access_only"] is False
+
+    def test_execute_tool_calls_honors_user_requested_count_and_oa(self):
+        from unittest.mock import patch
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        channel = MockChannel()
+        channel.ai_memory = {
+            "facts": {
+                "research_topic": "sleep deprivation and cognitive function in medical residents",
+            }
+        }
+
+        ctx = {
+            "user_message": "Can you find 12 open access papers on this topic?",
+            "channel": channel,
+            "user_role": "admin",
+            "is_owner": True,
+        }
+        tool_calls = [{
+            "id": "tc-2",
+            "name": "search_papers",
+            "arguments": {
+                "query": "some noisy query",
+                "count": 2,
+                "open_access_only": False,
+            },
+        }]
+
+        captured_args = {}
+
+        def fake_execute(name, orch, run_ctx, args):
+            captured_args.update(args)
+            return {"status": "ok"}
+
+        with patch.object(orchestrator._tool_registry, "execute", side_effect=fake_execute):
+            results = orchestrator._execute_tool_calls(tool_calls, ctx)
+
+        assert results[0]["name"] == "search_papers"
+        assert captured_args["count"] == 12
+        assert captured_args["open_access_only"] is True
+        assert "sleep deprivation" in captured_args["query"].lower()
+
 
 class TestIncrementalSummary:
     """Test incremental summary generation for short sessions."""

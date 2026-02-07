@@ -15,7 +15,7 @@ SEARCH_PAPERS_SCHEMA = {
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Search query (e.g., 'machine learning transformers'). For recent papers, add year terms like '2023 2024'.",
+                    "description": "Academic search query optimized for precision (e.g., 'social media use academic performance university students'). Keep it concise and high-signal. Do not append raw year lists like '2020 2021 2022' unless the user explicitly requests a timeframe.",
                 },
                 "count": {
                     "type": "integer",
@@ -61,12 +61,12 @@ BATCH_SEARCH_PAPERS_SCHEMA = {
             "properties": {
                 "topics": {
                     "type": "array",
-                    "description": "List of topics to search for",
+                    "description": "List of topics to search for. Each query should be specific and high-signal.",
                     "items": {
                         "type": "object",
                         "properties": {
                             "topic": {"type": "string", "description": "Display name for the topic"},
-                            "query": {"type": "string", "description": "Academic search query for this topic"},
+                            "query": {"type": "string", "description": "Specific academic query for this topic. Avoid keyword stuffing and raw year lists unless timeframe is explicitly requested."},
                             "max_results": {"type": "integer", "description": "Max papers per topic", "default": 5},
                         },
                         "required": ["topic", "query"],

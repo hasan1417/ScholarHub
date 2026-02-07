@@ -357,7 +357,7 @@ EXISTING KEY QUOTES:
 
 Extract and UPDATE the facts JSON. Only include new/changed information.
 Return a JSON object with these fields (keep existing values if not changed):
-- research_topic: Main research topic (string or null)
+- research_topic: Main research topic (string or null). HIGH PRIORITY. If the user states a research question but no separate topic, derive a concise topic from that question (do not leave null in that case).
 - research_question: The user's formal research question if stated or implied. Look carefully for questions like "How does X affect Y?" or statements like "I want to investigate X". This is HIGH PRIORITY — extract it if present in current or recent messages. Set to null ONLY if truly not articulated yet.
 - papers_discussed: Array of {{"title": "...", "author": "...", "relevance": "why discussed", "user_reaction": "positive/negative/neutral"}}
 - decisions_made: Array of decision strings (append new ones, don't remove old)
@@ -390,6 +390,16 @@ Return ONLY valid JSON, no explanation:"""
             if new_facts.get("research_question"):
                 merged["research_question"] = new_facts["research_question"]
 
+            # Fallback: derive topic from available research question when topic is missing.
+            if not merged.get("research_topic"):
+                topic_source = (
+                    new_facts.get("research_question")
+                    or merged.get("research_question")
+                )
+                derived_topic = self._derive_research_topic_from_text(topic_source)
+                if derived_topic:
+                    merged["research_topic"] = derived_topic
+
             # Append new papers (avoid duplicates by title)
             existing_titles = {p.get("title", "").lower() for p in merged.get("papers_discussed", [])}
             for paper in new_facts.get("papers_discussed", []):
@@ -411,13 +421,9 @@ Return ONLY valid JSON, no explanation:"""
                 if note not in existing_notes:
                     merged.setdefault("methodology_notes", []).append(note)
 
-            # Merge key quotes (LLM-extracted, deduped, capped at 5)
-            all_quotes = list(existing_key_quotes or [])
-            for quote in new_facts.get("key_quotes", []):
-                q = quote[:200]
-                if q and q not in all_quotes:
-                    all_quotes.append(q)
-            merged["_key_quotes"] = all_quotes[-5:]
+            # Merge key quotes from regex + LLM extraction with normalized dedupe.
+            llm_quotes = [str(q)[:200] for q in new_facts.get("key_quotes", []) if isinstance(q, str)]
+            merged["_key_quotes"] = self._merge_key_quotes(existing_key_quotes or [], llm_quotes, max_quotes=5)
 
             return merged
 
@@ -440,20 +446,70 @@ Return ONLY valid JSON, no explanation:"""
         ]
 
         message_lower = user_message.lower()
+        new_quotes: List[str] = []
         for pattern in important_patterns:
             pattern_lower = pattern.lower()
             if pattern_lower in message_lower:
-                # Extract the sentence containing the pattern
-                sentences = user_message.replace("!", ".").replace("?", ".").split(".")
+                # Extract sentence while preserving punctuation for canonical display.
+                sentences = re.split(r'(?<=[.!?])\s+', user_message)
                 for sentence in sentences:
                     if pattern_lower in sentence.lower() and len(sentence.strip()) > 20:
                         quote = sentence.strip()[:200]
-                        if quote not in existing_quotes:
-                            existing_quotes.append(quote)
+                        if quote:
+                            new_quotes.append(quote)
                         break
 
-        # Keep only the last 5 quotes
-        return existing_quotes[-5:]
+        return self._merge_key_quotes(existing_quotes, new_quotes, max_quotes=5)
+
+    def _normalize_quote_key(self, quote: str) -> str:
+        """Normalize quote text for dedupe while keeping original display text."""
+        normalized = quote.strip().strip('"').strip("'")
+        normalized = re.sub(r"\s+", " ", normalized)
+        normalized = normalized.lower()
+        normalized = normalized.rstrip(" \t\r\n.,!?;:\"'`")
+        return normalized
+
+    def _merge_key_quotes(
+        self,
+        existing_quotes: List[str],
+        candidate_quotes: List[str],
+        max_quotes: int = 5,
+    ) -> List[str]:
+        """Merge quotes with normalization-based dedupe and canonical selection."""
+        merged: List[str] = []
+        norm_to_index: Dict[str, int] = {}
+
+        def consider_quote(raw_quote: Any) -> None:
+            if not isinstance(raw_quote, str):
+                return
+
+            quote = raw_quote.strip()[:200]
+            if not quote:
+                return
+
+            key = self._normalize_quote_key(quote)
+            if not key:
+                return
+
+            existing_idx = norm_to_index.get(key)
+            if existing_idx is None:
+                merged.append(quote)
+                norm_to_index[key] = len(merged) - 1
+                return
+
+            # Prefer richer canonical form for same quote (e.g., keeps terminal punctuation).
+            existing_quote = merged[existing_idx]
+            existing_has_terminal = existing_quote.rstrip().endswith((".", "!", "?"))
+            new_has_terminal = quote.rstrip().endswith((".", "!", "?"))
+            if (new_has_terminal and not existing_has_terminal) or len(quote) > len(existing_quote):
+                merged[existing_idx] = quote
+
+        for raw_quote in existing_quotes or []:
+            consider_quote(raw_quote)
+        for raw_quote in candidate_quotes or []:
+            consider_quote(raw_quote)
+
+        return merged[-max_quotes:]
 
     def _extract_research_question_direct(self, user_message: str) -> Optional[str]:
         """Extract research question directly from user message using patterns."""
@@ -486,6 +542,66 @@ Return ONLY valid JSON, no explanation:"""
 
         return None
 
+    def _derive_research_topic_from_text(self, text: str) -> Optional[str]:
+        """Derive a concise research topic phrase from a question or statement."""
+        if not text:
+            return None
+
+        topic = text.strip().strip('"').strip("'")
+        if not topic:
+            return None
+
+        # Remove leading boilerplate declarations.
+        lead_patterns = [
+            r"^(?:my|the)\s+research\s+question\s*(?:is|:)\s*",
+            r"^(?:my|the)\s+research\s+topic\s*(?:is|:)\s*",
+            r"^i(?:'m| am)\s+focusing\s+on\s+",
+            r"^i(?:'ve| have)\s+decided\s+to\s+focus\s+on\s+",
+            r"^i(?:'m| am)\s+(?:investigating|exploring|studying|examining)\s+",
+        ]
+        for pattern in lead_patterns:
+            topic = re.sub(pattern, "", topic, flags=re.IGNORECASE).strip()
+
+        # Convert common question templates into topic phrases.
+        conversions = [
+            (r"^what\s+is\s+the\s+relationship\s+between\s+(.+)$", r"relationship between \1"),
+            (r"^to\s+what\s+extent\s+does\s+(.+)$", r"\1"),
+            (r"^how\s+do(?:es)?\s+(.+)$", r"\1"),
+            (r"^what\s+is\s+the\s+impact\s+of\s+(.+)$", r"impact of \1"),
+            (r"^what\s+are\s+the\s+effects\s+of\s+(.+)$", r"effects of \1"),
+        ]
+        for pattern, replacement in conversions:
+            updated = re.sub(pattern, replacement, topic, flags=re.IGNORECASE).strip()
+            if updated != topic:
+                topic = updated
+                break
+
+        topic = topic.rstrip(".?! ").strip()
+        topic = re.sub(r"\s+", " ", topic)
+
+        if len(topic) < 12:
+            return None
+        return topic[:180]
+
+    def _extract_research_topic_direct(self, user_message: str, direct_rq: Optional[str] = None) -> Optional[str]:
+        """Extract topic directly from explicit topic statements or derived research question."""
+        msg = user_message.strip()
+
+        topic_markers = [
+            r"(?:my|the)\s+research\s+topic\s*(?:is|:)\s*[\"']?(.+?)[\"']?\s*$",
+            r"(?:my\s+)?topic\s*(?:is|:)\s*[\"']?(.+?)[\"']?\s*$",
+            r"i(?:'m| am)\s+focusing\s+on\s+(.+?)(?:\.|$)",
+            r"i(?:'ve| have)\s+decided\s+to\s+focus\s+on\s+(.+?)(?:\.|$)",
+        ]
+        for pattern in topic_markers:
+            match = re.search(pattern, msg, re.IGNORECASE | re.MULTILINE)
+            if match:
+                topic = self._derive_research_topic_from_text(match.group(1))
+                if topic:
+                    return topic
+
+        return self._derive_research_topic_from_text(direct_rq or "")
+
     def update_memory_after_exchange(
         self,
         channel: "ProjectDiscussionChannel",
@@ -514,6 +630,19 @@ Return ONLY valid JSON, no explanation:"""
         if direct_rq:
             memory.setdefault("facts", {})["research_question"] = direct_rq
             logger.info(f"[Memory] Direct RQ extraction: {direct_rq[:80]}")
+
+        # Direct topic extraction fallback (cheap regex + derivation from RQ)
+        direct_topic = self._extract_research_topic_direct(user_message, direct_rq=direct_rq)
+        if direct_topic:
+            facts = memory.setdefault("facts", {})
+            explicit_topic_signal = bool(re.search(
+                r"(?:research\s+topic\s*(?:is|:)|(?:my\s+)?topic\s*(?:is|:)|focusing\s+on|decided\s+to\s+focus\s+on)",
+                user_message,
+                re.IGNORECASE,
+            ))
+            if not facts.get("research_topic") or explicit_topic_signal:
+                facts["research_topic"] = direct_topic
+                logger.info(f"[Memory] Direct topic extraction: {direct_topic[:80]}")
 
         # Check if we need to summarize (conversation exceeds token budget)
         # Use token-based check instead of message count
@@ -928,6 +1057,10 @@ Return ONLY valid JSON, no explanation:"""
         if "?" not in msg or len(msg) < 30:
             return
 
+        # Explicit RQ declarations are facts to store, not unanswered questions.
+        if re.search(r"(?:my|the)?\s*research\s+question\s*(?:is|:)", msg, re.IGNORECASE):
+            return
+
         # Check if AI gave a substantive answer
         response_lower = ai_response.lower()
         answered_indicators = [
@@ -953,7 +1086,9 @@ Return ONLY valid JSON, no explanation:"""
         q_lower = question_sentence.lower()
         declarative_starts = [
             "i know", "i think", "i believe", "i want", "i need",
-            "what i want", "what i need", "what i'm",
+            "what i want", "what i need", "what i'm", "my research question is",
+            "can you", "could you", "will you", "would you",
+            "do you", "are you", "is there", "have you",
         ]
         if any(q_lower.startswith(d) for d in declarative_starts):
             return
@@ -1085,7 +1220,20 @@ Response:"""
         Determine if we should run fact extraction on this exchange.
         Prevents excessive LLM calls by rate limiting fact extraction.
         """
-        # Only extract facts for substantial responses
+        # Urgency bypass: force extraction for high-signal user messages,
+        # even when assistant response is short.
+        if user_message:
+            msg_lower = user_message.lower()
+            urgent_patterns = [
+                "research question", "i want to study", "i'm investigating",
+                "my topic is", "i decided", "i've decided", "let's go with",
+                "i'm focusing on", "my goal is", "the main question",
+                "i want to explore", "my thesis is about",
+            ]
+            if any(p in msg_lower for p in urgent_patterns):
+                return True
+
+        # Otherwise, only extract facts for substantial responses
         if len(ai_response) < min_response_length:
             return False
 
@@ -1099,18 +1247,6 @@ Response:"""
 
         if not has_facts or exchange_count >= min_exchanges_between_updates:
             return True
-
-        # Urgency bypass: force extraction for high-signal messages
-        if user_message:
-            msg_lower = user_message.lower()
-            urgent_patterns = [
-                "research question", "i want to study", "i'm investigating",
-                "my topic is", "i decided", "i've decided", "let's go with",
-                "i'm focusing on", "my goal is", "the main question",
-                "i want to explore", "my thesis is about",
-            ]
-            if any(p in msg_lower for p in urgent_patterns):
-                return True
 
         return False
 

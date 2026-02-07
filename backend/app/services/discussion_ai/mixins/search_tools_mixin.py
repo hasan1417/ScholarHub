@@ -551,12 +551,14 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                     {
                         "role": "system",
                         "content": (
-                            "You are a research assistant. Search the web and identify 4-6 specific, "
+                            "You are a research assistant for researchers and scholars. Search the web and identify 4-6 specific, "
                             "concrete topics/algorithms/methods in the given area. "
                             "Return ONLY a JSON array of objects with 'topic' (short name) and "
-                            "'query' (academic search query). Example:\n"
-                            '[{"topic": "Mixture of Experts", "query": "mixture of experts transformers 2025"}, '
-                            '{"topic": "Mamba", "query": "mamba state space models 2025"}]'
+                            "'query' (concise, high-signal academic search query). "
+                            "Avoid keyword stuffing and raw year lists unless a timeframe is explicitly requested. "
+                            "Example:\n"
+                            '[{"topic": "Mixture of Experts", "query": "mixture of experts transformer routing efficiency"}, '
+                            '{"topic": "Mamba", "query": "mamba state space models sequence modeling"}]'
                         )
                     },
                     {
