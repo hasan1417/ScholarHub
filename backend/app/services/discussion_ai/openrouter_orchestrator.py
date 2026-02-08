@@ -919,23 +919,18 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             response_content = ""
             tool_calls = []
             iteration_content = []
-            has_tool_call = False
-            hold_direct_search_tokens = direct_search_intent and not search_tool_executed
 
-            # Only stream tokens on the first iteration. Subsequent iterations
-            # are post-tool-call continuations — their intermediate text should
-            # be hidden; only the final response (when no tool calls remain) is
-            # streamed to the user.
-            is_first_iteration = iteration == 1
+            # Buffer ALL tokens — don't stream until we know this is the
+            # final iteration (no tool calls).  This prevents the user from
+            # seeing truncated "I'll help you…" text that gets cut off
+            # mid-sentence when the model switches to a tool call, only to
+            # be replaced by a different final response.
 
             async for event in self._call_ai_with_tools_streaming(messages, ctx):
                 if event["type"] == "token":
                     iteration_content.append(event["content"])
-                    if is_first_iteration and not has_tool_call and not hold_direct_search_tokens:
-                        yield {"type": "token", "content": event["content"]}
                 elif event["type"] == "tool_call_detected":
-                    has_tool_call = True
-                    logger.info("[OpenRouter Async Streaming] Tool call detected, stopping token stream")
+                    logger.info("[OpenRouter Async Streaming] Tool call detected")
                 elif event["type"] == "result":
                     response_content = event["content"]
                     tool_calls = event.get("tool_calls", [])
@@ -970,7 +965,11 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     final_content_chunks.append("Searching for papers now. Results will appear in the UI shortly.")
                     break
 
+                # This IS the final iteration — stream the buffered tokens
+                # to the user so they see the typing effect.
                 logger.info("[OpenRouter Async Streaming] Final response - no more tool calls")
+                for token in iteration_content:
+                    yield {"type": "token", "content": token}
                 if iteration_content:
                     final_content_chunks.extend(iteration_content)
                 elif response_content:
