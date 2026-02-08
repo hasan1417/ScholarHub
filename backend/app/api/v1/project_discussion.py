@@ -1213,6 +1213,7 @@ def list_openrouter_models(
 
     meta = get_available_models_with_meta(
         include_reasoning=True,
+        require_tools=True,
         api_key=resolution.get("api_key"),
         use_env_key=False,
     )

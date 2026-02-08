@@ -63,7 +63,7 @@ def list_available_models(
     api_key = resolution.get("api_key")
     key_source = resolution.get("source") or "none"
 
-    meta = get_available_models_with_meta(include_reasoning=True, api_key=api_key, use_env_key=False)
+    meta = get_available_models_with_meta(include_reasoning=True, require_tools=True, api_key=api_key, use_env_key=False)
     models = [
         ModelInfo(
             id=model["id"],
