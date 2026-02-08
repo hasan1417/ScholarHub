@@ -499,9 +499,16 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 }
             }
 
-        # Don't send reasoning params — let models use their native format
-        # (e.g. <think> tags) so ThinkTagFilter can strip them from the stream.
-        return {}
+        # Explicitly disable reasoning for models that think by default
+        # (e.g. DeepSeek V3.2). This prevents chain-of-thought from
+        # appearing in the content stream. ThinkTagFilter remains as safety net.
+        return {
+            "extra_body": {
+                "reasoning": {
+                    "enabled": False
+                }
+            }
+        }
 
     @property
     def model(self) -> str:
@@ -729,6 +736,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 model=self.model,
                 messages=messages,
                 max_tokens=256,
+                extra_body={"reasoning": {"enabled": False}},
             )
             raw = response.choices[0].message.content or ""
             final_message = _THINK_TAG_RE.sub("", raw).strip()
@@ -766,6 +774,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 messages=messages,
                 max_tokens=256,
                 stream=True,
+                extra_body={"reasoning": {"enabled": False}},
             )
             async for chunk in stream:
                 delta = chunk.choices[0].delta if chunk.choices else None
