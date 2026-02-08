@@ -81,7 +81,7 @@ class AnalysisToolsMixin:
 
         project = ctx["project"]
         channel = ctx.get("channel")
-        recent_search_results = ctx.get("recent_search_results", [])
+        recent_search_results = self._get_recent_papers(ctx)
 
         focused_papers = []
         errors = []
@@ -601,7 +601,7 @@ class AnalysisToolsMixin:
 
         project = ctx["project"]
         channel = ctx.get("channel")
-        recent_search_results = ctx.get("recent_search_results", [])
+        recent_search_results = self._get_recent_papers(ctx)
 
         if not paper_indices and not reference_ids:
             return {

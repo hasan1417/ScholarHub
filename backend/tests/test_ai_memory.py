@@ -1677,6 +1677,23 @@ class TestDirectSearchRouting:
         query = orchestrator._build_fallback_search_query(ctx)
         assert query.lower() == "social media and academic performance"
 
+    def test_fallback_search_query_uses_last_effective_search_topic_when_fact_missing(self):
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        channel = MockChannel()
+        channel.ai_memory = {
+            "facts": {},
+            "search_state": {"last_effective_topic": "sleep deprivation cognitive function medical residents"},
+        }
+        ctx = {
+            "channel": channel,
+            "user_message": "Can you find another 3 papers?",
+        }
+
+        query = orchestrator._build_fallback_search_query(ctx)
+        assert query.lower() == "sleep deprivation cognitive function medical residents"
+
     def test_fallback_search_query_strips_request_prefix(self):
         from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
 
@@ -1761,11 +1778,15 @@ class TestDirectSearchRouting:
             results = orchestrator._execute_tool_calls(tool_calls, ctx)
 
         assert results[0]["name"] == "search_papers"
-        assert captured_args["query"] == "social media and academic performance"
-        assert captured_args["count"] == 5
-        assert captured_args["limit"] == 5
-        assert captured_args["open_access_only"] is False
-        assert captured_args["year_from"] is not None
+        # Decoupled approach: structural overrides always apply when
+        # search_papers is called. Without a policy_decision in ctx,
+        # extraction falls through to user message + model args.
+        # "some recent papers" has no explicit count, so model's count is used.
+        assert "social media" in captured_args["query"].lower()
+        assert captured_args["count"] == 10  # no explicit count in user msg → model's count
+        assert captured_args["limit"] == 10
+        assert captured_args["open_access_only"] is True  # no explicit OA in user msg → model's OA
+        assert captured_args["year_from"] is not None  # "recent" → year extraction
         assert captured_args["year_to"] is not None
 
     def test_execute_tool_calls_honors_user_requested_count_and_oa(self):
@@ -1790,7 +1811,7 @@ class TestDirectSearchRouting:
             "id": "tc-2",
             "name": "search_papers",
             "arguments": {
-                "query": "some noisy query",
+                "query": "papers about this topic",
                 "count": 2,
                 "open_access_only": False,
             },
@@ -1806,9 +1827,11 @@ class TestDirectSearchRouting:
             results = orchestrator._execute_tool_calls(tool_calls, ctx)
 
         assert results[0]["name"] == "search_papers"
+        # Structural overrides always apply from policy
         assert captured_args["count"] == 12
         assert captured_args["limit"] == 12
         assert captured_args["open_access_only"] is True
+        # Model query is low-info ("papers about this topic"), so policy query is used
         assert "sleep deprivation" in captured_args["query"].lower()
 
     def test_execute_tool_calls_honors_explicit_year_range(self):
@@ -1851,6 +1874,75 @@ class TestDirectSearchRouting:
         assert results[0]["name"] == "search_papers"
         assert captured_args["year_from"] == 2020
         assert captured_args["year_to"] == 2023
+
+    def test_execute_tool_calls_blocks_disallowed_tool_from_action_plan(self):
+        from unittest.mock import patch
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+        from app.services.discussion_ai.policy import ActionPlan, PolicyDecision
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        channel = MockChannel()
+        channel.ai_memory = {"facts": {}}
+
+        ctx = {
+            "user_message": "Please update project keywords to climate adaptation.",
+            "channel": channel,
+            "user_role": "admin",
+            "is_owner": True,
+            "policy_decision": PolicyDecision(
+                intent="project_update",
+                action_plan=ActionPlan(
+                    primary_tool="update_project_info",
+                    blocked_tools=("search_papers",),
+                    reasons=["project_update_intent"],
+                ),
+            ),
+        }
+        tool_calls = [{
+            "id": "tc-4",
+            "name": "search_papers",
+            "arguments": {"query": "climate adaptation", "count": 5},
+        }]
+
+        with patch.object(orchestrator._tool_registry, "execute") as execute_mock:
+            results = orchestrator._execute_tool_calls(tool_calls, ctx)
+
+        execute_mock.assert_not_called()
+        assert results[0]["name"] == "search_papers"
+        assert results[0]["result"]["status"] == "blocked"
+
+    def test_execute_tool_calls_infers_update_project_mode(self):
+        from unittest.mock import patch
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        channel = MockChannel()
+        channel.ai_memory = {"facts": {}}
+
+        ctx = {
+            "user_message": "Please add keywords: climate adaptation, resilience",
+            "channel": channel,
+            "user_role": "admin",
+            "is_owner": True,
+        }
+        tool_calls = [{
+            "id": "tc-5",
+            "name": "update_project_info",
+            "arguments": {"keywords": ["climate adaptation", "resilience"]},
+        }]
+
+        captured_args = {}
+
+        def fake_execute(name, orch, run_ctx, args):
+            _ = (name, orch, run_ctx)
+            captured_args.update(args)
+            return {"status": "success"}
+
+        with patch.object(orchestrator._tool_registry, "execute", side_effect=fake_execute):
+            results = orchestrator._execute_tool_calls(tool_calls, ctx)
+
+        assert results[0]["name"] == "update_project_info"
+        assert captured_args["keywords_mode"] == "append"
 
 
 class TestIncrementalSummary:

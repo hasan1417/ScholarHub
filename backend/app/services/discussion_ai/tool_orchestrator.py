@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional, TYPE_CHECKING
 
@@ -157,6 +158,26 @@ class ToolOrchestrator(MemoryMixin, SearchToolsMixin, LibraryToolsMixin, Analysi
         self._tool_registry = DISCUSSION_TOOL_REGISTRY
         self._policy = DiscussionPolicy()
         self._quality_metrics = get_discussion_ai_metrics_collector()
+
+    # ── Recent-papers state helpers ─────────────────────────────────────
+    # ctx is the turn-time source of truth; Redis is cross-turn persistence.
+
+    @staticmethod
+    def _get_recent_papers(ctx: Dict[str, Any]) -> List[Dict]:
+        """Single read point for recent search results."""
+        return ctx.get("recent_search_results", [])
+
+    @staticmethod
+    def _set_recent_papers(
+        ctx: Dict[str, Any],
+        papers: List[Dict],
+        search_id: Optional[str] = None,
+    ) -> None:
+        """Single write point — updates ctx (turn-time) + Redis (cross-turn)."""
+        ctx["recent_search_results"] = papers
+        if search_id:
+            from app.services.discussion_ai.search_cache import store_search_results
+            store_search_results(search_id, papers)
 
     @property
     def model(self) -> str:
@@ -624,6 +645,7 @@ If asked to perform write actions, explain that editor/admin access is required.
         try:  # noqa: SIM117
             policy_decision = self._build_policy_decision(ctx)
             ctx["policy_decision"] = policy_decision
+            t_start = time.monotonic()
             max_iterations = 8
             iteration = 0
             all_tool_results = []
@@ -664,8 +686,10 @@ If asked to perform write actions, explain that editor/admin access is required.
                         forced_results = self._execute_tool_calls([forced_tool_call], ctx)
                         all_tool_results.extend(forced_results)
                         search_tool_executed = True
+                        # Prefer the AI's actual response over the hardcoded fallback
+                        ai_text = (response.get("content") or "").strip()
                         response = {
-                            "content": "Searching for papers now. Results will appear in the UI shortly.",
+                            "content": ai_text or "Searching for papers now. Results will appear in the UI shortly.",
                             "tool_calls": [forced_tool_call],
                         }
                     break
@@ -734,6 +758,12 @@ If asked to perform write actions, explain that editor/admin access is required.
             stage_transition_success = self._enforce_finding_papers_stage_after_search(ctx, all_tool_results)
             self._record_quality_metrics(ctx, policy_decision, all_tool_results, clarification_first_detected, stage_transition_success)
 
+            total_ms = int((time.monotonic() - t_start) * 1000)
+            logger.info(
+                "[TurnMetrics] route=full tools_count=%d total_ms=%d model=%s",
+                len(all_tool_results), total_ms, self.model,
+            )
+
             return {
                 "message": final_message,
                 "actions": actions,
@@ -765,6 +795,7 @@ If asked to perform write actions, explain that editor/admin access is required.
         """Build a reasonable fallback query for forced direct-search routing."""
         user_message = (ctx.get("user_message") or "").strip()
         topic_hint = ""
+        last_search_topic = ""
 
         channel = ctx.get("channel")
         if channel:
@@ -775,11 +806,18 @@ If asked to perform write actions, explain that editor/admin access is required.
                     (facts.get("research_topic") or "").strip()
                     or (facts.get("research_question") or "").strip()
                 )
+                search_state = memory.get("search_state", {}) if isinstance(memory, dict) else {}
+                last_search_topic = (search_state.get("last_effective_topic") or "").strip()
             except Exception:
                 topic_hint = ""
+                last_search_topic = ""
+
+        project_context = self._build_project_context(ctx)
         return self._policy.build_search_query(
             user_message=user_message,
             topic_hint=topic_hint,
+            last_search_topic=last_search_topic,
+            project_context=project_context,
             derive_topic_fn=self._derive_research_topic_from_text,
         )
 
@@ -795,9 +833,29 @@ If asked to perform write actions, explain that editor/admin access is required.
         """Extract explicit requested paper count from user text."""
         return self._policy.extract_requested_paper_count(user_message)
 
+    def _build_project_context(self, ctx: Dict[str, Any]) -> str:
+        """Build project context string (keywords + title) for search resolution."""
+        project = ctx.get("project")
+        if not project:
+            return ""
+        parts = []
+        keywords = getattr(project, "keywords", None)
+        if keywords:
+            if isinstance(keywords, list):
+                parts.append(", ".join(str(k).strip() for k in keywords if k))
+            else:
+                parts.append(str(keywords).strip())
+        if getattr(project, "title", None):
+            title = project.title.strip()
+            # Only add title if it contributes new info beyond keywords
+            if not parts or title.lower() not in parts[0].lower():
+                parts.append(title)
+        return ", ".join(parts)[:300] if parts else ""
+
     def _build_policy_decision(self, ctx: Dict[str, Any]) -> PolicyDecision:
         """Build deterministic policy decision for current user turn."""
         topic_hint = ""
+        last_search_topic = ""
         channel = ctx.get("channel")
         if channel:
             try:
@@ -807,12 +865,19 @@ If asked to perform write actions, explain that editor/admin access is required.
                     (facts.get("research_topic") or "").strip()
                     or (facts.get("research_question") or "").strip()
                 )
+                search_state = memory.get("search_state", {}) if isinstance(memory, dict) else {}
+                last_search_topic = (search_state.get("last_effective_topic") or "").strip()
             except Exception:
                 topic_hint = ""
+                last_search_topic = ""
+
+        project_context = self._build_project_context(ctx)
 
         decision = self._policy.build_decision(
             user_message=ctx.get("user_message", ""),
             topic_hint=topic_hint,
+            last_search_topic=last_search_topic,
+            project_context=project_context,
             search_tool_available=self._is_tool_available_for_ctx(ctx, "search_papers"),
             derive_topic_fn=self._derive_research_topic_from_text,
         )
@@ -831,12 +896,150 @@ If asked to perform write actions, explain that editor/admin access is required.
                             "year_from": decision.search.year_from if decision.search else None,
                             "year_to": decision.search.year_to if decision.search else None,
                         },
+                        "action_plan": {
+                            "primary_tool": decision.action_plan.primary_tool if decision.action_plan else None,
+                            "force_tool": decision.action_plan.force_tool if decision.action_plan else None,
+                            "blocked_tools": list(decision.action_plan.blocked_tools) if decision.action_plan else [],
+                        },
                     }
                 ),
             )
         except Exception:
             logger.info("[PolicyDecision] intent=%s force_tool=%s", decision.intent, decision.force_tool)
         return decision
+
+    @staticmethod
+    def _infer_update_mode_from_message(user_message: str) -> str:
+        msg = (user_message or "").lower()
+        if any(token in msg for token in ("remove", "delete", "drop")):
+            return "remove"
+        if any(token in msg for token in ("add", "append", "also include", "include too", "plus")):
+            return "append"
+        return "replace"
+
+    def _is_tool_blocked_by_policy(
+        self,
+        tool_name: str,
+        policy_decision: Optional[PolicyDecision],
+    ) -> bool:
+        if not isinstance(policy_decision, PolicyDecision):
+            return False
+        action_plan = policy_decision.action_plan
+        if not action_plan:
+            return False
+        return tool_name in set(action_plan.blocked_tools or ())
+
+    def _normalize_tool_arguments(
+        self,
+        tool_name: str,
+        args: Dict[str, Any],
+        ctx: Dict[str, Any],
+        policy_decision: Optional[PolicyDecision],
+    ) -> Dict[str, Any]:
+        normalized = dict(args or {})
+
+        # Structural overrides apply whenever search_papers is called,
+        # regardless of whether the policy detected direct_search intent.
+        # The model decides WHEN to search (it generalizes well).
+        # Deterministic extraction decides HOW (count, year, OA — reliable via regex).
+        if tool_name == "search_papers":
+            user_msg = ctx.get("user_message", "")
+            has_policy_search = (
+                isinstance(policy_decision, PolicyDecision)
+                and policy_decision.search is not None
+            )
+
+            # Count: policy > user extraction > model > default 5
+            if has_policy_search:
+                normalized["count"] = policy_decision.search.count
+            else:
+                requested_count = self._extract_requested_paper_count(user_msg)
+                normalized["count"] = requested_count if requested_count is not None else (args.get("count") or 5)
+            normalized["limit"] = normalized["count"]
+
+            # OA: policy > user extraction > model
+            if has_policy_search:
+                normalized["open_access_only"] = policy_decision.search.open_access_only
+            else:
+                normalized["open_access_only"] = self._user_requested_open_access(user_msg) or args.get("open_access_only", False)
+
+            # Year bounds: policy > user extraction > model
+            if has_policy_search and (policy_decision.search.year_from or policy_decision.search.year_to):
+                normalized["year_from"] = policy_decision.search.year_from
+                normalized["year_to"] = policy_decision.search.year_to
+            else:
+                year_from, year_to = self._policy.extract_year_bounds(user_msg)
+                normalized["year_from"] = year_from or args.get("year_from")
+                normalized["year_to"] = year_to or args.get("year_to")
+
+            # Query: trust model if substantive, else policy fallback chain
+            model_query = (args.get("query") or "").strip()
+            policy_query = policy_decision.search.query if has_policy_search else ""
+            if model_query and not self._policy.is_low_information_query(model_query):
+                normalized["query"] = model_query
+            elif policy_query and not self._policy.is_low_information_query(policy_query):
+                normalized["query"] = policy_query
+            else:
+                normalized["query"] = self._build_fallback_search_query(ctx)
+
+            # Log
+            query_source = "model" if normalized.get("query") == model_query and model_query else "policy"
+            logger.info(
+                "[SearchArgs] %s",
+                json.dumps(
+                    {
+                        "query": normalized.get("query"),
+                        "query_source": query_source,
+                        "model_query": model_query if model_query != normalized.get("query") else None,
+                        "count": normalized.get("count"),
+                        "limit": normalized.get("limit"),
+                        "open_access_only": normalized.get("open_access_only"),
+                        "year_from": normalized.get("year_from"),
+                        "year_to": normalized.get("year_to"),
+                    }
+                ),
+            )
+
+        # Deterministic update mode inference when model omits/guesses modes.
+        if tool_name == "update_project_info":
+            inferred_mode = self._infer_update_mode_from_message(ctx.get("user_message", ""))
+            if normalized.get("objectives") is not None and not normalized.get("objectives_mode"):
+                normalized["objectives_mode"] = inferred_mode
+            if normalized.get("keywords") is not None and not normalized.get("keywords_mode"):
+                normalized["keywords_mode"] = inferred_mode
+
+        return normalized
+
+    def _persist_last_effective_search_topic(
+        self,
+        ctx: Dict[str, Any],
+        tool_name: str,
+        args: Dict[str, Any],
+        result: Dict[str, Any],
+    ) -> None:
+        if tool_name not in ("search_papers", "batch_search_papers"):
+            return
+        if not isinstance(result, dict):
+            return
+        if result.get("status") == "error":
+            return
+        channel = ctx.get("channel")
+        if channel is None:
+            return
+
+        query = (args.get("query") or "").strip()
+        if not query:
+            return
+        try:
+            memory = self._get_ai_memory(channel)
+            search_state = memory.get("search_state", {})
+            search_state["last_effective_topic"] = query[:300]
+            search_state["last_count"] = int(args.get("count") or args.get("limit") or 0)
+            search_state["last_updated_at"] = datetime.now(timezone.utc).isoformat()
+            memory["search_state"] = search_state
+            self._save_ai_memory(channel, memory)
+        except Exception as exc:
+            logger.debug("Failed to persist last effective search topic: %s", exc)
 
     def _build_context_summary(
         self,
@@ -1028,10 +1231,6 @@ If asked to perform write actions, explain that editor/admin access is required.
         ctx.setdefault("is_owner", False)
         results = []
         policy_decision = ctx.get("policy_decision")
-        direct_search_intent = (
-            isinstance(policy_decision, PolicyDecision)
-            and policy_decision.intent == "direct_search"
-        ) or self._is_direct_paper_search_request(ctx.get("user_message", ""))
 
         for tc in tool_calls:
             name = tc["name"]
@@ -1040,39 +1239,25 @@ If asked to perform write actions, explain that editor/admin access is required.
             logger.info(f"Executing tool: {name} with args: {args}")
 
             try:
-                # Deterministic query guardrail for direct search intents:
-                # build query from current user intent + memory, not prior assistant wording.
-                if name == "search_papers" and direct_search_intent:
-                    if isinstance(policy_decision, PolicyDecision) and policy_decision.search is not None:
-                        args["query"] = policy_decision.search.query or self._build_fallback_search_query(ctx)
-                        args["count"] = policy_decision.search.count
-                        args["limit"] = policy_decision.search.count
-                        args["open_access_only"] = policy_decision.search.open_access_only
-                        args["year_from"] = policy_decision.search.year_from
-                        args["year_to"] = policy_decision.search.year_to
-                    else:
-                        requested_count = self._extract_requested_paper_count(ctx.get("user_message", ""))
-                        requested_oa = self._user_requested_open_access(ctx.get("user_message", ""))
-                        year_from, year_to = self._policy.extract_year_bounds(ctx.get("user_message", ""))
-                        args["query"] = self._build_fallback_search_query(ctx)
-                        args["count"] = requested_count if requested_count is not None else 5
-                        args["limit"] = args["count"]
-                        args["open_access_only"] = requested_oa
-                        args["year_from"] = year_from
-                        args["year_to"] = year_to
-                    logger.info(
-                        "[SearchArgs] %s",
-                        json.dumps(
-                            {
-                                "query": args.get("query"),
-                                "count": args.get("count"),
-                                "limit": args.get("limit"),
-                                "open_access_only": args.get("open_access_only"),
-                                "year_from": args.get("year_from"),
-                                "year_to": args.get("year_to"),
-                            }
-                        ),
+                if self._is_tool_blocked_by_policy(name, policy_decision):
+                    logger.info("[PolicyScope] blocked tool=%s for intent=%s", name, getattr(policy_decision, "intent", "unknown"))
+                    results.append(
+                        {
+                            "name": name,
+                            "result": {
+                                "status": "blocked",
+                                "message": f"Tool '{name}' blocked by policy for this user intent.",
+                            },
+                        }
                     )
+                    continue
+
+                args = self._normalize_tool_arguments(
+                    tool_name=name,
+                    args=args,
+                    ctx=ctx,
+                    policy_decision=policy_decision if isinstance(policy_decision, PolicyDecision) else None,
+                )
 
                 # Enforce paper limit for search_papers and batch_search_papers
                 if name in ("search_papers", "batch_search_papers"):
@@ -1141,6 +1326,7 @@ If asked to perform write actions, explain that editor/admin access is required.
                     self.cache_tool_result(channel, name, result)
 
                 results.append({"name": name, "result": result})
+                self._persist_last_effective_search_topic(ctx, name, args, result)
 
             except Exception as e:
                 logger.exception(f"Error executing tool {name}")

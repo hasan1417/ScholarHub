@@ -146,6 +146,36 @@ class TestPolicyDecisionContract:
         assert decision.search.year_from == current_year - 2
         assert decision.search.year_to == current_year
 
+    def test_relative_followup_uses_last_search_topic(self):
+        from app.services.discussion_ai.policy import DiscussionPolicy
+
+        policy = DiscussionPolicy()
+        decision = policy.build_decision(
+            user_message="Can you find another 3 papers?",
+            topic_hint="",
+            last_search_topic="sleep deprivation cognitive function medical residents",
+            search_tool_available=True,
+        )
+
+        assert decision.intent == "direct_search"
+        assert decision.search is not None
+        assert decision.search.count == 3
+        assert "sleep deprivation cognitive function medical residents" in decision.search.query.lower()
+
+    def test_project_update_intent_blocks_search_tools(self):
+        from app.services.discussion_ai.policy import DiscussionPolicy
+
+        policy = DiscussionPolicy()
+        decision = policy.build_decision(
+            user_message="Please update project keywords to climate adaptation and resilience",
+            topic_hint="",
+            search_tool_available=True,
+        )
+
+        assert decision.intent == "project_update"
+        assert decision.action_plan is not None
+        assert "search_papers" in decision.action_plan.blocked_tools
+
 
 class TestRoutingContract:
     def test_direct_search_forces_tool_when_model_returns_text_only(self):

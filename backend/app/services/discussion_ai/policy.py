@@ -6,7 +6,49 @@ from datetime import datetime, timezone
 from typing import Callable, List, Literal, Optional
 
 
-IntentType = Literal["direct_search", "analysis", "clarify", "general"]
+IntentType = Literal["direct_search", "analysis", "clarify", "project_update", "general"]
+
+# Words with no research-topic content — used to detect queries like
+# "papers about my project" that need context resolution instead of literal search.
+_LOW_INFO_WORDS = frozenset({
+    # request verbs
+    "find", "search", "get", "look", "show", "give", "retrieve", "fetch",
+    # determiners / pronouns
+    "me", "my", "our", "the", "this", "that", "a", "an", "some", "any",
+    "it", "them", "these", "those", "its", "their",
+    # paper-like nouns
+    "papers", "paper", "articles", "article", "studies", "study",
+    "references", "reference", "literature", "results",
+    # generic context nouns
+    "project", "research", "topic", "area", "field", "work", "subject",
+    # prepositions / conjunctions
+    "about", "on", "for", "of", "in", "with", "from", "to", "and", "or",
+    # relative/quantity modifiers
+    "more", "another", "additional", "extra", "other", "few", "several",
+    # recency (handled separately by year extraction)
+    "recent", "new", "latest", "current",
+})
+
+
+@dataclass(frozen=True)
+class ContextResolution:
+    """Deterministic context resolution outcome for the current user turn."""
+
+    resolved_topic: str
+    source: Literal["explicit_user_topic", "memory_topic_hint", "last_search_topic", "project_context", "fallback_default"]
+    cleaned_user_text: str
+    is_deictic: bool
+    is_relative_only: bool
+
+
+@dataclass(frozen=True)
+class ActionPlan:
+    """Tool-agnostic execution guardrails for a user turn."""
+
+    primary_tool: Optional[str] = None
+    force_tool: Optional[str] = None
+    blocked_tools: tuple[str, ...] = ()
+    reasons: List[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -28,9 +70,13 @@ class PolicyDecision:
     force_tool: Optional[str] = None
     search: Optional[SearchPolicy] = None
     reasons: List[str] = field(default_factory=list)
+    action_plan: Optional[ActionPlan] = None
 
     def should_force_tool(self, tool_name: str) -> bool:
-        return self.force_tool == tool_name and self.search is not None
+        forced_tool = self.force_tool
+        if self.action_plan and self.action_plan.force_tool:
+            forced_tool = self.action_plan.force_tool
+        return forced_tool == tool_name and self.search is not None
 
 
 class DiscussionPolicy:
@@ -38,6 +84,18 @@ class DiscussionPolicy:
 
     _LIBRARY_MARKERS = ("my library", "saved papers", "in the library", "project library")
     _DEICTIC_MARKERS = ("this topic", "that topic", "this area", "that area", "this field")
+    # Detects cleaned queries that have no real topic — only relative modifiers
+    # and paper-like nouns. Examples: "another 3 papers", "more papers", "a few more".
+    _RELATIVE_ONLY_RE = re.compile(
+        r"^(?:for\s+)?(?:another|more|additional|extra|other|a\s+few(?:\s+more)?)"
+        r"(?:\s+\d+)?(?:\s+(?:papers?|articles?|references?|studies?|results?))?\s*$",
+        re.IGNORECASE,
+    )
+    _PROJECT_UPDATE_PATTERN = re.compile(
+        r"\b(?:project|keywords?|objectives?|scope|description)\b.*\b(?:update|change|set|add|remove|edit|modify)\b|"
+        r"\b(?:update|change|set|add|remove|edit|modify)\b.*\b(?:project|keywords?|objectives?|scope|description)\b",
+        re.IGNORECASE,
+    )
     _DIRECT_SEARCH_PATTERNS = (
         r"^(?:can|could|would|will)\s+you\s+(?:find|search|look\s*up|get|retrieve)\b",
         r"^(?:please\s+)?(?:find|search|look\s*up|get|retrieve)\b",
@@ -51,32 +109,69 @@ class DiscussionPolicy:
         self,
         user_message: str,
         topic_hint: str = "",
+        last_search_topic: str = "",
+        project_context: str = "",
         search_tool_available: bool = False,
         derive_topic_fn: Optional[Callable[[str], Optional[str]]] = None,
     ) -> PolicyDecision:
         msg = (user_message or "").strip()
         if self.is_direct_paper_search_request(msg):
+            resolution = self.resolve_search_context(
+                user_message=msg,
+                topic_hint=topic_hint,
+                last_search_topic=last_search_topic,
+                project_context=project_context,
+            )
+            query = resolution.resolved_topic
+            if query and derive_topic_fn:
+                derived_topic = derive_topic_fn(query)
+                if derived_topic:
+                    query = derived_topic
+
             year_from, year_to = self.extract_year_bounds(msg)
             search = SearchPolicy(
-                query=self.build_search_query(msg, topic_hint=topic_hint, derive_topic_fn=derive_topic_fn),
+                query=query,
                 count=self.extract_requested_paper_count(msg) or 5,
                 open_access_only=self.user_requested_open_access(msg),
                 year_from=year_from,
                 year_to=year_to,
             )
             reasons = ["direct_search_intent"]
+            reasons.append(f"topic_source={resolution.source}")
             if search_tool_available:
                 reasons.append("search_tool_available")
             if year_from is not None or year_to is not None:
                 reasons.append("recency_or_year_filter_requested")
+            action_plan = ActionPlan(
+                primary_tool="search_papers",
+                force_tool="search_papers" if search_tool_available else None,
+                reasons=reasons.copy(),
+            )
             return PolicyDecision(
                 intent="direct_search",
                 force_tool="search_papers" if search_tool_available else None,
                 search=search,
                 reasons=reasons,
+                action_plan=action_plan,
             )
 
-        return PolicyDecision(intent="general", reasons=["default_general"])
+        if self.is_project_update_request(msg):
+            reasons = ["project_update_intent"]
+            return PolicyDecision(
+                intent="project_update",
+                reasons=reasons,
+                action_plan=ActionPlan(
+                    primary_tool="update_project_info",
+                    blocked_tools=("search_papers", "batch_search_papers", "discover_topics"),
+                    reasons=reasons,
+                ),
+            )
+
+        return PolicyDecision(
+            intent="general",
+            reasons=["default_general"],
+            action_plan=ActionPlan(reasons=["default_general"]),
+        )
 
     @staticmethod
     def user_requested_detailed_response(user_message: str) -> bool:
@@ -115,12 +210,27 @@ class DiscussionPolicy:
 
         return bool(self._PAPER_TERMS_PATTERN.search(msg))
 
-    def build_search_query(
-        self,
-        user_message: str,
-        topic_hint: str = "",
-        derive_topic_fn: Optional[Callable[[str], Optional[str]]] = None,
-    ) -> str:
+    @staticmethod
+    def is_low_information_query(query: str) -> bool:
+        """Return True if query has no substantive research-topic content.
+
+        Examples that ARE low-info: "papers about my project", "more papers",
+        "3 papers about this research".
+        Examples that are NOT: "climate adaptation policy", "transformer architectures".
+        """
+        if not query:
+            return True
+        words = set(re.findall(r"\b[a-zA-Z]+\b", query.lower()))
+        substantive = {w for w in words - _LOW_INFO_WORDS if len(w) > 1}
+        return len(substantive) == 0
+
+    def is_project_update_request(self, user_message: str) -> bool:
+        if not user_message:
+            return False
+        return bool(self._PROJECT_UPDATE_PATTERN.search(user_message))
+
+    @staticmethod
+    def _clean_search_request_text(user_message: str) -> str:
         cleaned_user = re.sub(
             r"^(?:can|could|would|will)\s+you\s+(?:find|search|look\s*up|get|retrieve)\s+(?:me\s+)?",
             "",
@@ -134,11 +244,92 @@ class DiscussionPolicy:
             flags=re.IGNORECASE,
         )
         cleaned_user = re.sub(r"\s+", " ", cleaned_user).strip(" ?.!")
+        return cleaned_user
 
-        user_is_deictic = any(marker in cleaned_user.lower() for marker in self._DEICTIC_MARKERS)
-        base_query = cleaned_user
-        if not base_query or user_is_deictic:
-            base_query = topic_hint or cleaned_user
+    def resolve_search_context(
+        self,
+        user_message: str,
+        topic_hint: str = "",
+        last_search_topic: str = "",
+        project_context: str = "",
+    ) -> ContextResolution:
+        """Resolve the effective search topic for this turn.
+
+        Priority chain:
+        1. Explicit user topic (only if it has substantive content)
+        2. Memory topic hint (research_topic / research_question)
+        3. Last effective search topic
+        4. Project context (keywords / title)
+        5. Fallback default
+        """
+        cleaned_user = self._clean_search_request_text(user_message)
+        cleaned_lower = cleaned_user.lower()
+        is_deictic = any(marker in cleaned_lower for marker in self._DEICTIC_MARKERS)
+        is_relative_only = bool(self._RELATIVE_ONLY_RE.match(cleaned_user))
+
+        # Only use the user's text as-is if it contains real topic content.
+        # "climate adaptation policy" → explicit.  "my project" → low-info, fall through.
+        if cleaned_user and not is_deictic and not is_relative_only:
+            if not self.is_low_information_query(cleaned_user):
+                return ContextResolution(
+                    resolved_topic=cleaned_user[:300],
+                    source="explicit_user_topic",
+                    cleaned_user_text=cleaned_user,
+                    is_deictic=is_deictic,
+                    is_relative_only=is_relative_only,
+                )
+
+        if topic_hint:
+            return ContextResolution(
+                resolved_topic=topic_hint[:300],
+                source="memory_topic_hint",
+                cleaned_user_text=cleaned_user,
+                is_deictic=is_deictic,
+                is_relative_only=is_relative_only,
+            )
+
+        if last_search_topic:
+            return ContextResolution(
+                resolved_topic=last_search_topic[:300],
+                source="last_search_topic",
+                cleaned_user_text=cleaned_user,
+                is_deictic=is_deictic,
+                is_relative_only=is_relative_only,
+            )
+
+        if project_context:
+            return ContextResolution(
+                resolved_topic=project_context[:300],
+                source="project_context",
+                cleaned_user_text=cleaned_user,
+                is_deictic=is_deictic,
+                is_relative_only=is_relative_only,
+            )
+
+        fallback = cleaned_user[:300] if cleaned_user else "academic research papers"
+        return ContextResolution(
+            resolved_topic=fallback,
+            source="fallback_default",
+            cleaned_user_text=cleaned_user,
+            is_deictic=is_deictic,
+            is_relative_only=is_relative_only,
+        )
+
+    def build_search_query(
+        self,
+        user_message: str,
+        topic_hint: str = "",
+        last_search_topic: str = "",
+        project_context: str = "",
+        derive_topic_fn: Optional[Callable[[str], Optional[str]]] = None,
+    ) -> str:
+        resolution = self.resolve_search_context(
+            user_message=user_message,
+            topic_hint=topic_hint,
+            last_search_topic=last_search_topic,
+            project_context=project_context,
+        )
+        base_query = resolution.resolved_topic
 
         if base_query and derive_topic_fn:
             derived_topic = derive_topic_fn(base_query)

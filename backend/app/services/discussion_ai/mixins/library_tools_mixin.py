@@ -105,7 +105,7 @@ class LibraryToolsMixin:
         from app.models import Reference, ProjectReference, PaperReference, ProjectReferenceStatus, ProjectReferenceOrigin
 
         project = ctx["project"]
-        recent_search_results = ctx.get("recent_search_results", [])
+        recent_search_results = self._get_recent_papers(ctx)
 
         # Also get references from the project library
         project_refs = (
@@ -626,7 +626,7 @@ class LibraryToolsMixin:
         from app.models import Reference, ProjectReference
 
         project = ctx["project"]
-        recent_search_results = ctx.get("recent_search_results", [])
+        recent_search_results = self._get_recent_papers(ctx)
 
         # Get project library references
         project_refs = (
@@ -1153,7 +1153,7 @@ class LibraryToolsMixin:
         from app.services.reference_ingestion_service import ingest_reference_pdf
 
         project = ctx["project"]
-        recent_search_results = ctx.get("recent_search_results", [])
+        recent_search_results = self._get_recent_papers(ctx)
 
         if not recent_search_results:
             return {

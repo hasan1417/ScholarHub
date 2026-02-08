@@ -33,6 +33,14 @@ class ConcreteLibraryTools(LibraryToolsMixin):
         self._memory = memory
         self._saved_memories.append(memory.copy())
 
+    @staticmethod
+    def _get_recent_papers(ctx):
+        return ctx.get("recent_search_results", [])
+
+    @staticmethod
+    def _set_recent_papers(ctx, papers, search_id=None):
+        ctx["recent_search_results"] = papers
+
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -32,7 +32,7 @@ _GREETING_PATTERNS = re.compile(
     r"^(hi|hello|hey|thanks|thank you|ok|okay|cool|great|got it|"
     r"sounds good|makes sense|i see|understood|noted|nice|perfect|awesome|sure|alright|"
     r"no problem|no worries|right|yep|nope|cheers|good morning|good afternoon|good evening)"
-    r"[.!,\s]*$",
+    r"(?:[.!,\s].*)?$",
     re.IGNORECASE,
 )
 # Confirmations that imply pending action ("yes", "do it", "go ahead")

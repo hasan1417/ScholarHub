@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 MAX_PDF_SIZE = 50 * 1024 * 1024  # 50 MB
 MAX_REDIRECTS = 5
 REQUEST_TIMEOUT = 30
+DOWNLOAD_TIMEOUT = 120  # Total wall-clock seconds for streaming the full body
 
 # Private/internal IP ranges to block
 BLOCKED_IPV4_NETWORKS = [
@@ -289,7 +290,19 @@ def _fetch_pdf_secure(url: str) -> Optional[Tuple[bytes, str]]:
                 resp.close()
                 return None
 
-            # Stream to BytesIO with size limit (avoids memory spike from list + join)
+            # Enforce a per-chunk read timeout on the underlying socket.
+            # urllib3 sets read timeout on connect but not on subsequent
+            # chunk reads — a stalled server can block iter_content forever.
+            try:
+                raw_sock = resp.raw._fp.fp  # type: ignore[union-attr]
+                if raw_sock and hasattr(raw_sock, 'settimeout'):
+                    raw_sock.settimeout(REQUEST_TIMEOUT)
+            except (AttributeError, TypeError):
+                pass  # Non-socket transport (e.g. mocked in tests) — skip
+
+            # Stream to BytesIO with size limit + total wall-clock cap
+            import time as _time
+            deadline = _time.monotonic() + DOWNLOAD_TIMEOUT
             buffer = io.BytesIO()
             total_size = 0
 
@@ -297,6 +310,11 @@ def _fetch_pdf_secure(url: str) -> Optional[Tuple[bytes, str]]:
                 total_size += len(chunk)
                 if total_size > MAX_PDF_SIZE:
                     logger.warning("PDF from %s exceeds size limit (%d bytes)", url, MAX_PDF_SIZE)
+                    resp.close()
+                    buffer.close()
+                    return None
+                if _time.monotonic() > deadline:
+                    logger.warning("PDF download from %s exceeded %ds wall-clock limit", url, DOWNLOAD_TIMEOUT)
                     resp.close()
                     buffer.close()
                     return None

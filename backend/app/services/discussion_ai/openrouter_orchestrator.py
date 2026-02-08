@@ -25,6 +25,7 @@ import httpx
 
 from app.core.config import settings
 from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator, DISCUSSION_TOOLS
+from app.services.discussion_ai.token_utils import count_messages_tokens
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -769,6 +770,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
 
     def _execute_lite(self, messages: List[Dict], ctx: Dict[str, Any]) -> Dict[str, Any]:
         """Execute lite route: single LLM call, no tools, minimal overhead."""
+        t_start = time.monotonic()
         if not self.openrouter_client:
             return self._error_response("OpenRouter API not configured.")
 
@@ -794,6 +796,13 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         # Lightweight memory update (regex only, skip LLM fact extraction)
         self._lite_memory_update(ctx)
 
+        prompt_tokens = count_messages_tokens(messages, self.model)
+        total_ms = int((time.monotonic() - t_start) * 1000)
+        logger.info(
+            "[TurnMetrics] route=lite prompt_tokens=%d tools_count=0 ttfb_ms=0 total_ms=%d model=%s reason=%s",
+            prompt_tokens, total_ms, self.model, ctx.get("route_reason", ""),
+        )
+
         return {
             "message": final_message,
             "actions": [],
@@ -806,6 +815,8 @@ class OpenRouterOrchestrator(ToolOrchestrator):
 
     async def _execute_lite_streaming(self, messages: List[Dict], ctx: Dict[str, Any]) -> AsyncGenerator[Dict[str, Any], None]:
         """Execute lite route with streaming: single LLM call, no tools."""
+        t_start = time.monotonic()
+        ttfb_ms = 0
         if not self.async_openrouter_client:
             yield {"type": "result", "data": self._error_response("OpenRouter API not configured.")}
             return
@@ -829,6 +840,8 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     content_chunks.append(delta.content)
                     visible = think_filter.feed(delta.content)
                     if visible:
+                        if ttfb_ms == 0:
+                            ttfb_ms = int((time.monotonic() - t_start) * 1000)
                         yield {"type": "token", "content": visible}
             remaining = think_filter.flush()
             if remaining:
@@ -843,6 +856,13 @@ class OpenRouterOrchestrator(ToolOrchestrator):
 
         # Lightweight memory update (regex only, skip LLM fact extraction)
         self._lite_memory_update(ctx)
+
+        prompt_tokens = count_messages_tokens(messages, self.model)
+        total_ms = int((time.monotonic() - t_start) * 1000)
+        logger.info(
+            "[TurnMetrics] route=lite prompt_tokens=%d tools_count=0 ttfb_ms=%d total_ms=%d model=%s reason=%s",
+            prompt_tokens, ttfb_ms, total_ms, self.model, ctx.get("route_reason", ""),
+        )
 
         yield {
             "type": "result",
@@ -895,6 +915,8 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         Tool execution runs in threads via asyncio.to_thread since tools use sync DB.
         """
         self._reasoning_mode = ctx.get("reasoning_mode", False)
+        t_start = time.monotonic()
+        ttfb_ms = 0
         policy_decision = self._build_policy_decision(ctx)
         ctx["policy_decision"] = policy_decision
 
@@ -909,7 +931,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         )
         search_tool_executed = False
 
-        recent_results = ctx.get("recent_search_results", [])
+        recent_results = self._get_recent_papers(ctx)
         logger.info(f"[OpenRouter Async Streaming] Starting with model: {self.model}, recent_search_results: {len(recent_results)} papers")
 
         while iteration < max_iterations:
@@ -954,6 +976,18 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                         },
                     }
                     logger.info(f"[OpenRouter Async] Applying direct-search fallback with query: {forced_query[:120]}")
+
+                    # Stream the AI's actual response BEFORE the search so the
+                    # user sees context (e.g. "I'll search for more papers on…"),
+                    # then show the search status.
+                    ai_text = "".join(iteration_content).strip() or (response_content or "").strip()
+                    if ai_text:
+                        for token in iteration_content:
+                            yield {"type": "token", "content": token}
+                        final_content_chunks.append(ai_text)
+                    else:
+                        final_content_chunks.append("Searching for papers now. Results will appear in the UI shortly.")
+
                     yield {
                         "type": "status",
                         "tool": "search_papers",
@@ -962,12 +996,13 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     tool_results = await asyncio.to_thread(self._execute_tool_calls, [forced_tool_call], ctx)
                     all_tool_results.extend(tool_results)
                     search_tool_executed = True
-                    final_content_chunks.append("Searching for papers now. Results will appear in the UI shortly.")
                     break
 
                 # This IS the final iteration — stream the buffered tokens
                 # to the user so they see the typing effect.
                 logger.info("[OpenRouter Async Streaming] Final response - no more tool calls")
+                if ttfb_ms == 0 and iteration_content:
+                    ttfb_ms = int((time.monotonic() - t_start) * 1000)
                 for token in iteration_content:
                     yield {"type": "token", "content": token}
                 if iteration_content:
@@ -1061,6 +1096,13 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             all_tool_results,
             clarification_first_detected,
             stage_transition_success,
+        )
+
+        prompt_tokens = count_messages_tokens(messages[:1], self.model)
+        total_ms = int((time.monotonic() - t_start) * 1000)
+        logger.info(
+            "[TurnMetrics] route=full prompt_tokens=%d tools_count=%d ttfb_ms=%d total_ms=%d model=%s",
+            prompt_tokens, len(all_tool_results), ttfb_ms, total_ms, self.model,
         )
 
         yield {

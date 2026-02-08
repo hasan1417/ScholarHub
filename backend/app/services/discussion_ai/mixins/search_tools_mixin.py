@@ -34,7 +34,7 @@ class SearchToolsMixin:
 
     def _tool_get_recent_search_results(self, ctx: Dict[str, Any]) -> Dict:
         """Get papers from the most recent search."""
-        recent = ctx.get("recent_search_results", [])
+        recent = self._get_recent_papers(ctx)
 
         if not recent:
             return {
@@ -442,10 +442,8 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                     "journal": getattr(p, 'journal', None) or getattr(p, 'venue', None),
                 })
 
-            # Cache search results server-side (M2 security fix)
-            # This prevents clients from injecting malicious search results
-            from app.services.discussion_ai.search_cache import store_search_results
-            store_search_results(search_id, papers)
+            # Persist to Redis (cross-turn) AND update ctx (within-turn)
+            self._set_recent_papers(ctx, papers, search_id=search_id)
 
             # Return as action so frontend displays notification with Add buttons
             return {
@@ -1227,12 +1225,10 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 "papers": [],
             }
 
-        # Cache results for potential add_to_library
+        # Persist to Redis (cross-turn) AND update ctx (within-turn)
         search_id = str(uuid4())
         ctx["last_search_id"] = search_id
-        from app.services.discussion_ai.search_cache import store_search_results
-        store_search_results(search_id, papers_data)
-        ctx["recent_search_results"] = papers_data
+        self._set_recent_papers(ctx, papers_data, search_id=search_id)
 
         relation_desc = {
             "similar": "similar to",

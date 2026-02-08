@@ -25,6 +25,8 @@ class ConcreteAnalysisTools(AnalysisToolsMixin):
         - self.db
         - self._get_ai_memory(channel) -> dict
         - self._save_ai_memory(channel, memory) -> None
+        - self._get_recent_papers(ctx) -> list
+        - self._set_recent_papers(ctx, papers, search_id) -> None
     """
 
     def __init__(self, ai_service=None, db=None, initial_memory=None):
@@ -39,6 +41,14 @@ class ConcreteAnalysisTools(AnalysisToolsMixin):
     def _save_ai_memory(self, channel, memory):
         self._memory = memory
         self._saved_memories.append(memory.copy())
+
+    @staticmethod
+    def _get_recent_papers(ctx):
+        return ctx.get("recent_search_results", [])
+
+    @staticmethod
+    def _set_recent_papers(ctx, papers, search_id=None):
+        ctx["recent_search_results"] = papers
 
 
 # ---------------------------------------------------------------------------
