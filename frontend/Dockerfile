@@ -12,6 +12,12 @@ RUN npm install --legacy-peer-deps
 # Copy source code
 COPY . .
 
+# Build-time env vars (Vite bakes VITE_* at build time)
+ARG VITE_COLLAB_ENABLED=false
+ARG VITE_COLLAB_WS=ws://localhost:3001
+ENV VITE_COLLAB_ENABLED=$VITE_COLLAB_ENABLED
+ENV VITE_COLLAB_WS=$VITE_COLLAB_WS
+
 # Build the application
 RUN npm run build
 

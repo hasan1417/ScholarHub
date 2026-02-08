@@ -114,6 +114,9 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        - VITE_COLLAB_ENABLED=true
+        - VITE_COLLAB_WS=wss://scholarhub.space/collab/
     depends_on:
       - backend
     restart: unless-stopped
