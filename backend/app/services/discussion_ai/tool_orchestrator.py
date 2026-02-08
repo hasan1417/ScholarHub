@@ -225,6 +225,8 @@ class ToolOrchestrator(MemoryMixin, SearchToolsMixin, LibraryToolsMixin, Analysi
         from app.services.discussion_ai.route_classifier import classify_route
 
         try:
+            yield {"type": "status", "tool": "", "message": "Understanding your message"}
+
             ctx = self._build_request_context(
                 project,
                 channel,
@@ -249,7 +251,11 @@ class ToolOrchestrator(MemoryMixin, SearchToolsMixin, LibraryToolsMixin, Analysi
                     yield event
                 return
 
+            yield {"type": "status", "tool": "", "message": "Preparing context"}
+
             messages = self._build_messages(project, channel, message, recent_search_results, conversation_history, ctx=ctx)
+
+            yield {"type": "status", "tool": "", "message": "Generating response"}
 
             async for event in self._execute_with_tools_streaming(messages, ctx):
                 yield event
