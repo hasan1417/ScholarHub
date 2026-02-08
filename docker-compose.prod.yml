@@ -97,6 +97,9 @@ services:
       - RESEND_FROM_EMAIL=${RESEND_FROM_EMAIL}
       # Frontend URL
       - FRONTEND_URL=${FRONTEND_URL}
+      # OpenRouter
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENROUTER_KEY_ENCRYPTION_KEY=${OPENROUTER_KEY_ENCRYPTION_KEY}
     depends_on:
       postgres:
         condition: service_healthy
