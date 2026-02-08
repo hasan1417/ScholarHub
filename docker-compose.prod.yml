@@ -85,7 +85,7 @@ services:
       - PROJECT_COLLAB_REALTIME_ENABLED=true
       - COLLAB_JWT_SECRET=${COLLAB_JWT_SECRET}
       - COLLAB_BOOTSTRAP_SECRET=${COLLAB_BOOTSTRAP_SECRET}
-      - COLLAB_WS_URL=ws://collab:3001
+      - COLLAB_WS_URL=wss://scholarhub.space/collab/
       - COLLAB_JWT_EXPIRE_SECONDS=300
       - LATEX_WARMUP_ON_STARTUP=true
       # Google OAuth
