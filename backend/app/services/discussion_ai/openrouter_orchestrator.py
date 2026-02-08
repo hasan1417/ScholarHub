@@ -499,13 +499,15 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 }
             }
 
-        # Explicitly disable reasoning for models that think by default
-        # (e.g. DeepSeek V3.2). This prevents chain-of-thought from
-        # appearing in the content stream. ThinkTagFilter remains as safety net.
+        # Tell OpenRouter to separate reasoning into the `reasoning` field
+        # (which we don't read) instead of mixing it into `content`.
+        # Models like DeepSeek V3.2 have reasoning on by default — this
+        # keeps reasoning active for quality but hides it from the user.
+        # ThinkTagFilter remains as safety net for any tags that leak.
         return {
             "extra_body": {
                 "reasoning": {
-                    "enabled": False
+                    "effort": "medium"
                 }
             }
         }
@@ -736,7 +738,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 model=self.model,
                 messages=messages,
                 max_tokens=256,
-                extra_body={"reasoning": {"enabled": False}},
+                extra_body={"reasoning": {"effort": "medium"}},
             )
             raw = response.choices[0].message.content or ""
             final_message = _THINK_TAG_RE.sub("", raw).strip()
@@ -774,7 +776,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 messages=messages,
                 max_tokens=256,
                 stream=True,
-                extra_body={"reasoning": {"enabled": False}},
+                extra_body={"reasoning": {"effort": "medium"}},
             )
             async for chunk in stream:
                 delta = chunk.choices[0].delta if chunk.choices else None
