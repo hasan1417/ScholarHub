@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from typing import Any, AsyncGenerator, Dict, List, Optional, TYPE_CHECKING
 
@@ -30,6 +31,97 @@ if TYPE_CHECKING:
     from app.services.ai_service import AIService
 
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# REASONING CONTENT FILTERING (two layers)
+# =============================================================================
+# Layer 1 (primary): All API calls include `reasoning: {exclude: true}` so
+#   OpenRouter strips reasoning tokens server-side for any model.
+#
+# Layer 2 (safety net): ThinkTagFilter + _THINK_TAG_RE catch any tags that
+#   leak through despite the API flag (e.g. new/unsupported models).
+# =============================================================================
+_REASONING_TAGS = ("think", "thought", "reasoning", "reflection")
+
+_THINK_TAG_RE = re.compile(
+    r"<(?:" + "|".join(_REASONING_TAGS) + r")>.*?</(?:" + "|".join(_REASONING_TAGS) + r")>",
+    re.DOTALL,
+)
+
+
+class ThinkTagFilter:
+    """Streaming safety-net filter that strips reasoning tag blocks.
+
+    Primary defence is the API-level ``reasoning.exclude`` flag.  This filter
+    catches anything that still leaks through (new models, API bugs, etc.).
+    Handles: <think>, <thought>, <reasoning>, <reflection>.
+    """
+
+    _OPEN_TAGS = tuple(f"<{t}>" for t in _REASONING_TAGS)
+    _CLOSE_TAGS = tuple(f"</{t}>" for t in _REASONING_TAGS)
+    _MAX_OPEN_LEN = max(len(t) for t in _OPEN_TAGS)
+    _MAX_CLOSE_LEN = max(len(t) for t in _CLOSE_TAGS)
+
+    def __init__(self) -> None:
+        self._inside_block = False
+        self._buffer = ""
+
+    def _find_open_tag(self, text: str) -> tuple[int, int]:
+        best_pos, best_len = -1, 0
+        for tag in self._OPEN_TAGS:
+            idx = text.find(tag)
+            if idx != -1 and (best_pos == -1 or idx < best_pos):
+                best_pos, best_len = idx, len(tag)
+        return best_pos, best_len
+
+    def _find_close_tag(self, text: str) -> tuple[int, int]:
+        best_pos, best_len = -1, 0
+        for tag in self._CLOSE_TAGS:
+            idx = text.find(tag)
+            if idx != -1 and (best_pos == -1 or idx < best_pos):
+                best_pos, best_len = idx, len(tag)
+        return best_pos, best_len
+
+    def feed(self, text: str) -> str:
+        """Feed a streaming chunk and return only the visible portion."""
+        self._buffer += text
+        output_parts: list[str] = []
+
+        while self._buffer:
+            if self._inside_block:
+                end_idx, end_len = self._find_close_tag(self._buffer)
+                if end_idx == -1:
+                    if len(self._buffer) > self._MAX_CLOSE_LEN:
+                        self._buffer = self._buffer[-self._MAX_CLOSE_LEN:]
+                    break
+                else:
+                    self._buffer = self._buffer[end_idx + end_len:]
+                    self._inside_block = False
+            else:
+                start_idx, start_len = self._find_open_tag(self._buffer)
+                if start_idx == -1:
+                    safe_end = len(self._buffer) - self._MAX_OPEN_LEN
+                    if safe_end > 0:
+                        output_parts.append(self._buffer[:safe_end])
+                        self._buffer = self._buffer[safe_end:]
+                    break
+                else:
+                    if start_idx > 0:
+                        output_parts.append(self._buffer[:start_idx])
+                    self._buffer = self._buffer[start_idx + start_len:]
+                    self._inside_block = True
+
+        return "".join(output_parts)
+
+    def flush(self) -> str:
+        """Flush remaining buffer at end of stream."""
+        if self._inside_block:
+            self._buffer = ""
+            return ""
+        remaining = self._buffer
+        self._buffer = ""
+        return remaining
+
 
 # =============================================================================
 # MODEL CATALOG FALLBACK STRATEGY
@@ -392,16 +484,27 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         return model_supports_reasoning(self._model)
 
     def _get_reasoning_params(self) -> dict:
-        """Get reasoning parameters for the API call if enabled and supported."""
-        if not self._reasoning_mode or not self._model_supports_reasoning():
-            return {}
+        """Get reasoning parameters for the API call.
 
-        # OpenRouter unified reasoning parameter
-        # effort: "high" provides good balance of reasoning depth vs cost
+        When reasoning is enabled and the model supports it, returns
+        effort: "high". Otherwise, explicitly excludes reasoning tokens
+        so models like DeepSeek don't leak <think> tags into content.
+        """
+        if self._reasoning_mode and self._model_supports_reasoning():
+            return {
+                "extra_body": {
+                    "reasoning": {
+                        "effort": "high"
+                    }
+                }
+            }
+
+        # Explicitly exclude reasoning — prevents models from emitting
+        # <think>/<thought>/etc. tags inside the content stream.
         return {
             "extra_body": {
                 "reasoning": {
-                    "effort": "high"
+                    "exclude": True
                 }
             }
         }
@@ -448,7 +551,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             "tool_choice": "auto",
         }
 
-        # Add reasoning params if enabled
+        # Add reasoning params (always includes exclude or effort)
         reasoning_params = self._get_reasoning_params()
         if reasoning_params.get("extra_body"):
             call_params["extra_body"] = reasoning_params["extra_body"]
@@ -463,7 +566,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 message = choice.message
 
                 result = {
-                    "content": message.content or "",
+                    "content": _THINK_TAG_RE.sub("", message.content or "").strip(),
                     "tool_calls": [],
                 }
 
@@ -568,6 +671,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             content_chunks = []
             tool_calls_data = {}
             tool_call_signaled = False
+            think_filter = ThinkTagFilter()
 
             async for chunk in stream:
                 delta = chunk.choices[0].delta if chunk.choices else None
@@ -577,7 +681,9 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 if delta.content:
                     content_chunks.append(delta.content)
                     if not tool_call_signaled:
-                        yield {"type": "token", "content": delta.content}
+                        visible = think_filter.feed(delta.content)
+                        if visible:
+                            yield {"type": "token", "content": visible}
 
                 if delta.tool_calls:
                     if not tool_call_signaled:
@@ -596,6 +702,12 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                             if tc_chunk.function.arguments:
                                 tool_calls_data[idx]["arguments"] += tc_chunk.function.arguments
 
+            # Flush any remaining buffered content from the think filter
+            if not tool_call_signaled:
+                remaining = think_filter.flush()
+                if remaining:
+                    yield {"type": "token", "content": remaining}
+
             tool_calls = []
             for idx in sorted(tool_calls_data.keys()):
                 tc = tool_calls_data[idx]
@@ -605,7 +717,9 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     args = {}
                 tool_calls.append({"id": tc["id"], "name": tc["name"], "arguments": args})
 
-            yield {"type": "result", "content": "".join(content_chunks), "tool_calls": tool_calls}
+            # Strip any think tags from the accumulated content for the result
+            full_content = _THINK_TAG_RE.sub("", "".join(content_chunks)).strip()
+            yield {"type": "result", "content": full_content, "tool_calls": tool_calls}
 
         except Exception as e:
             logger.exception(f"Error processing async OpenRouter stream with model {self.model}")
@@ -621,6 +735,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 model=self.model,
                 messages=messages,
                 max_tokens=256,
+                extra_body={"reasoning": {"exclude": True}},
             )
             final_message = (response.choices[0].message.content or "").strip()
         except Exception as e:
@@ -650,23 +765,30 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             return
 
         content_chunks: List[str] = []
+        think_filter = ThinkTagFilter()
         try:
             stream = await self.async_openrouter_client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 max_tokens=256,
                 stream=True,
+                extra_body={"reasoning": {"exclude": True}},
             )
             async for chunk in stream:
                 delta = chunk.choices[0].delta if chunk.choices else None
                 if delta and delta.content:
                     content_chunks.append(delta.content)
-                    yield {"type": "token", "content": delta.content}
+                    visible = think_filter.feed(delta.content)
+                    if visible:
+                        yield {"type": "token", "content": visible}
+            remaining = think_filter.flush()
+            if remaining:
+                yield {"type": "token", "content": remaining}
         except Exception as e:
             logger.error(f"Lite streaming error: {e}")
 
-        final_message = "".join(content_chunks)
-        if not final_message.strip():
+        final_message = _THINK_TAG_RE.sub("", "".join(content_chunks)).strip()
+        if not final_message:
             final_message = self._build_empty_response_fallback(ctx)
             yield {"type": "token", "content": final_message}
 
@@ -829,7 +951,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     "content": json.dumps(result, default=str),
                 })
 
-        final_message = "".join(final_content_chunks)
+        final_message = _THINK_TAG_RE.sub("", "".join(final_content_chunks)).strip()
         final_message = self._apply_response_budget(final_message, ctx, all_tool_results)
         logger.debug(f"[OpenRouter Async] Complete. Tools called: {[t['name'] for t in all_tool_results]}")
 
@@ -963,6 +1085,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     {"role": "user", "content": user_message},
                 ],
                 max_tokens=min(self._get_model_output_token_cap(ctx), 280),
+                extra_body={"reasoning": {"exclude": True}},
             )
             text = (response.choices[0].message.content or "").strip()
             return text or None
