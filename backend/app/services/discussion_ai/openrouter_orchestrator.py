@@ -922,11 +922,16 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             has_tool_call = False
             hold_direct_search_tokens = direct_search_intent and not search_tool_executed
 
+            # Only stream tokens on the first iteration. Subsequent iterations
+            # are post-tool-call continuations — their intermediate text should
+            # be hidden; only the final response (when no tool calls remain) is
+            # streamed to the user.
+            is_first_iteration = iteration == 1
+
             async for event in self._call_ai_with_tools_streaming(messages, ctx):
                 if event["type"] == "token":
                     iteration_content.append(event["content"])
-                    # For direct-search intent, hold tokens until a search action has executed.
-                    if not has_tool_call and not hold_direct_search_tokens:
+                    if is_first_iteration and not has_tool_call and not hold_direct_search_tokens:
                         yield {"type": "token", "content": event["content"]}
                 elif event["type"] == "tool_call_detected":
                     has_tool_call = True
