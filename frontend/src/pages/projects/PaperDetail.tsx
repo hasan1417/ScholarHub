@@ -30,7 +30,6 @@ import {
   projectReferencesAPI,
   researchPapersAPI,
   referencesAPI,
-  buildApiUrl,
   teamAPI,
 } from '../../services/api'
 import {

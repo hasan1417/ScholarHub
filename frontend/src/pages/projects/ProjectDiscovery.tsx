@@ -192,7 +192,7 @@ const ProjectDiscovery = () => {
   const [selectedResults, setSelectedResults] = useState<string[]>([])
   const [promotingIds, setPromotingIds] = useState<Set<string>>(new Set())
   const [dismissingIds, setDismissingIds] = useState<Set<string>>(new Set())
-  const [isClearingResults, setIsClearingResults] = useState(false)
+  const [isClearingResults] = useState(false)
   const [resultsLimit, setResultsLimit] = useState(20)
   const [discoveryCooldown, setDiscoveryCooldown] = useState(0) // Seconds remaining
   const [lastSourceStats, setLastSourceStats] = useState<SourceStatsItem[] | null>(null)

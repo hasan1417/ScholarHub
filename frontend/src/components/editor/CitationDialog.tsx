@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { Search, X, BookOpen, Upload } from 'lucide-react'
-import api, { buildApiUrl, projectReferencesAPI, researchPapersAPI } from '../../services/api'
+import api, { projectReferencesAPI, researchPapersAPI } from '../../services/api'
 import { makeBibKey } from './utils/bibKey'
 
 interface ReferenceItem {
