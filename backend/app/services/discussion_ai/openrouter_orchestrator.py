@@ -743,7 +743,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             final_message = ""
 
         if not final_message:
-            final_message = self._build_empty_response_fallback(ctx)
+            final_message = self._build_lite_fallback(ctx)
 
         # Lightweight memory update (regex only, skip LLM fact extraction)
         self._lite_memory_update(ctx)
@@ -789,7 +789,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
 
         final_message = _THINK_TAG_RE.sub("", "".join(content_chunks)).strip()
         if not final_message:
-            final_message = self._build_empty_response_fallback(ctx)
+            final_message = self._build_lite_fallback(ctx)
             yield {"type": "token", "content": final_message}
 
         # Lightweight memory update (regex only, skip LLM fact extraction)
@@ -807,6 +807,15 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 "conversation_state": {},
             },
         }
+
+    @staticmethod
+    def _build_lite_fallback(ctx: Dict[str, Any]) -> str:
+        """Friendly fallback for lite route when the LLM call fails (e.g. rate limit)."""
+        reason = ctx.get("route_reason", "")
+        project_title = getattr(ctx.get("project"), "title", "your project")
+        if reason in ("greeting_or_acknowledgment", "standalone_confirmation", "empty_message"):
+            return f"Hello! I'm here to help with {project_title}. What would you like to work on?"
+        return f"Got it! Let me know how I can help with {project_title}."
 
     def _lite_memory_update(self, ctx: Dict[str, Any]) -> None:
         """Lightweight memory update for lite route: regex-only, no LLM fact extraction."""
