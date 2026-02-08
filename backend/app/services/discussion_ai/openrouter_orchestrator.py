@@ -35,11 +35,13 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # REASONING CONTENT FILTERING (two layers)
 # =============================================================================
-# Layer 1 (primary): All API calls include `reasoning: {exclude: true}` so
-#   OpenRouter strips reasoning tokens server-side for any model.
+# Layer 1 (reasoning-capable models): API calls include `reasoning.effort`
+#   param so OpenRouter separates reasoning into a dedicated field that we
+#   don't read — only applied to models that support it.
 #
-# Layer 2 (safety net): ThinkTagFilter + _THINK_TAG_RE catch any tags that
-#   leak through despite the API flag (e.g. new/unsupported models).
+# Layer 2 (universal safety net): ThinkTagFilter + _THINK_TAG_RE catch any
+#   <think>/<thought>/<reasoning>/<reflection> tags that leak into content
+#   from any model, whether reasoning-capable or not.
 # =============================================================================
 _REASONING_TAGS = ("think", "thought", "reasoning", "reflection")
 
@@ -486,11 +488,14 @@ class OpenRouterOrchestrator(ToolOrchestrator):
     def _get_reasoning_params(self) -> dict:
         """Get reasoning parameters for the API call.
 
-        When reasoning is enabled and the model supports it, returns
-        effort: "high". Otherwise, explicitly excludes reasoning tokens
-        so models like DeepSeek don't leak <think> tags into content.
+        Only sends reasoning params to models that support them.
+        For models without reasoning support, returns empty dict and
+        relies on ThinkTagFilter as safety net for any leaked tags.
         """
-        if self._reasoning_mode and self._model_supports_reasoning():
+        if not self._model_supports_reasoning():
+            return {}
+
+        if self._reasoning_mode:
             return {
                 "extra_body": {
                     "reasoning": {
@@ -499,10 +504,10 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 }
             }
 
-        # Tell OpenRouter to separate reasoning into the `reasoning` field
-        # (which we don't read) instead of mixing it into `content`.
-        # Models like DeepSeek V3.2 have reasoning on by default — this
-        # keeps reasoning active for quality but hides it from the user.
+        # Model supports reasoning but user hasn't enabled reasoning mode.
+        # Use effort: "medium" to separate reasoning into the `reasoning`
+        # field (which we don't read) instead of mixing into `content`.
+        # This keeps reasoning active for quality but hides it from the user.
         # ThinkTagFilter remains as safety net for any tags that leak.
         return {
             "extra_body": {
@@ -530,6 +535,14 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             return True
         if isinstance(error, APIStatusError):
             return error.status_code in RETRYABLE_STATUS_CODES
+        return False
+
+    @staticmethod
+    def _is_no_tools_error(error: Exception) -> bool:
+        """Check if the error is a 'model doesn't support tools' error from OpenRouter."""
+        if isinstance(error, APIStatusError) and error.status_code == 404:
+            msg = str(error).lower()
+            return "tool use" in msg or "tool_use" in msg or "tools" in msg
         return False
 
     def _call_ai_with_tools(self, messages: List[Dict], ctx: Dict[str, Any]) -> Dict[str, Any]:
@@ -594,9 +607,20 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 return result
 
             except Exception as e:
-                last_error = e
+                # Model doesn't support tools → retry without tools
+                if self._is_no_tools_error(e):
+                    logger.warning(f"Model {self.model} does not support tools. Retrying without tools.")
+                    call_params.pop("tools", None)
+                    call_params.pop("tool_choice", None)
+                    try:
+                        response = self.openrouter_client.chat.completions.create(**call_params)
+                        raw = response.choices[0].message.content or ""
+                        return {"content": _THINK_TAG_RE.sub("", raw).strip(), "tool_calls": []}
+                    except Exception as inner_e:
+                        logger.error(f"No-tools fallback also failed: {inner_e}")
+                        return {"content": f"Error: {str(inner_e)}", "tool_calls": []}
+
                 if not self._is_retryable_error(e):
-                    # Non-retryable error (auth, invalid request, etc.) - fail immediately
                     logger.error(f"Non-retryable error calling OpenRouter: {e}")
                     return {"content": f"Error: {str(e)}", "tool_calls": []}
 
@@ -646,11 +670,26 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             call_params["extra_body"] = reasoning_params["extra_body"]
 
         stream = None
+        no_tools_fallback = False
         for attempt in range(MAX_RETRIES):
             try:
                 stream = await self.async_openrouter_client.chat.completions.create(**call_params)
                 break
             except Exception as e:
+                # Model doesn't support tools → retry without tools
+                if self._is_no_tools_error(e):
+                    logger.warning(f"Model {self.model} does not support tools. Retrying without tools.")
+                    call_params.pop("tools", None)
+                    call_params.pop("tool_choice", None)
+                    no_tools_fallback = True
+                    try:
+                        stream = await self.async_openrouter_client.chat.completions.create(**call_params)
+                        break
+                    except Exception as inner_e:
+                        logger.error(f"No-tools streaming fallback also failed: {inner_e}")
+                        yield {"type": "result", "content": f"Error: {str(inner_e)}", "tool_calls": []}
+                        return
+
                 if not self._is_retryable_error(e):
                     logger.error(f"Non-retryable error starting async OpenRouter stream: {e}")
                     yield {"type": "result", "content": f"Error: {str(e)}", "tool_calls": []}
@@ -734,12 +773,15 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             return self._error_response("OpenRouter API not configured.")
 
         try:
-            response = self.openrouter_client.chat.completions.create(
+            call_kwargs: Dict[str, Any] = dict(
                 model=self.model,
                 messages=messages,
                 max_tokens=256,
-                extra_body={"reasoning": {"effort": "medium"}},
             )
+            reasoning_params = self._get_reasoning_params()
+            if reasoning_params.get("extra_body"):
+                call_kwargs["extra_body"] = reasoning_params["extra_body"]
+            response = self.openrouter_client.chat.completions.create(**call_kwargs)
             raw = response.choices[0].message.content or ""
             final_message = _THINK_TAG_RE.sub("", raw).strip()
         except Exception as e:
@@ -771,13 +813,16 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         content_chunks: List[str] = []
         think_filter = ThinkTagFilter()
         try:
-            stream = await self.async_openrouter_client.chat.completions.create(
+            lite_kwargs: Dict[str, Any] = dict(
                 model=self.model,
                 messages=messages,
                 max_tokens=256,
                 stream=True,
-                extra_body={"reasoning": {"effort": "medium"}},
             )
+            reasoning_params = self._get_reasoning_params()
+            if reasoning_params.get("extra_body"):
+                lite_kwargs["extra_body"] = reasoning_params["extra_body"]
+            stream = await self.async_openrouter_client.chat.completions.create(**lite_kwargs)
             async for chunk in stream:
                 delta = chunk.choices[0].delta if chunk.choices else None
                 if delta and delta.content:
