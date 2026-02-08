@@ -499,15 +499,9 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 }
             }
 
-        # Explicitly exclude reasoning — prevents models from emitting
-        # <think>/<thought>/etc. tags inside the content stream.
-        return {
-            "extra_body": {
-                "reasoning": {
-                    "exclude": True
-                }
-            }
-        }
+        # Don't send reasoning params — let models use their native format
+        # (e.g. <think> tags) so ThinkTagFilter can strip them from the stream.
+        return {}
 
     @property
     def model(self) -> str:
@@ -735,9 +729,9 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 model=self.model,
                 messages=messages,
                 max_tokens=256,
-                extra_body={"reasoning": {"exclude": True}},
             )
-            final_message = (response.choices[0].message.content or "").strip()
+            raw = response.choices[0].message.content or ""
+            final_message = _THINK_TAG_RE.sub("", raw).strip()
         except Exception as e:
             logger.error(f"Lite execution error: {e}")
             final_message = ""
@@ -772,7 +766,6 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 messages=messages,
                 max_tokens=256,
                 stream=True,
-                extra_body={"reasoning": {"exclude": True}},
             )
             async for chunk in stream:
                 delta = chunk.choices[0].delta if chunk.choices else None
@@ -1094,9 +1087,8 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     {"role": "user", "content": user_message},
                 ],
                 max_tokens=min(self._get_model_output_token_cap(ctx), 280),
-                extra_body={"reasoning": {"exclude": True}},
             )
-            text = (response.choices[0].message.content or "").strip()
+            text = _THINK_TAG_RE.sub("", response.choices[0].message.content or "").strip()
             return text or None
         except Exception as exc:
             logger.debug("Content fallback generation skipped due to model error: %s", exc)
