@@ -7,14 +7,17 @@ reference management, and project/channel info retrieval.
 
 from __future__ import annotations
 
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import json
 import logging
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Awaitable, Callable, Dict, List, Optional, TYPE_CHECKING, TypeVar
 
 if TYPE_CHECKING:
     from app.models import Project
 
 logger = logging.getLogger(__name__)
+T = TypeVar("T")
 
 
 class SearchToolsMixin:
@@ -85,6 +88,22 @@ class SearchToolsMixin:
             "depth_info": depth_info,
             "message": f"Found {len(recent)} papers from the recent search (abstracts only)."
         }
+
+    def _run_async_operation(self, operation: Callable[[], Awaitable[T]]) -> T:
+        """
+        Run an async operation from sync tool code safely.
+
+        If we're already in an event loop (e.g., async API path), run the coroutine
+        in a dedicated worker thread to avoid nested-loop RuntimeError.
+        """
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(operation())
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(lambda: asyncio.run(operation()))
+            return future.result()
 
     def _tool_get_project_references(
         self,
@@ -309,14 +328,33 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             logger.exception(f"Error analyzing reference {reference_id}")
             return {"error": f"Analysis failed: {str(e)}"}
 
-    def _tool_search_papers(self, ctx: Dict[str, Any], query: str, count: int = 5, open_access_only: bool = False) -> Dict:
+    def _tool_search_papers(
+        self,
+        ctx: Dict[str, Any],
+        query: str,
+        count: int = 5,
+        open_access_only: bool = False,
+        limit: Optional[int] = None,
+        year_from: Optional[int] = None,
+        year_to: Optional[int] = None,
+    ) -> Dict:
         """Search for papers online and return results directly."""
-        import asyncio
         from uuid import uuid4
         from app.services.paper_discovery_service import PaperDiscoveryService
         from app.models import Reference, ProjectReference
 
+        effective_limit = limit if limit is not None else count
+        effective_limit = max(1, min(int(effective_limit or 5), 20))
+
         oa_note = " (Open Access only)" if open_access_only else ""
+        year_note = ""
+        if year_from is not None or year_to is not None:
+            if year_from is not None and year_to is not None:
+                year_note = f" ({year_from}-{year_to})"
+            elif year_from is not None:
+                year_note = f" (since {year_from})"
+            else:
+                year_note = f" (up to {year_to})"
         project = ctx.get("project")
         search_id = str(uuid4())
         ctx["last_search_id"] = search_id
@@ -336,22 +374,28 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 
         try:
             sources = ["arxiv", "semantic_scholar", "openalex", "crossref", "pubmed", "europe_pmc"]
-            max_results = min(count, 20)  # Cap at 20 results
+            max_results = effective_limit
 
             # Request more to account for filtering (open access + library duplicates)
             search_max = max_results * 3
 
             async def _run_search():
                 discovery_service = PaperDiscoveryService()
-                return await discovery_service.discover_papers(
-                    query=query,
-                    max_results=search_max,
-                    sources=sources,
-                    fast_mode=True,
-                )
+                try:
+                    return await discovery_service.discover_papers(
+                        query=query,
+                        max_results=search_max,
+                        sources=sources,
+                        fast_mode=True,
+                        year_from=year_from,
+                        year_to=year_to,
+                        open_access_only=open_access_only,
+                    )
+                finally:
+                    await discovery_service.close()
 
             # Run async search
-            result = asyncio.run(_run_search())
+            result = self._run_async_operation(_run_search)
 
             # Filter for open access if requested
             source_papers = result.papers
@@ -406,12 +450,16 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             # Return as action so frontend displays notification with Add buttons
             return {
                 "status": "success",
-                "message": f"Found {len(papers)} papers for: '{query}'{oa_note}"
+                "message": f"Found {len(papers)} papers for: '{query}'{oa_note}{year_note}"
                     + (f" ({skipped_library} already in your library)" if skipped_library else ""),
                 "action": {
                     "type": "search_results",  # Frontend will display as notification
                     "payload": {
                         "query": query,
+                        "year_from": year_from,
+                        "year_to": year_to,
+                        "open_access_only": open_access_only,
+                        "limit": max_results,
                         "papers": papers,
                         "total_found": len(result.papers),
                         "search_id": search_id,
@@ -690,8 +738,8 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             topic_name = topic_info["topic"]
             query = topic_info["query"]
             max_res = topic_info["max_results"]
+            discovery_service = PaperDiscoveryService()
             try:
-                discovery_service = PaperDiscoveryService()
                 result = await discovery_service.discover_papers(
                     query=query,
                     max_results=max_res * 3,  # Request more to account for filtering
@@ -713,13 +761,15 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                     "papers": [],
                     "error": str(e),
                 }
+            finally:
+                await discovery_service.close()
 
         async def _run_all_searches():
             return await asyncio.gather(*[
                 _search_topic(t) for t in formatted_topics
             ])
 
-        topic_search_results = asyncio.run(_run_all_searches())
+        topic_search_results = self._run_async_operation(_run_all_searches)
 
         # Process results: deduplicate across topics and filter library duplicates
         seen_keys: set = set()
@@ -1159,7 +1209,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 return {"source": None, "source_title": paper_identifier, "papers": []}
 
         # Run async function
-        result = asyncio.run(fetch_related())
+        result = self._run_async_operation(fetch_related)
 
         papers_data = result.get("papers", [])
         source_title = result.get("source_title", paper_identifier)
@@ -1252,13 +1302,14 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 
         # Get embedding service and embed the query
         try:
-            import asyncio
             from app.services.embedding_service import get_embedding_service
 
             embedding_service = get_embedding_service()
 
-            # Run async embedding in sync context
-            query_embedding = asyncio.run(embedding_service.embed(query))
+            # Run async embedding in sync context (safe even under running loop)
+            query_embedding = self._run_async_operation(
+                lambda: embedding_service.embed(query)
+            )
 
         except Exception as e:
             logger.error(f"[SemanticSearch] Failed to embed query: {e}")

@@ -151,6 +151,7 @@ class TestAIMemoryBasics:
         assert memory.get("summary") is None
         assert "facts" in memory
         assert "key_quotes" in memory
+        assert "clarification_state" in memory
         assert memory["facts"]["research_topic"] is None
         assert memory["facts"]["papers_discussed"] == []
 
@@ -523,6 +524,60 @@ class TestRequestContext:
         assert ctx["project"] == project
 
         print("✓ test_build_request_context_includes_memory_fields passed")
+
+
+class TestResponseLengthPolicy:
+    """Test concise-by-default response length policy injection."""
+
+    def test_build_messages_injects_response_format_guidance(self):
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        project = MockProject()
+        channel = MockChannel()
+
+        messages = orchestrator._build_messages(
+            project,
+            channel,
+            "What databases and keywords should we use first for this topic?",
+            None,
+            [],
+            ctx={"user_role": "admin", "current_user": None},
+        )
+        system_prompt = messages[0]["content"]
+
+        assert "RESPONSE FORMAT" in system_prompt
+        assert "Markdown" in system_prompt
+        assert "concrete next step" in system_prompt
+
+        print("✓ test_build_messages_injects_response_format_guidance passed")
+
+    def test_apply_response_budget_passes_through_normal_text(self):
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        ctx = {"user_message": "Can you suggest a strategy for this topic?"}
+        verbose = ("This is a long explanatory sentence. " * 180).strip()
+
+        result = orchestrator._apply_response_budget(verbose, ctx, [])
+
+        # No truncation — prompt + token cap handle length, not post-processing
+        assert result == verbose
+
+    def test_apply_response_budget_uses_short_search_completion(self):
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        ctx = {"user_message": "Can you find me recent papers on this topic?"}
+        verbose_search_reply = (
+            "I found papers and now I will provide extensive discussion. " * 40
+        ).strip()
+        tool_results = [{"name": "search_papers", "result": {"status": "success"}}]
+
+        result = orchestrator._apply_response_budget(verbose_search_reply, ctx, tool_results)
+
+        assert result.startswith("Searching for papers now")
+        assert len(result.split()) < 40
 
 
 class TestTokenBudget:
@@ -947,8 +1002,208 @@ class TestLongTermMemory:
         assert "long_term" in memory
         assert "user_preferences" in memory["long_term"]
         assert "rejected_approaches" in memory["long_term"]
+        assert "follow_up_items" in memory["long_term"]
+        assert "user_profiles" in memory["long_term"]
 
         print("✓ test_memory_defaults_include_long_term passed")
+
+    def test_update_long_term_memory_follow_up_items(self):
+        """Explicit deferred questions should be saved as follow-up items."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        db = MockDB()
+        ai_service = MockAIService()
+        orchestrator = ToolOrchestrator(ai_service, db)
+
+        channel = MockChannel()
+        channel.ai_memory = {
+            "long_term": {
+                "user_preferences": [],
+                "rejected_approaches": [],
+                "follow_up_items": [],
+            }
+        }
+
+        orchestrator.update_long_term_memory(
+            channel,
+            "I still have an unanswered question for later: What evaluation metrics are most appropriate for measuring bias in large language models?",
+            "Short answer: there is no single best metric.",
+        )
+
+        follow_ups = channel.ai_memory["long_term"]["follow_up_items"]
+        assert len(follow_ups) >= 1
+        assert any("evaluation metrics" in item.lower() for item in follow_ups)
+
+        print("✓ test_update_long_term_memory_follow_up_items passed")
+
+    def test_update_long_term_memory_user_scoped_under_channel(self):
+        """Preferences/rejections should be isolated per-user under channel memory."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        db = MockDB()
+        ai_service = MockAIService()
+        orchestrator = ToolOrchestrator(ai_service, db)
+
+        channel = MockChannel()
+        channel.ai_memory = {
+            "long_term": {
+                "user_preferences": [],
+                "rejected_approaches": [],
+                "follow_up_items": [],
+                "user_profiles": {},
+            }
+        }
+
+        orchestrator.update_long_term_memory(
+            channel,
+            "I prefer quantitative methods.",
+            "Understood.",
+            user_id="user-a",
+        )
+        orchestrator.update_long_term_memory(
+            channel,
+            "I don't want survey-only studies.",
+            "Understood.",
+            user_id="user-b",
+        )
+
+        profiles = channel.ai_memory["long_term"]["user_profiles"]
+        assert "user-a" in profiles
+        assert "user-b" in profiles
+        assert any("prefer quantitative" in p.lower() for p in profiles["user-a"]["user_preferences"])
+        assert len(profiles["user-a"]["rejected_approaches"]) == 0
+        assert any("don't want survey-only" in r.lower() for r in profiles["user-b"]["rejected_approaches"])
+        assert len(profiles["user-b"]["user_preferences"]) == 0
+
+        print("✓ test_update_long_term_memory_user_scoped_under_channel passed")
+
+
+class TestClarificationGuardrails:
+    """Test deterministic clarification-loop prevention."""
+
+    def test_scope_clarification_state_tracked(self):
+        """Assistant scope clarification should set pending slot state."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        memory = {}
+
+        orchestrator._update_clarification_state_inline(
+            memory,
+            "I want to compare policy interventions used between 2018 and 2025.",
+            "Do you want a global comparison or a comparison focused on a specific region/country or up to 6 cities?",
+        )
+
+        state = memory.get("clarification_state", {})
+        assert state.get("pending_slot") == "scope_geography"
+        assert state.get("asked_count") == 1
+        assert state.get("default_value") == "global"
+
+        print("✓ test_scope_clarification_state_tracked passed")
+
+    def test_clarification_guardrail_applies_when_user_requests_progress(self):
+        """If same slot is still unresolved, next actionable request should force progress."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        memory = {
+            "clarification_state": {
+                "pending_slot": "scope_geography",
+                "asked_count": 1,
+                "default_value": "global",
+                "last_prompt": "Do you want global or specific region?",
+            }
+        }
+
+        guardrail = orchestrator._build_clarification_guardrail(
+            memory,
+            "What databases and keywords should we use first for this topic?",
+        )
+
+        assert guardrail is not None
+        assert "Do NOT ask for geographic scope again" in guardrail
+        assert "Assume global scope" in guardrail
+
+        print("✓ test_clarification_guardrail_applies_when_user_requests_progress passed")
+
+    def test_clarification_state_clears_when_user_answers(self):
+        """Scope answer from user should clear pending clarification state."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        memory = {
+            "clarification_state": {
+                "pending_slot": "scope_geography",
+                "asked_count": 1,
+                "default_value": "global",
+                "last_prompt": "Do you want global or specific region?",
+            }
+        }
+
+        orchestrator._update_clarification_state_inline(
+            memory,
+            "Global comparison is fine.",
+            "Understood. I will proceed with global scope.",
+        )
+
+        state = memory.get("clarification_state", {})
+        assert state.get("pending_slot") is None
+        assert state.get("asked_count") == 0
+
+        print("✓ test_clarification_state_clears_when_user_answers passed")
+
+    def test_build_messages_injects_guardrail_instruction(self):
+        """System prompt should include clarification guardrail when applicable."""
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        project = MockProject()
+        channel = MockChannel()
+        channel.ai_memory = {
+            "clarification_state": {
+                "pending_slot": "scope_geography",
+                "asked_count": 1,
+                "default_value": "global",
+                "last_prompt": "Do you want global or specific region?",
+            },
+            "facts": {
+                "research_topic": None,
+                "research_question": None,
+                "papers_discussed": [],
+                "decisions_made": [],
+                "pending_questions": [],
+                "unanswered_questions": [],
+                "methodology_notes": [],
+            },
+            "long_term": {
+                "user_preferences": [],
+                "rejected_approaches": [],
+                "follow_up_items": [],
+                "user_profiles": {},
+            },
+            "research_state": {
+                "stage": "refining",
+                "stage_confidence": 0.7,
+                "stage_history": [],
+            },
+            "tool_cache": {},
+            "key_quotes": [],
+        }
+
+        messages = orchestrator._build_messages(
+            project,
+            channel,
+            "What databases and keywords should we use first for this topic?",
+            None,
+            [],
+            ctx={"user_role": "admin", "current_user": None},
+        )
+
+        system_prompt = messages[0]["content"]
+        assert "CLARIFICATION POLICY" in system_prompt
+        assert "Do NOT ask for geographic scope again" in system_prompt
+
+        print("✓ test_build_messages_injects_guardrail_instruction passed")
 
 
 class TestQuestionTracking:
@@ -1508,7 +1763,10 @@ class TestDirectSearchRouting:
         assert results[0]["name"] == "search_papers"
         assert captured_args["query"] == "social media and academic performance"
         assert captured_args["count"] == 5
+        assert captured_args["limit"] == 5
         assert captured_args["open_access_only"] is False
+        assert captured_args["year_from"] is not None
+        assert captured_args["year_to"] is not None
 
     def test_execute_tool_calls_honors_user_requested_count_and_oa(self):
         from unittest.mock import patch
@@ -1549,8 +1807,50 @@ class TestDirectSearchRouting:
 
         assert results[0]["name"] == "search_papers"
         assert captured_args["count"] == 12
+        assert captured_args["limit"] == 12
         assert captured_args["open_access_only"] is True
         assert "sleep deprivation" in captured_args["query"].lower()
+
+    def test_execute_tool_calls_honors_explicit_year_range(self):
+        from unittest.mock import patch
+        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+
+        orchestrator = ToolOrchestrator(MockAIService(), MockDB())
+        channel = MockChannel()
+        channel.ai_memory = {
+            "facts": {
+                "research_topic": "social media and academic performance",
+            }
+        }
+
+        ctx = {
+            "user_message": "Can you find papers from 2020 to 2023 on this topic?",
+            "channel": channel,
+            "user_role": "admin",
+            "is_owner": True,
+        }
+        tool_calls = [{
+            "id": "tc-3",
+            "name": "search_papers",
+            "arguments": {
+                "query": "noisy query",
+                "count": 2,
+                "open_access_only": False,
+            },
+        }]
+
+        captured_args = {}
+
+        def fake_execute(name, orch, run_ctx, args):
+            captured_args.update(args)
+            return {"status": "ok"}
+
+        with patch.object(orchestrator._tool_registry, "execute", side_effect=fake_execute):
+            results = orchestrator._execute_tool_calls(tool_calls, ctx)
+
+        assert results[0]["name"] == "search_papers"
+        assert captured_args["year_from"] == 2020
+        assert captured_args["year_to"] == 2023
 
 
 class TestIncrementalSummary:

@@ -14,6 +14,7 @@ import json
 import io
 import xml.etree.ElementTree as ET
 import re
+import inspect
 
 from app.services.paper_discovery.config import DiscoveryConfig
 from app.services.paper_discovery.interfaces import (
@@ -97,6 +98,9 @@ class SearchOrchestrator:
         *,
         fast_mode: bool = False,
         core_terms: Optional[Set[str]] = None,
+        year_from: Optional[int] = None,
+        year_to: Optional[int] = None,
+        open_access_only: bool = False,
     ) -> DiscoveryResult:
         """Orchestrate paper discovery and return results with per-source stats."""
         search_start_time = time.time()
@@ -154,8 +158,23 @@ class SearchOrchestrator:
                     else:
                         timeout = min(timeout, 15.0)  # Moderate timeout for larger searches
                 try:
+                    # Pass native filters only to searchers that support them.
+                    filter_kwargs: Dict[str, Any] = {}
+                    try:
+                        sig = inspect.signature(searcher.search)
+                        params = sig.parameters
+                        accepts_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+                        if accepts_kwargs or "year_from" in params:
+                            filter_kwargs["year_from"] = year_from
+                        if accepts_kwargs or "year_to" in params:
+                            filter_kwargs["year_to"] = year_to
+                        if accepts_kwargs or "open_access_only" in params:
+                            filter_kwargs["open_access_only"] = open_access_only
+                    except Exception:
+                        filter_kwargs = {}
+
                     papers = await asyncio.wait_for(
-                        searcher.search(query, max_results),
+                        searcher.search(query, max_results, **filter_kwargs),
                         timeout=timeout
                     )
                     elapsed_ms = int((time.time() - source_start) * 1000)
@@ -243,9 +262,26 @@ class SearchOrchestrator:
         ]
         await asyncio.gather(*enrichment_tasks, return_exceptions=True)
 
+        # Phase 2.5: Deterministic hard filters (provider-agnostic safety net).
+        # This prevents recency/OA leaks when any upstream source ignores filters.
+        filtered_papers, removed_by_year, removed_by_oa = self._apply_hard_filters(
+            all_papers,
+            year_from=year_from,
+            year_to=year_to,
+            open_access_only=open_access_only,
+        )
+        if removed_by_year or removed_by_oa:
+            logger.info(
+                "[Search] Hard filters applied | removed_by_year=%s removed_by_oa=%s kept=%s/%s",
+                removed_by_year,
+                removed_by_oa,
+                len(filtered_papers),
+                len(all_papers),
+            )
+
         # Phase 3: Ranking (pass core_terms for boost)
         ranked_papers = await self.ranker.rank(
-            all_papers,
+            filtered_papers,
             query,
             target_text=target_text,
             target_keywords=target_keywords,
@@ -261,7 +297,7 @@ class SearchOrchestrator:
 
         logger.info(
             f"[Search] COMPLETE query='{query}' | "
-            f"results={len(ranked_papers[:max_results])}/{len(all_papers)} (returned/deduped) | "
+            f"results={len(ranked_papers[:max_results])}/{len(filtered_papers)}/{len(all_papers)} (returned/filtered/deduped) | "
             f"counts={source_counts} | "
             f"times_ms={source_times} | "
             f"rate_limited={rate_limited or 'none'} | "
@@ -273,6 +309,59 @@ class SearchOrchestrator:
             papers=ranked_papers[:max_results],
             source_stats=list(source_stats_map.values())
         )
+
+    def _apply_hard_filters(
+        self,
+        papers: List[DiscoveredPaper],
+        *,
+        year_from: Optional[int],
+        year_to: Optional[int],
+        open_access_only: bool,
+    ) -> tuple[List[DiscoveredPaper], int, int]:
+        """Enforce year/OA constraints after retrieval as a deterministic fallback."""
+        if not papers:
+            return ([], 0, 0)
+
+        start_year = year_from
+        end_year = year_to
+        if start_year is not None and end_year is not None and start_year > end_year:
+            start_year, end_year = end_year, start_year
+
+        filtered: List[DiscoveredPaper] = []
+        removed_by_year = 0
+        removed_by_oa = 0
+
+        for paper in papers:
+            if start_year is not None or end_year is not None:
+                paper_year = getattr(paper, "year", None)
+                if paper_year is None:
+                    removed_by_year += 1
+                    continue
+                try:
+                    year_int = int(paper_year)
+                except (TypeError, ValueError):
+                    removed_by_year += 1
+                    continue
+                if start_year is not None and year_int < start_year:
+                    removed_by_year += 1
+                    continue
+                if end_year is not None and year_int > end_year:
+                    removed_by_year += 1
+                    continue
+
+            if open_access_only:
+                has_oa_access = bool(
+                    getattr(paper, "is_open_access", False)
+                    or getattr(paper, "pdf_url", None)
+                    or getattr(paper, "open_access_url", None)
+                )
+                if not has_oa_access:
+                    removed_by_oa += 1
+                    continue
+
+            filtered.append(paper)
+
+        return (filtered, removed_by_year, removed_by_oa)
 
 
 # ============= Main Service Factory =============
@@ -493,13 +582,25 @@ class PaperDiscoveryService:
         sources: Optional[List[str]] = None,
         debug: bool = False,
         fast_mode: bool = False,
+        year_from: Optional[int] = None,
+        year_to: Optional[int] = None,
+        open_access_only: bool = False,
     ) -> DiscoveryResult:
         """Main discovery method with clean orchestration"""
 
         start_time = time.time()
         timings = {}
 
-        logger.info(f"PaperDiscoveryService.discover_papers called with query='{query}', research_topic='{research_topic}', sources={sources}")
+        logger.info(
+            "PaperDiscoveryService.discover_papers called with query='%s', research_topic='%s', sources=%s, "
+            "year_from=%s, year_to=%s, open_access_only=%s",
+            query,
+            research_topic,
+            sources,
+            year_from,
+            year_to,
+            open_access_only,
+        )
 
         try:
             # Extract core terms from original query BEFORE enhancement (Phase 1.3)
@@ -529,6 +630,9 @@ class PaperDiscoveryService:
                 sources=sources,
                 fast_mode=fast_mode,
                 core_terms=core_terms,
+                year_from=year_from,
+                year_to=year_to,
+                open_access_only=open_access_only,
             )
             papers = result.papers
             await self._augment_pdf_links(papers, fast_mode=fast_mode)

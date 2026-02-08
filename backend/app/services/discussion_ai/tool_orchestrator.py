@@ -10,9 +10,12 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional, TYPE_CHECKING
 
 from app.services.discussion_ai.tools import build_tool_registry
+from app.services.discussion_ai.policy import DiscussionPolicy, PolicyDecision
+from app.services.discussion_ai.quality_metrics import get_discussion_ai_metrics_collector
 from app.services.discussion_ai.mixins import (
     MemoryMixin,
     SearchToolsMixin,
@@ -76,16 +79,15 @@ When asked to create a paper or literature review:
 
 **Vague topics** (e.g., "recent algorithms"): Use discover_topics first, then search specific topics.
 **User confirms multiple searches** ("all 6 please", "search all", "yes"): Call batch_search_papers immediately.
-**Direct paper-search requests** ("find/search/get papers on X"): call search_papers immediately with defaults.
-- Default `open_access_only=False` unless user explicitly asks for OA/PDF-only papers.
-- Default `count=5` unless user asks for a specific number.
-- Do NOT ask clarifying questions about optional filters (OA/count) before searching.
+
+Routing, defaults, and filter enforcement are handled by system policy code.
+When policy routes to `search_papers`, execute the tool action directly without optional clarification detours.
 
 **Query quality (research-grade):**
 - Use concise, high-signal academic queries (typically 4-8 terms).
 - Include core concept + context/population + outcome/method when relevant.
 - Avoid keyword stuffing, synonym dumping, and raw year lists like "2020 2021 2022 2023".
-- Use timeframe terms only when the user asks for recency; phrase naturally (e.g., "recent", "last 5 years", "since 2020").
+- If structured year filters are present, do not re-encode them as year keyword spam in query text.
 
 ## GUIDELINES
 
@@ -97,6 +99,7 @@ When asked to create a paper or literature review:
 6. Never show UUIDs — use titles and relevant info
 7. Always confirm what you created by name
 8. When user confirms an action ("yes", "do it", "all") → CALL the tool immediately, don't just respond with text
+9. Keep chat responses concise by default. Use at most 8 bullets and avoid long walls of text unless the user explicitly asks for a detailed/full version.
 
 ## DATA INTEGRITY
 NEVER fabricate statistics, results, percentages, p-values, or specific findings.
@@ -111,6 +114,12 @@ Only quote findings that appear in the context you have. When summarizing across
 
 Project: {project_title} | Channel: {channel_name}
 {context_summary}"""
+
+LITE_SYSTEM_PROMPT = """You are a research assistant for the project "{project_title}".
+Respond concisely and helpfully. If the user greets you, greet them back warmly.
+If they acknowledge something, confirm briefly. If they ask a research question
+or need papers/analysis, let them know you're ready to help and ask what they need.
+Keep responses under 3 sentences for simple exchanges."""
 
 # Reminder injected after conversation history to reinforce key rules
 HISTORY_REMINDER = (
@@ -136,11 +145,16 @@ class ToolOrchestrator(MemoryMixin, SearchToolsMixin, LibraryToolsMixin, Analysi
     Thread-safe: All request-specific state is passed through method parameters
     or stored in local variables, not instance variables.
     """
+    # Safety-net token cap — generous enough to never truncate useful responses.
+    # Primary length control is via the system prompt guidance, not this cap.
+    DEFAULT_MAX_OUTPUT_TOKENS = 2048
 
     def __init__(self, ai_service: "AIService", db: "Session"):
         self.ai_service = ai_service
         self.db = db
         self._tool_registry = DISCUSSION_TOOL_REGISTRY
+        self._policy = DiscussionPolicy()
+        self._quality_metrics = get_discussion_ai_metrics_collector()
 
     @property
     def model(self) -> str:
@@ -162,23 +176,27 @@ class ToolOrchestrator(MemoryMixin, SearchToolsMixin, LibraryToolsMixin, Analysi
         current_user: Optional["User"] = None,
     ) -> Dict[str, Any]:
         """Handle a user message (non-streaming)."""
+        from app.services.discussion_ai.route_classifier import classify_route
+
         try:
-            # Build request context (thread-safe - local variable)
             ctx = self._build_request_context(
-                project,
-                channel,
-                message,
-                recent_search_results,
-                reasoning_mode,
-                conversation_history,
-                current_user,
+                project, channel, message, recent_search_results,
+                reasoning_mode, conversation_history, current_user,
                 recent_search_id=recent_search_id,
             )
 
-            # Build messages for LLM
-            messages = self._build_messages(project, channel, message, recent_search_results, conversation_history, ctx=ctx)
+            # Classify route
+            memory_facts = self._get_ai_memory(channel).get("facts", {})
+            route_decision = classify_route(message, conversation_history or [], memory_facts)
+            ctx["route"] = route_decision.route
+            ctx["route_reason"] = route_decision.reason
+            logger.debug(f"[RouteClassifier] route={route_decision.route} reason={route_decision.reason}")
 
-            # Execute with tools
+            if route_decision.route == "lite":
+                messages = self._build_messages_lite(project, channel, message, conversation_history)
+                return self._execute_lite(messages, ctx)
+
+            messages = self._build_messages(project, channel, message, recent_search_results, conversation_history, ctx=ctx)
             return self._execute_with_tools(messages, ctx)
 
         except Exception as e:
@@ -204,6 +222,8 @@ class ToolOrchestrator(MemoryMixin, SearchToolsMixin, LibraryToolsMixin, Analysi
                   {"type": "status", ...} for tool status updates,
                   or {"type": "result", "data": {...}} at the end with full response.
         """
+        from app.services.discussion_ai.route_classifier import classify_route
+
         try:
             ctx = self._build_request_context(
                 project,
@@ -215,6 +235,19 @@ class ToolOrchestrator(MemoryMixin, SearchToolsMixin, LibraryToolsMixin, Analysi
                 current_user,
                 recent_search_id=recent_search_id,
             )
+
+            # Classify route
+            memory_facts = self._get_ai_memory(channel).get("facts", {})
+            route_decision = classify_route(message, conversation_history or [], memory_facts)
+            ctx["route"] = route_decision.route
+            ctx["route_reason"] = route_decision.reason
+            logger.debug(f"[RouteClassifier] route={route_decision.route} reason={route_decision.reason}")
+
+            if route_decision.route == "lite":
+                messages = self._build_messages_lite(project, channel, message, conversation_history)
+                async for event in self._execute_lite_streaming(messages, ctx):
+                    yield event
+                return
 
             messages = self._build_messages(project, channel, message, recent_search_results, conversation_history, ctx=ctx)
 
@@ -320,7 +353,9 @@ class ToolOrchestrator(MemoryMixin, SearchToolsMixin, LibraryToolsMixin, Analysi
         context_summary = self._build_context_summary(project, channel, recent_search_results)
 
         # Build memory context from AI memory (summary + facts)
-        memory_context = self._build_memory_context(channel)
+        current_user = ctx.get("current_user") if ctx else None
+        current_user_id = getattr(current_user, "id", None)
+        memory_context = self._build_memory_context(channel, user_id=current_user_id)
 
         # Combine context and memory
         full_context = context_summary
@@ -350,32 +385,35 @@ class ToolOrchestrator(MemoryMixin, SearchToolsMixin, LibraryToolsMixin, Analysi
         if research_question:
             system_prompt += f"\nThe researcher's question: \"{research_question}\" — tailor suggestions to this."
 
+        clarification_guardrail = self._build_clarification_guardrail(memory_dict, message)
+        if clarification_guardrail:
+            system_prompt += f"\n\n## CLARIFICATION POLICY\n{clarification_guardrail}"
+            logger.info("[ClarificationGuardrail] Applied deterministic no-repeat clarification rule.")
+
+        system_prompt += (
+            "\n\n## RESPONSE FORMAT\n"
+            "Use Markdown formatting: **bold** for key terms, `code` for technical identifiers, "
+            "## headings for sections when structuring longer answers. Use numbered lists (1.) and "
+            "bullet points (-) for structured content.\n\n"
+            "Match response length to the question complexity:\n"
+            "- Quick follow-ups, confirmations, and simple questions: 2-4 sentences.\n"
+            "- Research framing, methodology advice, and new topic exploration: structured detail is fine.\n"
+            "- After a search tool returns results: keep commentary brief, the results speak for themselves.\n"
+            "Always end with one concrete next step. Avoid repeating information already shown in the conversation."
+        )
+
         messages = [{"role": "system", "content": system_prompt}]
 
-        # Add role-based permission notice for viewers
-        # Viewers have NO tools - they can only chat about existing content
+        # Add role-based permission notice for viewers (read-only tool access).
         user_role = ctx.get("user_role") if ctx else None
         if user_role == "viewer":
             viewer_notice = """
-CRITICAL - VIEWER ACCESS ONLY:
-You are assisting a VIEWER (read-only member) of this project.
+CRITICAL - VIEWER ACCESS (READ-ONLY):
+You are assisting a VIEWER of this project.
 
-As a viewer, you have NO tools available. You CANNOT:
-- Search for papers
-- Add papers to the library
-- Create or edit papers/documents
-- Modify project settings
-- Take ANY actions
-
-You CAN ONLY:
-- Answer questions about the project based on the context provided above
-- Discuss papers that are already in the library (shown in context)
-- Have a general conversation
-
-If the user asks you to search, add, create, or modify ANYTHING, respond with:
-"As a viewer, I can only discuss existing content in this project. To search for papers, add to the library, or create content, you'll need editor or admin access. Please contact the project owner to upgrade your role."
-
-DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add...". Be direct about your limitations."""
+Viewers can use read-only tools (for example: search and analysis) but cannot use write/admin actions.
+Never claim to create, update, or modify project/library content for a viewer.
+If asked to perform write actions, explain that editor/admin access is required."""
             messages.append({"role": "system", "content": viewer_notice})
 
         # Calculate tokens used by system messages
@@ -426,6 +464,23 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
         messages.append({"role": "user", "content": message})
         return messages
 
+    def _build_messages_lite(
+        self,
+        project: "Project",
+        channel: "ProjectDiscussionChannel",
+        message: str,
+        conversation_history: Optional[List[Dict[str, str]]],
+    ) -> List[Dict]:
+        """Build a minimal messages array for lite route (no tools, no context summary)."""
+        system_prompt = LITE_SYSTEM_PROMPT.format(project_title=project.title)
+        messages: List[Dict] = [{"role": "system", "content": system_prompt}]
+        # Include only last 4 messages for coherence
+        if conversation_history:
+            for msg in conversation_history[-4:]:
+                messages.append({"role": msg["role"], "content": msg["content"]})
+        messages.append({"role": "user", "content": message})
+        return messages
+
     def _error_response(self, error_msg: str = "") -> Dict[str, Any]:
         """Build a standard error response."""
         return {
@@ -437,6 +492,88 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
             "tools_called": [],
             "conversation_state": {},
         }
+
+    def _get_model_output_token_cap(self, ctx: Dict[str, Any]) -> int:
+        """Token cap used by provider clients as a safety net for response length."""
+        return self.DEFAULT_MAX_OUTPUT_TOKENS
+
+    def _generate_content_fallback(
+        self,
+        ctx: Dict[str, Any],
+        tool_results: List[Dict[str, Any]],
+    ) -> Optional[str]:
+        """Optional subclass hook for generating fallback text when model output is empty."""
+        return None
+
+    def _build_empty_response_fallback(self, ctx: Dict[str, Any]) -> str:
+        """Deterministic, context-aware fallback when model returns empty/cut-off text."""
+        user_message = (ctx.get("user_message") or "").strip()
+        rq_match = re.search(r"research question is:\s*(.+)$", user_message, re.IGNORECASE)
+        if rq_match:
+            rq = rq_match.group(1).strip().rstrip(" .")
+            return (
+                f"I captured your research question: \"{rq}\". "
+                "Next step: tell me whether to search recent papers now or narrow the scope first."
+            )
+        if user_message:
+            preview = user_message[:180].rstrip(" .")
+            return (
+                f"I captured your request: \"{preview}\". "
+                "Next step: tell me whether to search papers, refine scope, or draft a concrete plan."
+            )
+        return (
+            "I captured your request. "
+            "Next step: tell me whether to search papers, refine scope, or draft a concrete plan."
+        )
+
+    def _build_search_completion_message(self, ctx: Dict[str, Any], tool_results: List[Dict[str, Any]]) -> Optional[str]:
+        """Deterministic short response after successful search tool execution."""
+        search_results = [
+            tr for tr in tool_results
+            if tr.get("name") in ("search_papers", "batch_search_papers")
+        ]
+        if not search_results:
+            return None
+
+        if any((tr.get("result") or {}).get("status") == "error" for tr in search_results):
+            return None
+
+        return "Searching for papers now. Results will appear in the UI shortly."
+
+    def _generate_tool_summary_message(self, tool_results: List[Dict[str, Any]]) -> str:
+        """Generate deterministic fallback text when model returns empty content."""
+        for tr in tool_results:
+            name = tr.get("name", "")
+            result = tr.get("result", {}) or {}
+            if name in ("search_papers", "batch_search_papers"):
+                if result.get("status") == "error":
+                    return "Search failed due to a temporary issue. Please retry."
+                return "Searching for papers now. Results will appear in the UI shortly."
+
+        tools_called = [tr.get("name", "tool") for tr in tool_results]
+        if not tools_called:
+            return ""
+        return f"Completed: {', '.join(tools_called)}."
+
+    def _apply_response_budget(
+        self,
+        text: str,
+        ctx: Dict[str, Any],
+        tool_results: List[Dict[str, Any]],
+    ) -> str:
+        """Minimal response post-processing — no truncation, no rewriting.
+
+        Only replaces verbose text with a short confirmation after a successful
+        async search (results appear in UI, so repeating them is noise).
+        """
+        if not text:
+            return text
+
+        search_short_message = self._build_search_completion_message(ctx, tool_results)
+        if search_short_message:
+            return search_short_message
+
+        return text
 
     def _get_tool_status_message(self, tool_name: str) -> str:
         """Return a human-readable status message for a tool being called."""
@@ -476,11 +613,15 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
         ctx: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Execute with tool calling (non-streaming)."""
-        try:
+        try:  # noqa: SIM117
+            policy_decision = self._build_policy_decision(ctx)
+            ctx["policy_decision"] = policy_decision
             max_iterations = 8
             iteration = 0
             all_tool_results = []
             response = {"content": "", "tool_calls": []}
+            clarification_first_detected = False
+            search_tool_executed = False
 
             while iteration < max_iterations:
                 iteration += 1
@@ -490,25 +631,31 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
                 tool_calls = response.get("tool_calls", [])
 
                 if not tool_calls:
-                    # Deterministic fallback: for clear search intent, avoid text-only clarifications.
+                    # Deterministic fallback: if direct-search intent has not produced a search tool
+                    # call yet, force search before returning any clarification text.
                     if (
-                        iteration == 1
-                        and self._is_direct_paper_search_request(ctx.get("user_message", ""))
-                        and self._is_tool_available_for_ctx(ctx, "search_papers")
+                        policy_decision.should_force_tool("search_papers")
+                        and policy_decision.search is not None
+                        and not search_tool_executed
                     ):
-                        forced_query = self._build_fallback_search_query(ctx)
+                        clarification_first_detected = clarification_first_detected or bool((response.get("content") or "").strip())
+                        forced_query = policy_decision.search.query or self._build_fallback_search_query(ctx)
                         forced_tool_call = {
                             "id": "forced-search-1",
                             "name": "search_papers",
                             "arguments": {
                                 "query": forced_query,
-                                "count": 5,
-                                "open_access_only": False,
+                                "count": policy_decision.search.count,
+                                "limit": policy_decision.search.count,
+                                "open_access_only": policy_decision.search.open_access_only,
+                                "year_from": policy_decision.search.year_from,
+                                "year_to": policy_decision.search.year_to,
                             },
                         }
                         logger.info(f"Applying direct-search fallback with query: {forced_query[:120]}")
                         forced_results = self._execute_tool_calls([forced_tool_call], ctx)
                         all_tool_results.extend(forced_results)
+                        search_tool_executed = True
                         response = {
                             "content": "Searching for papers now. Results will appear in the UI shortly.",
                             "tool_calls": [forced_tool_call],
@@ -518,6 +665,8 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
                 # Execute tool calls
                 tool_results = self._execute_tool_calls(tool_calls, ctx)
                 all_tool_results.extend(tool_results)
+                if any(tr.get("name") in ("search_papers", "batch_search_papers") for tr in tool_results):
+                    search_tool_executed = True
 
                 # Add assistant message with tool calls
                 formatted_tool_calls = [
@@ -547,9 +696,18 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
                     })
 
             final_message = response.get("content", "")
+            if not final_message.strip() and all_tool_results:
+                final_message = self._generate_tool_summary_message(all_tool_results)
+            final_message = self._apply_response_budget(final_message, ctx, all_tool_results)
+            if not final_message.strip():
+                fallback = self._generate_content_fallback(ctx, all_tool_results)
+                if fallback and fallback.strip():
+                    final_message = fallback.strip()
+            if not final_message.strip():
+                final_message = self._build_empty_response_fallback(ctx)
             actions = self._extract_actions(final_message, all_tool_results)
 
-            # Update AI memory after successful response (async in background)
+            # Update AI memory after successful response
             contradiction_warning = None
             try:
                 contradiction_warning = self.update_memory_after_exchange(
@@ -557,11 +715,16 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
                     ctx["user_message"],
                     final_message,
                     ctx.get("conversation_history", []),
+                    user_id=getattr(ctx.get("current_user"), "id", None),
                 )
                 if contradiction_warning:
                     logger.info(f"Contradiction detected: {contradiction_warning}")
             except Exception as mem_err:
                 logger.error(f"Failed to update AI memory: {mem_err}")
+
+            # Deterministic stage transition after successful search tools.
+            stage_transition_success = self._enforce_finding_papers_stage_after_search(ctx, all_tool_results)
+            self._record_quality_metrics(ctx, policy_decision, all_tool_results, clarification_first_detected, stage_transition_success)
 
             return {
                 "message": final_message,
@@ -580,34 +743,7 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
 
     def _is_direct_paper_search_request(self, user_message: str) -> bool:
         """Return True if user explicitly asks to search/find papers now."""
-        if not user_message:
-            return False
-
-        msg = user_message.strip().lower()
-        if not msg:
-            return False
-
-        # Library requests should follow library tools, not external search.
-        library_markers = ("my library", "saved papers", "in the library", "project library")
-        if any(marker in msg for marker in library_markers):
-            return False
-
-        starts_with_search_action = any(
-            re.search(pattern, msg)
-            for pattern in (
-                r"^(?:can|could|would|will)\s+you\s+(?:find|search|look\s*up|get|retrieve)\b",
-                r"^(?:please\s+)?(?:find|search|look\s*up|get|retrieve)\b",
-            )
-        )
-        if not starts_with_search_action:
-            return False
-
-        return bool(
-            re.search(
-                r"\b(?:paper|papers|literature|article|articles|reference|references|studies|study)\b",
-                msg,
-            )
-        )
+        return self._policy.is_direct_paper_search_request(user_message)
 
     def _is_tool_available_for_ctx(self, ctx: Dict[str, Any], tool_name: str) -> bool:
         """Check whether a tool is available to the current user role/context."""
@@ -633,53 +769,15 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
                 )
             except Exception:
                 topic_hint = ""
-
-        cleaned_user = re.sub(
-            r"^(?:can|could|would|will)\s+you\s+(?:find|search|look\s*up|get|retrieve)\s+(?:me\s+)?",
-            "",
-            user_message,
-            flags=re.IGNORECASE,
+        return self._policy.build_search_query(
+            user_message=user_message,
+            topic_hint=topic_hint,
+            derive_topic_fn=self._derive_research_topic_from_text,
         )
-        cleaned_user = re.sub(
-            r"^(?:please\s+)?(?:find|search|look\s*up|get|retrieve)\s+(?:me\s+)?",
-            "",
-            cleaned_user,
-            flags=re.IGNORECASE,
-        )
-        cleaned_user = re.sub(r"\s+", " ", cleaned_user).strip(" ?.!")
-
-        # If user wording is deictic ("this topic"), anchor query to memory topic.
-        deictic_markers = ("this topic", "that topic", "this area", "that area", "this field")
-        user_is_deictic = any(marker in cleaned_user.lower() for marker in deictic_markers)
-
-        base_query = cleaned_user
-        if not base_query or user_is_deictic:
-            base_query = topic_hint or cleaned_user
-
-        # Prefer concise topic phrases over full question forms.
-        if base_query:
-            derived_topic = self._derive_research_topic_from_text(base_query)
-            if derived_topic:
-                base_query = derived_topic
-
-        query = re.sub(r"\s+", " ", (base_query or "").strip(" ?.!"))
-        return query[:300] if query else "academic research papers"
 
     def _user_requested_open_access(self, user_message: str) -> bool:
         """Return True if user explicitly requests OA/PDF-only results."""
-        if not user_message:
-            return False
-        msg = user_message.lower()
-        markers = (
-            "open access",
-            "oa only",
-            "only oa",
-            "pdf available",
-            "with pdf",
-            "full text only",
-            "only papers with pdf",
-        )
-        return any(marker in msg for marker in markers)
+        return self._policy.user_requested_open_access(user_message)
 
     def _user_requested_count(self, user_message: str) -> bool:
         """Return True if user explicitly asks for a specific number of papers."""
@@ -687,28 +785,50 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
 
     def _extract_requested_paper_count(self, user_message: str) -> Optional[int]:
         """Extract explicit requested paper count from user text."""
-        if not user_message:
-            return None
-        msg = user_message.lower()
+        return self._policy.extract_requested_paper_count(user_message)
 
-        digit_match = re.search(r"\b(\d{1,3})\b", msg)
-        if digit_match:
-            value = int(digit_match.group(1))
-            return max(1, min(value, 50))
+    def _build_policy_decision(self, ctx: Dict[str, Any]) -> PolicyDecision:
+        """Build deterministic policy decision for current user turn."""
+        topic_hint = ""
+        channel = ctx.get("channel")
+        if channel:
+            try:
+                memory = self._get_ai_memory(channel)
+                facts = memory.get("facts", {}) if isinstance(memory, dict) else {}
+                topic_hint = (
+                    (facts.get("research_topic") or "").strip()
+                    or (facts.get("research_question") or "").strip()
+                )
+            except Exception:
+                topic_hint = ""
 
-        word_to_num = {
-            "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
-            "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
-        }
-        for word, value in word_to_num.items():
-            if re.search(rf"\b{word}\b", msg):
-                return value
-
-        if "few papers" in msg:
-            return 3
-        if "several papers" in msg:
-            return 7
-        return None
+        decision = self._policy.build_decision(
+            user_message=ctx.get("user_message", ""),
+            topic_hint=topic_hint,
+            search_tool_available=self._is_tool_available_for_ctx(ctx, "search_papers"),
+            derive_topic_fn=self._derive_research_topic_from_text,
+        )
+        try:
+            logger.info(
+                "[PolicyDecision] %s",
+                json.dumps(
+                    {
+                        "intent": decision.intent,
+                        "force_tool": decision.force_tool,
+                        "reasons": decision.reasons,
+                        "search": {
+                            "query": decision.search.query if decision.search else None,
+                            "count": decision.search.count if decision.search else None,
+                            "open_access_only": decision.search.open_access_only if decision.search else None,
+                            "year_from": decision.search.year_from if decision.search else None,
+                            "year_to": decision.search.year_to if decision.search else None,
+                        },
+                    }
+                ),
+            )
+        except Exception:
+            logger.info("[PolicyDecision] intent=%s force_tool=%s", decision.intent, decision.force_tool)
+        return decision
 
     def _build_context_summary(
         self,
@@ -843,17 +963,12 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
         """Get tools filtered by user's role.
 
         This ensures the LLM only sees tools the user is allowed to use.
-        - Viewers: NO tools (read-only, can only chat about existing content)
+        - Viewers: read-only tools only
         - Editors: Read + write tools
         - Admins: All tools including admin tools
         """
         user_role = ctx.get("user_role", "viewer")
         is_owner = ctx.get("is_owner", False)
-
-        # Viewers get NO tools - they can only chat, not take actions
-        if user_role == "viewer":
-            logger.debug("[Permission] Viewer role - NO tools available")
-            return []
 
         tools = DISCUSSION_TOOL_REGISTRY.get_schema_list_for_role(user_role, is_owner)
         logger.debug(f"[Permission] Role '{user_role}': {len(tools)} tools available")
@@ -874,6 +989,17 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
         raise NotImplementedError("Subclasses must override _call_ai_with_tools_streaming")
         yield  # Make it an async generator  # noqa: unreachable
 
+    def _execute_lite(self, messages: List[Dict], ctx: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute lite route (no tools). Subclasses must override."""
+        raise NotImplementedError("Subclasses must override _execute_lite")
+
+    async def _execute_lite_streaming(
+        self, messages: List[Dict], ctx: Dict[str, Any]
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Execute lite route with streaming (no tools). Subclasses must override."""
+        raise NotImplementedError("Subclasses must override _execute_lite_streaming")
+        yield  # Make it an async generator  # noqa: unreachable
+
     async def _execute_with_tools_streaming(
         self,
         messages: List[Dict],
@@ -889,10 +1015,15 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
     def _execute_tool_calls(self, tool_calls: List[Dict], ctx: Dict[str, Any]) -> List[Dict]:
         """Execute the tool calls and return results."""
         # Ensure user_role is set - callers via handle_message always set this,
-        # but direct callers (e.g. tests) may omit it
-        ctx.setdefault("user_role", "admin")
-        ctx.setdefault("is_owner", True)
+        # but direct callers may omit it. Fail closed to viewer-level permissions.
+        ctx.setdefault("user_role", "viewer")
+        ctx.setdefault("is_owner", False)
         results = []
+        policy_decision = ctx.get("policy_decision")
+        direct_search_intent = (
+            isinstance(policy_decision, PolicyDecision)
+            and policy_decision.intent == "direct_search"
+        ) or self._is_direct_paper_search_request(ctx.get("user_message", ""))
 
         for tc in tool_calls:
             name = tc["name"]
@@ -903,12 +1034,37 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
             try:
                 # Deterministic query guardrail for direct search intents:
                 # build query from current user intent + memory, not prior assistant wording.
-                if name == "search_papers" and self._is_direct_paper_search_request(ctx.get("user_message", "")):
-                    requested_count = self._extract_requested_paper_count(ctx.get("user_message", ""))
-                    requested_oa = self._user_requested_open_access(ctx.get("user_message", ""))
-                    args["query"] = self._build_fallback_search_query(ctx)
-                    args["count"] = requested_count if requested_count is not None else 5
-                    args["open_access_only"] = requested_oa
+                if name == "search_papers" and direct_search_intent:
+                    if isinstance(policy_decision, PolicyDecision) and policy_decision.search is not None:
+                        args["query"] = policy_decision.search.query or self._build_fallback_search_query(ctx)
+                        args["count"] = policy_decision.search.count
+                        args["limit"] = policy_decision.search.count
+                        args["open_access_only"] = policy_decision.search.open_access_only
+                        args["year_from"] = policy_decision.search.year_from
+                        args["year_to"] = policy_decision.search.year_to
+                    else:
+                        requested_count = self._extract_requested_paper_count(ctx.get("user_message", ""))
+                        requested_oa = self._user_requested_open_access(ctx.get("user_message", ""))
+                        year_from, year_to = self._policy.extract_year_bounds(ctx.get("user_message", ""))
+                        args["query"] = self._build_fallback_search_query(ctx)
+                        args["count"] = requested_count if requested_count is not None else 5
+                        args["limit"] = args["count"]
+                        args["open_access_only"] = requested_oa
+                        args["year_from"] = year_from
+                        args["year_to"] = year_to
+                    logger.info(
+                        "[SearchArgs] %s",
+                        json.dumps(
+                            {
+                                "query": args.get("query"),
+                                "count": args.get("count"),
+                                "limit": args.get("limit"),
+                                "open_access_only": args.get("open_access_only"),
+                                "year_from": args.get("year_from"),
+                                "year_to": args.get("year_to"),
+                            }
+                        ),
+                    )
 
                 # Enforce paper limit for search_papers and batch_search_papers
                 if name in ("search_papers", "batch_search_papers"):
@@ -916,7 +1072,7 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
                     papers_so_far = ctx.get("papers_requested", 0)
 
                     if name == "search_papers":
-                        requested_count = args.get("count", 1)
+                        requested_count = args.get("limit", args.get("count", 1))
                     else:
                         # batch: sum of per-topic max_results (default 5 each)
                         requested_count = sum(
@@ -936,10 +1092,24 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
                     remaining = max_papers - papers_so_far
                     if name == "search_papers" and requested_count > remaining:
                         args["count"] = remaining
+                        args["limit"] = remaining
                         logger.debug(f"Reduced search count from {requested_count} to {remaining}")
 
                     # Track papers requested
                     ctx["papers_requested"] = papers_so_far + min(requested_count, remaining)
+
+                if name in ("search_papers", "batch_search_papers"):
+                    ctx.setdefault("_executed_search_args", []).append(
+                        {
+                            "tool": name,
+                            "query": args.get("query"),
+                            "count": args.get("count"),
+                            "limit": args.get("limit"),
+                            "open_access_only": args.get("open_access_only"),
+                            "year_from": args.get("year_from"),
+                            "year_to": args.get("year_to"),
+                        }
+                    )
 
                 # Check cache for cacheable tools
                 # NOTE: We no longer cache get_project_references since library can change frequently
@@ -969,6 +1139,116 @@ DO NOT pretend to take actions. DO NOT say "I'll search for..." or "Let me add..
                 results.append({"name": name, "error": str(e)})
 
         return results
+
+    def _enforce_finding_papers_stage_after_search(
+        self,
+        ctx: Dict[str, Any],
+        tool_results: List[Dict[str, Any]],
+    ) -> bool:
+        """Deterministically set stage to finding_papers after successful search execution."""
+        if not tool_results:
+            return False
+        channel = ctx.get("channel")
+        if channel is None:
+            return False
+
+        search_succeeded = False
+        for tr in tool_results:
+            tool_name = tr.get("name")
+            if tool_name not in ("search_papers", "batch_search_papers"):
+                continue
+            result = tr.get("result")
+            if isinstance(result, dict) and result.get("status") == "success":
+                search_succeeded = True
+                break
+
+        if not search_succeeded:
+            return False
+
+        try:
+            memory = self._get_ai_memory(channel)
+            research_state = memory.get("research_state", {})
+            current_stage = research_state.get("stage", "exploring")
+            if current_stage == "finding_papers":
+                return True
+
+            stage_history = research_state.get("stage_history", [])
+            stage_history.append({
+                "from": current_stage,
+                "to": "finding_papers",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "reason": "search_tool_success",
+            })
+
+            research_state["stage_history"] = stage_history[-10:]
+            research_state["stage"] = "finding_papers"
+            research_state["stage_confidence"] = max(
+                float(research_state.get("stage_confidence", 0.5)),
+                0.95,
+            )
+            memory["research_state"] = research_state
+            self._save_ai_memory(channel, memory)
+            logger.info(
+                "[StageTransition] %s",
+                json.dumps(
+                    {
+                        "from": current_stage,
+                        "to": "finding_papers",
+                        "reason": "search_tool_success",
+                    }
+                ),
+            )
+            return True
+        except Exception as exc:
+            logger.warning("Failed to enforce finding_papers stage: %s", exc)
+            return False
+
+    def _record_quality_metrics(
+        self,
+        ctx: Dict[str, Any],
+        policy_decision: PolicyDecision,
+        tool_results: List[Dict[str, Any]],
+        clarification_first_detected: bool,
+        stage_transition_success: bool,
+    ) -> None:
+        """Record per-turn quality counters for policy and routing behavior."""
+        try:
+            direct_search_intent = policy_decision.intent == "direct_search"
+            search_tool_called = any(
+                tr.get("name") in ("search_papers", "batch_search_papers")
+                for tr in tool_results
+            )
+            search_succeeded = any(
+                tr.get("name") in ("search_papers", "batch_search_papers")
+                and isinstance(tr.get("result"), dict)
+                and tr.get("result", {}).get("status") == "success"
+                for tr in tool_results
+            )
+
+            recency_requested = bool(
+                policy_decision.search
+                and (
+                    policy_decision.search.year_from is not None
+                    or policy_decision.search.year_to is not None
+                )
+            )
+            executed_args = ctx.get("_executed_search_args") or []
+            recency_filter_applied = any(
+                args.get("year_from") is not None or args.get("year_to") is not None
+                for args in executed_args
+            )
+
+            self._quality_metrics.record_turn(
+                direct_search_intent=direct_search_intent,
+                search_tool_called=search_tool_called,
+                clarification_first_detected=clarification_first_detected,
+                recency_requested=recency_requested,
+                recency_filter_applied=recency_filter_applied,
+                stage_transition_expected=search_succeeded,
+                stage_transition_success=stage_transition_success,
+            )
+        except Exception as exc:
+            logger.debug("Failed to record quality metrics: %s", exc)
 
     def _extract_actions(
         self,

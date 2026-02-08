@@ -48,6 +48,10 @@ class TestResearchQuestionField:
 
         assert "research_question" in memory["facts"]
         assert memory["facts"]["research_question"] is None
+        assert "follow_up_items" in memory["long_term"]
+        assert memory["long_term"]["follow_up_items"] == []
+        assert "user_profiles" in memory["long_term"]
+        assert memory["long_term"]["user_profiles"] == {}
 
     def test_research_question_migration_guard(self):
         """Old memory without research_question gets it added."""
@@ -80,6 +84,8 @@ class TestResearchQuestionField:
         memory = mixin._get_ai_memory(channel)
 
         assert memory["facts"]["research_question"] is None
+        assert memory["long_term"]["follow_up_items"] == []
+        assert memory["long_term"]["user_profiles"] == {}
 
     def test_research_question_in_extraction_prompt(self):
         """The fact extraction prompt asks for research_question."""

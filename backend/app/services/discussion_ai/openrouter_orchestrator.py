@@ -469,10 +469,20 @@ class OpenRouterOrchestrator(ToolOrchestrator):
 
                 if message.tool_calls:
                     for tc in message.tool_calls:
+                        raw_args = tc.function.arguments or "{}"
+                        try:
+                            parsed_args = json.loads(raw_args)
+                        except json.JSONDecodeError:
+                            logger.warning(
+                                "Malformed tool arguments from model (%s). Using empty args. Raw: %s",
+                                tc.function.name,
+                                raw_args[:200],
+                            )
+                            parsed_args = {}
                         result["tool_calls"].append({
                             "id": tc.id,
                             "name": tc.function.name,
-                            "arguments": json.loads(tc.function.arguments),
+                            "arguments": parsed_args,
                         })
 
                 return result
@@ -601,6 +611,99 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             logger.exception(f"Error processing async OpenRouter stream with model {self.model}")
             yield {"type": "result", "content": f"Error: {str(e)}", "tool_calls": []}
 
+    def _execute_lite(self, messages: List[Dict], ctx: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute lite route: single LLM call, no tools, minimal overhead."""
+        if not self.openrouter_client:
+            return self._error_response("OpenRouter API not configured.")
+
+        try:
+            response = self.openrouter_client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                max_tokens=256,
+            )
+            final_message = (response.choices[0].message.content or "").strip()
+        except Exception as e:
+            logger.error(f"Lite execution error: {e}")
+            final_message = ""
+
+        if not final_message:
+            final_message = self._build_empty_response_fallback(ctx)
+
+        # Lightweight memory update (regex only, skip LLM fact extraction)
+        self._lite_memory_update(ctx)
+
+        return {
+            "message": final_message,
+            "actions": [],
+            "citations": [],
+            "model_used": self.model,
+            "reasoning_used": False,
+            "tools_called": [],
+            "conversation_state": {},
+        }
+
+    async def _execute_lite_streaming(self, messages: List[Dict], ctx: Dict[str, Any]) -> AsyncGenerator[Dict[str, Any], None]:
+        """Execute lite route with streaming: single LLM call, no tools."""
+        if not self.async_openrouter_client:
+            yield {"type": "result", "data": self._error_response("OpenRouter API not configured.")}
+            return
+
+        content_chunks: List[str] = []
+        try:
+            stream = await self.async_openrouter_client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                max_tokens=256,
+                stream=True,
+            )
+            async for chunk in stream:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if delta and delta.content:
+                    content_chunks.append(delta.content)
+                    yield {"type": "token", "content": delta.content}
+        except Exception as e:
+            logger.error(f"Lite streaming error: {e}")
+
+        final_message = "".join(content_chunks)
+        if not final_message.strip():
+            final_message = self._build_empty_response_fallback(ctx)
+            yield {"type": "token", "content": final_message}
+
+        # Lightweight memory update (regex only, skip LLM fact extraction)
+        self._lite_memory_update(ctx)
+
+        yield {
+            "type": "result",
+            "data": {
+                "message": final_message,
+                "actions": [],
+                "citations": [],
+                "model_used": self.model,
+                "reasoning_used": False,
+                "tools_called": [],
+                "conversation_state": {},
+            },
+        }
+
+    def _lite_memory_update(self, ctx: Dict[str, Any]) -> None:
+        """Lightweight memory update for lite route: regex-only, no LLM fact extraction."""
+        try:
+            channel = ctx.get("channel")
+            if not channel:
+                return
+            memory = self._get_ai_memory(channel)
+            existing_rq = memory.get("facts", {}).get("research_question")
+            direct_rq = self._extract_research_question_direct(
+                ctx.get("user_message", ""), existing_rq=existing_rq
+            )
+            if direct_rq:
+                memory.setdefault("facts", {})["research_question"] = direct_rq
+            memory["_exchanges_since_fact_update"] = memory.get("_exchanges_since_fact_update", 0) + 1
+            self._save_ai_memory(channel, memory)
+        except Exception as e:
+            logger.debug(f"Lite memory update failed: {e}")
+
     async def _execute_with_tools_streaming(
         self,
         messages: List[Dict],
@@ -612,11 +715,19 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         Tool execution runs in threads via asyncio.to_thread since tools use sync DB.
         """
         self._reasoning_mode = ctx.get("reasoning_mode", False)
+        policy_decision = self._build_policy_decision(ctx)
+        ctx["policy_decision"] = policy_decision
 
         max_iterations = 8
         iteration = 0
         all_tool_results = []
         final_content_chunks = []
+        clarification_first_detected = False
+        direct_search_intent = (
+            policy_decision.should_force_tool("search_papers")
+            and policy_decision.search is not None
+        )
+        search_tool_executed = False
 
         recent_results = ctx.get("recent_search_results", [])
         logger.info(f"[OpenRouter Async Streaming] Starting with model: {self.model}, recent_search_results: {len(recent_results)} papers")
@@ -629,18 +740,13 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             tool_calls = []
             iteration_content = []
             has_tool_call = False
-            direct_search_fallback_candidate = (
-                iteration == 1
-                and self._is_direct_paper_search_request(ctx.get("user_message", ""))
-                and self._is_tool_available_for_ctx(ctx, "search_papers")
-            )
+            hold_direct_search_tokens = direct_search_intent and not search_tool_executed
 
             async for event in self._call_ai_with_tools_streaming(messages, ctx):
                 if event["type"] == "token":
                     iteration_content.append(event["content"])
-                    # For direct-search fallback candidates, hold tokens until we know whether
-                    # the model called a tool; this avoids showing a text-only clarification first.
-                    if not has_tool_call and not direct_search_fallback_candidate:
+                    # For direct-search intent, hold tokens until a search action has executed.
+                    if not has_tool_call and not hold_direct_search_tokens:
                         yield {"type": "token", "content": event["content"]}
                 elif event["type"] == "tool_call_detected":
                     has_tool_call = True
@@ -652,15 +758,19 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             logger.debug(f"[OpenRouter Async Streaming] Got {len(tool_calls)} tool calls: {[tc.get('name') for tc in tool_calls]}")
 
             if not tool_calls:
-                if direct_search_fallback_candidate:
-                    forced_query = self._build_fallback_search_query(ctx)
+                if direct_search_intent and not search_tool_executed and policy_decision.search is not None:
+                    clarification_first_detected = clarification_first_detected or bool((response_content or "").strip() or iteration_content)
+                    forced_query = policy_decision.search.query or self._build_fallback_search_query(ctx)
                     forced_tool_call = {
                         "id": "forced-search-1",
                         "name": "search_papers",
                         "arguments": {
                             "query": forced_query,
-                            "count": 5,
-                            "open_access_only": False,
+                            "count": policy_decision.search.count,
+                            "limit": policy_decision.search.count,
+                            "open_access_only": policy_decision.search.open_access_only,
+                            "year_from": policy_decision.search.year_from,
+                            "year_to": policy_decision.search.year_to,
                         },
                     }
                     logger.info(f"[OpenRouter Async] Applying direct-search fallback with query: {forced_query[:120]}")
@@ -671,6 +781,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     }
                     tool_results = await asyncio.to_thread(self._execute_tool_calls, [forced_tool_call], ctx)
                     all_tool_results.extend(tool_results)
+                    search_tool_executed = True
                     final_content_chunks.append("Searching for papers now. Results will appear in the UI shortly.")
                     break
 
@@ -690,6 +801,8 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             # Execute tool calls in thread (tools use sync DB)
             tool_results = await asyncio.to_thread(self._execute_tool_calls, tool_calls, ctx)
             all_tool_results.extend(tool_results)
+            if any(tr.get("name") in ("search_papers", "batch_search_papers") for tr in tool_results):
+                search_tool_executed = True
 
             formatted_tool_calls = [
                 {
@@ -717,11 +830,22 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 })
 
         final_message = "".join(final_content_chunks)
+        final_message = self._apply_response_budget(final_message, ctx, all_tool_results)
         logger.debug(f"[OpenRouter Async] Complete. Tools called: {[t['name'] for t in all_tool_results]}")
 
         if not final_message.strip() and all_tool_results:
             final_message = await asyncio.to_thread(self._generate_tool_summary_message, all_tool_results)
             logger.info(f"[OpenRouter Async] Generated summary for empty response: {final_message[:100]}...")
+        if not final_message.strip():
+            generated_fallback = await asyncio.to_thread(
+                self._generate_content_fallback,
+                ctx,
+                all_tool_results,
+            )
+            if generated_fallback and generated_fallback.strip():
+                final_message = generated_fallback.strip()
+        if not final_message.strip():
+            final_message = self._build_empty_response_fallback(ctx)
 
         actions = self._extract_actions(final_message, all_tool_results)
 
@@ -733,11 +857,27 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 ctx["user_message"],
                 final_message,
                 ctx.get("conversation_history", []),
+                getattr(ctx.get("current_user"), "id", None),
             )
             if contradiction_warning:
                 logger.info(f"Contradiction detected: {contradiction_warning}")
         except Exception as mem_err:
             logger.error(f"Failed to update AI memory: {mem_err}")
+
+        # Deterministic stage transition after successful search tools.
+        stage_transition_success = await asyncio.to_thread(
+            self._enforce_finding_papers_stage_after_search,
+            ctx,
+            all_tool_results,
+        )
+        await asyncio.to_thread(
+            self._record_quality_metrics,
+            ctx,
+            policy_decision,
+            all_tool_results,
+            clarification_first_detected,
+            stage_transition_success,
+        )
 
         yield {
             "type": "result",
@@ -795,6 +935,40 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             # Fallback - list what tools were called
             tools_called = [tr.get("name", "unknown") for tr in tool_results]
             return f"Completed: {', '.join(tools_called)}."
+
+    def _generate_content_fallback(
+        self,
+        ctx: Dict[str, Any],
+        tool_results: List[Dict[str, Any]],
+    ) -> Optional[str]:
+        """Generate concise non-empty fallback content when primary response is blank."""
+        if not self.openrouter_client:
+            return None
+
+        user_message = (ctx.get("user_message") or "").strip()
+        if not user_message:
+            return None
+
+        try:
+            response = self.openrouter_client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a concise research assistant. "
+                            "Answer directly in 2-4 sentences with one concrete next step."
+                        ),
+                    },
+                    {"role": "user", "content": user_message},
+                ],
+                max_tokens=min(self._get_model_output_token_cap(ctx), 280),
+            )
+            text = (response.choices[0].message.content or "").strip()
+            return text or None
+        except Exception as exc:
+            logger.debug("Content fallback generation skipped due to model error: %s", exc)
+            return None
 
 
 def get_available_models_with_meta(

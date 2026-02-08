@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Union
 from uuid import UUID, uuid4
 
@@ -1516,6 +1516,19 @@ async def invoke_discussion_assistant(
 
             except GeneratorExit:
                 logger.info(f"Client disconnected during streaming for exchange {exchange_id}")
+                # Mark exchange as failed so it doesn't stay stuck in "processing" forever.
+                # _persist_assistant_exchange is sync (uses its own SessionLocal), so no await needed.
+                try:
+                    _persist_assistant_exchange(
+                        proj_id, chan_id, user_id, exchange_id,
+                        question_text,
+                        {"message": "Response interrupted — you navigated away before it completed. Please try again.",
+                         "citations": [], "suggested_actions": []},
+                        exchange_created_at, {}, "failed",
+                        "Client disconnected",
+                    )
+                except Exception:
+                    logger.warning(f"Failed to mark exchange {exchange_id} as failed after client disconnect")
             except Exception as exc:
                 logger.exception("Streaming error", exc_info=exc)
                 await asyncio.to_thread(
@@ -1601,6 +1614,24 @@ def list_discussion_assistant_history(
         .order_by(ProjectDiscussionAssistantExchange.created_at.asc())
         .all()
     )
+
+    # Auto-expire exchanges stuck in "processing" for over 2 minutes
+    stale_cutoff = datetime.utcnow() - timedelta(minutes=2)
+    for exchange in exchanges:
+        if (
+            getattr(exchange, "status", None) == "processing"
+            and exchange.created_at
+            and exchange.created_at < stale_cutoff
+        ):
+            exchange.status = "failed"
+            exchange.status_message = "Request timed out"
+            exchange.response = {
+                "message": "This request timed out or was interrupted. Please try again.",
+                "citations": [],
+                "suggested_actions": [],
+                "model": exchange.response.get("model", "") if isinstance(exchange.response, dict) else "",
+            }
+            db.commit()
 
     results: List[DiscussionAssistantExchangeResponse] = []
     for exchange in exchanges:

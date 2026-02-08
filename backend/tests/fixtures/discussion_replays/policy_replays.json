@@ -1,0 +1,354 @@
+[
+  {
+    "name": "direct_recent_deictic_default",
+    "user_message": "Can you find me some recent papers on this topic?",
+    "topic_hint": "social media and academic performance",
+    "search_tool_available": true,
+    "expect": {
+      "intent": "direct_search",
+      "force_tool": "search_papers",
+      "search": {
+        "count": 5,
+        "open_access_only": false,
+        "year_from": "current_year_minus_4",
+        "year_to": "current_year",
+        "query_contains": ["social media", "academic performance"]
+      }
+    }
+  },
+  {
+    "name": "direct_oa_count_explicit",
+    "user_message": "Please find 12 open access papers on this topic.",
+    "topic_hint": "sleep deprivation and cognitive function",
+    "search_tool_available": true,
+    "expect": {
+      "intent": "direct_search",
+      "force_tool": "search_papers",
+      "search": {
+        "count": 12,
+        "open_access_only": true,
+        "year_from": null,
+        "year_to": null,
+        "query_contains": ["sleep deprivation", "cognitive function"]
+      }
+    }
+  },
+  {
+    "name": "direct_last_3_years",
+    "user_message": "Find papers from the last 3 years on this topic.",
+    "topic_hint": "medical residents burnout",
+    "search_tool_available": true,
+    "expect": {
+      "intent": "direct_search",
+      "force_tool": "search_papers",
+      "search": {
+        "count": 5,
+        "open_access_only": false,
+        "year_from": "current_year_minus_2",
+        "year_to": "current_year",
+        "query_contains": ["medical residents", "burnout"]
+      }
+    }
+  },
+  {
+    "name": "direct_since_year",
+    "user_message": "Can you search papers on this topic since 2020?",
+    "topic_hint": "federated learning in healthcare",
+    "search_tool_available": true,
+    "expect": {
+      "intent": "direct_search",
+      "force_tool": "search_papers",
+      "search": {
+        "count": 5,
+        "open_access_only": false,
+        "year_from": 2020,
+        "year_to": "current_year",
+        "query_contains": ["federated learning", "healthcare"]
+      }
+    }
+  },
+  {
+    "name": "direct_explicit_range",
+    "user_message": "Find papers from 2021 to 2024 on this topic",
+    "topic_hint": "climate adaptation policy",
+    "search_tool_available": true,
+    "expect": {
+      "intent": "direct_search",
+      "force_tool": "search_papers",
+      "search": {
+        "count": 5,
+        "open_access_only": false,
+        "year_from": 2021,
+        "year_to": 2024,
+        "query_contains": ["climate adaptation", "policy"]
+      }
+    }
+  },
+  {
+    "name": "direct_explicit_range_dash",
+    "user_message": "Find papers 2019-2022 on this topic",
+    "topic_hint": "transformer interpretability",
+    "search_tool_available": true,
+    "expect": {
+      "intent": "direct_search",
+      "force_tool": "search_papers",
+      "search": {
+        "count": 5,
+        "open_access_only": false,
+        "year_from": 2019,
+        "year_to": 2022,
+        "query_contains": ["transformer interpretability"]
+      }
+    }
+  },
+  {
+    "name": "direct_non_deictic_query_preserved",
+    "user_message": "Could you find papers on causal mediation analysis in epidemiology?",
+    "topic_hint": "irrelevant topic hint",
+    "search_tool_available": true,
+    "expect": {
+      "intent": "direct_search",
+      "force_tool": "search_papers",
+      "search": {
+        "count": 5,
+        "open_access_only": false,
+        "year_from": null,
+        "year_to": null,
+        "query_contains": ["causal mediation analysis", "epidemiology"],
+        "query_not_contains": ["can you", "could you"]
+      }
+    }
+  },
+  {
+    "name": "general_non_search_question",
+    "user_message": "Can you explain precision and recall in simple terms?",
+    "topic_hint": "",
+    "search_tool_available": true,
+    "expect": {
+      "intent": "general",
+      "force_tool": null,
+      "search": null
+    }
+  },
+  {
+    "name": "library_request_not_external_search",
+    "user_message": "Can you find papers in my library about transformers?",
+    "topic_hint": "",
+    "search_tool_available": true,
+    "expect": {
+      "intent": "general",
+      "force_tool": null,
+      "search": null
+    }
+  },
+  {
+    "name": "direct_search_without_tool_availability",
+    "user_message": "Can you find papers on this topic?",
+    "topic_hint": "drug safety pharmacoepidemiology",
+    "search_tool_available": false,
+    "expect": {
+      "intent": "direct_search",
+      "force_tool": null,
+      "search": {
+        "count": 5,
+        "open_access_only": false,
+        "year_from": null,
+        "year_to": null,
+        "query_contains": ["drug safety", "pharmacoepidemiology"]
+      }
+    }
+  },
+  {
+    "name": "direct_recent_and_oa",
+    "user_message": "Find recent open access papers on this topic",
+    "topic_hint": "teacher burnout and social media",
+    "search_tool_available": true,
+    "expect": {
+      "intent": "direct_search",
+      "force_tool": "search_papers",
+      "search": {
+        "count": 5,
+        "open_access_only": true,
+        "year_from": "current_year_minus_4",
+        "year_to": "current_year",
+        "query_contains": ["teacher burnout", "social media"]
+      }
+    }
+  },
+  {
+    "name": "direct_word_count",
+    "user_message": "Find seven papers on this topic",
+    "topic_hint": "digital divide in higher education",
+    "search_tool_available": true,
+    "expect": {
+      "intent": "direct_search",
+      "force_tool": "search_papers",
+      "search": {
+        "count": 7,
+        "open_access_only": false,
+        "year_from": null,
+        "year_to": null,
+        "query_contains": ["digital divide", "higher education"]
+      }
+    }
+  },
+  {
+    "name": "direct_latest_studies_deictic",
+    "user_message": "Could you retrieve the latest studies on this topic?",
+    "topic_hint": "sleep quality among nurses",
+    "search_tool_available": true,
+    "expect": {
+      "intent": "direct_search",
+      "force_tool": "search_papers",
+      "search": {
+        "count": 5,
+        "open_access_only": false,
+        "year_from": "current_year_minus_4",
+        "year_to": "current_year",
+        "query_contains": ["sleep quality", "nurses"]
+      }
+    }
+  },
+  {
+    "name": "direct_past_ten_years",
+    "user_message": "Please search papers from the past 10 years on this topic.",
+    "topic_hint": "machine learning fairness in lending",
+    "search_tool_available": true,
+    "expect": {
+      "intent": "direct_search",
+      "force_tool": "search_papers",
+      "search": {
+        "count": 5,
+        "open_access_only": false,
+        "year_from": "current_year_minus_9",
+        "year_to": "current_year",
+        "query_contains": ["machine learning fairness", "lending"]
+      }
+    }
+  },
+  {
+    "name": "direct_single_year_published",
+    "user_message": "Find papers published in 2022 on this topic.",
+    "topic_hint": "air pollution and neonatal outcomes",
+    "search_tool_available": true,
+    "expect": {
+      "intent": "direct_search",
+      "force_tool": "search_papers",
+      "search": {
+        "count": 5,
+        "open_access_only": false,
+        "year_from": 2022,
+        "year_to": 2022,
+        "query_contains": ["air pollution", "neonatal outcomes"]
+      }
+    }
+  },
+  {
+    "name": "direct_open_access_since_year",
+    "user_message": "Can you find open access papers on this topic since 2018?",
+    "topic_hint": "microplastics in freshwater ecosystems",
+    "search_tool_available": true,
+    "expect": {
+      "intent": "direct_search",
+      "force_tool": "search_papers",
+      "search": {
+        "count": 5,
+        "open_access_only": true,
+        "year_from": 2018,
+        "year_to": "current_year",
+        "query_contains": ["microplastics", "freshwater ecosystems"]
+      }
+    }
+  },
+  {
+    "name": "direct_recent_non_deictic_topic",
+    "user_message": "Search papers on adolescent sleep deprivation and academic outcomes in recent years.",
+    "topic_hint": "",
+    "search_tool_available": true,
+    "expect": {
+      "intent": "direct_search",
+      "force_tool": "search_papers",
+      "search": {
+        "count": 5,
+        "open_access_only": false,
+        "year_from": "current_year_minus_4",
+        "year_to": "current_year",
+        "query_contains": ["adolescent sleep deprivation", "academic outcomes"],
+        "query_not_contains": ["search papers"]
+      }
+    }
+  },
+  {
+    "name": "general_find_without_paper_terms",
+    "user_message": "Can you find insights about model interpretability?",
+    "topic_hint": "",
+    "search_tool_available": true,
+    "expect": {
+      "intent": "general",
+      "force_tool": null,
+      "search": null
+    }
+  },
+  {
+    "name": "general_latest_question_without_search_intent",
+    "user_message": "What's the latest consensus on causal inference assumptions?",
+    "topic_hint": "",
+    "search_tool_available": true,
+    "expect": {
+      "intent": "general",
+      "force_tool": null,
+      "search": null
+    }
+  },
+  {
+    "name": "direct_word_count_ten_studies",
+    "user_message": "Please find ten studies on this topic.",
+    "topic_hint": "telemedicine access in rural areas",
+    "search_tool_available": true,
+    "expect": {
+      "intent": "direct_search",
+      "force_tool": "search_papers",
+      "search": {
+        "count": 10,
+        "open_access_only": false,
+        "year_from": null,
+        "year_to": null,
+        "query_contains": ["telemedicine access", "rural areas"]
+      }
+    }
+  },
+  {
+    "name": "direct_few_papers_shortcut",
+    "user_message": "Find a few papers on this topic",
+    "topic_hint": "AI-assisted diagnosis in radiology",
+    "search_tool_available": true,
+    "expect": {
+      "intent": "direct_search",
+      "force_tool": "search_papers",
+      "search": {
+        "count": 3,
+        "open_access_only": false,
+        "year_from": null,
+        "year_to": null,
+        "query_contains": ["AI-assisted diagnosis", "radiology"]
+      }
+    }
+  },
+  {
+    "name": "direct_several_papers_with_pdf",
+    "user_message": "Find several papers with PDF on this topic",
+    "topic_hint": "green hydrogen production economics",
+    "search_tool_available": true,
+    "expect": {
+      "intent": "direct_search",
+      "force_tool": "search_papers",
+      "search": {
+        "count": 7,
+        "open_access_only": true,
+        "year_from": null,
+        "year_to": null,
+        "query_contains": ["green hydrogen production", "economics"]
+      }
+    }
+  }
+]

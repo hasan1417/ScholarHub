@@ -19,13 +19,26 @@ SEARCH_PAPERS_SCHEMA = {
                 },
                 "count": {
                     "type": "integer",
-                    "description": "Number of papers to find",
+                    "description": "Number of papers to find (legacy alias for limit).",
+                    "default": 5,
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of papers to return. Preferred over count.",
                     "default": 5,
                 },
                 "open_access_only": {
                     "type": "boolean",
                     "description": "If true, only return papers with PDF available (Open Access). Use when user asks for 'only open access', 'only OA', 'papers with PDF', 'papers I can ingest', etc.",
                     "default": False,
+                },
+                "year_from": {
+                    "type": "integer",
+                    "description": "Optional lower publication year bound (inclusive), e.g. 2021.",
+                },
+                "year_to": {
+                    "type": "integer",
+                    "description": "Optional upper publication year bound (inclusive), e.g. 2026.",
                 },
             },
             "required": ["query"],

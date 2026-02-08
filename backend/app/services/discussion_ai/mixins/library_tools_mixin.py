@@ -1521,7 +1521,18 @@ class LibraryToolsMixin:
         """
         from app.models import Project
 
-        project = ctx["project"]
+        project_in_ctx = ctx.get("project")
+        project_id = getattr(project_in_ctx, "id", None)
+        project = (
+            self.db.query(Project).filter(Project.id == project_id).first()
+            if project_id is not None
+            else None
+        )
+        if not project:
+            return {
+                "status": "error",
+                "message": "Project not found in current session.",
+            }
         updated_fields = []
 
         # Update description if provided

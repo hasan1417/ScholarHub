@@ -270,6 +270,32 @@ class TestNonStreamingRetry:
         assert result["content"] == "Completed"
         assert mock_sleep.call_count == 1
 
+    def test_non_streaming_handles_malformed_tool_args(self, orchestrator):
+        """Malformed tool args should not crash response parsing."""
+        mock_tool_call = MagicMock()
+        mock_tool_call.id = "tc-1"
+        mock_tool_call.function.name = "search_papers"
+        mock_tool_call.function.arguments = "{bad-json"
+
+        mock_message = MagicMock()
+        mock_message.content = ""
+        mock_message.tool_calls = [mock_tool_call]
+        mock_choice = MagicMock()
+        mock_choice.message = mock_message
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+
+        orchestrator.openrouter_client.chat.completions.create = MagicMock(
+            return_value=mock_response
+        )
+
+        result = orchestrator._call_ai_with_tools([], {"user_message": "find papers"})
+
+        assert result["content"] == ""
+        assert len(result["tool_calls"]) == 1
+        assert result["tool_calls"][0]["name"] == "search_papers"
+        assert result["tool_calls"][0]["arguments"] == {}
+
 
 class TestStreamingRetry:
     """Test retry behavior for _call_ai_with_tools_streaming (async)."""
@@ -377,7 +403,6 @@ class TestStreamingRetry:
         assert result["type"] == "result"
         assert "Error:" in result["content"]
         assert call_count == 1
-
 
 class TestNoClientConfigured:
     """Test behavior when OpenRouter client is not configured."""

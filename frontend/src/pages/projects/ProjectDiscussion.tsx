@@ -2152,7 +2152,7 @@ const ProjectDiscussion = () => {
                             </div>
                           </div>
                         ) : (
-                          <div className="prose prose-sm max-w-none text-gray-900 prose-headings:text-gray-900 prose-p:leading-relaxed prose-li:marker:text-gray-400 dark:prose-invert prose-p:text-xs sm:prose-p:text-sm prose-headings:text-sm sm:prose-headings:text-base prose-li:text-xs sm:prose-li:text-sm">
+                          <div className="prose prose-sm max-w-none text-gray-900 dark:prose-invert prose-headings:font-semibold prose-headings:text-gray-900 dark:prose-headings:text-slate-100 prose-h2:text-base prose-h3:text-sm prose-h4:text-sm prose-p:leading-relaxed prose-p:my-1.5 prose-strong:text-gray-900 dark:prose-strong:text-white prose-strong:font-semibold prose-code:rounded prose-code:bg-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:text-indigo-700 prose-code:before:content-none prose-code:after:content-none dark:prose-code:bg-slate-700 dark:prose-code:text-indigo-300 prose-blockquote:border-indigo-300 prose-blockquote:text-gray-600 dark:prose-blockquote:border-indigo-500 dark:prose-blockquote:text-slate-300 prose-li:marker:text-gray-400 prose-a:text-indigo-600 dark:prose-a:text-indigo-400 prose-a:no-underline hover:prose-a:underline">
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>
                               {displayedMessage}
                             </ReactMarkdown>

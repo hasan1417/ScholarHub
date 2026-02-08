@@ -598,7 +598,7 @@ class TestResearchStagePrompts:
 # 6. Long-Term Memory: Preferences & Rejections
 # ===================================================================
 
-# Each tuple: (user_message, category: "preference"|"rejection"|"none", expected_substring)
+# Each tuple: (user_message, category: "preference"|"rejection"|"follow_up"|"none", expected_substring)
 LONG_TERM_MEMORY_CASES = [
     # Preferences
     ("I prefer using recent papers from the last 5 years.", "preference", "prefer"),
@@ -614,6 +614,12 @@ LONG_TERM_MEMORY_CASES = [
     ("I don't like the Bayesian approach for this problem.", "rejection", "don't like"),
     ("I ruled out using RNNs since transformers outperform them.", "rejection", "ruled out"),
     ("That method won't work because we don't have enough training data.", "rejection", "won't work"),
+    # Explicit deferred follow-up items
+    (
+        "I still have an unanswered question for later: What evaluation metrics are most appropriate for measuring bias in large language models?",
+        "follow_up",
+        "evaluation metrics",
+    ),
     # Neither
     ("Tell me more about the methodology.", "none", None),
     ("Can you search for recent papers on this topic?", "none", None),
@@ -636,6 +642,8 @@ class TestLongTermMemoryPrompts:
             "long_term": {
                 "user_preferences": [],
                 "rejected_approaches": [],
+                "follow_up_items": [],
+                "user_profiles": {},
             }
         }
 
@@ -645,6 +653,7 @@ class TestLongTermMemoryPrompts:
 
         prefs = memory["long_term"]["user_preferences"]
         rejections = memory["long_term"]["rejected_approaches"]
+        follow_ups = memory["long_term"]["follow_up_items"]
 
         if category == "preference":
             assert len(prefs) >= 1, (
@@ -666,10 +675,21 @@ class TestLongTermMemoryPrompts:
             assert len(prefs) == 0, (
                 f"Unexpected preference from rejection message: {prefs}"
             )
-        else:
+        elif category == "follow_up":
+            assert len(follow_ups) >= 1, (
+                f"Expected follow-up item from: {user_message!r}"
+            )
+            assert any(expected_substring.lower() in f.lower() for f in follow_ups), (
+                f"Expected '{expected_substring}' in {follow_ups}"
+            )
             assert len(prefs) == 0 and len(rejections) == 0, (
+                f"Unexpected preference/rejection from deferred message: "
+                f"prefs={prefs}, rejections={rejections}"
+            )
+        else:
+            assert len(prefs) == 0 and len(rejections) == 0 and len(follow_ups) == 0, (
                 f"Expected no extraction from: {user_message!r} "
-                f"— got prefs={prefs}, rejections={rejections}"
+                f"— got prefs={prefs}, rejections={rejections}, follow_ups={follow_ups}"
             )
 
 

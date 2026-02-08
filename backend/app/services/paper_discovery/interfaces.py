@@ -16,7 +16,15 @@ class PaperSearcher(ABC):
         """Return the canonical name for this source."""
 
     @abstractmethod
-    async def search(self, query: str, max_results: int) -> List[DiscoveredPaper]:
+    async def search(
+        self,
+        query: str,
+        max_results: int,
+        *,
+        year_from: int | None = None,
+        year_to: int | None = None,
+        open_access_only: bool = False,
+    ) -> List[DiscoveredPaper]:
         """Execute the search and return a list of discovered papers."""
 
 

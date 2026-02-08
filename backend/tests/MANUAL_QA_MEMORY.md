@@ -25,8 +25,15 @@ SELECT
   ai_memory->'facts'->'decisions_made' as decisions,
   ai_memory->'summary' as summary,
   ai_memory->'key_quotes' as quotes,
-  ai_memory->'long_term'->'user_preferences' as prefs,
-  ai_memory->'long_term'->'rejected_approaches' as rejections,
+  coalesce(
+    ai_memory->'long_term'->'user_profiles'->'<USER_ID>'->'user_preferences',
+    ai_memory->'long_term'->'user_preferences'
+  ) as prefs,
+  coalesce(
+    ai_memory->'long_term'->'user_profiles'->'<USER_ID>'->'rejected_approaches',
+    ai_memory->'long_term'->'rejected_approaches'
+  ) as rejections,
+  ai_memory->'long_term'->'follow_up_items' as follow_ups,
   ai_memory->'research_state'->>'stage' as stage
 FROM project_discussion_channels
 WHERE id = '<YOUR_CHANNEL_ID>'
@@ -113,14 +120,15 @@ ORDER BY updated_at DESC LIMIT 1;
 
 ---
 
-## Test 7: Real Unanswered Question — Should Track (Fix 4)
+## Test 7: Explicit Deferred Follow-up — Should Track in Long-term Memory
 
 **Prompt:**
 > I still have an unanswered question for later: What evaluation metrics are most appropriate for measuring bias in large language models?
 
 | Field | Expected | Actual | Pass? |
 |---|---|---|---|
-| `unanswered_questions` | Contains this question text (or a close paraphrase including "evaluation metrics" + "bias" + "large language models") | | [ ] |
+| `long_term.follow_up_items` | Contains this question text (or close paraphrase with "evaluation metrics" + "bias" + "large language models") | | [ ] |
+| `unanswered_questions` | Optional. May remain empty if assistant answered in the same turn. | | [ ] |
 
 ---
 
@@ -134,8 +142,8 @@ ORDER BY updated_at DESC LIMIT 1;
 
 | Field | Expected | Actual | Pass? |
 |---|---|---|---|
-| `user_preferences` | Contains entry with "prefer using quantitative" | | [ ] |
-| `rejected_approaches` | Contains entry with "don't want to use survey" | | [ ] |
+| `long_term.user_profiles.<USER_ID>.user_preferences` | Contains entry with "prefer using quantitative" | | [ ] |
+| `long_term.user_profiles.<USER_ID>.rejected_approaches` | Contains entry with "don't want to use survey" | | [ ] |
 
 ---
 
@@ -223,8 +231,8 @@ ORDER BY updated_at DESC LIMIT 1;
 | 4 | Investigation RQ | `research_question` extracted from "I'm investigating..." | [ ] |
 | 5 | Standalone question | `research_question` extracted from plain "?" message | [ ] |
 | 6 | False positive filter | `unanswered_questions` empty for declarations | [ ] |
-| 7 | Real question tracked | `unanswered_questions` captures explicit "unanswered question for later" | [ ] |
-| 8 | Prefs & rejections | Both `user_preferences` and `rejected_approaches` populated | [ ] |
+| 7 | Deferred follow-up tracked | `long_term.follow_up_items` captures explicit "for later" question | [ ] |
+| 8 | Prefs & rejections | Both user-scoped prefs/rejections populated under `long_term.user_profiles.<USER_ID>` | [ ] |
 | 9 | Incremental summary | `summary` not null after 6 exchanges | [ ] |
 | 10 | Context carryover | RQ survives across 3 messages | [ ] |
 | 11 | No year spam | Search query avoids raw year-list stuffing | [ ] |

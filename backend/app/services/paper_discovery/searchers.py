@@ -8,7 +8,7 @@ import logging
 import os
 import re
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 from urllib.parse import urlencode, urlparse, urljoin
 
@@ -151,7 +151,15 @@ class SemanticScholarSearcher(SearcherBase):
     def get_source_name(self) -> str:
         return PaperSource.SEMANTIC_SCHOLAR.value
     
-    async def search(self, query: str, max_results: int) -> List[DiscoveredPaper]:
+    async def search(
+        self,
+        query: str,
+        max_results: int,
+        *,
+        year_from: int | None = None,
+        year_to: int | None = None,
+        open_access_only: bool = False,
+    ) -> List[DiscoveredPaper]:
         try:
             headers = {'User-Agent': 'ScholarHub/1.0'}
             if self.api_key:
@@ -162,6 +170,15 @@ class SemanticScholarSearcher(SearcherBase):
                 "limit": max_results,
                 "fields": "title,year,authors,venue,url,externalIds,abstract,citationCount,isOpenAccess,openAccessPdf"
             }
+            if year_from is not None or year_to is not None:
+                start = year_from if year_from is not None else 1900
+                end = year_to if year_to is not None else datetime.now(timezone.utc).year
+                if start > end:
+                    start, end = end, start
+                params["year"] = f"{start}-{end}"
+            if open_access_only:
+                # Semantic Scholar supports this as a query parameter.
+                params["openAccessPdf"] = "true"
             
             url = "https://api.semanticscholar.org/graph/v1/paper/search"
             
@@ -1017,7 +1034,15 @@ class OpenAlexSearcher(SearcherBase):
     def get_source_name(self) -> str:
         return PaperSource.OPENALEX.value
 
-    async def search(self, query: str, max_results: int) -> List[DiscoveredPaper]:
+    async def search(
+        self,
+        query: str,
+        max_results: int,
+        *,
+        year_from: int | None = None,
+        year_to: int | None = None,
+        open_access_only: bool = False,
+    ) -> List[DiscoveredPaper]:
         logger.info(f"OpenAlexSearcher searching for: '{query}' (max_results: {max_results})")
         try:
             if not query or query.strip() == '':
@@ -1031,6 +1056,15 @@ class OpenAlexSearcher(SearcherBase):
                 'select': 'id,display_name,authorships,publication_year,abstract_inverted_index,doi,primary_location,open_access,best_oa_location',
                 # 'mailto': 'contact@example.com',  # Remove mailto to avoid issues
             }
+            filters = []
+            if year_from is not None:
+                filters.append(f"from_publication_date:{year_from}-01-01")
+            if year_to is not None:
+                filters.append(f"to_publication_date:{year_to}-12-31")
+            if open_access_only:
+                filters.append("is_oa:true")
+            if filters:
+                params["filter"] = ",".join(filters)
 
             # OpenAlex API endpoint
             url = f"https://api.openalex.org/works?{urlencode(params)}"

@@ -54,6 +54,63 @@ class MemoryMixin:
         "analyzing",      # Deep dive into specific papers/methods
         "writing",        # Drafting, synthesizing findings
     ]
+    CLARIFICATION_DEFAULTS = {
+        "scope_geography": "global",
+    }
+
+    def _default_clarification_state(self) -> Dict[str, Any]:
+        """Default state for clarification loop guardrails."""
+        return {
+            "pending_slot": None,
+            "asked_count": 0,
+            "default_value": None,
+            "last_prompt": None,
+        }
+
+    def _normalize_user_id(self, user_id: Optional[Any]) -> Optional[str]:
+        """Normalize user IDs to stable string keys for memory maps."""
+        if user_id is None:
+            return None
+        return str(user_id)
+
+    def _ensure_long_term_schema(self, memory: Dict[str, Any]) -> Dict[str, Any]:
+        """Ensure long-term memory schema exists with backward compatibility."""
+        long_term = memory.setdefault("long_term", {})
+        long_term.setdefault("user_preferences", [])
+        long_term.setdefault("rejected_approaches", [])
+        long_term.setdefault("follow_up_items", [])
+        long_term.setdefault("user_profiles", {})
+        return long_term
+
+    def _get_long_term_bucket(
+        self,
+        memory: Dict[str, Any],
+        user_id: Optional[Any] = None,
+        create_user_profile: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Return mutable long-term memory bucket.
+
+        - If user_id is provided and a user profile exists (or create_user_profile=True),
+          return the per-user bucket under channel-level memory.
+        - Otherwise return legacy channel-level long_term bucket.
+        """
+        long_term = self._ensure_long_term_schema(memory)
+        user_profiles = long_term.setdefault("user_profiles", {})
+        normalized_user_id = self._normalize_user_id(user_id)
+
+        if normalized_user_id:
+            profile = user_profiles.get(normalized_user_id)
+            if profile is None and create_user_profile:
+                profile = {}
+                user_profiles[normalized_user_id] = profile
+            if isinstance(profile, dict):
+                profile.setdefault("user_preferences", [])
+                profile.setdefault("rejected_approaches", [])
+                profile.setdefault("follow_up_items", [])
+                return profile
+
+        return long_term
 
     def _get_utility_client(self) -> tuple:
         """Return (client, model) for lightweight internal LLM calls.
@@ -190,11 +247,17 @@ class MemoryMixin:
                 memory["long_term"] = {
                     "user_preferences": [],
                     "rejected_approaches": [],
+                    "follow_up_items": [],
+                    "user_profiles": {},
                 }
+            else:
+                self._ensure_long_term_schema(memory)
             if "unanswered_questions" not in memory.get("facts", {}):
                 memory.setdefault("facts", {})["unanswered_questions"] = []
             if "research_question" not in memory.get("facts", {}):
                 memory.setdefault("facts", {})["research_question"] = None
+            if "clarification_state" not in memory:
+                memory["clarification_state"] = self._default_clarification_state()
             return memory
         return {
             "summary": None,
@@ -215,10 +278,13 @@ class MemoryMixin:
             "long_term": {
                 "user_preferences": [],         # Learned preferences (e.g., "prefers recent papers")
                 "rejected_approaches": [],      # Approaches user explicitly rejected
+                "follow_up_items": [],          # User-explicit "save for later" reminders
+                "user_profiles": {},            # Per-user preferences inside this channel
             },
             "key_quotes": [],
             "last_summarized_exchange_id": None,
             "tool_cache": {},
+            "clarification_state": self._default_clarification_state(),
         }
 
     def _save_ai_memory(self, channel: "ProjectDiscussionChannel", memory: Dict[str, Any]) -> None:
@@ -358,7 +424,7 @@ EXISTING KEY QUOTES:
 Extract and UPDATE the facts JSON. Only include new/changed information.
 Return a JSON object with these fields (keep existing values if not changed):
 - research_topic: Main research topic (string or null). HIGH PRIORITY. If the user states a research question but no separate topic, derive a concise topic from that question (do not leave null in that case).
-- research_question: The user's formal research question if stated or implied. Look carefully for questions like "How does X affect Y?" or statements like "I want to investigate X". This is HIGH PRIORITY — extract it if present in current or recent messages. Set to null ONLY if truly not articulated yet.
+- research_question: The user's formal research question if stated or implied. Look carefully for questions like "How does X affect Y?" or statements like "I want to investigate X". This is HIGH PRIORITY — extract it if present in current or recent messages. Set to null ONLY if truly not articulated yet. IMPORTANT: If EXISTING FACTS already has a research_question, KEEP IT unless the user explicitly states a NEW research question. Do NOT replace it with a follow-up/procedural question like "What databases should I use?".
 - papers_discussed: Array of {{"title": "...", "author": "...", "relevance": "why discussed", "user_reaction": "positive/negative/neutral"}}
 - decisions_made: Array of decision strings (append new ones, don't remove old)
 - pending_questions: Array of unanswered questions (can remove if answered)
@@ -511,11 +577,19 @@ Return ONLY valid JSON, no explanation:"""
 
         return merged[-max_quotes:]
 
-    def _extract_research_question_direct(self, user_message: str) -> Optional[str]:
-        """Extract research question directly from user message using patterns."""
+    def _extract_research_question_direct(
+        self, user_message: str, existing_rq: Optional[str] = None,
+    ) -> Optional[str]:
+        """Extract research question directly from user message using patterns.
+
+        Returns a new RQ only when high-confidence patterns match.  If the user
+        already has an RQ (``existing_rq``), only *explicit markers* (Pattern 1)
+        can overwrite it — standalone questions are ignored to avoid replacing a
+        real RQ with a procedural follow-up like "What databases should I use?".
+        """
         msg = user_message.strip()
 
-        # Pattern 1: Explicit RQ markers
+        # Pattern 1: Explicit RQ markers (always authoritative — can overwrite)
         rq_markers = [
             r"(?:my |the )?research question\s*(?:is|:)\s*[\"']?(.+?)[\"']?\s*$",
             r"(?:my |the )?(?:rq|r\.q\.)\s*(?:is|:)\s*[\"']?(.+?)[\"']?\s*$",
@@ -529,15 +603,26 @@ Return ONLY valid JSON, no explanation:"""
                 if len(rq) > 15:  # Skip trivially short matches
                     return rq
 
-        # Pattern 2: Standalone question sentence (only if message is short & question-focused)
+        # If an RQ already exists, don't overwrite with a standalone question
+        if existing_rq:
+            return None
+
+        # Pattern 2: Standalone question sentence (only for first RQ detection)
         if len(msg) < 300 and msg.count("?") == 1:
             sentences = re.split(r'(?<=[.!?])\s+', msg)
             for s in sentences:
                 s = s.strip()
                 if s.endswith("?") and len(s) > 30:
-                    # Must look like a research question (not "can you help me?")
-                    non_rq_starts = ["can you", "could you", "will you", "would you", "do you", "are you", "is there", "have you"]
-                    if not any(s.lower().startswith(p) for p in non_rq_starts):
+                    s_lower = s.lower()
+                    # Exclude non-research questions
+                    non_rq_starts = [
+                        "can you", "could you", "will you", "would you",
+                        "do you", "are you", "is there", "have you",
+                        "what databases", "what tools", "what methods",
+                        "what software", "how should i", "how do i",
+                        "where can i", "where should i",
+                    ]
+                    if not any(s_lower.startswith(p) for p in non_rq_starts):
                         return s
 
         return None
@@ -602,12 +687,128 @@ Return ONLY valid JSON, no explanation:"""
 
         return self._derive_research_topic_from_text(direct_rq or "")
 
+    def _extract_clarification_slot(self, ai_response: str) -> Optional[str]:
+        """Detect whether the assistant asked a known clarification slot."""
+        if not ai_response:
+            return None
+
+        response_lower = ai_response.lower()
+        if "?" not in response_lower:
+            return None
+
+        scope_markers = (
+            "global comparison",
+            "global or",
+            "specific region",
+            "specific country",
+            "list of cities",
+            "named coastal cities",
+            "up to 6 cities",
+            "answer \"global\"",
+        )
+        clarification_starters = (
+            "do you want",
+            "please answer",
+            "please name",
+            "quick question",
+        )
+        if any(marker in response_lower for marker in scope_markers) and any(
+            starter in response_lower for starter in clarification_starters
+        ):
+            return "scope_geography"
+
+        return None
+
+    def _user_answered_clarification_slot(self, user_message: str, slot: Optional[str]) -> bool:
+        """Best-effort check whether user answered a pending clarification."""
+        if not slot or not user_message:
+            return False
+
+        msg = user_message.lower().strip()
+        if not msg:
+            return False
+
+        if slot == "scope_geography":
+            answer_markers = (
+                "global",
+                "region",
+                "country",
+                "city",
+                "cities",
+            )
+            return any(marker in msg for marker in answer_markers)
+
+        return False
+
+    def _is_actionable_follow_up(self, user_message: str) -> bool:
+        """Return True when user asks to continue work rather than clarifying prior slot."""
+        msg = (user_message or "").lower().strip()
+        if not msg:
+            return False
+
+        actionable_markers = (
+            "what", "how", "suggest", "recommend", "draft", "plan",
+            "criteria", "keywords", "databases", "analysis", "now", "please", "can you",
+        )
+        return ("?" in msg) or any(marker in msg for marker in actionable_markers)
+
+    def _update_clarification_state_inline(
+        self,
+        memory: Dict[str, Any],
+        user_message: str,
+        ai_response: str,
+    ) -> None:
+        """Track clarification slots to prevent repeated same-slot loops."""
+        state = memory.get("clarification_state") or self._default_clarification_state()
+        pending_slot = state.get("pending_slot")
+
+        if self._user_answered_clarification_slot(user_message, pending_slot):
+            state = self._default_clarification_state()
+
+        asked_slot = self._extract_clarification_slot(ai_response)
+        if asked_slot:
+            previous_slot = state.get("pending_slot")
+            previous_count = int(state.get("asked_count", 0)) if previous_slot == asked_slot else 0
+            state["pending_slot"] = asked_slot
+            state["asked_count"] = previous_count + 1
+            state["default_value"] = self.CLARIFICATION_DEFAULTS.get(asked_slot)
+            state["last_prompt"] = ai_response[:220]
+
+        memory["clarification_state"] = state
+
+    def _build_clarification_guardrail(
+        self,
+        memory: Dict[str, Any],
+        user_message: str,
+    ) -> Optional[str]:
+        """Return deterministic instruction to avoid repeated clarification loops."""
+        state = memory.get("clarification_state") or {}
+        pending_slot = state.get("pending_slot")
+        asked_count = int(state.get("asked_count", 0) or 0)
+
+        if not pending_slot or asked_count < 1:
+            return None
+        if self._user_answered_clarification_slot(user_message, pending_slot):
+            return None
+        if not self._is_actionable_follow_up(user_message):
+            return None
+
+        if pending_slot == "scope_geography":
+            default_value = state.get("default_value") or "global"
+            return (
+                "You already asked for geographic scope in the previous turn. "
+                f"Do NOT ask for geographic scope again. Assume {default_value} scope and continue with the request."
+            )
+
+        return None
+
     def update_memory_after_exchange(
         self,
         channel: "ProjectDiscussionChannel",
         user_message: str,
         ai_response: str,
         conversation_history: List[Dict[str, str]],
+        user_id: Optional[Any] = None,
     ) -> Optional[str]:
         """
         Update AI memory after an exchange. Called after each successful response.
@@ -626,7 +827,8 @@ Return ONLY valid JSON, no explanation:"""
         )
 
         # Direct research question extraction (cheap regex, every exchange)
-        direct_rq = self._extract_research_question_direct(user_message)
+        existing_rq = memory.get("facts", {}).get("research_question")
+        direct_rq = self._extract_research_question_direct(user_message, existing_rq=existing_rq)
         if direct_rq:
             memory.setdefault("facts", {})["research_question"] = direct_rq
             logger.info(f"[Memory] Direct RQ extraction: {direct_rq[:80]}")
@@ -664,7 +866,9 @@ Return ONLY valid JSON, no explanation:"""
                 )
 
         # Incremental summary for short sessions (no token overflow yet)
-        if not memory.get("summary") and len(conversation_history) >= 6:
+        # Count exchanges: history user messages + current exchange (not yet in history)
+        exchange_count = sum(1 for m in conversation_history if m.get("role") == "user") + 1
+        if not memory.get("summary") and exchange_count >= 6:
             memory["summary"] = self._summarize_old_messages(
                 conversation_history,
                 None,
@@ -712,7 +916,8 @@ Return ONLY valid JSON, no explanation:"""
         try:
             self._update_research_state_inline(memory, user_message, ai_response)
             self._track_unanswered_question_inline(memory, user_message, ai_response)
-            self._update_long_term_memory_inline(memory, user_message, ai_response)
+            self._update_long_term_memory_inline(memory, user_message, ai_response, user_id=user_id)
+            self._update_clarification_state_inline(memory, user_message, ai_response)
         except Exception as e:
             logger.error(f"Failed to update Phase 3 memory: {e}")
 
@@ -728,6 +933,7 @@ Return ONLY valid JSON, no explanation:"""
         include_unanswered_questions: bool = True,
         summary_header: str = "## Previous Conversation Summary",
         phase_descriptions: Optional[Dict[str, str]] = None,
+        user_id: Optional[Any] = None,
     ) -> str:
         """
         Core memory context builder shared by public and internal methods.
@@ -820,7 +1026,7 @@ Return ONLY valid JSON, no explanation:"""
                 lines.append(f"- {q}")
 
         # Tier 3: Long-term memory
-        long_term = memory.get("long_term", {})
+        long_term = self._get_long_term_bucket(memory, user_id=user_id, create_user_profile=False)
         if long_term.get("user_preferences"):
             lines.append("**User Preferences:**")
             for p in long_term["user_preferences"][-3:]:
@@ -833,6 +1039,11 @@ Return ONLY valid JSON, no explanation:"""
             for r in long_term["rejected_approaches"][-3:]:
                 lines.append(f"- {r}")
 
+        if long_term.get("follow_up_items"):
+            lines.append("**Deferred Follow-ups:**")
+            for item in long_term["follow_up_items"][-5:]:
+                lines.append(f"- {item}")
+
         # Key quotes
         if memory.get("key_quotes"):
             lines.append("**Key User Statements:**")
@@ -841,7 +1052,11 @@ Return ONLY valid JSON, no explanation:"""
 
         return "\n".join(lines) if lines else ""
 
-    def _build_memory_context(self, channel: "ProjectDiscussionChannel") -> str:
+    def _build_memory_context(
+        self,
+        channel: "ProjectDiscussionChannel",
+        user_id: Optional[Any] = None,
+    ) -> str:
         """
         Build context string from AI memory for inclusion in system prompt.
         Includes all three memory tiers: working, session, and long-term.
@@ -858,6 +1073,7 @@ Return ONLY valid JSON, no explanation:"""
             include_focused_papers=True,
             include_unanswered_questions=True,
             summary_header="## Previous Conversation Summary",
+            user_id=user_id,
         )
 
     def cache_tool_result(
@@ -1106,12 +1322,14 @@ Return ONLY valid JSON, no explanation:"""
         memory: Dict[str, Any],
         user_message: str,
         ai_response: str,
+        user_id: Optional[Any] = None,
     ) -> None:
         """Update long-term memory in memory dict in-place (no DB read/save)."""
-        long_term = memory.get("long_term", {
-            "user_preferences": [],
-            "rejected_approaches": [],
-        })
+        long_term = self._get_long_term_bucket(
+            memory,
+            user_id=user_id,
+            create_user_profile=user_id is not None,
+        )
         message_lower = user_message.lower()
 
         preference_patterns = [
@@ -1146,7 +1364,38 @@ Return ONLY valid JSON, no explanation:"""
                     long_term["rejected_approaches"] = long_term["rejected_approaches"][-10:]
                 break
 
-        memory["long_term"] = long_term
+        # Explicit "save this for later" intent belongs in deferred follow-ups,
+        # not in unanswered_questions.
+        deferred_item = self._extract_deferred_follow_up_item(user_message)
+        if deferred_item:
+            existing = {x.lower() for x in long_term.get("follow_up_items", [])}
+            if deferred_item.lower() not in existing:
+                long_term.setdefault("follow_up_items", []).append(deferred_item)
+                long_term["follow_up_items"] = long_term["follow_up_items"][-10:]
+
+        # Bucket is a reference into memory; schema helper keeps container initialized.
+        self._ensure_long_term_schema(memory)
+
+    def _extract_deferred_follow_up_item(self, user_message: str) -> Optional[str]:
+        """Extract explicit "revisit later" intent as a follow-up item."""
+        msg = user_message.strip()
+        if not msg:
+            return None
+
+        if not re.search(
+            r"\b(?:unanswered question|for later|remind me|come back to|revisit)\b",
+            msg,
+            re.IGNORECASE,
+        ):
+            return None
+
+        sentences = re.split(r'(?<=[.!?])\s+', msg)
+        for sentence in sentences:
+            candidate = sentence.strip()
+            if "?" in candidate and len(candidate) > 20:
+                return candidate[:220]
+
+        return msg[:220]
 
     def detect_contradictions(
         self,
@@ -1478,16 +1727,18 @@ Response:"""
         channel: "ProjectDiscussionChannel",
         user_message: str,
         ai_response: str,
+        user_id: Optional[Any] = None,
     ) -> None:
         """
         Update long-term memory with persistent learnings.
         Extracts user preferences and rejected approaches.
         """
         memory = self._get_ai_memory(channel)
-        long_term = memory.get("long_term", {
-            "user_preferences": [],
-            "rejected_approaches": [],
-        })
+        long_term = self._get_long_term_bucket(
+            memory,
+            user_id=user_id,
+            create_user_profile=user_id is not None,
+        )
 
         message_lower = user_message.lower()
 
@@ -1532,12 +1783,20 @@ Response:"""
                     long_term["rejected_approaches"] = long_term["rejected_approaches"][-10:]
                 break
 
-        memory["long_term"] = long_term
+        deferred_item = self._extract_deferred_follow_up_item(user_message)
+        if deferred_item:
+            existing = {x.lower() for x in long_term.get("follow_up_items", [])}
+            if deferred_item.lower() not in existing:
+                long_term.setdefault("follow_up_items", []).append(deferred_item)
+                long_term["follow_up_items"] = long_term["follow_up_items"][-10:]
+
+        self._ensure_long_term_schema(memory)
         self._save_ai_memory(channel, memory)
 
     def get_session_context_for_return(
         self,
         channel: "ProjectDiscussionChannel",
+        user_id: Optional[Any] = None,
     ) -> str:
         """
         Generate a context summary for when user returns to a session.
@@ -1587,12 +1846,18 @@ Response:"""
                 lines.append(f"- {q}")
 
         # User preferences
-        long_term = memory.get("long_term", {})
+        long_term = self._get_long_term_bucket(memory, user_id=user_id, create_user_profile=False)
         prefs = long_term.get("user_preferences", [])
         if prefs:
             lines.append("\n**Your Preferences:**")
             for p in prefs[-3:]:
                 lines.append(f"- {p}")
+
+        follow_ups = long_term.get("follow_up_items", [])
+        if follow_ups:
+            lines.append("\n**Saved Follow-ups:**")
+            for item in follow_ups[-5:]:
+                lines.append(f"- {item}")
 
         return "\n".join(lines) if len(lines) > 1 else ""
 
@@ -1600,6 +1865,7 @@ Response:"""
         self,
         channel: "ProjectDiscussionChannel",
         include_welcome_back: bool = False,
+        user_id: Optional[Any] = None,
     ) -> str:
         """
         Build complete memory context including all three tiers:
@@ -1626,4 +1892,5 @@ Response:"""
             include_unanswered_questions=False,
             summary_header="## Conversation Summary",
             phase_descriptions=phase_descriptions,
+            user_id=user_id,
         )
