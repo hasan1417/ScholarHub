@@ -197,6 +197,12 @@ RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 MAX_RETRIES = 3
 INITIAL_BACKOFF_SECONDS = 1.0
 
+# Recovery retry: action verbs that suggest the user wanted a tool call
+_ACTION_SIGNAL = re.compile(
+    r"\b(add|find|search|create|write|compare|export|show|focus|tag|update|generate)\b",
+    re.IGNORECASE,
+)
+
 
 def _get_redis_client():
     global _redis_client, _redis_initialized
@@ -481,6 +487,10 @@ class OpenRouterOrchestrator(ToolOrchestrator):
 
         if user_api_key:
             logger.info("Using user-provided OpenRouter API key")
+
+    def _get_classifier_client(self):
+        """Return sync client for the intent classifier."""
+        return self.openrouter_client
 
     def _model_supports_reasoning(self) -> bool:
         """Check if the current model supports OpenRouter reasoning parameter."""
@@ -917,8 +927,8 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         self._reasoning_mode = ctx.get("reasoning_mode", False)
         t_start = time.monotonic()
         ttfb_ms = 0
-        policy_decision = self._build_policy_decision(ctx)
-        ctx["policy_decision"] = policy_decision
+        conversation_history = ctx.get("conversation_history")
+        policy_decision = self._classify_and_build_policy(ctx, conversation_history)
 
         max_iterations = 8
         iteration = 0
@@ -930,6 +940,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             and policy_decision.search is not None
         )
         search_tool_executed = False
+        recovery_attempted = False
 
         recent_results = self._get_recent_papers(ctx)
         logger.info(f"[OpenRouter Async Streaming] Starting with model: {self.model}, recent_search_results: {len(recent_results)} papers")
@@ -997,6 +1008,18 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     all_tool_results.extend(tool_results)
                     search_tool_executed = True
                     break
+
+                # Recovery retry: if no tool calls but user clearly requested action,
+                # retry once with broad tool set
+                if (
+                    not search_tool_executed
+                    and not recovery_attempted
+                    and _ACTION_SIGNAL.search(ctx.get("user_message", ""))
+                ):
+                    recovery_attempted = True
+                    ctx["intent_confidence"] = 0.0  # force broad tool set
+                    logger.info("[ToolRecovery] No tool calls, retrying with broad tools")
+                    continue
 
                 # This IS the final iteration — stream the buffered tokens
                 # to the user so they see the typing effect.
@@ -1098,6 +1121,17 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             stage_transition_success,
         )
 
+        # Persist _last_tools_called for route classifier follow-up detection
+        tools_called_this_turn = [t["name"] for t in all_tool_results] if all_tool_results else []
+        try:
+            channel = ctx.get("channel")
+            if channel:
+                memory = self._get_ai_memory(channel)
+                memory.setdefault("facts", {})["_last_tools_called"] = tools_called_this_turn
+                self._save_ai_memory(channel, memory)
+        except Exception as exc:
+            logger.debug("Failed to persist _last_tools_called: %s", exc)
+
         prompt_tokens = count_messages_tokens(messages[:1], self.model)
         total_ms = int((time.monotonic() - t_start) * 1000)
         logger.info(
@@ -1113,7 +1147,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 "citations": [],
                 "model_used": self.model,
                 "reasoning_used": ctx.get("reasoning_mode", False),
-                "tools_called": [t["name"] for t in all_tool_results] if all_tool_results else [],
+                "tools_called": tools_called_this_turn,
                 "conversation_state": {},
                 "memory_warning": contradiction_warning,
             }

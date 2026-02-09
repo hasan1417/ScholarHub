@@ -15,7 +15,8 @@ from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional, TYPE_CHECKING
 
 from app.services.discussion_ai.tools import build_tool_registry
-from app.services.discussion_ai.policy import DiscussionPolicy, PolicyDecision
+from app.services.discussion_ai.policy import DiscussionPolicy, PolicyDecision, ActionPlan
+from app.services.discussion_ai.intent_classifier import classify_intent_sync
 from app.services.discussion_ai.quality_metrics import get_discussion_ai_metrics_collector
 from app.services.discussion_ai.mixins import (
     MemoryMixin,
@@ -34,6 +35,59 @@ logger = logging.getLogger(__name__)
 DISCUSSION_TOOL_REGISTRY = build_tool_registry()
 # Note: Don't pre-filter tools at module level - filter at runtime based on user role
 DISCUSSION_TOOLS = DISCUSSION_TOOL_REGISTRY.get_schema_list()  # Full list for reference
+
+# ── Dynamic tool exposure groups ────────────────────────────────────────
+# Base: read-only context tools only (no mutating/action tools)
+_BASE_TOOLS = frozenset({
+    "get_recent_search_results",
+    "get_project_references",
+    "get_project_info",
+})
+
+_INTENT_TOOLS = {
+    "direct_search": frozenset({
+        "search_papers", "get_related_papers", "semantic_search_library",
+        "discover_topics", "batch_search_papers", "focus_on_papers",
+        "add_to_library",
+    }),
+    "analysis": frozenset({
+        "focus_on_papers", "compare_papers", "analyze_across_papers",
+        "suggest_research_gaps", "get_reference_details",
+    }),
+    "library": frozenset({
+        "get_reference_details", "analyze_reference", "annotate_reference",
+        "export_citations", "get_channel_papers", "semantic_search_library",
+        "add_to_library",
+    }),
+    "writing": frozenset({
+        "create_paper", "update_paper", "get_project_papers",
+        "generate_section_from_discussion", "generate_abstract",
+        "create_artifact", "get_created_artifacts", "focus_on_papers",
+    }),
+    "project_update": frozenset({"update_project_info"}),
+    "general": frozenset({"search_papers", "get_project_papers", "focus_on_papers"}),
+    "clarify": frozenset(),
+}
+
+# Broad set for low-confidence fallback — READ + SEARCH only, no mutating tools
+_BROAD_TOOLS = (
+    _BASE_TOOLS
+    | frozenset({
+        "search_papers", "get_related_papers", "semantic_search_library",
+        "discover_topics", "batch_search_papers", "focus_on_papers",
+        "get_project_papers", "get_reference_details", "get_channel_papers",
+        "export_citations",
+    })
+)  # ~13 tools — all read-only
+
+_INTENT_PRIMARY_TOOL = {
+    "direct_search": "search_papers",
+    "analysis": "compare_papers",
+    "library": "get_project_references",
+    "writing": "create_paper",
+    "project_update": "update_project_info",
+    "general": None,
+}
 
 # System prompt with adaptive workflow based on request clarity
 BASE_SYSTEM_PROMPT = r"""You are a research assistant helping with academic papers for researchers and scholars.
@@ -643,8 +697,8 @@ If asked to perform write actions, explain that editor/admin access is required.
     ) -> Dict[str, Any]:
         """Execute with tool calling (non-streaming)."""
         try:  # noqa: SIM117
-            policy_decision = self._build_policy_decision(ctx)
-            ctx["policy_decision"] = policy_decision
+            conversation_history = ctx.get("conversation_history")
+            policy_decision = self._classify_and_build_policy(ctx, conversation_history)
             t_start = time.monotonic()
             max_iterations = 8
             iteration = 0
@@ -758,6 +812,17 @@ If asked to perform write actions, explain that editor/admin access is required.
             stage_transition_success = self._enforce_finding_papers_stage_after_search(ctx, all_tool_results)
             self._record_quality_metrics(ctx, policy_decision, all_tool_results, clarification_first_detected, stage_transition_success)
 
+            # Persist _last_tools_called for route classifier follow-up detection
+            tools_called = [t["name"] for t in all_tool_results] if all_tool_results else []
+            try:
+                channel = ctx.get("channel")
+                if channel:
+                    memory = self._get_ai_memory(channel)
+                    memory.setdefault("facts", {})["_last_tools_called"] = tools_called
+                    self._save_ai_memory(channel, memory)
+            except Exception as exc:
+                logger.debug("Failed to persist _last_tools_called: %s", exc)
+
             total_ms = int((time.monotonic() - t_start) * 1000)
             logger.info(
                 "[TurnMetrics] route=full tools_count=%d total_ms=%d model=%s",
@@ -770,7 +835,7 @@ If asked to perform write actions, explain that editor/admin access is required.
                 "citations": [],
                 "model_used": self.model,
                 "reasoning_used": ctx.get("reasoning_mode", False),
-                "tools_called": [t["name"] for t in all_tool_results] if all_tool_results else [],
+                "tools_called": tools_called,
                 "conversation_state": {},
                 "memory_warning": contradiction_warning,  # Include contradiction warning
             }
@@ -784,12 +849,12 @@ If asked to perform write actions, explain that editor/admin access is required.
         return self._policy.is_direct_paper_search_request(user_message)
 
     def _is_tool_available_for_ctx(self, ctx: Dict[str, Any], tool_name: str) -> bool:
-        """Check whether a tool is available to the current user role/context."""
-        tools = self._get_tools_for_user(ctx)
-        for tool in tools:
-            if isinstance(tool, dict) and tool.get("function", {}).get("name") == tool_name:
-                return True
-        return False
+        """Check whether a tool is available to the current user role/context.
+
+        Role-only check (avoids chicken-and-egg with policy needing tool availability).
+        """
+        from app.services.discussion_ai.tools.permissions import can_use_tool
+        return can_use_tool(tool_name, ctx.get("user_role", "viewer"), ctx.get("is_owner", False))
 
     def _build_fallback_search_query(self, ctx: Dict[str, Any]) -> str:
         """Build a reasonable fallback query for forced direct-search routing."""
@@ -1170,20 +1235,79 @@ If asked to perform write actions, explain that editor/admin access is required.
 
         return "\n".join(lines)
 
-    def _get_tools_for_user(self, ctx: Dict[str, Any]) -> List[Dict]:
-        """Get tools filtered by user's role.
+    def _get_classifier_client(self):
+        """Return sync client for the intent classifier. Subclasses may override."""
+        return getattr(self, "openrouter_client", None)
 
-        This ensures the LLM only sees tools the user is allowed to use.
-        - Viewers: read-only tools only
-        - Editors: Read + write tools
-        - Admins: All tools including admin tools
+    def _classify_and_build_policy(
+        self,
+        ctx: Dict[str, Any],
+        conversation_history: Optional[List[Dict]] = None,
+    ) -> PolicyDecision:
+        """Policy first, classifier second. Saves latency when regex already detects intent."""
+        # 1. Deterministic policy FIRST (regex for direct_search, project_update)
+        policy = self._build_policy_decision(ctx)
+
+        # 2. Only call LLM classifier when policy returns "general"
+        if policy.intent == "general":
+            intent, confidence = classify_intent_sync(
+                ctx.get("user_message", ""),
+                (conversation_history or [])[-4:],
+                self._get_classifier_client(),
+            )
+            ctx["classified_intent"] = intent
+            ctx["intent_confidence"] = confidence
+            logger.info("[IntentClassifier] intent=%s confidence=%.2f", intent, confidence)
+
+            # Upgrade general -> specific if classifier is confident
+            if intent != "general" and confidence >= 0.6:
+                policy = PolicyDecision(
+                    intent=intent,
+                    force_tool=None,
+                    search=policy.search,
+                    reasons=policy.reasons + [f"llm_classified_{intent}"],
+                    action_plan=ActionPlan(
+                        primary_tool=_INTENT_PRIMARY_TOOL.get(intent),
+                        reasons=policy.reasons + [f"llm_classified_{intent}"],
+                    ),
+                )
+        else:
+            # Regex already determined intent — skip classifier, save ~200ms
+            ctx["classified_intent"] = policy.intent
+            ctx["intent_confidence"] = 1.0
+            logger.info("[IntentClassifier] skipped — regex detected %s", policy.intent)
+
+        ctx["policy_decision"] = policy
+        return policy
+
+    def _get_tools_for_context(self, ctx: Dict[str, Any]) -> List[Dict]:
+        """Get tools filtered by intent confidence AND user role.
+
+        High confidence -> narrow tool set (6-13 tools per intent).
+        Low confidence  -> broad read+search set (~13 tools).
         """
+        intent = getattr(ctx.get("policy_decision"), "intent", "general")
+        confidence = ctx.get("intent_confidence", 1.0)
+
+        if confidence >= 0.7:
+            allowed = _BASE_TOOLS | _INTENT_TOOLS.get(intent, _INTENT_TOOLS["general"])
+        else:
+            allowed = _BROAD_TOOLS
+
         user_role = ctx.get("user_role", "viewer")
         is_owner = ctx.get("is_owner", False)
+        role_tools = DISCUSSION_TOOL_REGISTRY.get_schema_list_for_role(user_role, is_owner)
+        tools = [t for t in role_tools if t["function"]["name"] in allowed]
 
-        tools = DISCUSSION_TOOL_REGISTRY.get_schema_list_for_role(user_role, is_owner)
-        logger.debug(f"[Permission] Role '{user_role}': {len(tools)} tools available")
+        logger.debug(
+            "[ToolExposure] intent=%s confidence=%.2f tools=%d/%d",
+            intent, confidence, len(tools), len(role_tools),
+        )
         return tools
+
+    def _get_tools_for_user(self, ctx: Dict[str, Any]) -> List[Dict]:
+        """Get tools filtered by intent + user role (backward compat wrapper)."""
+        return self._get_tools_for_context(ctx)
 
     def _call_ai_with_tools(self, messages: List[Dict], ctx: Dict[str, Any]) -> Dict[str, Any]:
         """Call AI provider with tool definitions (non-streaming).

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Literal
+from typing import Any, Dict, List, Literal, Optional
 
 @dataclass(frozen=True)
 class RouteDecision:
@@ -29,9 +29,10 @@ _RESEARCH_TERMS = re.compile(
     re.IGNORECASE,
 )
 _GREETING_PATTERNS = re.compile(
-    r"^(hi|hello|hey|thanks|thank you|ok|okay|cool|great|got it|"
+    r"^(hi|hello|hey|thanks|thx|thanx|thank you|ok|okay|cool|great|got it|"
     r"sounds good|makes sense|i see|understood|noted|nice|perfect|awesome|sure|alright|"
-    r"no problem|no worries|right|yep|nope|cheers|good morning|good afternoon|good evening)"
+    r"no problem|no worries|right|yep|nope|cheers|good morning|good afternoon|good evening|"
+    r"bye|goodbye|see ya|later|k bye|cya)"
     r"(?:[.!,\s].*)?$",
     re.IGNORECASE,
 )
@@ -54,6 +55,24 @@ def _last_assistant_suggested_action(conversation_history: List[Dict[str, str]])
                 "let me know if", "do you want",
             )
             return any(hint in text for hint in action_hints)
+    return False
+
+
+def _last_turn_had_tool_action(
+    conversation_history: List[Dict[str, str]],
+    memory_facts: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """Check if the last turn involved tool calls — using state, not text heuristics.
+
+    Option 1: Check memory for _last_tools_called (set by orchestrator after each turn).
+    Option 2: Fallback — check conversation metadata for tool result markers.
+    """
+    if memory_facts and memory_facts.get("_last_tools_called"):
+        return True
+    # Fallback: check conversation for tool call metadata
+    for msg in reversed(conversation_history):
+        if msg.get("role") == "assistant" and msg.get("tools_called"):
+            return True
     return False
 
 
@@ -96,6 +115,11 @@ def classify_route(
 
     if _GREETING_PATTERNS.match(msg):
         return RouteDecision("lite", "greeting_or_acknowledgment")
+
+    # Short follow-up after tool action -> full (state-based, not text heuristic)
+    # "more plz" after a search should stay full, not drop to lite
+    if len(msg) <= 20 and _last_turn_had_tool_action(conversation_history, memory_facts):
+        return RouteDecision("full", "short_followup_after_action")
 
     if len(msg) <= 20:
         return RouteDecision("lite", "short_message")

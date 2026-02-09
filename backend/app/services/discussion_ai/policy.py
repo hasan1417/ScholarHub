@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Callable, List, Literal, Optional
 
 
-IntentType = Literal["direct_search", "analysis", "clarify", "project_update", "general"]
+IntentType = Literal["direct_search", "analysis", "library", "writing", "clarify", "project_update", "general"]
 
 # Words with no research-topic content — used to detect queries like
 # "papers about my project" that need context resolution instead of literal search.
