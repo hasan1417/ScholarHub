@@ -51,6 +51,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
   const [currentVersion, setCurrentVersion] = useState<string | null>(null)
   const fallbackRole: 'admin' | 'editor' | 'viewer' = forceReadOnly ? 'viewer' : (initialPaperRole ?? 'viewer')
   const [paperRole, setPaperRole] = useState<'admin' | 'editor' | 'viewer'>(fallbackRole)
+  const [isPaperOwner, setIsPaperOwner] = useState(false)
   const [aiChatOpen, setAiChatOpen] = useState(false)
   const [aiChatInitialMessage, setAiChatInitialMessage] = useState<string | null>(null)
   const readOnly = forceReadOnly || paperRole === 'viewer'
@@ -355,6 +356,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
             : (rawRole as 'admin' | 'editor' | 'viewer')
         if (!cancelled) {
           setPaperRole(normalized || fallbackRole)
+          setIsPaperOwner(rawRole === 'owner' || rawRole === 'admin')
         }
       } catch (err) {
         if (!cancelled) {
@@ -1092,6 +1094,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
         onApplyEditsBatch={handleApplyAiEditsBatch}
         initialMessage={aiChatInitialMessage || undefined}
         onInitialMessageConsumed={() => setAiChatInitialMessage(null)}
+        isOwner={isPaperOwner}
       />
     </div>
   )

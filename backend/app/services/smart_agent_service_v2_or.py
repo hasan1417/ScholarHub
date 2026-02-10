@@ -10,7 +10,9 @@ import os
 import re
 import json
 import logging
+import concurrent.futures
 from typing import Optional, Generator, List, Dict, Any
+from sqlalchemy import text as sa_text
 from sqlalchemy.orm import Session
 from openai import OpenAI
 
@@ -20,9 +22,24 @@ from app.services.smart_agent_service_v2 import (
     _resolve_paper_id,
 )
 from app.services.discussion_ai.openrouter_orchestrator import model_supports_reasoning
+from app.services.discussion_ai.token_utils import (
+    count_tokens,
+    count_messages_tokens,
+    fit_messages_in_budget,
+    get_context_limit,
+    RESPONSE_TOKEN_RESERVE,
+    TOOL_OUTPUT_RESERVE,
+)
 from app.constants.paper_templates import CONFERENCE_TEMPLATES
 
 logger = logging.getLogger(__name__)
+
+# Background thread pool for async summary updates (shared, bounded)
+_summary_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="editor-summary")
+
+# Summary trigger thresholds
+_SUMMARY_MSG_THRESHOLD = 16  # Total messages before considering summary
+_SUMMARY_STALE_THRESHOLD = 6  # New messages since last summary before re-summarizing
 
 
 # Tool for searching attached references (RAG)
@@ -81,6 +98,54 @@ class SmartAgentServiceV2OR:
         self._user_id = None
         self._paper_id = None
 
+    _LITE_SYSTEM_PROMPT = (
+        "You are a helpful academic writing assistant for the LaTeX editor in ScholarHub. "
+        "Respond concisely and warmly. If the user greets you, greet them back briefly. "
+        "If they thank you or acknowledge something, confirm briefly. "
+        "If they seem to need editing help, let them know you're ready. "
+        "Keep responses under 2 sentences."
+    )
+
+    _EDITOR_ACTION_VERBS = re.compile(
+        r"\b(improve|fix|rewrite|shorten|expand|change|edit|modify|correct|proofread|"
+        r"convert|reformat|replace|insert|delete|remove|rephrase|revise|polish|"
+        r"make better|tighten|clean up|strengthen)\b",
+        re.IGNORECASE,
+    )
+
+    def _is_lite_route(self, query: str, history: List[Dict[str, str]]) -> bool:
+        """Check if this message should take the lite path (no tools, no document)."""
+        if self._EDITOR_ACTION_VERBS.search(query or ""):
+            return False
+        from app.services.discussion_ai.route_classifier import classify_route
+        decision = classify_route(query, history, {})
+        return decision.route == "lite"
+
+    def _execute_lite(self, query: str, history: List[Dict[str, str]]) -> str:
+        """Single lightweight LLM call — no tools, no document context."""
+        messages: List[Dict[str, str]] = [
+            {"role": "system", "content": self._LITE_SYSTEM_PROMPT},
+        ]
+        for msg in history[-4:]:
+            messages.append({"role": msg["role"], "content": msg["content"]})
+        messages.append({"role": "user", "content": query})
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                max_tokens=150,
+            )
+            return (response.choices[0].message.content or "").strip()
+        except Exception as e:
+            logger.warning(f"[SmartAgentV2OR] Lite execution error: {e}")
+            return "Hello! I can help you edit, review, or answer questions about your paper. What would you like to do?"
+
+    def _emit_status(self, message: str) -> str:
+        """Return a status marker for the frontend. Never touches response_text."""
+        logger.debug("[SmartAgentV2OR][paper=%s] status=%s", self._paper_id, message)
+        return f"[[[STATUS:{message}]]]"
+
     def _add_line_numbers(self, text: str) -> str:
         """Add line numbers to text."""
         lines = text.split('\n')
@@ -97,6 +162,7 @@ class SmartAgentServiceV2OR:
         project_id: Optional[str] = None,
         document_excerpt: Optional[str] = None,
         reasoning_mode: bool = False,
+        user_name: str = "User",
     ) -> Generator[str, None, None]:
         """Stream response using OpenRouter."""
 
@@ -107,9 +173,26 @@ class SmartAgentServiceV2OR:
         # Store for reference search tool
         self._db = db
         self._user_id = user_id
+        self._user_name = user_name
         self._paper_id = paper_id
+        self._last_tools_called: List[str] = []
 
-        # Get reference context
+        yield self._emit_status("Classifying request")
+
+        # Lite route: greetings, acks, short messages — lightweight LLM, no tools/document
+        history_for_route = self._get_recent_history(db, paper_id, project_id, limit=4)
+        if self._is_lite_route(query, history_for_route):
+            yield self._emit_status("Generating response")
+            lite_response = self._execute_lite(query, history_for_route)
+            yield lite_response
+            self._store_chat_exchange(
+                db=db, user_id=user_id, paper_id=paper_id,
+                project_id=project_id, user_message=query,
+                assistant_message=lite_response,
+            )
+            return
+
+        yield self._emit_status("Loading references")
         ref_context = self._get_reference_context(db, user_id, paper_id, query)
 
         # Build context with line numbers
@@ -129,12 +212,12 @@ class SmartAgentServiceV2OR:
 
         logger.info(f"[SmartAgentV2OR] model={self.model}, reasoning={use_reasoning}, doc_size={doc_size}")
 
-        history_messages = self._get_recent_history(
+        yield self._emit_status("Building context")
+        history_messages, summary_block = self._build_context_with_budget(
             db=db,
-            user_id=user_id,
             paper_id=paper_id,
             project_id=project_id,
-            limit=8,
+            document_tokens=count_tokens(full_context),
         )
 
         # Build tools list (add reference search)
@@ -144,6 +227,8 @@ class SmartAgentServiceV2OR:
             tools = [tool for tool in tools if tool["function"]["name"] != "ask_clarification"]
 
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        if summary_block:
+            messages.append({"role": "system", "content": summary_block})
         messages.extend(history_messages)
         messages.append({"role": "user", "content": f"{full_context}\n\n---\n\nUser request: {effective_query}"})
 
@@ -159,6 +244,7 @@ class SmartAgentServiceV2OR:
                     response_text += chunk
                     yield chunk
 
+            yield self._emit_status("Analyzing request")
             clarification = self._build_clarification(effective_query, document_excerpt)
             if clarification:
                 yield from _collect_and_yield(self._format_tool_response("ask_clarification", clarification))
@@ -174,6 +260,8 @@ class SmartAgentServiceV2OR:
 
             while turn < max_turns:
                 turn += 1
+
+                yield self._emit_status("Generating response" if turn == 1 else "Processing results")
 
                 tool_choice = "required" if turn == 1 else "auto"
                 if turn == 1 and not self._should_require_tool_choice(effective_query):
@@ -197,11 +285,13 @@ class SmartAgentServiceV2OR:
                     tool_call = choice.message.tool_calls[0]
                     tool_name = tool_call.function.name
                     tool_args = json.loads(tool_call.function.arguments)
+                    self._last_tools_called.append(tool_name)
 
                     logger.info(f"[SmartAgentV2OR] Turn {turn}: {tool_name}")
 
                     # Intermediate tools - return info to AI for further processing
                     if tool_name == "search_references":
+                        yield self._emit_status("Searching references")
                         search_query = tool_args.get("query", "")
                         max_results = tool_args.get("max_results", 10)
                         search_results = self._search_references_for_tool(search_query, max_results)
@@ -215,6 +305,7 @@ class SmartAgentServiceV2OR:
                         continue  # Let AI process results
 
                     elif tool_name == "apply_template":
+                        yield self._emit_status("Applying template")
                         template_info = "".join(self._handle_apply_template(tool_args.get("template_id", "")))
                         messages.append(choice.message)
                         messages.append({
@@ -225,7 +316,7 @@ class SmartAgentServiceV2OR:
                         continue  # AI will call propose_edit next
 
                     elif tool_name == "review_document":
-                        # Intermediate: AI may want to propose_edit after review
+                        yield self._emit_status("Reviewing document")
                         review_output = "".join(self._format_tool_response(tool_name, tool_args))
                         messages.append(choice.message)
                         messages.append({
@@ -236,7 +327,7 @@ class SmartAgentServiceV2OR:
                         continue  # Let AI decide if it wants to propose edits
 
                     elif tool_name == "list_available_templates":
-                        # Intermediate: AI may want to apply_template next
+                        yield self._emit_status("Loading templates")
                         list_output = "".join(self._format_tool_response(tool_name, tool_args))
                         messages.append(choice.message)
                         messages.append({
@@ -456,24 +547,27 @@ class SmartAgentServiceV2OR:
     def _get_recent_history(
         self,
         db: Session,
-        user_id: str,
         paper_id: Optional[str],
         project_id: Optional[str],
-        limit: int = 8,
+        limit: int = 20,
     ) -> List[Dict[str, str]]:
+        """Load recent chat history shared across all collaborators, with speaker names."""
         try:
             if not paper_id and not project_id:
                 return []
             from app.models.editor_chat_message import EditorChatMessage
+            from app.models.user import User
 
-            query = db.query(EditorChatMessage).filter(EditorChatMessage.user_id == user_id)
+            q = db.query(EditorChatMessage, User.first_name).outerjoin(
+                User, EditorChatMessage.user_id == User.id
+            )
             if paper_id:
-                query = query.filter(EditorChatMessage.paper_id == str(paper_id))
+                q = q.filter(EditorChatMessage.paper_id == str(paper_id))
             elif project_id:
-                query = query.filter(EditorChatMessage.project_id == str(project_id))
+                q = q.filter(EditorChatMessage.project_id == str(project_id))
 
             rows = (
-                query.order_by(EditorChatMessage.created_at.desc())
+                q.order_by(EditorChatMessage.created_at.desc(), EditorChatMessage.id.desc())
                 .limit(limit)
                 .all()
             )
@@ -481,7 +575,7 @@ class SmartAgentServiceV2OR:
                 return []
 
             history = []
-            for row in reversed(rows):
+            for row, first_name in reversed(rows):
                 if row.role not in ("user", "assistant"):
                     continue
                 content = row.content or ""
@@ -489,11 +583,52 @@ class SmartAgentServiceV2OR:
                     content = self._sanitize_assistant_content(content)
                     if not content:
                         continue
-                history.append({"role": row.role, "content": content})
+                    history.append({"role": "assistant", "content": content})
+                else:
+                    speaker = first_name or "User"
+                    history.append({"role": "user", "content": f"{speaker}: {content}"})
             return history
         except Exception as e:
             logger.warning(f"[SmartAgentV2OR] Failed to load editor history: {e}")
             return []
+
+    def _build_context_with_budget(
+        self,
+        db: Session,
+        paper_id: Optional[str],
+        project_id: Optional[str],
+        document_tokens: int = 0,
+    ) -> tuple:
+        """Build token-managed context: (history_messages, summary_block_or_None)."""
+        # Load rolling summary from paper if available
+        summary_block = None
+        if paper_id:
+            try:
+                from app.models.research_paper import ResearchPaper
+                paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
+                if paper and paper.editor_ai_context:
+                    existing_summary = paper.editor_ai_context.get("summary", "")
+                    if existing_summary:
+                        summary_block = f"[Previous conversation summary]\n{existing_summary}\n[Recent conversation]"
+            except Exception as e:
+                logger.warning(f"[SmartAgentV2OR] Failed to load ai context: {e}")
+
+        # Calculate budget
+        total_limit = get_context_limit(self.model)
+        system_tokens = count_tokens(SYSTEM_PROMPT) + 50  # overhead
+        summary_tokens = count_tokens(summary_block) if summary_block else 0
+        available = total_limit - RESPONSE_TOKEN_RESERVE - TOOL_OUTPUT_RESERVE - system_tokens - document_tokens - summary_tokens
+        history_budget = min(available, 8000)  # Cap at 8000 tokens for history
+
+        # Load recent history
+        history = self._get_recent_history(db, paper_id, project_id, limit=20)
+
+        if not history:
+            return [], summary_block
+
+        # Fit messages within budget
+        fitted, _ = fit_messages_in_budget(history, history_budget, model=self.model, keep_newest=True)
+        return fitted, summary_block
 
     def _store_chat_exchange(
         self,
@@ -524,9 +659,80 @@ class SmartAgentServiceV2OR:
                 content=assistant_message,
             ))
             db.commit()
+
+            # Persist _last_tools_called in editor_ai_context
+            tools_called = getattr(self, "_last_tools_called", [])
+            if paper_id:
+                try:
+                    tools_json = json.dumps({"_last_tools_called": tools_called})
+                    db.execute(
+                        sa_text("""
+                            UPDATE research_papers
+                            SET editor_ai_context = editor_ai_context || CAST(:tools_data AS jsonb)
+                            WHERE id = CAST(:paper_id AS uuid)
+                        """),
+                        {"tools_data": tools_json, "paper_id": str(paper_id)},
+                    )
+                    db.commit()
+                except Exception as e:
+                    db.rollback()
+                    logger.warning(f"[SmartAgentV2OR] Failed to persist tools_called: {e}")
+
+            # Check if we should trigger background summary
+            if paper_id:
+                self._maybe_trigger_summary(paper_id)
+
         except Exception as e:
             db.rollback()
             logger.warning(f"[SmartAgentV2OR] Failed to store editor chat: {e}")
+
+    def _maybe_trigger_summary(self, paper_id: str) -> None:
+        """Check message count and trigger background summary if needed."""
+        try:
+            from app.models.editor_chat_message import EditorChatMessage
+            total = self._db.query(EditorChatMessage).filter(
+                EditorChatMessage.paper_id == str(paper_id)
+            ).count()
+
+            if total < _SUMMARY_MSG_THRESHOLD:
+                return
+
+            # Check if summary is stale
+            from app.models.research_paper import ResearchPaper
+            paper = self._db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
+            if not paper:
+                return
+            ctx = paper.editor_ai_context or {}
+            last_summarized_id = ctx.get("last_summarized_id")
+
+            if last_summarized_id:
+                new_since = self._db.query(EditorChatMessage).filter(
+                    EditorChatMessage.paper_id == str(paper_id),
+                    EditorChatMessage.created_at > self._db.query(EditorChatMessage.created_at).filter(
+                        EditorChatMessage.id == last_summarized_id
+                    ).scalar_subquery(),
+                ).count()
+                if new_since < _SUMMARY_STALE_THRESHOLD:
+                    return
+
+            # Fire background summary
+            context_version = ctx.get("context_version", 0)
+            existing_summary = ctx.get("summary", "")
+            api_key = self.client.api_key if self.client else None
+            model = self.model
+
+            future = _summary_executor.submit(
+                _run_background_summary,
+                paper_id=str(paper_id),
+                context_version=context_version,
+                existing_summary=existing_summary,
+                api_key=api_key,
+                model=model,
+            )
+            future.add_done_callback(_summary_done_callback)
+
+        except Exception as e:
+            logger.warning(f"[SmartAgentV2OR] Failed to check summary trigger: {e}")
 
     def _format_tool_response(self, tool_name: str, args: dict) -> Generator[str, None, None]:
         """Format the tool response for the frontend."""
@@ -843,3 +1049,134 @@ class SmartAgentServiceV2OR:
         yield "---\n\n"
         yield "**NOW call propose_edit** to replace lines 1 through \\maketitle with this template.\n"
         yield "Extract the title, authors, affiliations, and emails from the current document and plug them into the template structure above.\n"
+
+
+def _summary_done_callback(future: concurrent.futures.Future) -> None:
+    """Log exceptions from background summary tasks."""
+    try:
+        future.result()
+    except Exception as e:
+        logger.error(f"[SmartAgentV2OR] Background summary failed: {e}")
+
+
+def _run_background_summary(
+    paper_id: str,
+    context_version: int,
+    existing_summary: str,
+    api_key: Optional[str],
+    model: str,
+) -> None:
+    """Run rolling summary in a background thread with its own DB session."""
+    from app.database import SessionLocal
+    from app.models.editor_chat_message import EditorChatMessage
+    from app.models.user import User
+
+    if not api_key:
+        return
+
+    db = SessionLocal()
+    try:
+        # Load messages for summarization (oldest first, up to 30)
+        rows = (
+            db.query(EditorChatMessage, User.first_name)
+            .outerjoin(User, EditorChatMessage.user_id == User.id)
+            .filter(EditorChatMessage.paper_id == paper_id)
+            .order_by(EditorChatMessage.created_at.asc())
+            .limit(30)
+            .all()
+        )
+        if not rows:
+            return
+
+        # Format for summarization prompt
+        message_lines = []
+        last_msg_id = None
+        for msg, first_name in rows:
+            speaker = first_name or "User" if msg.role == "user" else "AI"
+            message_lines.append(f"{speaker}: {(msg.content or '')[:500]}")
+            last_msg_id = str(msg.id)
+
+        message_text = "\n".join(message_lines)
+
+        if existing_summary:
+            prompt = f"""You are summarizing an academic paper editing conversation for context retention.
+
+EXISTING SUMMARY:
+{existing_summary}
+
+NEW MESSAGES:
+{message_text}
+
+Create an UPDATED summary that:
+1. Preserves key information from the existing summary
+2. Incorporates new developments
+3. Focuses on: editing decisions, format changes, sections worked on, open tasks
+4. Notes who asked for what (speaker names)
+5. Keeps it under 250 words
+6. Uses bullet points
+
+Updated Summary:"""
+        else:
+            prompt = f"""Summarize this academic paper editing conversation for context retention.
+
+MESSAGES:
+{message_text}
+
+Create a summary that:
+1. Captures the main editing tasks and decisions
+2. Notes who asked for what (speaker names)
+3. Lists any format/template changes
+4. Highlights sections that were edited
+5. Keeps it under 250 words
+6. Uses bullet points
+
+Summary:"""
+
+        # Make LLM call
+        client = OpenAI(
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",
+            default_headers={
+                "HTTP-Referer": "https://scholarhub.space",
+                "X-Title": "ScholarHub Editor Summary"
+            }
+        )
+        response = client.chat.completions.create(
+            model="openai/gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=400,
+            temperature=0.3,
+        )
+        new_summary = response.choices[0].message.content.strip()
+        if not new_summary:
+            return
+
+        # Atomic optimistic locking: single UPDATE ... WHERE context_version = expected
+        new_version = context_version + 1
+        new_ctx = json.dumps({
+            "summary": new_summary,
+            "last_summarized_id": last_msg_id,
+            "context_version": new_version,
+        })
+
+        result = db.execute(
+            sa_text("""
+                UPDATE research_papers
+                SET editor_ai_context = editor_ai_context || CAST(:new_data AS jsonb)
+                WHERE id = CAST(:paper_id AS uuid)
+                  AND COALESCE(CAST(editor_ai_context->>'context_version' AS int), 0) = :expected_version
+            """),
+            {"new_data": new_ctx, "paper_id": paper_id, "expected_version": context_version},
+        )
+        db.commit()
+
+        if result.rowcount == 0:
+            logger.info(f"[SmartAgentV2OR] Summary skipped - version conflict (expected {context_version})")
+        else:
+            logger.info(f"[SmartAgentV2OR] Background summary saved for paper {paper_id} (v{new_version})")
+
+    except Exception as e:
+        logger.error(f"[SmartAgentV2OR] Background summary error: {e}")
+        db.rollback()
+    finally:
+        db.close()

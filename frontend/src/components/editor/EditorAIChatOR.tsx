@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Bot, Brain, Check, ChevronDown, ChevronUp, Edit3, Loader2, Send, Sparkles, X } from 'lucide-react'
+import { Bot, Brain, Check, ChevronDown, ChevronUp, Edit3, Loader2, Send, Sparkles, Trash2, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { projectReferencesAPI, projectsAPI, buildApiUrl, buildAuthHeaders } from '../../services/api'
 import { modelSupportsReasoning, useOpenRouterModels } from '../discussion/ModelSelector'
 
@@ -14,7 +14,7 @@ interface EditProposal {
   endLine: number
   anchor: string
   proposed: string
-  status: 'pending' | 'approved' | 'rejected'
+  status: 'pending' | 'approved' | 'rejected' | 'expired'
 }
 
 interface Clarification {
@@ -36,11 +36,16 @@ interface EditorAIChatORProps {
   initialMessage?: string
   /** Callback when initial message has been consumed */
   onInitialMessageConsumed?: () => void
+  /** Whether current user is the paper owner (shows clear history button) */
+  isOwner?: boolean
 }
 
 type ChatMessage = {
   role: 'user' | 'assistant'
   content: string
+  authorName?: string
+  authorId?: string
+  fromHistory?: boolean
   proposals?: EditProposal[]
   clarification?: Clarification
   sourceDocument?: string
@@ -82,7 +87,9 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
   onApplyEditsBatch,
   initialMessage,
   onInitialMessageConsumed,
+  isOwner = false,
 }) => {
+  const queryClient = useQueryClient()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
@@ -92,8 +99,10 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
   const [reasoningMode, setReasoningMode] = useState(false)
   const { models: openrouterModels, warning: openrouterWarning } = useOpenRouterModels(projectId)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const statusRef = useRef('Thinking')
   const [expandedProposals, setExpandedProposals] = useState<Set<string>>(new Set())
   const listRef = useRef<HTMLDivElement | null>(null)
+  const historyLoadedRef = useRef(false)
 
   // Fetch project AI settings to get the configured model
   const settingsQuery = useQuery({
@@ -109,6 +118,103 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
 
   // Use model from project settings, fallback to first available model
   const selectedModel = settingsQuery.data?.model || openrouterModels[0]?.id
+
+  // Fetch shared chat history for this paper
+  const historyQuery = useQuery({
+    queryKey: ['editor-chat-history', paperId],
+    queryFn: async () => {
+      const res = await fetch(
+        buildApiUrl(`/agent-or/chat/history?paper_id=${paperId}&limit=50`),
+        { headers: buildAuthHeaders() }
+      )
+      if (!res.ok) return []
+      return res.json()
+    },
+    enabled: Boolean(paperId) && open,
+    staleTime: 30000,
+  })
+
+  // Populate messages from history on first load
+  useEffect(() => {
+    if (!historyQuery.data?.length || historyLoadedRef.current || messages.length > 0) return
+    historyLoadedRef.current = true
+
+    const editRegex = /<<<EDIT>>>\s*([\s\S]*?)<<<LINES>>>\s*([\s\S]*?)<<<ANCHOR>>>\s*([\s\S]*?)<<<PROPOSED>>>\s*([\s\S]*?)<<<END>>>/g
+    const clarifyRegex = /<<<CLARIFY>>>\s*QUESTION:\s*([\s\S]*?)\s*OPTIONS:\s*([\s\S]*?)<<<END>>>/i
+
+    const loaded: ChatMessage[] = historyQuery.data.map((msg: any) => {
+      const base: ChatMessage = {
+        role: msg.role,
+        content: msg.content || '',
+        authorName: msg.author_name,
+        authorId: msg.author_id,
+        fromHistory: true,
+      }
+
+      if (msg.role === 'assistant') {
+        // Parse edit proposals from history, mark as expired
+        let cleanText = base.content
+        const proposals: EditProposal[] = []
+        let match: RegExpExecArray | null
+        editRegex.lastIndex = 0
+        while ((match = editRegex.exec(base.content)) !== null) {
+          const [fullMatch, description, linesStr, anchor, proposed] = match
+          const linesParts = linesStr.trim().split('-')
+          proposals.push({
+            id: `hist-${msg.id}-${proposals.length}`,
+            description: description.trim(),
+            startLine: parseInt(linesParts[0], 10) || 1,
+            endLine: parseInt(linesParts[1] || linesParts[0], 10) || 1,
+            anchor: anchor.trim(),
+            proposed: proposed.trim(),
+            status: 'expired',
+          })
+          cleanText = cleanText.replace(fullMatch, '')
+        }
+
+        // Parse clarification from history
+        const clarifyMatch = clarifyRegex.exec(base.content)
+        let clarification: Clarification | undefined
+        if (clarifyMatch) {
+          const options = clarifyMatch[2].trim().split('|').map(o => o.trim()).filter(Boolean)
+          clarification = { question: clarifyMatch[1].trim(), options }
+          cleanText = cleanText.replace(clarifyMatch[0], '')
+        }
+
+        return {
+          ...base,
+          content: cleanText.trim(),
+          proposals: proposals.length > 0 ? proposals : undefined,
+          clarification,
+        }
+      }
+      return base
+    })
+
+    setMessages(loaded)
+  }, [historyQuery.data]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reset history loaded ref when paperId changes
+  useEffect(() => {
+    historyLoadedRef.current = false
+    setMessages([])
+  }, [paperId])
+
+  // Clear history handler
+  const handleClearHistory = useCallback(async () => {
+    if (!window.confirm('This clears AI chat history for all collaborators. Continue?')) return
+    try {
+      await fetch(
+        buildApiUrl(`/agent-or/chat/history?paper_id=${paperId}`),
+        { method: 'DELETE', headers: buildAuthHeaders() }
+      )
+      setMessages([])
+      historyLoadedRef.current = false
+      queryClient.invalidateQueries({ queryKey: ['editor-chat-history', paperId] })
+    } catch (e) {
+      console.warn('[EditorAIChatOR] Failed to clear history', e)
+    }
+  }, [paperId, queryClient])
 
   const isReviewMessage = useCallback((content: string) => {
     if (!content) return false
@@ -355,6 +461,47 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
     return references.filter((r) => !hasFullText(r)).length
   }, [references])
 
+  /**
+   * Parse status markers from a buffer, returning clean text and leftover buffer.
+   * Reused for both per-chunk parsing and final flush.
+   */
+  const parseStatusMarkers = useCallback(
+    (
+      buffer: string,
+      onStatus: (msg: string) => void,
+      isFinal: boolean = false,
+    ): { cleanText: string; remaining: string } => {
+      const markerRegex = /\[\[\[STATUS:(.*?)\]\]\]/g
+      let lastEnd = 0
+      let cleanText = ''
+      let match: RegExpExecArray | null
+
+      while ((match = markerRegex.exec(buffer)) !== null) {
+        cleanText += buffer.slice(lastEnd, match.index)
+        onStatus(match[1])
+        lastEnd = match.index + match[0].length
+      }
+
+      // Check for partial marker at end of buffer
+      const partialIdx = buffer.lastIndexOf('[[[', lastEnd)
+      if (!isFinal && partialIdx !== -1 && !buffer.includes(']]]', partialIdx)) {
+        // Partial marker — keep in buffer for next chunk
+        cleanText += buffer.slice(lastEnd, partialIdx)
+        return { cleanText, remaining: buffer.slice(partialIdx) }
+      }
+
+      // Final flush: discard incomplete marker prefix (don't render raw [[[ noise)
+      if (isFinal && partialIdx !== -1 && !buffer.includes(']]]', partialIdx)) {
+        cleanText += buffer.slice(lastEnd, partialIdx)
+        return { cleanText, remaining: '' }
+      }
+
+      cleanText += buffer.slice(lastEnd)
+      return { cleanText, remaining: '' }
+    },
+    [],
+  )
+
   const sendPrompt = useCallback(
     async (prompt: string, clearInput: boolean = false) => {
       if (!prompt.trim() || sending) return
@@ -366,19 +513,19 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
       setError(null)
       setMessages((prev) => [...prev, { role: 'user', content: prompt }])
 
-      // Cycle through status messages for better UX
-      const statusMessages = [
-        { delay: 0, message: 'Thinking' },
-        { delay: 2000, message: 'Analyzing document' },
-        { delay: 4000, message: 'Processing request' },
-        { delay: 7000, message: 'Preparing response' },
-        { delay: 12000, message: 'Almost there' },
-      ]
-      const statusTimers: number[] = []
-      statusMessages.forEach(({ delay, message }) => {
-        const timer = window.setTimeout(() => setStatusMessage(message), delay)
-        statusTimers.push(timer)
-      })
+      // Fallback timer: show "Still working..." if no status update for 15s
+      let fallbackTimer = window.setTimeout(() => setStatusMessage('Still working...'), 15000)
+      // Debounce timer for status UI updates (100ms) to prevent flicker
+      let statusDebounceTimer: number | null = null
+      const updateStatus = (msg: string) => {
+        if (msg === statusRef.current) return
+        statusRef.current = msg
+        if (statusDebounceTimer !== null) window.clearTimeout(statusDebounceTimer)
+        statusDebounceTimer = window.setTimeout(() => setStatusMessage(msg), 100)
+        // Reset fallback timer on each status update
+        window.clearTimeout(fallbackTimer)
+        fallbackTimer = window.setTimeout(() => setStatusMessage('Still working...'), 15000)
+      }
 
       // BETA: Send full document - backend handles smart AI-driven extraction
       const rawDoc = documentText || ''
@@ -423,23 +570,56 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
         const reader = res.body?.getReader()
         const decoder = new TextDecoder()
         let fullText = ''
+        let markerBuffer = ''
+        const BUFFER_CAP = 1000
 
         if (reader) {
           while (true) {
             const { done, value } = await reader.read()
             if (done) break
-            const chunk = decoder.decode(value || new Uint8Array(), { stream: true })
-            fullText += chunk
-            setMessages((prev) => {
-              const copy = [...prev]
-              const last = copy.length - 1
-              if (last >= 0 && copy[last].role === 'assistant') {
-                copy[last] = { ...copy[last], content: copy[last].content + chunk }
-              } else {
-                copy.push({ role: 'assistant', content: chunk })
-              }
-              return copy
-            })
+            const rawChunk = decoder.decode(value || new Uint8Array(), { stream: true })
+            markerBuffer += rawChunk
+
+            // Parse first, then cap only the remaining partial-marker carryover
+            const { cleanText, remaining } = parseStatusMarkers(markerBuffer, updateStatus)
+            markerBuffer = remaining.length > BUFFER_CAP
+              ? remaining.slice(remaining.length - BUFFER_CAP)
+              : remaining
+
+            if (cleanText) {
+              fullText += cleanText
+              // Reset fallback timer on text progress too
+              window.clearTimeout(fallbackTimer)
+              fallbackTimer = window.setTimeout(() => setStatusMessage('Still working...'), 15000)
+              setMessages((prev) => {
+                const copy = [...prev]
+                const last = copy.length - 1
+                if (last >= 0 && copy[last].role === 'assistant') {
+                  copy[last] = { ...copy[last], content: copy[last].content + cleanText }
+                } else {
+                  copy.push({ role: 'assistant', content: cleanText })
+                }
+                return copy
+              })
+            }
+          }
+
+          // Final flush: parse any remaining buffer (discard incomplete markers)
+          if (markerBuffer) {
+            const { cleanText } = parseStatusMarkers(markerBuffer, updateStatus, true)
+            if (cleanText) {
+              fullText += cleanText
+              setMessages((prev) => {
+                const copy = [...prev]
+                const last = copy.length - 1
+                if (last >= 0 && copy[last].role === 'assistant') {
+                  copy[last] = { ...copy[last], content: copy[last].content + cleanText }
+                } else {
+                  copy.push({ role: 'assistant', content: cleanText })
+                }
+                return copy
+              })
+            }
           }
         }
 
@@ -506,11 +686,12 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
           return copy
         })
       } finally {
-        // Clear status timers
-        statusTimers.forEach((t) => window.clearTimeout(t))
+        window.clearTimeout(fallbackTimer)
+        if (statusDebounceTimer !== null) window.clearTimeout(statusDebounceTimer)
         abortControllerRef.current = null
         setSending(false)
         setStatusMessage('Thinking')
+        statusRef.current = 'Thinking'
       }
     },
     [
@@ -519,6 +700,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
       paperId,
       parseClarification,
       parseEditProposals,
+      parseStatusMarkers,
       projectId,
       reasoningMode,
       selectedModel,
@@ -600,6 +782,16 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
           <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI Assistant</span>
         </div>
         <div className="flex items-center gap-2">
+          {/* Clear History (owner only) */}
+          {isOwner && messages.length > 0 && (
+            <button
+              onClick={() => void handleClearHistory()}
+              className="rounded-full p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-900/30 dark:hover:text-rose-400"
+              title="Clear chat history for all collaborators"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
           {/* Model Display (read-only, configured in Project Settings) */}
           <div
             className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium dark:border-slate-700 dark:bg-slate-800"
@@ -655,7 +847,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
           ref={listRef}
           className="h-64 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-800/80 dark:text-slate-100"
         >
-          {messages.length === 0 && (
+          {messages.length === 0 && !historyQuery.isLoading && (
             <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-slate-500 dark:text-slate-400">
               <div className="flex items-center gap-1.5">
                 <Sparkles className="h-4 w-4 text-purple-500" />
@@ -667,10 +859,21 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
               </p>
             </div>
           )}
+          {messages.length === 0 && historyQuery.isLoading && (
+            <div className="flex h-full items-center justify-center gap-2 text-slate-400">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-xs">Loading conversation...</span>
+            </div>
+          )}
           {messages.map((m, idx) => (
             <div key={idx} className="mb-3 last:mb-0">
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                {m.role === 'assistant' ? 'Assistant' : 'You'}
+              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                {m.role === 'assistant' ? 'Assistant' : (m.authorName || 'You')}
+                {m.fromHistory && m.role === 'user' && m.authorName && m.authorName !== 'You' && (
+                  <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-[9px] font-semibold normal-case text-indigo-600 dark:bg-indigo-900/50 dark:text-indigo-300">
+                    {m.authorName}
+                  </span>
+                )}
               </div>
               {m.role === 'assistant' ? (
                 <>
@@ -729,23 +932,26 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="text-xs font-semibold text-slate-600 dark:text-slate-300">
                           {m.proposals.length} proposed edit{m.proposals.length > 1 ? 's' : ''}
+                          {m.fromHistory && <span className="ml-1 text-slate-400">(from history)</span>}
                         </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleRegenerateEdits(idx)}
-                            disabled={sending}
-                            className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-                          >
-                            Regenerate
-                          </button>
-                          <button
-                            onClick={() => handleApplyAllEdits(idx)}
-                            disabled={sending}
-                            className="rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            Apply All
-                          </button>
-                        </div>
+                        {!m.fromHistory && (
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleRegenerateEdits(idx)}
+                              disabled={sending}
+                              className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                            >
+                              Regenerate
+                            </button>
+                            <button
+                              onClick={() => handleApplyAllEdits(idx)}
+                              disabled={sending}
+                              className="rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Apply All
+                            </button>
+                          </div>
+                        )}
                       </div>
                       {m.proposals.map((proposal) => {
                         const isExpanded = expandedProposals.has(proposal.id)
@@ -755,8 +961,8 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                             className={`rounded-lg border ${
                               proposal.status === 'approved'
                                 ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-600 dark:bg-emerald-900/20'
-                                : proposal.status === 'rejected'
-                                ? 'border-slate-200 bg-slate-50 opacity-60 dark:border-slate-700 dark:bg-slate-800/50'
+                                : proposal.status === 'rejected' || proposal.status === 'expired'
+                                ? 'border-slate-200 bg-slate-50 opacity-50 dark:border-slate-700 dark:bg-slate-800/50'
                                 : 'border-indigo-200 bg-indigo-50 dark:border-indigo-600 dark:bg-indigo-900/20'
                             }`}
                           >
@@ -778,6 +984,11 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                                 {proposal.status === 'rejected' && (
                                   <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-600 dark:bg-slate-700 dark:text-slate-400">
                                     Dismissed
+                                  </span>
+                                )}
+                                {proposal.status === 'expired' && (
+                                  <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-700 dark:text-slate-400">
+                                    From previous session
                                   </span>
                                 )}
                               </div>

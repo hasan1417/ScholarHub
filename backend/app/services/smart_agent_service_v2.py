@@ -298,6 +298,49 @@ class SmartAgentServiceV2:
             self.client = OpenAI(api_key=api_key)
         self._current_document = None
 
+    _LITE_SYSTEM_PROMPT = (
+        "You are a helpful academic writing assistant for the LaTeX editor in ScholarHub. "
+        "Respond concisely and warmly. If the user greets you, greet them back briefly. "
+        "If they thank you or acknowledge something, confirm briefly. "
+        "If they seem to need editing help, let them know you're ready. "
+        "Keep responses under 2 sentences."
+    )
+
+    _EDITOR_ACTION_VERBS = re.compile(
+        r"\b(improve|fix|rewrite|shorten|expand|change|edit|modify|correct|proofread|"
+        r"convert|reformat|replace|insert|delete|remove|rephrase|revise|polish|"
+        r"make better|tighten|clean up|strengthen)\b",
+        re.IGNORECASE,
+    )
+
+    def _is_lite_route(self, query: str, history: List[Dict[str, str]]) -> bool:
+        """Check if this message should take the lite path (no tools, no document)."""
+        if self._EDITOR_ACTION_VERBS.search(query or ""):
+            return False
+        from app.services.discussion_ai.route_classifier import classify_route
+        decision = classify_route(query, history, {})
+        return decision.route == "lite"
+
+    def _execute_lite(self, query: str, history: List[Dict[str, str]]) -> str:
+        """Single lightweight LLM call — no tools, no document context."""
+        messages: List[Dict[str, str]] = [
+            {"role": "system", "content": self._LITE_SYSTEM_PROMPT},
+        ]
+        for msg in history[-4:]:
+            messages.append({"role": msg["role"], "content": msg["content"]})
+        messages.append({"role": "user", "content": query})
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.FAST_MODEL,
+                messages=messages,
+                max_tokens=150,
+            )
+            return (response.choices[0].message.content or "").strip()
+        except Exception as e:
+            logger.warning(f"[SmartAgentV2] Lite execution error: {e}")
+            return "Hello! I can help you edit, review, or answer questions about your paper. What would you like to do?"
+
     def _add_line_numbers(self, text: str) -> str:
         """Add line numbers to text for line-based editing."""
         lines = text.split('\n')
@@ -318,6 +361,21 @@ class SmartAgentServiceV2:
         """Stream a response using tool-based orchestration with multi-turn support."""
         if not self.client:
             yield "AI service not configured."
+            return
+
+        # Lite route: greetings, acks, short messages — lightweight LLM, no tools/document
+        history_for_route = self._get_recent_history(
+            db=db, user_id=user_id, paper_id=paper_id,
+            project_id=project_id, limit=4,
+        )
+        if self._is_lite_route(query, history_for_route):
+            lite_response = self._execute_lite(query, history_for_route)
+            yield lite_response
+            self._store_chat_exchange(
+                db=db, user_id=user_id, paper_id=paper_id,
+                project_id=project_id, user_message=query,
+                assistant_message=lite_response,
+            )
             return
 
         # Store document for template conversion

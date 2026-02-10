@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, DateTime, Boolean, ForeignKey, Integer, BigInteger, LargeBinary
+from sqlalchemy import Column, String, Text, DateTime, Boolean, ForeignKey, Integer, BigInteger, LargeBinary, text
 from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -35,6 +35,7 @@ class ResearchPaper(Base):
     latex_crdt_rev = Column(BigInteger, nullable=False, default=0)
     latex_crdt_checksum = Column(String(64))
     latex_crdt_synced_at = Column(DateTime(timezone=True))
+    editor_ai_context = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     
     # Discovery metadata
     year = Column(Integer)  # Publication year
