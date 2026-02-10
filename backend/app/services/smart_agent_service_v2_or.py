@@ -17,6 +17,7 @@ from sqlalchemy import text as sa_text
 from sqlalchemy.orm import Session
 from openai import OpenAI
 
+from app.core.config import settings
 from app.services.smart_agent_service_v2 import (
     EDITOR_TOOLS,
     SYSTEM_PROMPT,
@@ -455,10 +456,15 @@ class SmartAgentServiceV2OR:
             turn = 0
             response_text = ""
 
+            _STATUS_RE = re.compile(r"\[\[\[STATUS:.*?\]\]\]")
+
             def _collect_and_yield(gen: Generator[str, None, None]) -> Generator[str, None, None]:
                 nonlocal response_text
                 for chunk in gen:
-                    response_text += chunk
+                    # Strip status markers from stored text (they're UI-only)
+                    clean = _STATUS_RE.sub("", chunk)
+                    if clean:
+                        response_text += clean
                     yield chunk
 
             yield self._emit_status("Analyzing request")
@@ -540,7 +546,21 @@ class SmartAgentServiceV2OR:
 
                 elif tool_name == "apply_template":
                     yield self._emit_status("Applying template")
-                    template_info = "".join(self._handle_apply_template(tool_args.get("template_id", "")))
+                    tid = tool_args.get("template_id", "")
+                    # Deterministic V1: preamble edit in code, body cleanup via LLM
+                    if settings.EDITOR_DETERMINISTIC_CONVERT_V1:
+                        from app.services.deterministic_converter import deterministic_preamble_convert
+                        det_result = deterministic_preamble_convert(document_excerpt or "", tid)
+                        if det_result:
+                            yield from _collect_and_yield(iter([det_result]))
+                            logger.info("[SmartAgentV2OR][paper=%s] deterministic preamble: %s", paper_id, tid)
+                            template_info = "".join(self._handle_apply_template(tid))
+                            messages.append(assistant_msg)
+                            messages.append({"role": "tool", "tool_call_id": tc["id"],
+                                "content": template_info + "\n\nIMPORTANT: The preamble (lines 1 through \\maketitle) has ALREADY been converted. Do NOT propose any preamble edits. ONLY call propose_edit if there are body-level cleanups needed (e.g., replace \\begin{IEEEkeywords} with \\begin{keywords}, remove format-specific commands). If no body cleanup is needed, call answer_question to confirm the conversion is complete."})
+                            continue
+                    # Fallback: existing LLM path
+                    template_info = "".join(self._handle_apply_template(tid))
                     messages.append(assistant_msg)
                     messages.append({"role": "tool", "tool_call_id": tc["id"], "content": template_info})
                     continue
@@ -1288,8 +1308,9 @@ class SmartAgentServiceV2OR:
         yield f"### Notes: {template['notes']}\n\n"
 
         yield "---\n\n"
-        yield "**NOW call propose_edit** to replace lines 1 through \\maketitle with this template.\n"
-        yield "Extract the title, authors, affiliations, and emails from the current document and plug them into the template structure above.\n"
+        yield "**NOW call propose_edit** with all necessary edits:\n"
+        yield "1. Replace lines 1 through \\maketitle with this template (extract title, authors, affiliations, emails from the current document)\n"
+        yield "2. Replace any format-specific environments in the body that the new template does not define (e.g., replace `\\begin{IEEEkeywords}` with `\\begin{keywords}`)\n"
 
 
 def _summary_done_callback(future: concurrent.futures.Future) -> None:

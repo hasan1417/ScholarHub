@@ -15,6 +15,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 from openai import OpenAI
 
+from app.core.config import settings
 from app.constants.paper_templates import CONFERENCE_TEMPLATES
 
 logger = logging.getLogger(__name__)
@@ -249,6 +250,8 @@ IMPORTANT:
 - Use apply_template for conversion, NOT list_available_templates
 - After apply_template returns, you MUST call propose_edit to apply the changes
 - The propose_edit edits array can contain MULTIPLE edits — use one for the preamble and additional ones for body cleanup
+- The template preamble ends with \\maketitle — do NOT leave a duplicate \\maketitle in the document
+- PRESERVE the existing bibliography format: if the document uses inline \\begin{thebibliography}, keep it (only update \\bibliographystyle). Do NOT replace it with \\bibliography{references}
 
 ## REFERENCE SCOPE
 You can ONLY discuss or cite references shown in the ATTACHED REFERENCES section.
@@ -473,7 +476,24 @@ class SmartAgentServiceV2:
 
                     # Intermediate tools - return info to AI for further processing
                     if tool_name == "apply_template":
-                        template_info = "".join(self._handle_apply_template(tool_args.get("template_id", "")))
+                        tid = tool_args.get("template_id", "")
+                        # Deterministic V1: preamble edit in code, body cleanup via LLM
+                        if settings.EDITOR_DETERMINISTIC_CONVERT_V1:
+                            from app.services.deterministic_converter import deterministic_preamble_convert
+                            det_result = deterministic_preamble_convert(document_excerpt or "", tid)
+                            if det_result:
+                                yield from _collect_and_yield(iter([det_result]))
+                                logger.info("[SmartAgentV2][paper=%s] deterministic preamble: %s", paper_id, tid)
+                                template_info = "".join(self._handle_apply_template(tid))
+                                messages.append(choice.message)
+                                messages.append({
+                                    "role": "tool",
+                                    "tool_call_id": tool_call.id,
+                                    "content": template_info + "\n\nIMPORTANT: The preamble (lines 1 through \\maketitle) has ALREADY been converted. Do NOT propose any preamble edits. ONLY call propose_edit if there are body-level cleanups needed (e.g., replace \\begin{IEEEkeywords} with \\begin{keywords}, remove format-specific commands). If no body cleanup is needed, call answer_question to confirm the conversion is complete."
+                                })
+                                continue
+                        # Fallback: existing LLM path
+                        template_info = "".join(self._handle_apply_template(tid))
                         messages.append(choice.message)
                         messages.append({
                             "role": "tool",

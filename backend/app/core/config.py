@@ -158,6 +158,9 @@ class Settings(BaseSettings):
     # LaTeX warmup
     LATEX_WARMUP_ON_STARTUP: bool = True
 
+    # Deterministic template converter V1 (preamble in code, body via LLM)
+    EDITOR_DETERMINISTIC_CONVERT_V1: bool = True
+
     # (Purged) Discovery advanced flags removed for simplicity
     
     class Config:
