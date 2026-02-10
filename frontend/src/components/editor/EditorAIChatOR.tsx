@@ -1019,7 +1019,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                                   </div>
                                 </div>
 
-                                {/* Action Buttons */}
+                                {/* Action Buttons — hide individual Apply when multi-edit (use Apply All instead) */}
                                 {proposal.status === 'pending' && (
                                   <div className="flex items-center justify-end gap-2 pt-2">
                                     <button
@@ -1031,16 +1031,18 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                                     >
                                       Dismiss
                                     </button>
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        handleApproveEdit(idx, proposal.id)
-                                      }}
-                                      className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
-                                    >
-                                      <Check className="h-3.5 w-3.5" />
-                                      Apply Edit
-                                    </button>
+                                    {m.proposals.length === 1 && (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          handleApproveEdit(idx, proposal.id)
+                                        }}
+                                        className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
+                                      >
+                                        <Check className="h-3.5 w-3.5" />
+                                        Apply Edit
+                                      </button>
+                                    )}
                                   </div>
                                 )}
                               </div>

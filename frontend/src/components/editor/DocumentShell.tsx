@@ -823,8 +823,11 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
         const actualLineStart = lines[startIdx] || ''
         const normalizedAnchor = anchor.trim().slice(0, 40).toLowerCase()
         const normalizedActual = actualLineStart.trim().slice(0, 40).toLowerCase()
-        const substringMatch = normalizedActual.includes(normalizedAnchor) || normalizedAnchor.includes(normalizedActual)
-        const wordMatch = normalizedAnchor.split(/\s+/).some((word) => word.length > 3 && normalizedActual.includes(word))
+        const substringMatch =
+          normalizedActual.includes(normalizedAnchor.slice(0, 15)) ||
+          normalizedAnchor.includes(normalizedActual.slice(0, 15))
+        const wordMatch = normalizedAnchor.split(/\s+/).filter(w => w.length > 2).slice(0, 3)
+          .every((word) => normalizedActual.includes(word))
         const anchorMatches = substringMatch || wordMatch
 
         if (!anchorMatches) {

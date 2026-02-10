@@ -1,6 +1,10 @@
 import asyncio
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# Ensure application loggers emit INFO+ to uvicorn's handler
+logging.getLogger("app").setLevel(logging.INFO)
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path

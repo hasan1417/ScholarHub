@@ -9,9 +9,10 @@ Simple approach:
 import os
 import re
 import json
+import time
 import logging
 import concurrent.futures
-from typing import Optional, Generator, List, Dict, Any
+from typing import Optional, Generator, List, Dict, Any, Tuple
 from sqlalchemy import text as sa_text
 from sqlalchemy.orm import Session
 from openai import OpenAI
@@ -21,10 +22,9 @@ from app.services.smart_agent_service_v2 import (
     SYSTEM_PROMPT,
     _resolve_paper_id,
 )
-from app.services.discussion_ai.openrouter_orchestrator import model_supports_reasoning
+from app.services.discussion_ai.openrouter_orchestrator import model_supports_reasoning, ThinkTagFilter
 from app.services.discussion_ai.token_utils import (
     count_tokens,
-    count_messages_tokens,
     fit_messages_in_budget,
     get_context_limit,
     RESPONSE_TOKEN_RESERVE,
@@ -33,6 +33,10 @@ from app.services.discussion_ai.token_utils import (
 from app.constants.paper_templates import CONFERENCE_TEMPLATES
 
 logger = logging.getLogger(__name__)
+
+# Feature flag: stream answer_question tool arguments in real-time.
+# Set to True once logs confirm stability of Steps 1-3.
+STREAM_ANSWER_ARGS = os.getenv("EDITOR_STREAM_ANSWER_ARGS", "").lower() in ("1", "true", "yes")
 
 # Background thread pool for async summary updates (shared, bounded)
 _summary_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="editor-summary")
@@ -121,8 +125,201 @@ class SmartAgentServiceV2OR:
         decision = classify_route(query, history, {})
         return decision.route == "lite"
 
-    def _execute_lite(self, query: str, history: List[Dict[str, str]]) -> str:
-        """Single lightweight LLM call — no tools, no document context."""
+    def _emit_status(self, message: str) -> str:
+        """Return a status marker for the frontend. Never touches response_text."""
+        logger.debug("[SmartAgentV2OR][paper=%s] status=%s", self._paper_id, message)
+        return f"[[[STATUS:{message}]]]"
+
+    @staticmethod
+    def _unescape_json_partial(buffer: str) -> Tuple[str, str]:
+        """Unescape JSON string content from a partial buffer.
+
+        Returns (unescaped_text, remaining_buffer).
+        Stops at unescaped closing quote or end of buffer.
+        """
+        out: list[str] = []
+        i = 0
+        while i < len(buffer):
+            ch = buffer[i]
+            if ch == '"':
+                return "".join(out), buffer[i + 1:]
+            if ch == '\\':
+                if i + 1 >= len(buffer):
+                    return "".join(out), buffer[i:]
+                nxt = buffer[i + 1]
+                if nxt == 'n':
+                    out.append('\n')
+                elif nxt == 't':
+                    out.append('\t')
+                elif nxt == 'r':
+                    out.append('\r')
+                elif nxt in ('"', '\\', '/'):
+                    out.append(nxt)
+                elif nxt == 'u':
+                    if i + 5 < len(buffer):
+                        try:
+                            out.append(chr(int(buffer[i + 2:i + 6], 16)))
+                        except ValueError:
+                            out.append(buffer[i + 2:i + 6])
+                        i += 6
+                        continue
+                    else:
+                        return "".join(out), buffer[i:]
+                else:
+                    out.append(nxt)
+                i += 2
+            else:
+                out.append(ch)
+                i += 1
+        return "".join(out), ""
+
+    def _stream_llm_call(self, request_kwargs: dict) -> Generator[str, None, None]:
+        """Stream an LLM call, yielding visible content tokens.
+
+        After exhaustion, check:
+        - self._last_stream_content: accumulated content text
+        - self._last_stream_tool_calls: list of {id, name, arguments_raw} dicts
+        - self._answer_was_streamed: True if answer_question args were live-streamed
+        """
+        request_kwargs = {**request_kwargs, "stream": True}
+
+        think_filter = ThinkTagFilter()
+        content_parts: list[str] = []
+        tool_calls_data: dict[int, dict] = {}
+        tool_call_detected = False
+
+        # Tool-specific status emission (once, when tool name is known)
+        _tool_status_emitted = False
+        _TOOL_STATUS_LABELS = {
+            "propose_edit": "Preparing edits",
+            "apply_template": "Loading template",
+            "search_references": "Searching references",
+            "review_document": "Reviewing document",
+            "answer_question": "Generating answer",
+        }
+
+        # answer_question arg-live streaming state
+        answer_streaming = False
+        answer_aborted = False
+        answer_arg_buffer = ""
+        answer_empty_count = 0
+        _ANSWER_PREFIXES = ('"answer": "', '"answer":"')
+
+        first_content_time: Optional[float] = None
+
+        try:
+            stream = self.client.chat.completions.create(**request_kwargs)
+
+            for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+
+                # Content tokens — yield until tool call detected
+                if delta.content and not tool_call_detected:
+                    content_parts.append(delta.content)
+                    visible = think_filter.feed(delta.content)
+                    if visible:
+                        if first_content_time is None:
+                            first_content_time = time.monotonic()
+                        yield visible
+
+                # Tool call deltas
+                if delta.tool_calls:
+                    if not tool_call_detected:
+                        tool_call_detected = True
+                        remaining = think_filter.flush()
+                        if remaining:
+                            if first_content_time is None:
+                                first_content_time = time.monotonic()
+                            yield remaining
+
+                    for tc_chunk in delta.tool_calls:
+                        idx = tc_chunk.index
+                        if idx not in tool_calls_data:
+                            tool_calls_data[idx] = {"id": "", "name": "", "arguments": ""}
+                        if tc_chunk.id:
+                            tool_calls_data[idx]["id"] = tc_chunk.id
+                        if tc_chunk.function:
+                            if tc_chunk.function.name:
+                                tool_calls_data[idx]["name"] = tc_chunk.function.name
+                                # Emit tool-specific status once name is known
+                                if not _tool_status_emitted:
+                                    _tool_status_emitted = True
+                                    label = _TOOL_STATUS_LABELS.get(tc_chunk.function.name, "Processing")
+                                    yield self._emit_status(label)
+                            if tc_chunk.function.arguments:
+                                arg_frag = tc_chunk.function.arguments
+                                tool_calls_data[idx]["arguments"] += arg_frag
+
+                                # Step 4: answer_question arg-live streaming (feature-flagged)
+                                if (
+                                    STREAM_ANSWER_ARGS
+                                    and idx == 0
+                                    and tool_calls_data[idx]["name"] == "answer_question"
+                                    and not answer_aborted
+                                ):
+                                    if not answer_streaming:
+                                        answer_arg_buffer += arg_frag
+                                        for prefix in _ANSWER_PREFIXES:
+                                            pos = answer_arg_buffer.find(prefix)
+                                            if pos != -1:
+                                                answer_streaming = True
+                                                answer_arg_buffer = answer_arg_buffer[pos + len(prefix):]
+                                                break
+                                        if answer_streaming and answer_arg_buffer:
+                                            text, answer_arg_buffer = self._unescape_json_partial(answer_arg_buffer)
+                                            if text:
+                                                visible = think_filter.feed(text)
+                                                if visible:
+                                                    if first_content_time is None:
+                                                        first_content_time = time.monotonic()
+                                                    yield visible
+                                                answer_empty_count = 0
+                                            else:
+                                                answer_empty_count += 1
+                                    else:
+                                        answer_arg_buffer += arg_frag
+                                        text, answer_arg_buffer = self._unescape_json_partial(answer_arg_buffer)
+                                        if text:
+                                            visible = think_filter.feed(text)
+                                            if visible:
+                                                if first_content_time is None:
+                                                    first_content_time = time.monotonic()
+                                                yield visible
+                                            answer_empty_count = 0
+                                        else:
+                                            answer_empty_count += 1
+
+                                    # Strict fallback: abort if 3+ consecutive empty deltas
+                                    if answer_empty_count >= 3 and answer_streaming:
+                                        answer_aborted = True
+                                        answer_streaming = False
+                                        logger.warning("[SmartAgentV2OR] answer arg-live aborted (parse confidence drop)")
+
+            # Flush ThinkTagFilter
+            remaining = think_filter.flush()
+            if remaining:
+                if first_content_time is None:
+                    first_content_time = time.monotonic()
+                yield remaining
+
+        except Exception as e:
+            logger.error(f"[SmartAgentV2OR] Stream error: {e}")
+            raise
+
+        # Store results for caller
+        self._last_stream_content = "".join(content_parts)
+        self._last_stream_tool_calls = [
+            {"id": tc["id"], "name": tc["name"], "arguments_raw": tc["arguments"]}
+            for idx in sorted(tool_calls_data.keys())
+            for tc in [tool_calls_data[idx]]
+        ]
+        self._answer_was_streamed = answer_streaming and not answer_aborted
+        self._first_content_time = first_content_time
+
+    def _execute_lite_streaming(self, query: str, history: List[Dict[str, str]]) -> Generator[str, None, None]:
+        """Streaming lite LLM call — no tools, no document context."""
         messages: List[Dict[str, str]] = [
             {"role": "system", "content": self._LITE_SYSTEM_PROMPT},
         ]
@@ -130,21 +327,31 @@ class SmartAgentServiceV2OR:
             messages.append({"role": msg["role"], "content": msg["content"]})
         messages.append({"role": "user", "content": query})
 
+        think_filter = ThinkTagFilter()
+
         try:
-            response = self.client.chat.completions.create(
+            stream = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 max_tokens=150,
+                stream=True,
             )
-            return (response.choices[0].message.content or "").strip()
-        except Exception as e:
-            logger.warning(f"[SmartAgentV2OR] Lite execution error: {e}")
-            return "Hello! I can help you edit, review, or answer questions about your paper. What would you like to do?"
+            for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                if delta.content:
+                    visible = think_filter.feed(delta.content)
+                    if visible:
+                        yield visible
 
-    def _emit_status(self, message: str) -> str:
-        """Return a status marker for the frontend. Never touches response_text."""
-        logger.debug("[SmartAgentV2OR][paper=%s] status=%s", self._paper_id, message)
-        return f"[[[STATUS:{message}]]]"
+            remaining = think_filter.flush()
+            if remaining:
+                yield remaining
+
+        except Exception as e:
+            logger.warning(f"[SmartAgentV2OR] Lite streaming error: {e}")
+            yield "Hello! I can help you edit, review, or answer questions about your paper. What would you like to do?"
 
     def _add_line_numbers(self, text: str) -> str:
         """Add line numbers to text."""
@@ -177,19 +384,29 @@ class SmartAgentServiceV2OR:
         self._paper_id = paper_id
         self._last_tools_called: List[str] = []
 
+        t_start = time.monotonic()
+        self._first_content_time = None
+
         yield self._emit_status("Classifying request")
 
-        # Lite route: greetings, acks, short messages — lightweight LLM, no tools/document
+        # Lite route: greetings, acks, short messages — streaming lightweight LLM, no tools/document
         history_for_route = self._get_recent_history(db, paper_id, project_id, limit=4)
         if self._is_lite_route(query, history_for_route):
             yield self._emit_status("Generating response")
-            lite_response = self._execute_lite(query, history_for_route)
-            yield lite_response
+            lite_text = ""
+            for token in self._execute_lite_streaming(query, history_for_route):
+                if not lite_text and token.strip():
+                    self._first_content_time = time.monotonic()
+                lite_text += token
+                yield token
             self._store_chat_exchange(
                 db=db, user_id=user_id, paper_id=paper_id,
                 project_id=project_id, user_message=query,
-                assistant_message=lite_response,
+                assistant_message=lite_text,
             )
+            ttfb = int((self._first_content_time - t_start) * 1000) if self._first_content_time else -1
+            total = int((time.monotonic() - t_start) * 1000)
+            logger.info("[SmartAgentV2OR][paper=%s] ttfb_ms=%d total_ms=%d turns=0 tool_calls=none (lite)", paper_id, ttfb, total)
             return
 
         yield self._emit_status("Loading references")
@@ -256,6 +473,8 @@ class SmartAgentServiceV2OR:
                     user_message=effective_query,
                     assistant_message=response_text,
                 )
+                total = int((time.monotonic() - t_start) * 1000)
+                logger.info("[SmartAgentV2OR][paper=%s] ttfb_ms=-1 total_ms=%d turns=0 tool_calls=ask_clarification (early)", paper_id, total)
                 return
 
             while turn < max_turns:
@@ -263,9 +482,7 @@ class SmartAgentServiceV2OR:
 
                 yield self._emit_status("Generating response" if turn == 1 else "Processing results")
 
-                tool_choice = "required" if turn == 1 else "auto"
-                if turn == 1 and not self._should_require_tool_choice(effective_query):
-                    tool_choice = "auto"
+                tool_choice = self._resolve_tool_choice(effective_query, turn)
 
                 request_kwargs = {
                     "model": self.model,
@@ -278,92 +495,87 @@ class SmartAgentServiceV2OR:
                 if use_reasoning:
                     request_kwargs["extra_body"] = {"reasoning_effort": "high"}
 
-                response = self.client.chat.completions.create(**request_kwargs)
-                choice = response.choices[0]
+                # Stream the LLM call — content tokens (and optionally
+                # answer_question args) are yielded live via _collect_and_yield.
+                yield from _collect_and_yield(self._stream_llm_call(request_kwargs))
 
-                if choice.message.tool_calls:
-                    tool_call = choice.message.tool_calls[0]
-                    tool_name = tool_call.function.name
-                    tool_args = json.loads(tool_call.function.arguments)
-                    self._last_tools_called.append(tool_name)
+                tool_calls = self._last_stream_tool_calls
 
-                    logger.info(f"[SmartAgentV2OR] Turn {turn}: {tool_name}")
+                if not tool_calls:
+                    # Content-only response — already streamed and accumulated
+                    break
 
-                    # Intermediate tools - return info to AI for further processing
-                    if tool_name == "search_references":
-                        yield self._emit_status("Searching references")
-                        search_query = tool_args.get("query", "")
-                        max_results = tool_args.get("max_results", 10)
-                        search_results = self._search_references_for_tool(search_query, max_results)
+                tc = tool_calls[0]
+                tool_name = tc["name"]
+                raw_args = tc["arguments_raw"] or "{}"
+                try:
+                    tool_args = json.loads(raw_args)
+                except json.JSONDecodeError:
+                    logger.warning(f"[SmartAgentV2OR] Malformed tool args for {tool_name}: {raw_args[:100]}")
+                    tool_args = {}
+                    raw_args = "{}"  # Ensure valid JSON for multi-turn context
+                self._last_tools_called.append(tool_name)
+                logger.info(f"[SmartAgentV2OR] Turn {turn}: {tool_name}")
 
-                        messages.append(choice.message)
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": search_results
-                        })
-                        continue  # Let AI process results
+                # Build assistant message for multi-turn context
+                assistant_msg: Dict[str, Any] = {
+                    "role": "assistant",
+                    "content": self._last_stream_content or None,
+                    "tool_calls": [{
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {"name": tool_name, "arguments": raw_args},
+                    }],
+                }
 
-                    elif tool_name == "apply_template":
-                        yield self._emit_status("Applying template")
-                        template_info = "".join(self._handle_apply_template(tool_args.get("template_id", "")))
-                        messages.append(choice.message)
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": template_info
-                        })
-                        continue  # AI will call propose_edit next
+                # Intermediate tools — execute and loop back
+                if tool_name == "search_references":
+                    yield self._emit_status("Searching references")
+                    search_results = self._search_references_for_tool(
+                        tool_args.get("query", ""), tool_args.get("max_results", 10),
+                    )
+                    messages.append(assistant_msg)
+                    messages.append({"role": "tool", "tool_call_id": tc["id"], "content": search_results})
+                    continue
 
-                    elif tool_name == "review_document":
-                        yield self._emit_status("Reviewing document")
-                        review_output = "".join(self._format_tool_response(tool_name, tool_args))
-                        messages.append(choice.message)
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": review_output
-                        })
-                        continue  # Let AI decide if it wants to propose edits
+                elif tool_name == "apply_template":
+                    yield self._emit_status("Applying template")
+                    template_info = "".join(self._handle_apply_template(tool_args.get("template_id", "")))
+                    messages.append(assistant_msg)
+                    messages.append({"role": "tool", "tool_call_id": tc["id"], "content": template_info})
+                    continue
 
-                    elif tool_name == "list_available_templates":
-                        yield self._emit_status("Loading templates")
-                        list_output = "".join(self._format_tool_response(tool_name, tool_args))
-                        messages.append(choice.message)
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": list_output
-                        })
-                        continue  # Let AI decide next action
+                elif tool_name == "review_document":
+                    yield self._emit_status("Reviewing document")
+                    review_output = "".join(self._format_tool_response(tool_name, tool_args))
+                    messages.append(assistant_msg)
+                    messages.append({"role": "tool", "tool_call_id": tc["id"], "content": review_output})
+                    continue
 
-                    # All other tools - format and return
+                elif tool_name == "list_available_templates":
+                    yield self._emit_status("Loading templates")
+                    list_output = "".join(self._format_tool_response(tool_name, tool_args))
+                    messages.append(assistant_msg)
+                    messages.append({"role": "tool", "tool_call_id": tc["id"], "content": list_output})
+                    continue
+
+                # Final action tools — hard-branch on answer_question
+                if tool_name == "answer_question" and self._answer_was_streamed:
+                    # Answer already streamed via _stream_llm_call; response_text has it
+                    break
+                else:
+                    # propose_edit, explain_references, ask_clarification, or
+                    # answer_question when arg-live was off/aborted
                     yield from _collect_and_yield(self._format_tool_response(tool_name, tool_args))
-                    self._store_chat_exchange(
-                        db=db,
-                        user_id=user_id,
-                        paper_id=paper_id,
-                        project_id=project_id,
-                        user_message=effective_query,
-                        assistant_message=response_text,
-                    )
-                    return
+                    break
+            else:
+                # Loop exhausted without break
+                response_text = response_text or "Could not complete the request. Please try again."
+                if not response_text.strip():
+                    response_text = "Could not complete the request. Please try again."
+                    yield response_text
 
-                elif choice.message.content:
-                    response_text = choice.message.content
-                    yield choice.message.content
-                    self._store_chat_exchange(
-                        db=db,
-                        user_id=user_id,
-                        paper_id=paper_id,
-                        project_id=project_id,
-                        user_message=effective_query,
-                        assistant_message=response_text,
-                    )
-                    return
-
-            response_text = "Could not complete the request. Please try again."
-            yield response_text
+            # Single store after loop
             self._store_chat_exchange(
                 db=db,
                 user_id=user_id,
@@ -371,6 +583,14 @@ class SmartAgentServiceV2OR:
                 project_id=project_id,
                 user_message=effective_query,
                 assistant_message=response_text,
+            )
+
+            # Metrics
+            ttfb = int((self._first_content_time - t_start) * 1000) if self._first_content_time else -1
+            total = int((time.monotonic() - t_start) * 1000)
+            logger.info(
+                "[SmartAgentV2OR][paper=%s] ttfb_ms=%d total_ms=%d turns=%d tool_calls=%s",
+                paper_id, ttfb, total, turn, ",".join(self._last_tools_called) or "none",
             )
 
         except Exception as e:
@@ -534,15 +754,36 @@ class SmartAgentServiceV2OR:
             content = content.split("<<<CLARIFY>>>", 1)[0].strip()
         return content
 
-    def _should_require_tool_choice(self, query: str) -> bool:
+    _TEMPLATE_LIST_RE = re.compile(
+        r"\b(what|which|list|show|available|supported)\b.*\b(template|format|conference|journal)\b"
+        r"|\b(template|format|conference|journal)\b.*\b(available|supported|list|options|have)\b",
+        re.IGNORECASE,
+    )
+
+    def _resolve_tool_choice(self, query: str, turn: int) -> str | dict:
+        """Return the tool_choice value for this turn.
+
+        Returns "required", "auto", or a pinned tool_choice dict.
+        """
+        if turn > 1:
+            return "auto"
+
         q = (query or "").strip().lower()
         if not q:
-            return True
-        if "apply all suggested changes" in q or "apply suggested changes" in q or "apply all suggestions" in q:
-            return False
-        if "apply critical fixes" in q or "apply critical" in q:
-            return False
-        return True
+            return "required"
+
+        # Pin to list_available_templates for template-listing queries
+        if self._TEMPLATE_LIST_RE.search(q):
+            return {"type": "function", "function": {"name": "list_available_templates"}}
+
+        # Don't force tool_choice for "apply suggestions" follow-ups
+        if any(phrase in q for phrase in (
+            "apply all suggested changes", "apply suggested changes",
+            "apply all suggestions", "apply critical fixes", "apply critical",
+        )):
+            return "auto"
+
+        return "required"
 
     def _get_recent_history(
         self,
@@ -860,7 +1101,7 @@ class SmartAgentServiceV2OR:
 
         except Exception as e:
             logger.error(f"Error getting reference context: {e}")
-            return ""
+            return "[Error loading references — database query failed]"
 
     def _search_references_for_tool(self, query: str, max_results: int = 10) -> str:
         """Search references for the AI tool call using semantic search."""

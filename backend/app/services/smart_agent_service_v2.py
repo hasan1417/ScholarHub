@@ -68,7 +68,7 @@ EDITOR_TOOLS = [
         "type": "function",
         "function": {
             "name": "answer_question",
-            "description": "Answer a question about the paper, its content, structure, or writing. Use this for general questions that don't require editing the document.",
+            "description": "Answer a question about the paper, its content, structure, or writing. Use this for general questions that don't require editing. Do NOT use for listing templates (use list_available_templates) or reference questions (use explain_references).",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -240,16 +240,21 @@ Use these EXACT line numbers for start_line and end_line in propose_edit.
 When user asks to convert (e.g., "convert to ACM", "reformat for IEEE"):
 1. FIRST call apply_template with the template_id
 2. You will receive the AUTHORITATIVE template structure
-3. THEN call propose_edit to replace lines 1 through \\maketitle with the new preamble
+3. THEN call propose_edit with ALL necessary edits:
+   - Replace lines 1 through \\maketitle with the new preamble
+   - Replace any format-specific environments or commands in the document body that are incompatible with the new template (e.g., replace \\begin{IEEEkeywords} with \\begin{keywords})
 4. Extract title, authors, affiliations, emails from the CURRENT document and fill into template
 
 IMPORTANT:
 - Use apply_template for conversion, NOT list_available_templates
 - After apply_template returns, you MUST call propose_edit to apply the changes
+- The propose_edit edits array can contain MULTIPLE edits — use one for the preamble and additional ones for body cleanup
 
-## AVAILABLE TEMPLATE IDs
-ieee, acl, neurips, icml, iclr, cvpr, iccv, eccv, nature, pnas, generic, elsevier, lncs, aaai, ijcai, kdd, acm, jmlr
-Common examples: ACL, IEEE, NeurIPS
+## REFERENCE SCOPE
+You can ONLY discuss or cite references shown in the ATTACHED REFERENCES section.
+Do NOT invent, fabricate, or guess reference titles, authors, or findings.
+If asked about references not in the attached list, say:
+"I can only work with references attached to this paper. Use the Discussion AI or Discovery page to find and add more."
 
 Be concise and helpful. Focus on academic writing quality."""
 
@@ -926,5 +931,6 @@ class SmartAgentServiceV2:
         yield f"### Notes: {template['notes']}\n\n"
 
         yield "---\n\n"
-        yield "**NOW call propose_edit** to replace lines 1 through \\maketitle with this template.\n"
-        yield "Extract the title, authors, affiliations, and emails from the current document and plug them into the template structure above.\n"
+        yield "**NOW call propose_edit** with all necessary edits:\n"
+        yield "1. Replace lines 1 through \\maketitle with this template (extract title, authors, affiliations, emails from the current document)\n"
+        yield "2. Replace any format-specific environments in the body that the new template does not define (e.g., replace `\\begin{IEEEkeywords}` with `\\begin{keywords}`)\n"
