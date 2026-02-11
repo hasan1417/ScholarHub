@@ -1033,7 +1033,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                                     >
                                       Dismiss
                                     </button>
-                                    {m.proposals.length === 1 && (
+                                    {m.proposals?.length === 1 && (
                                       <button
                                         onClick={(e) => {
                                           e.stopPropagation()
