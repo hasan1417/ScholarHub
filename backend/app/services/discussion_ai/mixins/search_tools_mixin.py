@@ -520,8 +520,8 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         return {
             "id": str(project.id),
             "title": project.title,
-            "idea": project.idea or "",
-            "scope": project.scope or "",
+            "description": project.idea or "",
+            "objectives": [o.strip() for o in (project.scope or "").split("\n") if o.strip()],
             "keywords": project.keywords or [],
             "status": project.status or "active",
         }
@@ -687,7 +687,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 
                 topic_name = t.get("topic") or t.get('"topic"') or "Unknown"
                 query = t.get("query") or t.get('"query"') or str(topic_name)
-                max_results = t.get("max_results", 5)
+                max_results = t.get("limit", None) or t.get("max_results", 5)
 
                 topic_name = str(topic_name).strip('"').strip("'")
                 query = str(query).strip('"').strip("'")
@@ -882,7 +882,8 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         ctx: Dict[str, Any],
         paper_identifier: str,
         relation_type: str = "similar",
-        count: int = 10,
+        limit: int = 10,
+        count: Optional[int] = None,
     ) -> Dict:
         """
         Find papers related to a specific paper.
@@ -892,13 +893,14 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         Args:
             paper_identifier: DOI, Semantic Scholar ID, OpenAlex ID, or paper title
             relation_type: 'similar' | 'citing' | 'references'
-            count: Maximum number of papers to return
+            limit: Maximum number of papers to return
         """
         import asyncio
         import aiohttp
         import urllib.parse
         from uuid import uuid4
 
+        count = count if count is not None else limit
         logger.info(f"get_related_papers: identifier='{paper_identifier}', type={relation_type}, count={count}")
 
         # Normalize relation_type
@@ -1254,7 +1256,8 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         self,
         ctx: Dict[str, Any],
         query: str,
-        count: int = 10,
+        limit: int = 10,
+        count: Optional[int] = None,
         similarity_threshold: float = 0.5,
     ) -> Dict:
         """
@@ -1265,6 +1268,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         """
         from app.models import ProjectReference, Reference, PaperEmbedding
 
+        count = count if count is not None else limit
         project = ctx["project"]
 
         # Check if we have any embeddings for this project's papers

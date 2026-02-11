@@ -202,7 +202,7 @@ class TestRoutingContract:
 
         def fake_execute(name, orch, run_ctx, args):
             captured_args.update(args)
-            return {"action": {"type": "search_results", "payload": {"query": args.get("query")}}}
+            return {"status": "success", "action": {"type": "search_results", "payload": {"query": args.get("query")}}}
 
         with patch.object(orchestrator, "update_memory_after_exchange", return_value=None), patch.object(
             orchestrator._tool_registry, "execute", side_effect=fake_execute
@@ -437,7 +437,6 @@ class TestRoutingContract:
                         }
                     ],
                 },
-                {"content": "I found papers.", "tool_calls": []},
             ]
         )
 

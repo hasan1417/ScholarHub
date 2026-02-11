@@ -17,14 +17,9 @@ SEARCH_PAPERS_SCHEMA = {
                     "type": "string",
                     "description": "Academic search query optimized for precision (e.g., 'social media use academic performance university students'). Keep it concise and high-signal. Do not append raw year lists like '2020 2021 2022' unless the user explicitly requests a timeframe.",
                 },
-                "count": {
-                    "type": "integer",
-                    "description": "Number of papers to find (legacy alias for limit).",
-                    "default": 5,
-                },
                 "limit": {
                     "type": "integer",
-                    "description": "Maximum number of papers to return. Preferred over count.",
+                    "description": "Maximum number of papers to return.",
                     "default": 5,
                 },
                 "open_access_only": {
@@ -80,7 +75,7 @@ BATCH_SEARCH_PAPERS_SCHEMA = {
                         "properties": {
                             "topic": {"type": "string", "description": "Display name for the topic"},
                             "query": {"type": "string", "description": "Specific academic query for this topic. Avoid keyword stuffing and raw year lists unless timeframe is explicitly requested."},
-                            "max_results": {"type": "integer", "description": "Max papers per topic", "default": 5},
+                            "limit": {"type": "integer", "description": "Max papers per topic", "default": 5},
                         },
                         "required": ["topic", "query"],
                     },
@@ -109,7 +104,7 @@ GET_RELATED_PAPERS_SCHEMA = {
                     "description": "'similar' = algorithmically related papers, 'citing' = papers that cite this work, 'references' = papers this work cites.",
                     "default": "similar",
                 },
-                "count": {
+                "limit": {
                     "type": "integer",
                     "description": "Maximum number of related papers to return.",
                     "default": 10,
@@ -132,7 +127,7 @@ SEMANTIC_SEARCH_LIBRARY_SCHEMA = {
                     "type": "string",
                     "description": "Natural language query describing the concept or topic to search for (e.g., 'papers about transformer architectures for protein folding').",
                 },
-                "count": {
+                "limit": {
                     "type": "integer",
                     "description": "Maximum number of papers to return.",
                     "default": 10,

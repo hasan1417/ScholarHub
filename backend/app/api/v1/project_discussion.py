@@ -1482,6 +1482,8 @@ async def invoke_discussion_assistant(
                         except Exception as e:
                             logger.warning(f"Failed to update status message: {e}")
                         yield "data: " + json.dumps({"type": "status", "tool": event.get("tool", ""), "message": status_msg}) + "\n\n"
+                    elif event.get("type") == "content_reset":
+                        yield "data: " + json.dumps({"type": "content_reset"}) + "\n\n"
                     elif event.get("type") == "result":
                         final_result = event.get("data", {})
                         response_model = _build_ai_response(final_result, selected_model)

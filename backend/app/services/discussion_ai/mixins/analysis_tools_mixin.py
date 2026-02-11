@@ -33,7 +33,8 @@ class AnalysisToolsMixin:
         self,
         ctx: Dict[str, Any],
         research_question: str,
-        max_papers: int = 10,
+        limit: int = 10,
+        max_papers: Optional[int] = None,
     ) -> Dict:
         """
         Trigger the frontend search UI for a research question.
@@ -57,7 +58,7 @@ class AnalysisToolsMixin:
                 "type": "deep_search_references",
                 "payload": {
                     "query": research_question,
-                    "max_results": max_papers,
+                    "max_results": max_papers if max_papers is not None else limit,
                     "synthesis_mode": True,
                 },
             },
@@ -77,6 +78,12 @@ class AnalysisToolsMixin:
         Load papers into focus context for detailed discussion.
         Papers can come from search results (by index) or library (by reference ID).
         """
+        if not paper_indices and not reference_ids:
+            return {
+                "status": "error",
+                "message": "Provide paper_indices (from search results) or reference_ids (from library) to focus on.",
+            }
+
         from app.models import Reference, ProjectReference
 
         project = ctx["project"]
@@ -597,17 +604,17 @@ class AnalysisToolsMixin:
         Compare specific papers across chosen dimensions.
         Loads papers into focus and provides structured comparison context.
         """
-        from app.models import Reference, ProjectReference
-
-        project = ctx["project"]
-        channel = ctx.get("channel")
-        recent_search_results = self._get_recent_papers(ctx)
-
         if not paper_indices and not reference_ids:
             return {
                 "status": "error",
                 "message": "Provide paper_indices (from search results) or reference_ids (from library) to compare.",
             }
+
+        from app.models import Reference, ProjectReference
+
+        project = ctx["project"]
+        channel = ctx.get("channel")
+        recent_search_results = self._get_recent_papers(ctx)
 
         if not dimensions:
             return {

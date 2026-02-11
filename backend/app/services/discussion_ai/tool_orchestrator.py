@@ -18,6 +18,7 @@ from app.services.discussion_ai.tools import build_tool_registry
 from app.services.discussion_ai.policy import DiscussionPolicy, PolicyDecision, ActionPlan
 from app.services.discussion_ai.intent_classifier import classify_intent_sync
 from app.services.discussion_ai.quality_metrics import get_discussion_ai_metrics_collector
+from app.services.discussion_ai.utils import filter_duplicate_mutations
 from app.services.discussion_ai.mixins import (
     MemoryMixin,
     SearchToolsMixin,
@@ -328,11 +329,7 @@ class ToolOrchestrator(MemoryMixin, SearchToolsMixin, LibraryToolsMixin, Analysi
                     yield event
                 return
 
-            yield {"type": "status", "tool": "", "message": "Preparing context"}
-
             messages = self._build_messages(project, channel, message, recent_search_results, conversation_history, ctx=ctx)
-
-            yield {"type": "status", "tool": "", "message": "Generating response"}
 
             async for event in self._execute_with_tools_streaming(messages, ctx):
                 yield event
@@ -649,9 +646,8 @@ If asked to perform write actions, explain that editor/admin access is required.
         Only replaces verbose text with a short confirmation after a successful
         async search (results appear in UI, so repeating them is noise).
         """
-        if not text:
-            return text
-
+        # Search confirmation takes priority — results appear in UI separately,
+        # so always use the short message regardless of what the model said.
         search_short_message = self._build_search_completion_message(ctx, tool_results)
         if search_short_message:
             return search_short_message
@@ -700,6 +696,8 @@ If asked to perform write actions, explain that editor/admin access is required.
             conversation_history = ctx.get("conversation_history")
             policy_decision = self._classify_and_build_policy(ctx, conversation_history)
             t_start = time.monotonic()
+            mutating_calls_seen: set = set()
+
             max_iterations = 8
             iteration = 0
             all_tool_results = []
@@ -740,12 +738,13 @@ If asked to perform write actions, explain that editor/admin access is required.
                         forced_results = self._execute_tool_calls([forced_tool_call], ctx)
                         all_tool_results.extend(forced_results)
                         search_tool_executed = True
-                        # Prefer the AI's actual response over the hardcoded fallback
-                        ai_text = (response.get("content") or "").strip()
-                        response = {
-                            "content": ai_text or "Searching for papers now. Results will appear in the UI shortly.",
-                            "tool_calls": [forced_tool_call],
-                        }
+                    break
+
+                # Filter out duplicate mutating tool calls
+                tool_calls = filter_duplicate_mutations(tool_calls, mutating_calls_seen)
+
+                if not tool_calls:
+                    # All tool calls were duplicates — treat as final iteration
                     break
 
                 # Execute tool calls
@@ -753,6 +752,15 @@ If asked to perform write actions, explain that editor/admin access is required.
                 all_tool_results.extend(tool_results)
                 if any(tr.get("name") in ("search_papers", "batch_search_papers") for tr in tool_results):
                     search_tool_executed = True
+
+                # If only search tools ran, skip re-querying the model — the response
+                # will be the short confirmation from _apply_response_budget anyway.
+                search_only = all(
+                    tr.get("name") in ("search_papers", "batch_search_papers")
+                    for tr in tool_results
+                )
+                if search_only and search_tool_executed:
+                    break
 
                 # Add assistant message with tool calls
                 formatted_tool_calls = [

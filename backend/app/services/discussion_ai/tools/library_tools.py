@@ -121,7 +121,7 @@ EXPORT_CITATIONS_SCHEMA = {
                     "type": "string",
                     "enum": ["selected", "focused", "all"],
                     "description": "Which papers to export: 'selected' (by reference_ids), 'focused' (currently focused papers), 'all' (entire project library).",
-                    "default": "selected",
+                    "default": "all",
                 },
             },
         },

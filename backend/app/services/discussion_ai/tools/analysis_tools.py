@@ -9,7 +9,7 @@ TRIGGER_SEARCH_UI_SCHEMA = {
     "type": "function",
     "function": {
         "name": "trigger_search_ui",
-        "description": "Trigger the frontend search interface for a research question. This does NOT perform the actual search - it sends an action to the frontend to display a search UI where the user can execute and review the search. Use when the user wants to explore papers but needs to review results before proceeding.",
+        "description": "Open the deep-search UI panel in the frontend for a research question. Unlike search_papers (which returns results directly in chat), this opens an interactive search panel where the user can browse, filter, and select results themselves. Use ONLY when the user explicitly asks to 'open search', 'use the search panel', or wants to do an interactive deep search.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -17,7 +17,7 @@ TRIGGER_SEARCH_UI_SCHEMA = {
                     "type": "string",
                     "description": "The research question to search for (e.g., 'What are the main approaches to attention in transformers?')",
                 },
-                "max_papers": {
+                "limit": {
                     "type": "integer",
                     "description": "Maximum number of papers to suggest searching for",
                     "default": 10,
@@ -32,7 +32,7 @@ FOCUS_ON_PAPERS_SCHEMA = {
     "type": "function",
     "function": {
         "name": "focus_on_papers",
-        "description": "Load specific papers into focus for detailed discussion. For SEARCH RESULTS use paper_indices (0-based). For LIBRARY papers, you MUST first call get_project_references to get real UUIDs, then pass those UUIDs to reference_ids. NEVER invent or guess IDs.",
+        "description": "Load specific papers into focus for detailed discussion. At least one of paper_indices or reference_ids must be provided. For SEARCH RESULTS use paper_indices (0-based). For LIBRARY papers, you MUST first call get_project_references to get real UUIDs, then pass those UUIDs to reference_ids. NEVER invent or guess IDs.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -86,7 +86,7 @@ COMPARE_PAPERS_SCHEMA = {
     "type": "function",
     "function": {
         "name": "compare_papers",
-        "description": "Compare specific papers across chosen dimensions (e.g. methodology, dataset, results, limitations). Loads papers into focus and provides structured comparison context. Use when user asks to 'compare papers', 'how do they differ', 'contrast methodologies', etc.",
+        "description": "Compare specific papers across chosen dimensions (e.g. methodology, dataset, results, limitations). At least one of paper_indices or reference_ids must be provided. Loads papers into focus and provides structured comparison context. Use when user asks to 'compare papers', 'how do they differ', 'contrast methodologies', etc.",
         "parameters": {
             "type": "object",
             "properties": {

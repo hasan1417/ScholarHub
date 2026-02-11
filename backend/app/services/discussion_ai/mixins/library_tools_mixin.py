@@ -1506,6 +1506,7 @@ class LibraryToolsMixin:
     def _tool_update_project_info(
         self,
         ctx: Dict[str, Any],
+        preview: bool = False,
         description: Optional[str] = None,
         objectives: Optional[List[str]] = None,
         objectives_mode: str = "replace",
@@ -1537,14 +1538,16 @@ class LibraryToolsMixin:
 
         # Update description if provided
         if description is not None:
-            # Validate description length
-            if len(description) > 2000:
+            if not description.strip():
+                pass  # skip — empty string is never an intentional clear via chat
+            elif len(description) > 2000:
                 return {
                     "status": "error",
                     "message": "Description is too long. Maximum 2000 characters allowed.",
                 }
-            project.idea = description.strip()
-            updated_fields.append("description")
+            else:
+                project.idea = description.strip()
+                updated_fields.append("description")
 
         # Update objectives if provided
         if objectives is not None:
@@ -1553,81 +1556,83 @@ class LibraryToolsMixin:
                     "status": "error",
                     "message": "Objectives must be a list of strings.",
                 }
-
-            # Validate each objective
-            validated_objectives = []
-            for i, obj in enumerate(objectives):
-                if not isinstance(obj, str):
-                    continue
-                obj = obj.strip()
-                if not obj:
-                    continue
-                # Truncate if too long (max 150 chars per objective)
-                if len(obj) > 150:
-                    obj = obj[:147] + "..."
-                validated_objectives.append(obj)
-
-            if objectives_mode == "append":
-                # Append to existing objectives
-                existing = project.scope or ""
-                existing_list = [o.strip() for o in existing.split("\n") if o.strip()]
-                # Don't add duplicates
-                added_count = 0
-                for new_obj in validated_objectives:
-                    if new_obj not in existing_list:
-                        existing_list.append(new_obj)
-                        added_count += 1
-                project.scope = "\n".join(existing_list)
-                if added_count > 0:
-                    updated_fields.append(f"objectives (added {added_count})")
-                else:
-                    # All objectives were duplicates
-                    pass
-            elif objectives_mode == "remove":
-                # Remove specific objectives
-                existing = project.scope or ""
-                existing_list = [o.strip() for o in existing.split("\n") if o.strip()]
-                removed = []
-
-                for to_remove in validated_objectives:
-                    to_remove_lower = to_remove.lower()
-                    # Check if it's an index reference like "objective 1", "1", "first"
-                    index_to_remove = None
-                    if to_remove_lower.startswith("objective "):
-                        try:
-                            index_to_remove = int(to_remove_lower.replace("objective ", "")) - 1
-                        except ValueError:
-                            pass
-                    elif to_remove.isdigit():
-                        index_to_remove = int(to_remove) - 1
-
-                    if index_to_remove is not None and 0 <= index_to_remove < len(existing_list):
-                        removed.append(existing_list[index_to_remove])
-                        existing_list[index_to_remove] = None  # Mark for removal
-                    else:
-                        # Match by text (partial match, case-insensitive)
-                        for i, existing_obj in enumerate(existing_list):
-                            if existing_obj and to_remove_lower in existing_obj.lower():
-                                removed.append(existing_obj)
-                                existing_list[i] = None  # Mark for removal
-                                break
-
-                # Filter out removed items
-                existing_list = [o for o in existing_list if o is not None]
-                project.scope = "\n".join(existing_list)
-
-                if removed:
-                    updated_fields.append(f"objectives (removed {len(removed)})")
-                else:
-                    return {
-                        "status": "error",
-                        "message": "Could not find objectives to remove. Provide the objective text or index (e.g., 'objective 1' or '1').",
-                        "current_objectives": existing_list,
-                    }
+            if objectives == [] and objectives_mode == "replace":
+                pass  # skip — empty replace is never intentional via chat
             else:
-                # Replace all objectives
-                project.scope = "\n".join(validated_objectives)
-                updated_fields.append("objectives")
+                # Validate each objective
+                validated_objectives = []
+                for i, obj in enumerate(objectives):
+                    if not isinstance(obj, str):
+                        continue
+                    obj = obj.strip()
+                    if not obj:
+                        continue
+                    # Truncate if too long (max 150 chars per objective)
+                    if len(obj) > 150:
+                        obj = obj[:147] + "..."
+                    validated_objectives.append(obj)
+
+                if objectives_mode == "append":
+                    # Append to existing objectives
+                    existing = project.scope or ""
+                    existing_list = [o.strip() for o in existing.split("\n") if o.strip()]
+                    # Don't add duplicates
+                    added_count = 0
+                    for new_obj in validated_objectives:
+                        if new_obj not in existing_list:
+                            existing_list.append(new_obj)
+                            added_count += 1
+                    project.scope = "\n".join(existing_list)
+                    if added_count > 0:
+                        updated_fields.append(f"objectives (added {added_count})")
+                    else:
+                        # All objectives were duplicates
+                        pass
+                elif objectives_mode == "remove":
+                    # Remove specific objectives
+                    existing = project.scope or ""
+                    existing_list = [o.strip() for o in existing.split("\n") if o.strip()]
+                    removed = []
+
+                    for to_remove in validated_objectives:
+                        to_remove_lower = to_remove.lower()
+                        # Check if it's an index reference like "objective 1", "1", "first"
+                        index_to_remove = None
+                        if to_remove_lower.startswith("objective "):
+                            try:
+                                index_to_remove = int(to_remove_lower.replace("objective ", "")) - 1
+                            except ValueError:
+                                pass
+                        elif to_remove.isdigit():
+                            index_to_remove = int(to_remove) - 1
+
+                        if index_to_remove is not None and 0 <= index_to_remove < len(existing_list):
+                            removed.append(existing_list[index_to_remove])
+                            existing_list[index_to_remove] = None  # Mark for removal
+                        else:
+                            # Match by text (partial match, case-insensitive)
+                            for i, existing_obj in enumerate(existing_list):
+                                if existing_obj and to_remove_lower in existing_obj.lower():
+                                    removed.append(existing_obj)
+                                    existing_list[i] = None  # Mark for removal
+                                    break
+
+                    # Filter out removed items
+                    existing_list = [o for o in existing_list if o is not None]
+                    project.scope = "\n".join(existing_list)
+
+                    if removed:
+                        updated_fields.append(f"objectives (removed {len(removed)})")
+                    else:
+                        return {
+                            "status": "error",
+                            "message": "Could not find objectives to remove. Provide the objective text or index (e.g., 'objective 1' or '1').",
+                            "current_objectives": existing_list,
+                        }
+                else:
+                    # Replace all objectives
+                    project.scope = "\n".join(validated_objectives)
+                    updated_fields.append("objectives")
 
         # Update keywords if provided
         if keywords is not None:
@@ -1636,57 +1641,78 @@ class LibraryToolsMixin:
                     "status": "error",
                     "message": "Keywords must be a list of strings.",
                 }
-
-            # Validate and clean keywords
-            validated_keywords = []
-            for kw in keywords:
-                if not isinstance(kw, str):
-                    continue
-                kw = kw.strip().lower()
-                if not kw:
-                    continue
-                # Truncate if too long (max 50 chars per keyword)
-                if len(kw) > 50:
-                    kw = kw[:50]
-                validated_keywords.append(kw)
-
-            existing_keywords = project.keywords or []
-
-            if keywords_mode == "append":
-                # Append new keywords (avoid duplicates)
-                added_count = 0
-                for new_kw in validated_keywords:
-                    if new_kw not in existing_keywords:
-                        existing_keywords.append(new_kw)
-                        added_count += 1
-                project.keywords = existing_keywords
-                if added_count > 0:
-                    updated_fields.append(f"keywords (added {added_count})")
-            elif keywords_mode == "remove":
-                # Remove specific keywords
-                removed = []
-                for to_remove in validated_keywords:
-                    if to_remove in existing_keywords:
-                        existing_keywords.remove(to_remove)
-                        removed.append(to_remove)
-                project.keywords = existing_keywords
-                if removed:
-                    updated_fields.append(f"keywords (removed {len(removed)})")
-                else:
-                    return {
-                        "status": "error",
-                        "message": "Could not find keywords to remove.",
-                        "current_keywords": existing_keywords,
-                    }
+            if keywords == [] and keywords_mode == "replace":
+                pass  # skip — empty replace is never intentional via chat
             else:
-                # Replace all keywords
-                project.keywords = validated_keywords
-                updated_fields.append("keywords")
+                # Validate and clean keywords
+                validated_keywords = []
+                for kw in keywords:
+                    if not isinstance(kw, str):
+                        continue
+                    kw = kw.strip().lower()
+                    if not kw:
+                        continue
+                    # Truncate if too long (max 50 chars per keyword)
+                    if len(kw) > 50:
+                        kw = kw[:50]
+                    validated_keywords.append(kw)
+
+                existing_keywords = project.keywords or []
+
+                if keywords_mode == "append":
+                    # Append new keywords (avoid duplicates)
+                    added_count = 0
+                    for new_kw in validated_keywords:
+                        if new_kw not in existing_keywords:
+                            existing_keywords.append(new_kw)
+                            added_count += 1
+                    project.keywords = existing_keywords
+                    if added_count > 0:
+                        updated_fields.append(f"keywords (added {added_count})")
+                elif keywords_mode == "remove":
+                    # Remove specific keywords
+                    removed = []
+                    for to_remove in validated_keywords:
+                        if to_remove in existing_keywords:
+                            existing_keywords.remove(to_remove)
+                            removed.append(to_remove)
+                    project.keywords = existing_keywords
+                    if removed:
+                        updated_fields.append(f"keywords (removed {len(removed)})")
+                    else:
+                        return {
+                            "status": "error",
+                            "message": "Could not find keywords to remove.",
+                            "current_keywords": existing_keywords,
+                        }
+                else:
+                    # Replace all keywords
+                    project.keywords = validated_keywords
+                    updated_fields.append("keywords")
 
         if not updated_fields:
             return {
                 "status": "error",
                 "message": "No fields to update. Provide description and/or objectives.",
+            }
+
+        if preview:
+            # Capture the would-be state before rolling back
+            preview_desc = project.idea
+            preview_objectives = [o.strip() for o in (project.scope or "").split("\n") if o.strip()]
+            preview_keywords = list(project.keywords or [])
+            preview_title = project.title
+            self.db.rollback()
+            return {
+                "status": "preview",
+                "message": f"Preview of changes to: {', '.join(updated_fields)}. NOT saved yet — confirm to apply.",
+                "would_update": updated_fields,
+                "preview_state": {
+                    "title": preview_title,
+                    "description": preview_desc,
+                    "objectives": preview_objectives,
+                    "keywords": preview_keywords,
+                },
             }
 
         try:
@@ -1722,7 +1748,7 @@ class LibraryToolsMixin:
         ctx: Dict[str, Any],
         reference_ids: Optional[List[str]] = None,
         format: str = "bibtex",
-        scope: str = "selected",
+        scope: str = "all",
     ) -> Dict:
         """Export citations from the project library in a specific format."""
         from uuid import UUID

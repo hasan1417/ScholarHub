@@ -30,8 +30,8 @@ _RESEARCH_TERMS = re.compile(
 )
 _GREETING_PATTERNS = re.compile(
     r"^(hi|hello|hey|thanks|thx|thanx|thank you|ok|okay|cool|great|got it|"
-    r"sounds good|makes sense|i see|understood|noted|nice|perfect|awesome|sure|alright|"
-    r"no problem|no worries|right|yep|nope|cheers|good morning|good afternoon|good evening|"
+    r"makes sense|i see|understood|noted|nice|awesome|sure|alright|"
+    r"no problem|no worries|right|nope|cheers|good morning|good afternoon|good evening|"
     r"bye|goodbye|see ya|later|k bye|cya)"
     r"(?:[.!,\s].*)?$",
     re.IGNORECASE,
@@ -39,7 +39,12 @@ _GREETING_PATTERNS = re.compile(
 # Confirmations that imply pending action ("yes", "do it", "go ahead")
 _CONFIRMATION_PATTERNS = re.compile(
     r"^(yes|yeah|yep|yup|do it|go ahead|please do|all of them|go for it|"
-    r"let's do it|proceed|continue|absolutely|definitely|for sure)[.!,\s]*$",
+    r"let's do it|proceed|continue|absolutely|definitely|for sure|"
+    r"looks good|that works|that's good|sounds good|perfect|approved)[.!,\s]*$",
+    re.IGNORECASE,
+)
+_CONFIRMATION_PREFIX = re.compile(
+    r"^(looks good|sounds good|that works|that's good|perfect|go ahead|yes)\b",
     re.IGNORECASE,
 )
 
@@ -105,7 +110,7 @@ def classify_route(
         return RouteDecision("full", "long_message")
 
     # Confirmations -> full if assistant suggested an action
-    if _CONFIRMATION_PATTERNS.match(msg):
+    if _CONFIRMATION_PATTERNS.match(msg) or _CONFIRMATION_PREFIX.match(msg):
         if _last_assistant_suggested_action(conversation_history):
             return RouteDecision("full", "confirmation_of_pending_action")
         # Pure confirmation without pending action -> lite

@@ -1223,6 +1223,19 @@ const ProjectDiscussion = () => {
                     )
                   }, 30)
                 }
+              } else if (event.type === 'content_reset') {
+                // Model started streaming then decided to call tools —
+                // clear the partial text so tool status replaces it cleanly.
+                if (typingTimers.current[id]) {
+                  clearTimeout(typingTimers.current[id])
+                  delete typingTimers.current[id]
+                }
+                accumulatedContent = ''
+                setAssistantHistory((prev) =>
+                  prev.map((e) =>
+                    e.id === id ? { ...e, displayMessage: '' } : e
+                  )
+                )
               } else if (event.type === 'status') {
                 // Tool is being executed - set status message and flag
                 setAssistantHistory((prev) =>
@@ -1421,7 +1434,7 @@ const ProjectDiscussion = () => {
               createdAt: exchange.created_at ? new Date(exchange.created_at) : new Date(),
               appliedActions: [],
               status: 'streaming',
-              statusMessage: exchange.status_message || 'Processing...',
+              statusMessage: exchange.status_message || 'Thinking',
               displayMessage: '',
               author: exchange.author,
               fromHistory: true,

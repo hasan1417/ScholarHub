@@ -9,7 +9,7 @@ GET_PROJECT_INFO_SCHEMA = {
     "type": "function",
     "function": {
         "name": "get_project_info",
-        "description": "Get information about the current research project (title, description, goals, keywords). Use when user asks about 'the project', 'project goals', or needs project context.",
+        "description": "Get information about the current research project (title, description, objectives, keywords). Use when user asks about 'the project', 'project goals', or needs project context. Returns: title, description, objectives, keywords, status.",
         "parameters": {
             "type": "object",
             "properties": {},
@@ -21,14 +21,26 @@ UPDATE_PROJECT_INFO_SCHEMA = {
     "type": "function",
     "function": {
         "name": "update_project_info",
-        "description": """Update project description, objectives, and/or keywords. IMPORTANT: NEVER ask user about 'replace' vs 'append' modes - these are internal parameters. Instead, infer the mode from user intent:
-- User says 'add keyword X' or 'also include Y' -> use append mode
-- User says 'set keywords to X,Y,Z' or 'change keywords to...' or project is empty -> use replace mode
-- User says 'remove keyword X' -> use remove mode
-For new/empty projects, just use replace mode and apply the content directly without asking for confirmation.""",
+        "description": """Update project description, objectives, and/or keywords.
+The project has exactly three editable fields: "Description", "Objectives", and "Keywords". Always refer to them by these names.
+IMPORTANT RULES:
+1. When the user asks to fill, write, or set project info, FIRST propose your suggested content in your response text and ask the user to confirm or adjust BEFORE calling this tool. Do NOT call this tool until the user approves.
+2. If the user provides EXACT content to set (e.g. 'set description to X'), you may call this tool directly.
+3. For small edits like 'add keyword X' or 'remove objective 2', you may call this tool directly.
+4. Only include parameters the user explicitly asked to change. Omit fields not mentioned.
+5. NEVER ask user about 'replace' vs 'append' modes - infer from intent:
+   - 'add keyword X' or 'also include Y' -> append mode
+   - 'set keywords to X,Y,Z' or 'change to...' -> replace mode
+   - 'remove keyword X' -> remove mode
+6. Use preview=true to show what would change without committing (recommended for large changes).""",
         "parameters": {
             "type": "object",
             "properties": {
+                "preview": {
+                    "type": "boolean",
+                    "description": "If true, return what would change without saving. Use for large updates so the user can review first.",
+                    "default": False,
+                },
                 "description": {
                     "type": "string",
                     "description": "New project description (replaces existing). Omit to keep unchanged.",

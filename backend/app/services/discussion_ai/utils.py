@@ -6,8 +6,11 @@ Module-level pure functions and constants used across multiple mixin modules.
 
 from __future__ import annotations
 
+import logging
 import re
-from typing import Dict
+from typing import Dict, List, Set, Tuple
+
+logger = logging.getLogger(__name__)
 
 from app.constants.paper_templates import CONFERENCE_TEMPLATES
 
@@ -16,6 +19,35 @@ _CITE_PATTERN = re.compile(r'\\cite\{([^}]+)\}')
 _SECTION_PATTERN_CACHE: Dict[str, "re.Pattern[str]"] = {}
 
 # LaTeX special characters that must be escaped in untrusted text
+MUTATING_TOOLS = frozenset({"update_project_info", "create_paper", "update_paper"})
+
+
+def filter_duplicate_mutations(
+    tool_calls: List[Dict],
+    already_called: Set[Tuple[str, ...]],
+) -> List[Dict]:
+    """Filter out duplicate mutating tool calls within a single turn.
+
+    Tracks by (tool_name, sorted_arg_key_value_pairs) so the same tool
+    called with different arguments is allowed through, while an identical
+    re-invocation (same name, same args, same values) is blocked.
+
+    Returns the filtered list. Mutates *already_called* in-place.
+    """
+    filtered = []
+    for tc in tool_calls:
+        tool_name = tc.get("name", "")
+        if tool_name in MUTATING_TOOLS:
+            args = tc.get("arguments") or {}
+            signature = (tool_name, *sorted((k, str(v)) for k, v in args.items()))
+            if signature in already_called:
+                logger.warning("[GuardRail] Blocked duplicate mutating tool call: %s", tool_name)
+                continue
+            already_called.add(signature)
+        filtered.append(tc)
+    return filtered
+
+
 _LATEX_SPECIAL_CHARS = str.maketrans({
     '\\': r'\textbackslash{}',
     '{': r'\{',

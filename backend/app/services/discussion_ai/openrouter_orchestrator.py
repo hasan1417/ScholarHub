@@ -26,6 +26,7 @@ import httpx
 from app.core.config import settings
 from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator, DISCUSSION_TOOLS
 from app.services.discussion_ai.token_utils import count_messages_tokens
+from app.services.discussion_ai.utils import filter_duplicate_mutations
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -46,22 +47,40 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 _REASONING_TAGS = ("think", "thought", "reasoning", "reflection")
 
+# Some models (DeepSeek, Llama, Qwen) emit tool calls as XML in content
+# rather than (or in addition to) using the structured tool_calls API.
+_TOOL_CALL_XML_TAGS = ("function_calls", "function_call", "invoke", "tool_call")
+
+_STRIP_TAGS = _REASONING_TAGS + _TOOL_CALL_XML_TAGS
+
 _THINK_TAG_RE = re.compile(
-    r"<(?:" + "|".join(_REASONING_TAGS) + r")>.*?</(?:" + "|".join(_REASONING_TAGS) + r")>",
+    r"<(?:" + "|".join(_STRIP_TAGS) + r")[\s>].*?</(?:" + "|".join(_STRIP_TAGS) + r")>",
     re.DOTALL,
+)
+# Catch orphaned closing tags left after nested stripping (e.g. </function_calls>)
+_ORPHAN_CLOSE_RE = re.compile(
+    r"</(?:" + "|".join(_STRIP_TAGS) + r")>",
 )
 
 
+def _strip_internal_tags(text: str) -> str:
+    """Strip reasoning and XML tool-call tags, including orphaned closing tags."""
+    text = _THINK_TAG_RE.sub("", text)
+    text = _ORPHAN_CLOSE_RE.sub("", text)
+    return text.strip()
+
+
 class ThinkTagFilter:
-    """Streaming safety-net filter that strips reasoning tag blocks.
+    """Streaming safety-net filter that strips reasoning and XML tool-call blocks.
 
     Primary defence is the API-level ``reasoning.exclude`` flag.  This filter
     catches anything that still leaks through (new models, API bugs, etc.).
-    Handles: <think>, <thought>, <reasoning>, <reflection>.
+    Handles: <think>, <thought>, <reasoning>, <reflection>,
+             <function_calls>, <function_call>, <invoke>, <tool_call>.
     """
 
-    _OPEN_TAGS = tuple(f"<{t}>" for t in _REASONING_TAGS)
-    _CLOSE_TAGS = tuple(f"</{t}>" for t in _REASONING_TAGS)
+    _OPEN_TAGS = tuple(f"<{t}>" for t in _STRIP_TAGS) + tuple(f"<{t} " for t in _STRIP_TAGS)
+    _CLOSE_TAGS = tuple(f"</{t}>" for t in _STRIP_TAGS)
     _MAX_OPEN_LEN = max(len(t) for t in _OPEN_TAGS)
     _MAX_CLOSE_LEN = max(len(t) for t in _CLOSE_TAGS)
 
@@ -381,7 +400,7 @@ def _fetch_openrouter_models(api_key: Optional[str]) -> List[Dict[str, Any]]:
         return []
 
     try:
-        with httpx.Client(timeout=3.0) as client:
+        with httpx.Client(timeout=8.0) as client:
             resp = client.get("https://openrouter.ai/api/v1/models", headers=headers)
         if resp.status_code != 200:
             logger.warning("OpenRouter models API returned %s", resp.status_code)
@@ -593,7 +612,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 message = choice.message
 
                 result = {
-                    "content": _THINK_TAG_RE.sub("", message.content or "").strip(),
+                    "content": _strip_internal_tags(message.content or ""),
                     "tool_calls": [],
                 }
 
@@ -626,7 +645,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     try:
                         response = self.openrouter_client.chat.completions.create(**call_params)
                         raw = response.choices[0].message.content or ""
-                        return {"content": _THINK_TAG_RE.sub("", raw).strip(), "tool_calls": []}
+                        return {"content": _strip_internal_tags(raw), "tool_calls": []}
                     except Exception as inner_e:
                         logger.error(f"No-tools fallback also failed: {inner_e}")
                         return {"content": f"Error: {str(inner_e)}", "tool_calls": []}
@@ -771,7 +790,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 tool_calls.append({"id": tc["id"], "name": tc["name"], "arguments": args})
 
             # Strip any think tags from the accumulated content for the result
-            full_content = _THINK_TAG_RE.sub("", "".join(content_chunks)).strip()
+            full_content = _strip_internal_tags("".join(content_chunks))
             yield {"type": "result", "content": full_content, "tool_calls": tool_calls}
 
         except Exception as e:
@@ -795,7 +814,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 call_kwargs["extra_body"] = reasoning_params["extra_body"]
             response = self.openrouter_client.chat.completions.create(**call_kwargs)
             raw = response.choices[0].message.content or ""
-            final_message = _THINK_TAG_RE.sub("", raw).strip()
+            final_message = _strip_internal_tags(raw)
         except Exception as e:
             logger.error(f"Lite execution error: {e}")
             final_message = ""
@@ -859,7 +878,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         except Exception as e:
             logger.error(f"Lite streaming error: {e}")
 
-        final_message = _THINK_TAG_RE.sub("", "".join(content_chunks)).strip()
+        final_message = _strip_internal_tags("".join(content_chunks))
         if not final_message:
             final_message = self._build_lite_fallback(ctx)
             yield {"type": "token", "content": final_message}
@@ -930,6 +949,8 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         conversation_history = ctx.get("conversation_history")
         policy_decision = self._classify_and_build_policy(ctx, conversation_history)
 
+        mutating_calls_seen: set = set()
+
         max_iterations = 8
         iteration = 0
         all_tool_results = []
@@ -953,16 +974,24 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             tool_calls = []
             iteration_content = []
 
-            # Buffer ALL tokens — don't stream until we know this is the
-            # final iteration (no tool calls).  This prevents the user from
-            # seeing truncated "I'll help you…" text that gets cut off
-            # mid-sentence when the model switches to a tool call, only to
-            # be replaced by a different final response.
-
+            # Stream tokens directly to the client.  If the model decides to
+            # call tools mid-stream, content_reset will clear the partial text.
+            # Only buffer when forced search may fire (it replaces all content).
+            stream_directly = not (direct_search_intent and not search_tool_executed)
+            tokens_yielded = False
             async for event in self._call_ai_with_tools_streaming(messages, ctx):
                 if event["type"] == "token":
                     iteration_content.append(event["content"])
+                    if stream_directly:
+                        if ttfb_ms == 0:
+                            ttfb_ms = int((time.monotonic() - t_start) * 1000)
+                        yield {"type": "token", "content": event["content"]}
+                        tokens_yielded = True
                 elif event["type"] == "tool_call_detected":
+                    # Stop streaming — model is calling tools, so this isn't
+                    # the final response.  Tokens already yielded are a small
+                    # fragment; they'll be replaced by the result event.
+                    stream_directly = False
                     logger.info("[OpenRouter Async Streaming] Tool call detected")
                 elif event["type"] == "result":
                     response_content = event["content"]
@@ -988,17 +1017,6 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     }
                     logger.info(f"[OpenRouter Async] Applying direct-search fallback with query: {forced_query[:120]}")
 
-                    # Stream the AI's actual response BEFORE the search so the
-                    # user sees context (e.g. "I'll search for more papers on…"),
-                    # then show the search status.
-                    ai_text = "".join(iteration_content).strip() or (response_content or "").strip()
-                    if ai_text:
-                        for token in iteration_content:
-                            yield {"type": "token", "content": token}
-                        final_content_chunks.append(ai_text)
-                    else:
-                        final_content_chunks.append("Searching for papers now. Results will appear in the UI shortly.")
-
                     yield {
                         "type": "status",
                         "tool": "search_papers",
@@ -1010,30 +1028,60 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     break
 
                 # Recovery retry: if no tool calls but user clearly requested action,
-                # retry once with broad tool set
+                # retry once with the same intent tools + a nudge.
                 if (
                     not search_tool_executed
                     and not recovery_attempted
                     and _ACTION_SIGNAL.search(ctx.get("user_message", ""))
                 ):
                     recovery_attempted = True
-                    ctx["intent_confidence"] = 0.0  # force broad tool set
-                    logger.info("[ToolRecovery] No tool calls, retrying with broad tools")
+                    ctx["intent_confidence"] = 1.0  # keep intent tools — intent was correct
+                    # Clear any tokens streamed on this attempt before retrying
+                    if tokens_yielded:
+                        yield {"type": "content_reset"}
+                        tokens_yielded = False
+                    # Nudge the model to actually use tools on retry
+                    messages.append({
+                        "role": "system",
+                        "content": "You MUST use a tool to fulfill this request. Do not just describe what you would do — call the appropriate tool now.",
+                    })
+                    logger.info("[ToolRecovery] No tool calls, retrying with widened tools + nudge")
                     continue
 
-                # This IS the final iteration — stream the buffered tokens
-                # to the user so they see the typing effect.
+                # Final iteration — flush buffered tokens to the client now.
                 logger.info("[OpenRouter Async Streaming] Final response - no more tool calls")
-                if ttfb_ms == 0 and iteration_content:
-                    ttfb_ms = int((time.monotonic() - t_start) * 1000)
-                for token in iteration_content:
-                    yield {"type": "token", "content": token}
+                if not stream_directly:
+                    # Iteration 1 tokens were buffered — flush them now
+                    for chunk in iteration_content:
+                        if ttfb_ms == 0:
+                            ttfb_ms = int((time.monotonic() - t_start) * 1000)
+                        yield {"type": "token", "content": chunk}
                 if iteration_content:
                     final_content_chunks.extend(iteration_content)
                 elif response_content:
                     final_content_chunks.append(response_content)
-                    yield {"type": "token", "content": response_content}
+                    if not stream_directly:
+                        yield {"type": "token", "content": response_content}
                 break
+
+            # Filter out duplicate mutating tool calls
+            tool_calls = filter_duplicate_mutations(tool_calls, mutating_calls_seen)
+
+            if not tool_calls:
+                # All tool calls were duplicates — treat as final iteration
+                if not stream_directly:
+                    for chunk in iteration_content:
+                        if ttfb_ms == 0:
+                            ttfb_ms = int((time.monotonic() - t_start) * 1000)
+                        yield {"type": "token", "content": chunk}
+                if iteration_content:
+                    final_content_chunks.extend(iteration_content)
+                break
+
+            # If we already streamed partial tokens before tool_call_detected,
+            # tell the frontend to clear them — they're not the final response.
+            if tokens_yielded:
+                yield {"type": "content_reset"}
 
             for tc in tool_calls:
                 tool_name = tc.get("name", "")
@@ -1045,6 +1093,15 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             all_tool_results.extend(tool_results)
             if any(tr.get("name") in ("search_papers", "batch_search_papers") for tr in tool_results):
                 search_tool_executed = True
+
+            # If only search tools ran, skip re-querying the model — the response
+            # will be the short confirmation from _apply_response_budget anyway.
+            search_only = all(
+                tr.get("name") in ("search_papers", "batch_search_papers")
+                for tr in tool_results
+            )
+            if search_only and search_tool_executed:
+                break
 
             formatted_tool_calls = [
                 {
@@ -1071,7 +1128,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     "content": json.dumps(result, default=str),
                 })
 
-        final_message = _THINK_TAG_RE.sub("", "".join(final_content_chunks)).strip()
+        final_message = _strip_internal_tags("".join(final_content_chunks))
         final_message = self._apply_response_budget(final_message, ctx, all_tool_results)
         logger.debug(f"[OpenRouter Async] Complete. Tools called: {[t['name'] for t in all_tool_results]}")
 
@@ -1224,7 +1281,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 ],
                 max_tokens=min(self._get_model_output_token_cap(ctx), 280),
             )
-            text = _THINK_TAG_RE.sub("", response.choices[0].message.content or "").strip()
+            text = _strip_internal_tags(response.choices[0].message.content or "")
             return text or None
         except Exception as exc:
             logger.debug("Content fallback generation skipped due to model error: %s", exc)
