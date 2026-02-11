@@ -1030,7 +1030,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 # Recovery retry: if no tool calls but user clearly requested action,
                 # retry once with the same intent tools + a nudge.
                 if (
-                    not search_tool_executed
+                    not all_tool_results
                     and not recovery_attempted
                     and _ACTION_SIGNAL.search(ctx.get("user_message", ""))
                 ):
