@@ -154,6 +154,10 @@ def get_current_usage(
                 "current": usage.discussion_ai_calls,
                 "limit": limits.get("discussion_ai_calls", 0),
             },
+            "editor_ai_calls": {
+                "current": usage.editor_ai_calls,
+                "limit": limits.get("editor_ai_calls", 0),
+            },
             "paper_discovery_searches": {
                 "current": usage.paper_discovery_searches,
                 "limit": limits.get("paper_discovery_searches", 0),

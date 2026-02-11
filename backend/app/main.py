@@ -3,8 +3,14 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# Ensure application loggers emit INFO+ to uvicorn's handler
-logging.getLogger("app").setLevel(logging.INFO)
+# Ensure application loggers emit INFO+ with a handler
+_app_logger = logging.getLogger("app")
+_app_logger.setLevel(logging.INFO)
+if not _app_logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(levelname)s:%(name)s: %(message)s"))
+    _app_logger.addHandler(_handler)
+    _app_logger.propagate = False
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path

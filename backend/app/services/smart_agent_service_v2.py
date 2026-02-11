@@ -155,7 +155,7 @@ EDITOR_TOOLS = [
         "type": "function",
         "function": {
             "name": "review_document",
-            "description": "Review the document and provide feedback.",
+            "description": "Review the document and provide writing feedback, recommendations, suggestions for improvement, or enhancement tips. Use this when the user asks how to improve, enhance, or strengthen their writing.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -199,7 +199,7 @@ EDITOR_TOOLS = [
         "type": "function",
         "function": {
             "name": "apply_template",
-            "description": "Convert the document to a specific conference/journal format. Use this when user asks to convert, reformat, or change to a specific format like IEEE, ACL, NeurIPS, CVPR, etc. This will return the template structure, then you MUST call propose_edit to apply it.",
+            "description": "Convert the document to a specific conference/journal format. Use ONLY when user explicitly asks to convert, reformat, or change to a named format (IEEE, ACL, NeurIPS, CVPR, etc.). Do NOT use for general writing improvement or review requests.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -317,7 +317,7 @@ class SmartAgentServiceV2:
     _EDITOR_ACTION_VERBS = re.compile(
         r"\b(improve|fix|rewrite|shorten|expand|change|edit|modify|correct|proofread|"
         r"convert|reformat|replace|insert|delete|remove|rephrase|revise|polish|"
-        r"make better|tighten|clean up|strengthen)\b",
+        r"make better|tighten|clean up|strengthen|enhance)\b",
         re.IGNORECASE,
     )
 
@@ -476,23 +476,38 @@ class SmartAgentServiceV2:
 
                     # Intermediate tools - return info to AI for further processing
                     if tool_name == "apply_template":
+                        # Guard: reject if user didn't ask for conversion
+                        if not self._is_convert_request(effective_query.lower()):
+                            messages.append(choice.message)
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "content": "ERROR: apply_template is only for format conversion requests. "
+                                           "The user asked about writing improvement. Use review_document or answer_question instead."
+                            })
+                            continue
                         tid = tool_args.get("template_id", "")
-                        # Deterministic V1: preamble edit in code, body cleanup via LLM
                         if settings.EDITOR_DETERMINISTIC_CONVERT_V1:
-                            from app.services.deterministic_converter import deterministic_preamble_convert
-                            det_result = deterministic_preamble_convert(document_excerpt or "", tid)
-                            if det_result:
-                                yield from _collect_and_yield(iter([det_result]))
-                                logger.info("[SmartAgentV2][paper=%s] deterministic preamble: %s", paper_id, tid)
-                                template_info = "".join(self._handle_apply_template(tid))
-                                messages.append(choice.message)
-                                messages.append({
-                                    "role": "tool",
-                                    "tool_call_id": tool_call.id,
-                                    "content": template_info + "\n\nIMPORTANT: The preamble (lines 1 through \\maketitle) has ALREADY been converted. Do NOT propose any preamble edits. ONLY call propose_edit if there are body-level cleanups needed (e.g., replace \\begin{IEEEkeywords} with \\begin{keywords}, remove format-specific commands). If no body cleanup is needed, call answer_question to confirm the conversion is complete."
-                                })
-                                continue
-                        # Fallback: existing LLM path
+                            from app.services.deterministic_converter import deterministic_full_convert
+                            det_result = deterministic_full_convert(document_excerpt or "", tid)
+                            if det_result.kind != "fallback":
+                                if det_result.kind == "noop":
+                                    yield from _collect_and_yield(iter([
+                                        f"Document is already in {tid.upper()} format. No conversion needed."
+                                    ]))
+                                else:
+                                    yield from _collect_and_yield(iter([
+                                        f"Converting to {tid.upper()} format.\n\n" + det_result.edits
+                                    ]))
+                                logger.info("[SmartAgentV2][paper=%s] deterministic convert: %s (%s)", paper_id, tid, det_result.kind)
+                                self._store_chat_exchange(
+                                    db=db, user_id=user_id, paper_id=paper_id,
+                                    project_id=project_id, user_message=effective_query,
+                                    assistant_message=response_text,
+                                )
+                                return
+                            logger.info("[SmartAgentV2][paper=%s] deterministic fallback: %s reason=%s", paper_id, tid, det_result.fallback_reason)
+                        # Fallback: can't parse document (or flag off) → existing LLM path
                         template_info = "".join(self._handle_apply_template(tid))
                         messages.append(choice.message)
                         messages.append({
@@ -500,7 +515,7 @@ class SmartAgentServiceV2:
                             "tool_call_id": tool_call.id,
                             "content": template_info
                         })
-                        continue  # AI will call propose_edit next
+                        continue
 
                     if tool_name == "review_document":
                         # Intermediate: AI may want to propose_edit after review
@@ -767,14 +782,17 @@ class SmartAgentServiceV2:
         if not assistant_message or (not paper_id and not project_id):
             return
         try:
+            from datetime import datetime, timedelta, timezone
             from app.models.editor_chat_message import EditorChatMessage
 
+            now = datetime.now(timezone.utc)
             db.add(EditorChatMessage(
                 user_id=user_id,
                 paper_id=str(paper_id) if paper_id else None,
                 project_id=str(project_id) if project_id else None,
                 role="user",
                 content=user_message,
+                created_at=now,
             ))
             db.add(EditorChatMessage(
                 user_id=user_id,
@@ -782,6 +800,7 @@ class SmartAgentServiceV2:
                 project_id=str(project_id) if project_id else None,
                 role="assistant",
                 content=assistant_message,
+                created_at=now + timedelta(milliseconds=1),
             ))
             db.commit()
         except Exception as e:

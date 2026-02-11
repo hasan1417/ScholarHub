@@ -52,7 +52,7 @@ SEARCH_REFERENCES_TOOL = {
     "type": "function",
     "function": {
         "name": "search_references",
-        "description": "Search the attached references for specific information using semantic search.",
+        "description": "Search the full text of attached references using semantic search. Use this to retrieve detailed content, methods, findings, or any specific information from papers marked 'full text ready'. The initial reference list only shows abstracts — call this tool to access the complete paper text.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -114,7 +114,7 @@ class SmartAgentServiceV2OR:
     _EDITOR_ACTION_VERBS = re.compile(
         r"\b(improve|fix|rewrite|shorten|expand|change|edit|modify|correct|proofread|"
         r"convert|reformat|replace|insert|delete|remove|rephrase|revise|polish|"
-        r"make better|tighten|clean up|strengthen)\b",
+        r"make better|tighten|clean up|strengthen|enhance)\b",
         re.IGNORECASE,
     )
 
@@ -488,6 +488,25 @@ class SmartAgentServiceV2OR:
 
                 yield self._emit_status("Generating response" if turn == 1 else "Processing results")
 
+                # Budget check: truncate tool results if messages exceed context limit
+                if turn > 1:
+                    ctx_limit = get_context_limit(self.model)
+                    msg_tokens = sum(count_tokens(m.get("content") or "") for m in messages)
+                    headroom = ctx_limit - 4000 - 500  # response tokens + overhead
+                    if msg_tokens > headroom:
+                        # Trim the most recent tool result to fit
+                        for i in range(len(messages) - 1, -1, -1):
+                            if messages[i].get("role") == "tool":
+                                content = messages[i].get("content", "")
+                                excess = msg_tokens - headroom
+                                trim_chars = excess * 4  # ~4 chars per token
+                                if trim_chars < len(content):
+                                    messages[i]["content"] = content[:len(content) - trim_chars] + "\n\n[Truncated to fit context limit]"
+                                else:
+                                    messages[i]["content"] = content[:200] + "\n\n[Truncated to fit context limit]"
+                                logger.warning("[SmartAgentV2OR] Trimmed tool result by ~%d tokens to fit context", excess)
+                                break
+
                 tool_choice = self._resolve_tool_choice(effective_query, turn)
 
                 request_kwargs = {
@@ -509,6 +528,10 @@ class SmartAgentServiceV2OR:
 
                 if not tool_calls:
                     # Content-only response — already streamed and accumulated
+                    if not self._last_stream_content.strip() and turn > 1:
+                        fallback = "\n\nI wasn't able to complete the full response. Please try again."
+                        response_text += fallback
+                        yield fallback
                     break
 
                 tc = tool_calls[0]
@@ -526,7 +549,7 @@ class SmartAgentServiceV2OR:
                 # Build assistant message for multi-turn context
                 assistant_msg: Dict[str, Any] = {
                     "role": "assistant",
-                    "content": self._last_stream_content or None,
+                    "content": self._last_stream_content or "",
                     "tool_calls": [{
                         "id": tc["id"],
                         "type": "function",
@@ -545,21 +568,34 @@ class SmartAgentServiceV2OR:
                     continue
 
                 elif tool_name == "apply_template":
+                    # Guard: reject if user didn't ask for conversion
+                    if not self._is_convert_request(effective_query.lower()):
+                        messages.append(assistant_msg)
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": "ERROR: apply_template is only for format conversion requests. "
+                                       "The user asked about writing improvement. Use review_document or answer_question instead."
+                        })
+                        continue
                     yield self._emit_status("Applying template")
                     tid = tool_args.get("template_id", "")
-                    # Deterministic V1: preamble edit in code, body cleanup via LLM
                     if settings.EDITOR_DETERMINISTIC_CONVERT_V1:
-                        from app.services.deterministic_converter import deterministic_preamble_convert
-                        det_result = deterministic_preamble_convert(document_excerpt or "", tid)
-                        if det_result:
-                            yield from _collect_and_yield(iter([det_result]))
-                            logger.info("[SmartAgentV2OR][paper=%s] deterministic preamble: %s", paper_id, tid)
-                            template_info = "".join(self._handle_apply_template(tid))
-                            messages.append(assistant_msg)
-                            messages.append({"role": "tool", "tool_call_id": tc["id"],
-                                "content": template_info + "\n\nIMPORTANT: The preamble (lines 1 through \\maketitle) has ALREADY been converted. Do NOT propose any preamble edits. ONLY call propose_edit if there are body-level cleanups needed (e.g., replace \\begin{IEEEkeywords} with \\begin{keywords}, remove format-specific commands). If no body cleanup is needed, call answer_question to confirm the conversion is complete."})
-                            continue
-                    # Fallback: existing LLM path
+                        from app.services.deterministic_converter import deterministic_full_convert
+                        det_result = deterministic_full_convert(document_excerpt or "", tid)
+                        if det_result.kind != "fallback":
+                            if det_result.kind == "noop":
+                                yield from _collect_and_yield(iter([
+                                    f"Document is already in {tid.upper()} format. No conversion needed."
+                                ]))
+                            else:
+                                yield from _collect_and_yield(iter([
+                                    f"Converting to {tid.upper()} format.\n\n" + det_result.edits
+                                ]))
+                            logger.info("[SmartAgentV2OR][paper=%s] deterministic convert: %s (%s)", paper_id, tid, det_result.kind)
+                            break
+                        logger.info("[SmartAgentV2OR][paper=%s] deterministic fallback: %s reason=%s", paper_id, tid, det_result.fallback_reason)
+                    # Fallback: can't parse document (or flag off) → existing LLM path
                     template_info = "".join(self._handle_apply_template(tid))
                     messages.append(assistant_msg)
                     messages.append({"role": "tool", "tool_call_id": tc["id"], "content": template_info})
@@ -589,11 +625,10 @@ class SmartAgentServiceV2OR:
                     yield from _collect_and_yield(self._format_tool_response(tool_name, tool_args))
                     break
             else:
-                # Loop exhausted without break
-                response_text = response_text or "Could not complete the request. Please try again."
-                if not response_text.strip():
-                    response_text = "Could not complete the request. Please try again."
-                    yield response_text
+                # Loop exhausted without break — always inform the user
+                fallback = "\n\nI wasn't able to complete the full response. Please try again."
+                response_text += fallback
+                yield fallback
 
             # Single store after loop
             self._store_chat_exchange(
@@ -903,14 +938,17 @@ class SmartAgentServiceV2OR:
         if not assistant_message or (not paper_id and not project_id):
             return
         try:
+            from datetime import datetime, timedelta, timezone
             from app.models.editor_chat_message import EditorChatMessage
 
+            now = datetime.now(timezone.utc)
             db.add(EditorChatMessage(
                 user_id=user_id,
                 paper_id=str(paper_id) if paper_id else None,
                 project_id=str(project_id) if project_id else None,
                 role="user",
                 content=user_message,
+                created_at=now,
             ))
             db.add(EditorChatMessage(
                 user_id=user_id,
@@ -918,6 +956,7 @@ class SmartAgentServiceV2OR:
                 project_id=str(project_id) if project_id else None,
                 role="assistant",
                 content=assistant_message,
+                created_at=now + timedelta(milliseconds=1),
             ))
             db.commit()
 
@@ -1096,6 +1135,7 @@ class SmartAgentServiceV2OR:
             if not refs:
                 return "No references attached to this paper."
 
+            full_text_count = 0
             lines = [f"({len(refs)} references attached):\n"]
             for i, ref in enumerate(refs, 1):
                 authors = ", ".join(ref.authors[:2]) + (" et al." if len(ref.authors) > 2 else "") if ref.authors else "Unknown"
@@ -1105,6 +1145,7 @@ class SmartAgentServiceV2OR:
                     doc_status = getattr(document.status, "value", None) or str(document.status)
                     if getattr(document, "is_processed_for_ai", False):
                         status_bits.append("full text ready")
+                        full_text_count += 1
                     elif doc_status in {"processing", "uploading"}:
                         status_bits.append("processing")
                     elif doc_status:
@@ -1116,6 +1157,9 @@ class SmartAgentServiceV2OR:
                 lines.append(f"{i}. {ref.title} ({authors}, {ref.year or 'n.d.'}){status_suffix}")
                 if ref.abstract:
                     lines.append(f"   Abstract: {ref.abstract[:200]}...")
+
+            if full_text_count > 0:
+                lines.append(f"\nNote: {full_text_count} paper(s) have full text available. Use search_references to retrieve detailed content from them.")
 
             return "\n".join(lines)
 

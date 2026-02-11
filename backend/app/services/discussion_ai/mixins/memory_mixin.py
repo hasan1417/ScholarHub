@@ -287,31 +287,66 @@ class MemoryMixin:
             "clarification_state": self._default_clarification_state(),
         }
 
+    @staticmethod
+    def _deep_merge_memory(base: Dict[str, Any], updates: Dict[str, Any]) -> Dict[str, Any]:
+        """Merge updates into base. Lists are extended (deduped), dicts are recursively merged."""
+        merged = {**base}
+        for key, value in updates.items():
+            if key in merged:
+                if isinstance(merged[key], dict) and isinstance(value, dict):
+                    merged[key] = MemoryMixin._deep_merge_memory(merged[key], value)
+                elif isinstance(merged[key], list) and isinstance(value, list):
+                    existing = list(merged[key])
+                    for item in value:
+                        if item not in existing:
+                            existing.append(item)
+                    merged[key] = existing
+                else:
+                    merged[key] = value
+            else:
+                merged[key] = value
+        return merged
+
     def _save_ai_memory(self, channel: "ProjectDiscussionChannel", memory: Dict[str, Any]) -> None:
-        """Save AI memory to channel.
+        """Save AI memory to channel with row-level locking to prevent concurrent overwrites.
 
         Uses a dedicated DB session to avoid thread-safety issues.
         The orchestrator's self.db is a request-scoped session created in the
         main async thread, but _save_ai_memory may be called from a thread pool
         (via asyncio.to_thread in the streaming path). SQLAlchemy sessions are
         not thread-safe, so we use our own session here.
+
+        Uses SELECT FOR UPDATE to serialize concurrent writes, then deep-merges
+        our changes with the current DB state so no concurrent updates are lost.
         """
         from app.database import SessionLocal
         from app.models import ProjectDiscussionChannel as ChannelModel
 
         db = SessionLocal()
         try:
-            fresh_channel = db.query(ChannelModel).filter_by(id=channel.id).first()
+            # Lock the row to serialize concurrent memory writes
+            fresh_channel = (
+                db.query(ChannelModel)
+                .filter_by(id=channel.id)
+                .with_for_update()
+                .first()
+            )
             if not fresh_channel:
                 logger.error(f"Channel {channel.id} not found when saving AI memory")
                 return
-            fresh_channel.ai_memory = memory
+            # Merge our changes with the current DB state (another request may have written since we read)
+            db_memory = fresh_channel.ai_memory or {}
+            if db_memory:
+                merged = self._deep_merge_memory(db_memory, memory)
+            else:
+                merged = memory
+            fresh_channel.ai_memory = merged
             flag_modified(fresh_channel, "ai_memory")
             db.commit()
             # Also update the in-memory object so subsequent reads in the same
             # request see the new data without another DB round-trip.
-            channel.ai_memory = memory
-            logger.info(f"Saved AI memory for channel {channel.id} - focused_papers: {len(memory.get('focused_papers', []))}")
+            channel.ai_memory = merged
+            logger.info(f"Saved AI memory for channel {channel.id} - focused_papers: {len(merged.get('focused_papers', []))}")
         except Exception as e:
             logger.error(f"Failed to save AI memory: {e}")
             logger.warning(f"[Memory] Memory save failed and was rolled back - conversation context may be lost")

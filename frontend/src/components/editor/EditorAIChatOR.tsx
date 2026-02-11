@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { projectReferencesAPI, projectsAPI, buildApiUrl, buildAuthHeaders } from '../../services/api'
+import { useAuth } from '../../contexts/AuthContext'
 import { modelSupportsReasoning, useOpenRouterModels } from '../discussion/ModelSelector'
 
 /** Proposed edit from AI - line-based for reliable matching */
@@ -29,7 +30,7 @@ interface EditorAIChatORProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** Callback to apply an approved edit to the document (line-based) */
-  onApplyEdit?: (startLine: number, endLine: number, anchor: string, replacement: string) => boolean
+  onApplyEdit?: (startLine: number, endLine: number, anchor: string, replacement: string, sourceDocument?: string) => boolean
   /** Callback to apply a batch of edits against a snapshot */
   onApplyEditsBatch?: (proposals: EditProposal[], sourceDocument: string) => boolean
   /** Initial message to auto-send when chat opens (e.g., from Sparkles explain/summarize) */
@@ -89,6 +90,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
   onInitialMessageConsumed,
   isOwner = false,
 }) => {
+  const { user: currentUser } = useAuth()
   const queryClient = useQueryClient()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -326,7 +328,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
       })
 
       // Apply edit using line numbers
-      const success = onApplyEdit?.(proposal.startLine, proposal.endLine, proposal.anchor, proposal.proposed) ?? false
+      const success = onApplyEdit?.(proposal.startLine, proposal.endLine, proposal.anchor, proposal.proposed, msg.sourceDocument) ?? false
 
       if (success) {
         msg.proposals = msg.proposals.map((p) =>
@@ -514,7 +516,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
       setMessages((prev) => [...prev, { role: 'user', content: prompt }])
 
       // Fallback timer: show "Still working..." if no status update for 15s
-      let fallbackTimer = window.setTimeout(() => setStatusMessage('Still working...'), 15000)
+      let fallbackTimer = window.setTimeout(() => setStatusMessage('Still working...'), 5000)
       // Debounce timer for status UI updates (100ms) to prevent flicker
       let statusDebounceTimer: number | null = null
       const updateStatus = (msg: string) => {
@@ -524,7 +526,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
         statusDebounceTimer = window.setTimeout(() => setStatusMessage(msg), 100)
         // Reset fallback timer on each status update
         window.clearTimeout(fallbackTimer)
-        fallbackTimer = window.setTimeout(() => setStatusMessage('Still working...'), 15000)
+        fallbackTimer = window.setTimeout(() => setStatusMessage('Still working...'), 5000)
       }
 
       // BETA: Send full document - backend handles smart AI-driven extraction
@@ -590,7 +592,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
               fullText += cleanText
               // Reset fallback timer on text progress too
               window.clearTimeout(fallbackTimer)
-              fallbackTimer = window.setTimeout(() => setStatusMessage('Still working...'), 15000)
+              fallbackTimer = window.setTimeout(() => setStatusMessage('Still working...'), 5000)
               setMessages((prev) => {
                 const copy = [...prev]
                 const last = copy.length - 1
@@ -868,8 +870,8 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
           {messages.map((m, idx) => (
             <div key={idx} className="mb-3 last:mb-0">
               <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                {m.role === 'assistant' ? 'Assistant' : (m.authorName || 'You')}
-                {m.fromHistory && m.role === 'user' && m.authorName && m.authorName !== 'You' && (
+                {m.role === 'assistant' ? 'Assistant' : (m.authorId && m.authorId !== currentUser?.id ? m.authorName : 'You')}
+                {m.fromHistory && m.role === 'user' && m.authorId && m.authorId !== currentUser?.id && m.authorName && (
                   <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-[9px] font-semibold normal-case text-indigo-600 dark:bg-indigo-900/50 dark:text-indigo-300">
                     {m.authorName}
                   </span>
@@ -900,7 +902,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                       </button>
                     </div>
                   )}
-                  {m.clarification && (
+                  {m.clarification && idx === messages.length - 1 && (
                     <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-600/60 dark:bg-amber-900/30 dark:text-amber-100">
                       <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-200">
                         Clarification needed
@@ -1085,6 +1087,19 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                   <div className="h-1 w-1 animate-pulse rounded-full bg-purple-400 dark:bg-purple-500" style={{ animationDelay: '300ms' }} />
                 </div>
               </div>
+            </div>
+          )}
+          {sending && messages.length > 0 && messages[messages.length - 1].role === 'assistant' && (
+            <div className="flex items-center gap-2 py-1">
+              <Loader2 className="h-3 w-3 animate-spin text-purple-500 dark:text-purple-400" />
+              <span className="text-xs font-medium text-purple-600 dark:text-purple-300">{statusMessage}...</span>
+              <button
+                onClick={handleCancel}
+                className="ml-auto flex h-5 w-5 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
+                title="Cancel request"
+              >
+                <X className="h-3 w-3" />
+              </button>
             </div>
           )}
         </div>

@@ -38,7 +38,6 @@ CONFERENCE_TEMPLATES: dict[str, ConferenceTemplate] = {
 \usepackage{amsmath}
 \usepackage{geometry}
 \geometry{a4paper, margin=0.75in}
-\usepackage{natbib}
 \usepackage{authblk}
 
 \title{Your Paper Title}
@@ -54,8 +53,8 @@ CONFERENCE_TEMPLATES: dict[str, ConferenceTemplate] = {
 \maketitle""",
         "author_format": r"\author[1]{Name} \affil[1]{Affiliation \\ \texttt{email}}",
         "sections": ["Abstract", "Introduction", "Related Work", "Method", "Experiments", "Results", "Discussion", "Conclusion", "Limitations", "Ethics Statement"],
-        "bib_style": "plainnat",
-        "notes": "ACL-style two-column format. Max 8 pages + unlimited references. Uses natbib for citations (\\citep{} and \\citet{})."
+        "bib_style": "plain",
+        "notes": "ACL-style two-column format. Max 8 pages + unlimited references."
     },
     "ieee": {
         "id": "ieee",
@@ -139,7 +138,6 @@ email@domain.com}}
 \usepackage[hyphens]{url}
 \usepackage{graphicx}
 \usepackage{amsmath}
-\usepackage{natbib}
 \usepackage{caption}
 \usepackage{geometry}
 \geometry{letterpaper, margin=0.75in}
@@ -159,7 +157,7 @@ email@domain.com}}
 \maketitle""",
         "author_format": r"\author[1]{Name} \affil[1]{University, email}",
         "sections": ["Abstract", "Introduction", "Related Work", "Approach", "Experiments", "Results", "Conclusion"],
-        "bib_style": "plainnat",
+        "bib_style": "plain",
         "notes": "AAAI-style two-column format. 7-page limit + 1 page references."
     },
     "icml": {
@@ -207,7 +205,6 @@ email@domain.com}}
 \usepackage{amsmath,amssymb}
 \usepackage{graphicx}
 \usepackage{hyperref}
-\usepackage{natbib}
 
 \title{Your Paper Title}
 \author{First Author\thanks{email@domain.com} \and Second Author}
@@ -374,7 +371,7 @@ email@domain.com}}
 \maketitle""",
         "author_format": r"\author[1]{Name} \affil[1]{Dept, Univ \\ \texttt{email}}",
         "sections": ["Abstract", "Introduction", "Related Work", "Problem Setup", "Method", "Theoretical Analysis", "Experiments", "Conclusion"],
-        "bib_style": "plainnat",
+        "bib_style": "plain",
         "notes": "JMLR-style single-column journal format. No page limit."
     },
     "ijcai": {
@@ -536,7 +533,7 @@ keyword1 \sep keyword2 \sep keyword3
 \maketitle""",
         "author_format": r"\author{Name$^{1}$ \& Name$^{2}$} with numbered affiliations below",
         "sections": ["Abstract", "Introduction", "Results", "Discussion", "Methods", "References"],
-        "bib_style": "unsrtnat",
+        "bib_style": "unsrt",
         "notes": "Nature-style single-column format. Methods section at end. Very concise abstract (<150 words). Line numbers recommended for submission."
     },
     "pnas": {
@@ -568,7 +565,7 @@ $^{2}$Institution Two, City, Country
 """,
         "author_format": r"\author{Name$^{1}$, Name$^{2}$} with affiliations after \maketitle",
         "sections": ["Abstract", "Significance", "Introduction", "Results", "Discussion", "Materials and Methods"],
-        "bib_style": "unsrtnat",
+        "bib_style": "unsrt",
         "notes": "PNAS-style two-column format using standard packages. Include Significance statement after abstract. 6-page limit for most articles."
     },
     "acm": {
@@ -649,7 +646,6 @@ $^{2}$Institution Two, City, Country
 \usepackage{amsmath}
 \usepackage{graphicx}
 \usepackage{hyperref}
-\usepackage{natbib}
 \usepackage{authblk}
 \usepackage{endnotes}
 
@@ -666,8 +662,8 @@ $^{2}$Institution Two, City, Country
 \maketitle""",
         "author_format": r"\author[1]{Name} \affil[1]{Department, University}",
         "sections": ["Introduction", "Literature Review", "Methodology", "Findings", "Discussion", "Conclusion", "Bibliography"],
-        "bib_style": "chicago",
-        "notes": "Chicago/Turabian double-spaced format. 12pt font, 1-inch margins. Supports both notes-bibliography and author-date styles. Uses natbib for citations."
+        "bib_style": "plain",
+        "notes": "Chicago/Turabian double-spaced format. 12pt font, 1-inch margins."
     },
     "plos": {
         "id": "plos",
@@ -686,7 +682,7 @@ $^{2}$Institution Two, City, Country
 \usepackage{hyperref}
 \usepackage{authblk}
 
-\title{Your Full Paper Title}
+\title{Your Paper Title}
 
 \author[1]{First Author}
 \author[2]{Second Author}
@@ -714,7 +710,6 @@ $^{2}$Institution Two, City, Country
 \usepackage{amssymb}
 \usepackage{geometry}
 \geometry{a4paper, margin=1in}
-\usepackage{natbib}
 \usepackage{authblk}
 \usepackage{lineno}
 
@@ -731,8 +726,8 @@ $^{2}$Institution Two, City, Country
 \maketitle""",
         "author_format": r"\author[1]{Name} \affil[1]{Department, University, City, Country \\ \texttt{email}}",
         "sections": ["Abstract", "Introduction", "Related Work", "Methods", "Results", "Discussion", "Conclusion"],
-        "bib_style": "spbasic",
-        "notes": "Springer basic journal single-column format. Distinct from LNCS proceedings format. Uses natbib for author-date citations. No strict page limits."
+        "bib_style": "plain",
+        "notes": "Springer basic journal single-column format. Distinct from LNCS proceedings format. No strict page limits."
     },
 }
 

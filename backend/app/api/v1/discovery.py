@@ -765,8 +765,8 @@ async def discover_papers_stream(
                     streaming_db = SessionLocal()
                     SubscriptionService.increment_usage(streaming_db, current_user.id, "paper_discovery_searches")
                     streaming_db.close()
-                except Exception:
-                    pass  # Don't fail the stream if usage tracking fails
+                except Exception as e:
+                    logger.error(f"Failed to increment discovery usage for user {current_user.id}: {e}")
 
         except asyncio.TimeoutError:
             yield f"data: {json.dumps({'type': 'done', 'total': 0, 'timeout': True})}\n\n"

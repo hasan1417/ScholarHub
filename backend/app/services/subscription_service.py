@@ -21,14 +21,39 @@ from app.models import Project, ProjectMember, Reference
 logger = logging.getLogger(__name__)
 
 # Default limits for free tier (fallback if DB not seeded)
+# AI features use credits: standard models cost 1, premium models cost 5
 DEFAULT_FREE_LIMITS = {
-    "discussion_ai_calls": 20,
-    "paper_discovery_searches": 10,
+    "discussion_ai_calls": 50,
+    "editor_ai_calls": 50,
+    "paper_discovery_searches": 30,
     "projects": 3,
     "papers_per_project": 10,
     "collaborators_per_project": 2,
     "references_total": 50,
 }
+
+# Premium models cost 5 credits per call; everything else costs 1
+_PREMIUM_MODEL_PREFIXES = (
+    "anthropic/claude-4.5-opus",
+    "anthropic/claude-opus",
+    "openai/gpt-5",
+    "openai/o1",
+    "openai/o3",
+    "google/gemini-2.5-pro",
+    "google/gemini-3-pro",
+)
+
+STANDARD_CREDIT_COST = 1
+PREMIUM_CREDIT_COST = 5
+
+
+def get_model_credit_cost(model_id: str) -> int:
+    """Return credit cost for a model. Premium models cost 5, standard cost 1."""
+    model_lower = model_id.lower()
+    for prefix in _PREMIUM_MODEL_PREFIXES:
+        if model_lower.startswith(prefix):
+            return PREMIUM_CREDIT_COST
+    return STANDARD_CREDIT_COST
 
 
 class SubscriptionService:
@@ -99,7 +124,9 @@ class SubscriptionService:
                 period_year=year,
                 period_month=month,
                 discussion_ai_calls=0,
+                editor_ai_calls=0,
                 paper_discovery_searches=0,
+                tokens_consumed=0,
             )
             db.add(usage)
             db.commit()

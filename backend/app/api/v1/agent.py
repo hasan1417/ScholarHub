@@ -56,9 +56,9 @@ async def agent_chat(
     - Paper queries → gpt-4o-mini + doc excerpt (~800ms)
     - Research queries → gpt-4o/gpt-5-mini + RAG (~2-3s)
     """
-    # Check subscription limit (shares limit with Discussion AI)
+    # Check editor AI credit limit
     allowed, current, limit = SubscriptionService.check_feature_limit(
-        db, current_user.id, "discussion_ai_calls"
+        db, current_user.id, "editor_ai_calls"
     )
     if not allowed:
         raise HTTPException(
@@ -67,9 +67,9 @@ async def agent_chat(
                 "error": "AI usage limit reached",
                 "current": current,
                 "limit": limit,
-                "message": f"You've used {current}/{limit} AI calls this month. "
+                "message": f"You've used {current}/{limit} editor AI credits this month. "
                            "Add your OpenRouter API key in Settings for unlimited usage, "
-                           "or upgrade to Pro for more calls."
+                           "or upgrade to Pro for more credits."
             }
         )
 
@@ -88,8 +88,8 @@ async def agent_chat(
 
         processing_time = int((time.time() - start_time) * 1000)
 
-        # Increment usage after successful call
-        SubscriptionService.increment_usage(db, current_user.id, "discussion_ai_calls")
+        # Increment editor AI credits
+        SubscriptionService.increment_usage(db, current_user.id, "editor_ai_calls")
 
         return AgentChatResponse(
             response=result["response"],
@@ -113,9 +113,9 @@ async def agent_chat_stream(
     Streaming version of smart agent chat.
     Uses tool-based orchestration (V2) when enabled.
     """
-    # Check subscription limit (shares limit with Discussion AI)
+    # Check editor AI credit limit
     allowed, current, limit = SubscriptionService.check_feature_limit(
-        db, current_user.id, "discussion_ai_calls"
+        db, current_user.id, "editor_ai_calls"
     )
     if not allowed:
         raise HTTPException(
@@ -124,9 +124,9 @@ async def agent_chat_stream(
                 "error": "AI usage limit reached",
                 "current": current,
                 "limit": limit,
-                "message": f"You've used {current}/{limit} AI calls this month. "
+                "message": f"You've used {current}/{limit} editor AI credits this month. "
                            "Add your OpenRouter API key in Settings for unlimited usage, "
-                           "or upgrade to Pro for more calls."
+                           "or upgrade to Pro for more credits."
             }
         )
 
@@ -159,11 +159,11 @@ async def agent_chat_stream(
                     ):
                         yield chunk
             finally:
-                # Increment usage after streaming
+                # Increment editor AI credits
                 try:
-                    SubscriptionService.increment_usage(db, current_user.id, "discussion_ai_calls")
+                    SubscriptionService.increment_usage(db, current_user.id, "editor_ai_calls")
                 except Exception as e:
-                    logger.warning(f"Failed to increment usage for user {current_user.id}: {e}")
+                    logger.error(f"Failed to increment editor AI usage for user {current_user.id}: {e}")
 
         return StreamingResponse(
             generate(),

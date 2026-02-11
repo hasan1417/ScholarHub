@@ -7,7 +7,7 @@ Tables:
 - usage_tracking: Monthly usage counters per user
 """
 
-from sqlalchemy import Column, String, Boolean, DateTime, Integer, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, String, Boolean, DateTime, Integer, BigInteger, ForeignKey, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -105,9 +105,11 @@ class UsageTracking(Base):
     period_year = Column(Integer, nullable=False)
     period_month = Column(Integer, nullable=False)  # 1-12
 
-    # Usage counters
+    # Usage counters (credits: standard models = 1, premium models = 5)
     discussion_ai_calls = Column(Integer, nullable=False, default=0)
+    editor_ai_calls = Column(Integer, nullable=False, default=0)
     paper_discovery_searches = Column(Integer, nullable=False, default=0)
+    tokens_consumed = Column(BigInteger, nullable=False, default=0)  # internal cost tracking
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

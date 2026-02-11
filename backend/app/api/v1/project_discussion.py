@@ -1299,7 +1299,9 @@ async def invoke_discussion_assistant(
 
     logger.info(f"Using {key_source} OpenRouter API key for Discussion AI")
 
-    # Check subscription limit for discussion AI calls
+    # Check discussion AI credit limit (premium models cost 5, standard cost 1)
+    from app.services.subscription_service import get_model_credit_cost
+    credit_cost = get_model_credit_cost(model)
     allowed, current_usage, limit = SubscriptionService.check_feature_limit(
         db, current_user.id, "discussion_ai_calls"
     )
@@ -1311,7 +1313,7 @@ async def invoke_discussion_assistant(
                 "feature": "discussion_ai_calls",
                 "current": current_usage,
                 "limit": limit,
-                "message": f"You have reached your AI assistant limit ({current_usage}/{limit} calls this month). Upgrade to Pro for more AI calls.",
+                "message": f"You have reached your discussion AI credit limit ({current_usage}/{limit} credits this month). Upgrade to Pro for more credits.",
             },
         )
 
@@ -1511,9 +1513,9 @@ async def invoke_discussion_assistant(
                         }},
                     )
                     try:
-                        await asyncio.to_thread(SubscriptionService.increment_usage, db, user_id, "discussion_ai_calls")
-                    except Exception:
-                        pass
+                        await asyncio.to_thread(SubscriptionService.increment_usage, db, user_id, "discussion_ai_calls", credit_cost)
+                    except Exception as e:
+                        logger.error(f"Failed to increment discussion AI usage for user {user_id}: {e}")
 
             except GeneratorExit:
                 logger.info(f"Client disconnected during streaming for exchange {exchange_id}")
@@ -1582,11 +1584,11 @@ async def invoke_discussion_assistant(
         status="completed",
     )
 
-    # Increment usage
+    # Increment discussion AI credits
     try:
-        SubscriptionService.increment_usage(db, current_user.id, "discussion_ai_calls")
-    except Exception:
-        pass
+        SubscriptionService.increment_usage(db, current_user.id, "discussion_ai_calls", amount=credit_cost)
+    except Exception as e:
+        logger.error(f"Failed to increment discussion AI usage for user {current_user.id}: {e}")
 
     return response
 

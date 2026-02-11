@@ -20,9 +20,10 @@ from app.models.paper_member import PaperMember, PaperRole
 from app.models.editor_chat_message import EditorChatMessage
 from app.schemas.editor_chat_message import EditorChatMessageResponse
 from app.services.smart_agent_service_v2_or import SmartAgentServiceV2OR
-from app.services.subscription_service import SubscriptionService
+from app.services.subscription_service import SubscriptionService, get_model_credit_cost
 from app.services.discussion_ai.openrouter_orchestrator import get_available_models, get_available_models_with_meta
-from app.api.utils.openrouter_access import resolve_openrouter_key_for_user
+from app.api.utils.openrouter_access import resolve_openrouter_key_for_user, resolve_openrouter_key_for_project
+from app.models.project import Project
 
 logger = logging.getLogger(__name__)
 
@@ -116,8 +117,23 @@ async def agent_chat_stream_or(
         document_excerpt: The current LaTeX document content
         reasoning_mode: Enable reasoning mode for supported models
     """
-    # Get user's OpenRouter API key if configured
-    resolution = resolve_openrouter_key_for_user(db, current_user)
+    # Resolve API key — use project-level resolution (supports owner key sharing)
+    project = None
+    if request.project_id:
+        try:
+            project = db.query(Project).filter(Project.id == uuid_mod.UUID(str(request.project_id))).first()
+        except (ValueError, AttributeError):
+            pass
+
+    if project:
+        discussion_settings = project.discussion_settings or {}
+        use_owner_key = bool(discussion_settings.get("use_owner_key_for_team", False))
+        resolution = resolve_openrouter_key_for_project(
+            db, current_user, project, use_owner_key_for_team=use_owner_key
+        )
+    else:
+        resolution = resolve_openrouter_key_for_user(db, current_user)
+
     user_api_key = resolution.get("api_key")
     if resolution.get("error_status"):
         raise HTTPException(
@@ -136,10 +152,10 @@ async def agent_chat_stream_or(
             },
         )
 
-    # Check subscription limit (shares limit with Discussion AI)
-    # BYOK users have unlimited (-1), others have tier limits
+    # Check editor AI credit limit
+    credit_cost = get_model_credit_cost(model)
     allowed, current, limit = SubscriptionService.check_feature_limit(
-        db, current_user.id, "discussion_ai_calls"
+        db, current_user.id, "editor_ai_calls"
     )
     if not allowed:
         raise HTTPException(
@@ -148,9 +164,9 @@ async def agent_chat_stream_or(
                 "error": "AI usage limit reached",
                 "current": current,
                 "limit": limit,
-                "message": f"You've used {current}/{limit} AI calls this month. "
+                "message": f"You've used {current}/{limit} editor AI credits this month. "
                            "Add your OpenRouter API key in Settings for unlimited usage, "
-                           "or upgrade to Pro for more calls."
+                           "or upgrade to Pro for more credits."
             }
         )
 
@@ -175,11 +191,11 @@ async def agent_chat_stream_or(
             ):
                 yield chunk
         finally:
-            # Increment usage after streaming (counts even if interrupted)
+            # Increment editor AI credits (premium models cost 5, standard cost 1)
             try:
-                SubscriptionService.increment_usage(db, current_user.id, "discussion_ai_calls")
+                SubscriptionService.increment_usage(db, current_user.id, "editor_ai_calls", amount=credit_cost)
             except Exception as e:
-                logger.warning(f"Failed to increment usage for user {current_user.id}: {e}")
+                logger.error(f"Failed to increment editor AI usage for user {current_user.id}: {e}")
 
     return StreamingResponse(
         generate(),

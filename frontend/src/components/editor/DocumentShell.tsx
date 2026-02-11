@@ -679,11 +679,20 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
   }, [])
 
   /** Handle AI edit approval - replace lines by line numbers (root cause fix) */
-  const handleApplyAiEdit = useCallback((startLine: number, endLine: number, anchor: string, replacement: string): boolean => {
+  const handleApplyAiEdit = useCallback((startLine: number, endLine: number, anchor: string, replacement: string, sourceDocument?: string): boolean => {
     if (readOnly) return false
 
     // Get current content from the adapter directly for most accurate state
     const currentContent = adapterRef.current?.getContent?.() || latestContentRef.current.html || ''
+
+    // Staleness check: reject if document changed since the AI generated this edit
+    if (sourceDocument) {
+      const normalize = (s: string) => s.replace(/\s+$/, '')
+      if (normalize(currentContent) !== normalize(sourceDocument)) {
+        showToast('Edits are stale: document changed. Please regenerate.', 'error')
+        return false
+      }
+    }
 
     console.log('[DocumentShell] Applying AI edit (line-based):', {
       startLine,
@@ -796,11 +805,14 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     if (!sourceDocument) return false
 
     const currentContent = adapterRef.current?.getContent?.() || latestContentRef.current.html || ''
-    if (currentContent !== sourceDocument) {
+    // Normalize trailing whitespace before comparison — editor/collab can add/remove trailing newlines
+    const normalize = (s: string) => s.replace(/\s+$/, '')
+    if (normalize(currentContent) !== normalize(sourceDocument)) {
       showToast('Edits are stale: document changed. Please regenerate.', 'error')
       return false
     }
 
+    // Apply edits against the sourceDocument snapshot (the version the AI saw)
     const lines = sourceDocument.split('\n')
     const totalLines = lines.length
 
