@@ -58,7 +58,7 @@ _INTENT_TOOLS = {
     "library": frozenset({
         "get_reference_details", "analyze_reference", "annotate_reference",
         "export_citations", "get_channel_papers", "semantic_search_library",
-        "add_to_library",
+        "add_to_library", "focus_on_papers",
     }),
     "writing": frozenset({
         "create_paper", "update_paper", "get_project_papers",

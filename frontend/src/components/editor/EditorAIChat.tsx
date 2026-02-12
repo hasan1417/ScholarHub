@@ -29,7 +29,7 @@ interface EditorAIChatProps {
   /** Callback to apply an approved edit to the document (line-based) */
   onApplyEdit?: (startLine: number, endLine: number, anchor: string, replacement: string) => boolean
   /** Callback to apply a batch of edits against a snapshot */
-  onApplyEditsBatch?: (proposals: EditProposal[], sourceDocument: string) => boolean
+  onApplyEditsBatch?: (proposals: EditProposal[], sourceDocument: string) => string[]
 }
 
 type ChatMessage = {
@@ -252,6 +252,7 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
   const [error, setError] = useState<string | null>(null)
   const [references, setReferences] = useState<ReferenceItem[]>([])
   const [reasoningMode, setReasoningMode] = useState(false)
+  const [appliedReviewMsgs, setAppliedReviewMsgs] = useState<Set<number>>(new Set())
   const abortControllerRef = useRef<AbortController | null>(null)
   // Edit mode is now auto-detected by the backend based on user intent
   // No manual toggle needed - AI automatically proposes edits when appropriate
@@ -360,9 +361,12 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
       const msg = copy[messageIdx]
       if (!msg?.proposals || msg.proposals.length === 0 || !msg.sourceDocument) return prev
 
-      const success = onApplyEditsBatch?.(msg.proposals, msg.sourceDocument) ?? false
-      if (success) {
-        msg.proposals = msg.proposals.map((p) => ({ ...p, status: 'approved' as const }))
+      const appliedIds = new Set(onApplyEditsBatch?.(msg.proposals, msg.sourceDocument) ?? [])
+      if (appliedIds.size > 0) {
+        msg.proposals = msg.proposals.map((p) => ({
+          ...p,
+          status: appliedIds.has(p.id) ? 'approved' as const : p.status,
+        }))
       } else {
         setError('Could not apply edits. The document may have changed. Please regenerate.')
       }
@@ -631,7 +635,8 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
     [docContext, documentText, paperId, parseClarification, parseEditProposals, projectId, reasoningMode, sending]
   )
 
-  const handleApplyReviewChanges = useCallback((mode: 'critical' | 'all') => {
+  const handleApplyReviewChanges = useCallback((mode: 'critical' | 'all', msgIdx: number) => {
+    setAppliedReviewMsgs((prev) => new Set(prev).add(msgIdx))
     const prompt = mode === 'critical'
       ? 'Apply only the critical fixes from your last review. Focus on compilation blockers.'
       : 'Apply all suggested changes from your last review.'
@@ -777,17 +782,17 @@ const EditorAIChat: React.FC<EditorAIChatProps> = ({
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                     </div>
                   )}
-                  {m.content && isReviewMessage(m.content) && (!m.proposals || m.proposals.length === 0) && (
+                  {m.content && isReviewMessage(m.content) && (!m.proposals || m.proposals.length === 0) && !appliedReviewMsgs.has(idx) && (
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <button
-                        onClick={() => handleApplyReviewChanges('critical')}
+                        onClick={() => handleApplyReviewChanges('critical', idx)}
                         disabled={sending}
                         className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-500/60 dark:bg-amber-900/30 dark:text-amber-100"
                       >
                         Apply critical fixes
                       </button>
                       <button
-                        onClick={() => handleApplyReviewChanges('all')}
+                        onClick={() => handleApplyReviewChanges('all', idx)}
                         disabled={sending}
                         className="rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
                       >

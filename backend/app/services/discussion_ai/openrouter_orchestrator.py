@@ -807,11 +807,8 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             call_kwargs: Dict[str, Any] = dict(
                 model=self.model,
                 messages=messages,
-                max_tokens=256,
+                max_tokens=50,
             )
-            reasoning_params = self._get_reasoning_params()
-            if reasoning_params.get("extra_body"):
-                call_kwargs["extra_body"] = reasoning_params["extra_body"]
             response = self.openrouter_client.chat.completions.create(**call_kwargs)
             raw = response.choices[0].message.content or ""
             final_message = _strip_internal_tags(raw)
@@ -856,12 +853,9 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             lite_kwargs: Dict[str, Any] = dict(
                 model=self.model,
                 messages=messages,
-                max_tokens=256,
+                max_tokens=50,
                 stream=True,
             )
-            reasoning_params = self._get_reasoning_params()
-            if reasoning_params.get("extra_body"):
-                lite_kwargs["extra_body"] = reasoning_params["extra_body"]
             stream = await self.async_openrouter_client.chat.completions.create(**lite_kwargs)
             async for chunk in stream:
                 delta = chunk.choices[0].delta if chunk.choices else None

@@ -1,10 +1,8 @@
 """
 Smart Agent Service V2 OR - OpenRouter version for LaTeX Editor AI.
 
-Simple approach:
-- Templates are in the system prompt (authoritative)
-- AI uses propose_edit directly for conversions
-- Single API call for most operations
+Subclass of SmartAgentServiceV2 that overrides streaming, history, and
+reference handling to work with OpenRouter's API.
 """
 import os
 import re
@@ -19,6 +17,7 @@ from openai import OpenAI
 
 from app.core.config import settings
 from app.services.smart_agent_service_v2 import (
+    SmartAgentServiceV2,
     EDITOR_TOOLS,
     SYSTEM_PROMPT,
     _resolve_paper_id,
@@ -31,7 +30,6 @@ from app.services.discussion_ai.token_utils import (
     RESPONSE_TOKEN_RESERVE,
     TOOL_OUTPUT_RESERVE,
 )
-from app.constants.paper_templates import CONFERENCE_TEMPLATES
 
 logger = logging.getLogger(__name__)
 
@@ -72,17 +70,21 @@ SEARCH_REFERENCES_TOOL = {
 }
 
 
-class SmartAgentServiceV2OR:
+class SmartAgentServiceV2OR(SmartAgentServiceV2):
     """
     OpenRouter-powered LaTeX Editor AI.
 
-    Simple approach:
-    - Templates are in the system prompt (authoritative)
-    - AI uses propose_edit directly for conversions
-    - Single API call for most operations
+    Inherits deterministic helpers (_build_clarification, _detect_operation,
+    _format_tool_response, etc.) from SmartAgentServiceV2.  Overrides streaming,
+    history loading, reference context, and chat storage for OpenRouter.
     """
 
+    _MAX_RETRIES = 3
+    _INITIAL_BACKOFF = 1.0
+    _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+
     def __init__(self, model: str = "openai/gpt-5.2-20251211", user_api_key: Optional[str] = None):
+        # Don't call super().__init__() — we use a different client
         self.model = model
 
         api_key = user_api_key or os.getenv("OPENROUTER_API_KEY")
@@ -103,28 +105,9 @@ class SmartAgentServiceV2OR:
         self._user_id = None
         self._paper_id = None
 
-    _LITE_SYSTEM_PROMPT = (
-        "You are a helpful academic writing assistant for the LaTeX editor in ScholarHub. "
-        "Respond concisely and warmly. If the user greets you, greet them back briefly. "
-        "If they thank you or acknowledge something, confirm briefly. "
-        "If they seem to need editing help, let them know you're ready. "
-        "Keep responses under 2 sentences."
-    )
-
-    _EDITOR_ACTION_VERBS = re.compile(
-        r"\b(improve|fix|rewrite|shorten|expand|change|edit|modify|correct|proofread|"
-        r"convert|reformat|replace|insert|delete|remove|rephrase|revise|polish|"
-        r"make better|tighten|clean up|strengthen|enhance)\b",
-        re.IGNORECASE,
-    )
-
-    def _is_lite_route(self, query: str, history: List[Dict[str, str]]) -> bool:
-        """Check if this message should take the lite path (no tools, no document)."""
-        if self._EDITOR_ACTION_VERBS.search(query or ""):
-            return False
-        from app.services.discussion_ai.route_classifier import classify_route
-        decision = classify_route(query, history, {})
-        return decision.route == "lite"
+    # ------------------------------------------------------------------
+    # OR-only helpers
+    # ------------------------------------------------------------------
 
     def _emit_status(self, message: str) -> str:
         """Return a status marker for the frontend. Never touches response_text."""
@@ -173,6 +156,19 @@ class SmartAgentServiceV2OR:
                 out.append(ch)
                 i += 1
         return "".join(out), ""
+
+    @staticmethod
+    def _is_retryable(error: Exception) -> bool:
+        from openai import RateLimitError, APIConnectionError, APITimeoutError, APIStatusError
+        if isinstance(error, (RateLimitError, APIConnectionError, APITimeoutError)):
+            return True
+        if isinstance(error, APIStatusError):
+            return error.status_code in SmartAgentServiceV2OR._RETRYABLE_STATUS_CODES
+        return False
+
+    # ------------------------------------------------------------------
+    # Streaming
+    # ------------------------------------------------------------------
 
     def _stream_llm_call(self, request_kwargs: dict) -> Generator[str, None, None]:
         """Stream an LLM call, yielding visible content tokens.
@@ -331,12 +327,19 @@ class SmartAgentServiceV2OR:
         think_filter = ThinkTagFilter()
 
         try:
-            stream = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                max_tokens=150,
-                stream=True,
-            )
+            kwargs: dict = {
+                "model": self.model,
+                "messages": messages,
+                "max_tokens": 500,
+                "stream": True,
+            }
+            # Minimize reasoning tokens on lite route — greetings don't need deep thinking.
+            # We use effort:"low" rather than disabling entirely because some OR providers
+            # don't support exclude. The system prompt caps visible output to 2 sentences;
+            # max_tokens=500 gives headroom for any remaining thinking overhead.
+            if model_supports_reasoning(self.model):
+                kwargs["extra_body"] = {"reasoning": {"effort": "low"}}
+            stream = self.client.chat.completions.create(**kwargs)
             for chunk in stream:
                 if not chunk.choices:
                     continue
@@ -354,12 +357,9 @@ class SmartAgentServiceV2OR:
             logger.warning(f"[SmartAgentV2OR] Lite streaming error: {e}")
             yield "Hello! I can help you edit, review, or answer questions about your paper. What would you like to do?"
 
-    def _add_line_numbers(self, text: str) -> str:
-        """Add line numbers to text."""
-        lines = text.split('\n')
-        width = max(len(str(len(lines))), 3)
-        numbered = [f"{i:>{width}}| {line}" for i, line in enumerate(lines, 1)]
-        return '\n'.join(numbered)
+    # ------------------------------------------------------------------
+    # Main entry point
+    # ------------------------------------------------------------------
 
     def stream_query(
         self,
@@ -514,15 +514,30 @@ class SmartAgentServiceV2OR:
                     "messages": messages,
                     "tools": tools,
                     "tool_choice": tool_choice,
-                    "max_tokens": 4000,
+                    "max_tokens": 8000,
                 }
 
                 if use_reasoning:
                     request_kwargs["extra_body"] = {"reasoning_effort": "high"}
 
-                # Stream the LLM call — content tokens (and optionally
-                # answer_question args) are yielded live via _collect_and_yield.
-                yield from _collect_and_yield(self._stream_llm_call(request_kwargs))
+                # Stream the LLM call with retry on transient errors.
+                # Only retry if no content tokens have been yielded yet — once
+                # tokens reach the client, retrying would produce duplicates.
+                for attempt in range(self._MAX_RETRIES):
+                    try:
+                        yield from _collect_and_yield(self._stream_llm_call(request_kwargs))
+                        break
+                    except Exception as e:
+                        tokens_already_sent = self._first_content_time is not None
+                        if tokens_already_sent or not self._is_retryable(e) or attempt == self._MAX_RETRIES - 1:
+                            raise
+                        backoff = self._INITIAL_BACKOFF * (2 ** attempt)
+                        logger.warning(
+                            "[SmartAgentV2OR] Attempt %d/%d failed (%s). Retrying in %.1fs",
+                            attempt + 1, self._MAX_RETRIES, str(e)[:100], backoff,
+                        )
+                        yield self._emit_status("Retrying...")
+                        time.sleep(backoff)
 
                 tool_calls = self._last_stream_tool_calls
 
@@ -549,7 +564,7 @@ class SmartAgentServiceV2OR:
                 # Build assistant message for multi-turn context
                 assistant_msg: Dict[str, Any] = {
                     "role": "assistant",
-                    "content": self._last_stream_content or "",
+                    "content": self._last_stream_content or None,
                     "tool_calls": [{
                         "id": tc["id"],
                         "type": "function",
@@ -652,162 +667,9 @@ class SmartAgentServiceV2OR:
             logger.error(f"[SmartAgentV2OR] Error: {e}")
             yield f"Sorry, an error occurred: {str(e)}"
 
-    def _build_clarification(self, query: str, document_excerpt: Optional[str]) -> Optional[Dict[str, Any]]:
-        q = (query or "").strip()
-        if not q:
-            return None
-        q_lower = q.lower()
-        if q_lower.startswith("clarification:"):
-            return None
-        if q_lower.endswith("?") and q_lower.split(" ", 1)[0] in ("what", "which", "how", "when", "where", "who", "why"):
-            return None
-        if self._is_convert_request(q_lower):
-            return None
-
-        operation = self._detect_operation(q_lower)
-        if not operation:
-            return None
-
-        target = self._detect_target(q_lower)
-        if not target and document_excerpt:
-            target = "document"
-
-        if self._has_explicit_replacement(q_lower, q):
-            return None
-
-        if not target:
-            return {
-                "question": "What should I change?",
-                "options": [
-                    "Title",
-                    "Abstract",
-                    "Specific section (tell me which)",
-                    "Entire document",
-                ],
-            }
-
-        if operation == "fix":
-            return None
-
-        if operation in ("improve", "rewrite", "shorten", "expand", "change") and not self._has_constraints(q_lower):
-            return {
-                "question": f"For the {target}, what should I optimize for?",
-                "options": [
-                    "Shorter/concise",
-                    "More specific focus",
-                    "More formal/academic",
-                    "Improve clarity/flow",
-                ],
-            }
-
-        return None
-
-    def _detect_operation(self, q_lower: str) -> Optional[str]:
-        if any(term in q_lower for term in ("fix grammar", "fix typos", "grammar", "typo", "proofread")):
-            return "fix"
-        if any(term in q_lower for term in ("shorten", "condense", "compress", "summarize", "trim", "cut", "reduce", "make shorter", "make concise")):
-            return "shorten"
-        if any(term in q_lower for term in ("expand", "elaborate", "add detail", "lengthen", "add more")):
-            return "expand"
-        if any(term in q_lower for term in ("rewrite", "rephrase", "paraphrase", "reword")):
-            return "rewrite"
-        if any(term in q_lower for term in ("improve", "make better", "enhance", "polish", "refine", "tighten", "clean up", "strengthen", "revise")):
-            return "improve"
-        if any(term in q_lower for term in ("change", "update")):
-            return "change"
-        return None
-
-    def _detect_target(self, q_lower: str) -> Optional[str]:
-        targets = (
-            "title",
-            "abstract",
-            "introduction",
-            "background",
-            "related work",
-            "literature review",
-            "method",
-            "methods",
-            "methodology",
-            "results",
-            "discussion",
-            "conclusion",
-            "limitations",
-            "section",
-            "paragraph",
-            "sentence",
-            "document",
-            "paper",
-            "manuscript",
-        )
-        for term in targets:
-            if term in q_lower:
-                return term
-        return None
-
-    def _has_constraints(self, q_lower: str) -> bool:
-        if re.search(r"\b\d+\s*(words?|pages?|sentences?)\b", q_lower):
-            return True
-        if any(term in q_lower for term in ("shorter", "longer", "concise", "brief", "detailed", "in depth")):
-            return True
-        if any(term in q_lower for term in ("focus", "emphasize", "highlight", "specifically", "scope", "about")):
-            return True
-        if any(term in q_lower for term in ("tone", "formal", "academic", "casual", "technical", "simple", "professional")):
-            return True
-        if any(term in q_lower for term in ("suggest", "options", "examples", "alternatives")):
-            return True
-        return False
-
-    def _is_convert_request(self, q_lower: str) -> bool:
-        if any(term in q_lower for term in ("convert", "reformat", "template")):
-            return True
-        for template_id in CONFERENCE_TEMPLATES.keys():
-            if template_id in q_lower:
-                return True
-        return False
-
-    def _has_explicit_replacement(self, q_lower: str, query: str) -> bool:
-        if '"' in query or "'" in query or "\\title{" in query:
-            return True
-        if re.search(r"\btitle\b.*\bto\b.{5,}", q_lower):
-            return True
-        return False
-
-    def _is_review_message(self, content: str) -> bool:
-        if not content:
-            return False
-        return "## Review" in content or "Suggested Improvements" in content
-
-    def _rewrite_affirmation(self, query: str, history: List[Dict[str, str]]) -> Optional[str]:
-        q = (query or "").strip().lower()
-        if not q:
-            return None
-        short_ack = {
-            "please",
-            "yes",
-            "ok",
-            "okay",
-            "sure",
-            "go ahead",
-            "do it",
-            "do so",
-            "apply",
-            "apply it",
-            "sounds good",
-            "yep",
-        }
-        if q not in short_ack:
-            return None
-        last_assistant = next((m for m in reversed(history) if m.get("role") == "assistant"), None)
-        if not last_assistant or not self._is_review_message(last_assistant.get("content", "")):
-            return None
-        return "Apply the suggested changes from your last review."
-
-    def _sanitize_assistant_content(self, content: str) -> str:
-        if "<<<EDIT>>>" in content:
-            content = content.split("<<<EDIT>>>", 1)[0].strip()
-        if "<<<CLARIFY>>>" in content:
-            content = content.split("<<<CLARIFY>>>", 1)[0].strip()
-        return content
+    # ------------------------------------------------------------------
+    # OR-specific overrides
+    # ------------------------------------------------------------------
 
     _TEMPLATE_LIST_RE = re.compile(
         r"\b(what|which|list|show|available|supported)\b.*\b(template|format|conference|journal)\b"
@@ -821,7 +683,7 @@ class SmartAgentServiceV2OR:
         Returns "required", "auto", or a pinned tool_choice dict.
         """
         if turn > 1:
-            return "auto"
+            return "required"
 
         q = (query or "").strip().lower()
         if not q:
@@ -831,12 +693,13 @@ class SmartAgentServiceV2OR:
         if self._TEMPLATE_LIST_RE.search(q):
             return {"type": "function", "function": {"name": "list_available_templates"}}
 
-        # Don't force tool_choice for "apply suggestions" follow-ups
+        # Force tool call for "apply suggestions" follow-ups — the model
+        # must call propose_edit directly, not narrate or search references.
         if any(phrase in q for phrase in (
             "apply all suggested changes", "apply suggested changes",
             "apply all suggestions", "apply critical fixes", "apply critical",
         )):
-            return "auto"
+            return "required"
 
         return "required"
 
@@ -1034,77 +897,9 @@ class SmartAgentServiceV2OR:
         except Exception as e:
             logger.warning(f"[SmartAgentV2OR] Failed to check summary trigger: {e}")
 
-    def _format_tool_response(self, tool_name: str, args: dict) -> Generator[str, None, None]:
-        """Format the tool response for the frontend."""
-
-        if tool_name == "answer_question":
-            yield args.get("answer", "")
-
-        elif tool_name == "ask_clarification":
-            question = (args.get("question") or "").strip()
-            raw_options = args.get("options") or []
-            if isinstance(raw_options, str):
-                raw_options = [raw_options]
-            options = [opt.strip() for opt in raw_options if isinstance(opt, str) and opt.strip()]
-
-            yield "<<<CLARIFY>>>\n"
-            yield f"QUESTION: {question}\n"
-            yield f"OPTIONS: {' | '.join(options)}\n"
-            yield "<<<END>>>\n"
-
-        elif tool_name == "propose_edit":
-            explanation = args.get("explanation", "")
-            edits = args.get("edits", [])
-
-            yield f"{explanation}\n\n"
-
-            for edit in edits:
-                yield "<<<EDIT>>>\n"
-                yield f"{edit.get('description', 'Edit')}\n"
-                yield "<<<LINES>>>\n"
-                yield f"{edit.get('start_line', 1)}-{edit.get('end_line', 1)}\n"
-                yield "<<<ANCHOR>>>\n"
-                yield f"{edit.get('anchor', '')}\n"
-                yield "<<<PROPOSED>>>\n"
-                yield f"{edit.get('proposed', '')}\n"
-                yield "<<<END>>>\n\n"
-
-        elif tool_name == "review_document":
-            summary = args.get("summary", "")
-            strengths = args.get("strengths", [])
-            improvements = args.get("improvements", [])
-            offer_edits = args.get("offer_edits", True)
-
-            yield f"## Review\n\n{summary}\n\n"
-
-            if strengths:
-                yield "### Strengths\n"
-                for s in strengths:
-                    yield f"- {s}\n"
-                yield "\n"
-
-            if improvements:
-                yield "### Suggested Improvements\n"
-                for i in improvements:
-                    yield f"- {i}\n"
-                yield "\n"
-
-            if offer_edits:
-                yield "Would you like me to make any of these suggested changes?"
-
-        elif tool_name == "explain_references":
-            yield args.get("explanation", "")
-            if args.get("suggest_discovery"):
-                yield "\n\nTo discover new papers, use the **Discussion AI** or **Discovery page**."
-
-        elif tool_name == "list_available_templates":
-            yield from self._handle_list_templates()
-
-        elif tool_name == "apply_template":
-            yield from self._handle_apply_template(args.get("template_id", ""))
-
-        else:
-            yield f"Unknown tool: {tool_name}"
+    # ------------------------------------------------------------------
+    # Reference search (OR-only)
+    # ------------------------------------------------------------------
 
     def _get_reference_context(
         self,
@@ -1172,7 +967,6 @@ class SmartAgentServiceV2OR:
         try:
             from app.models.reference import Reference
             from app.models.paper_reference import PaperReference
-            from app.models.document_chunk import DocumentChunk
 
             if not self._paper_id:
                 return "No paper ID available for reference search."
@@ -1245,7 +1039,7 @@ class SmartAgentServiceV2OR:
                     if isinstance(emb, str):
                         try:
                             emb = json.loads(emb)
-                        except:
+                        except (ValueError, TypeError, KeyError):
                             continue
 
                     if isinstance(emb, (list, tuple)) and len(emb) > 0:
@@ -1317,45 +1111,10 @@ class SmartAgentServiceV2OR:
             logger.error(f"Keyword search failed: {e}")
             return ""
 
-    def _handle_list_templates(self) -> Generator[str, None, None]:
-        """Return formatted list of available templates."""
-        yield "## Available Conference Templates\n\n"
-        yield "| Template | ID | Notes |\n"
-        yield "|----------|-----|-------|\n"
-        for template_id, template in CONFERENCE_TEMPLATES.items():
-            name = template.get("name", template_id)
-            notes = template.get("notes", "")
-            yield f"| {name} | `{template_id}` | {notes} |\n"
-        yield "\nTo convert, say: \"Convert this to ACL format\" or \"Reformat for IEEE\"\n"
 
-    def _handle_apply_template(self, template_id: str) -> Generator[str, None, None]:
-        """Return template info for AI to use with propose_edit."""
-        if template_id not in CONFERENCE_TEMPLATES:
-            yield f"Unknown template: `{template_id}`. Available: {', '.join(CONFERENCE_TEMPLATES.keys())}"
-            return
-
-        template = CONFERENCE_TEMPLATES[template_id]
-
-        yield f"## Template: {template['name']}\n\n"
-        yield f"{template['description']}\n\n"
-
-        yield "### EXACT Preamble Structure to Use\n\n"
-        yield "Copy this structure and fill in the actual title/authors from the document:\n\n"
-        yield f"```latex\n{template['preamble_example']}\n```\n\n"
-
-        yield f"### Author Format: `{template['author_format']}`\n\n"
-        yield f"### Bibliography: `\\bibliographystyle{{{template['bib_style']}}}`\n\n"
-        yield "### Recommended Sections\n\n"
-        for section in template.get("sections", []):
-            yield f"- {section}\n"
-        yield "\n"
-        yield f"### Notes: {template['notes']}\n\n"
-
-        yield "---\n\n"
-        yield "**NOW call propose_edit** with all necessary edits:\n"
-        yield "1. Replace lines 1 through \\maketitle with this template (extract title, authors, affiliations, emails from the current document)\n"
-        yield "2. Replace any format-specific environments in the body that the new template does not define (e.g., replace `\\begin{IEEEkeywords}` with `\\begin{keywords}`)\n"
-
+# ------------------------------------------------------------------
+# Module-level helpers (background summary)
+# ------------------------------------------------------------------
 
 def _summary_done_callback(future: concurrent.futures.Future) -> None:
     """Log exceptions from background summary tasks."""

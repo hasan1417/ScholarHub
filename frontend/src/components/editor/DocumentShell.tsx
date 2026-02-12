@@ -794,22 +794,23 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
   }, [isLatex, readOnly, requestAutosave, showToast, updateLatestContent])
 
   type BatchEdit = {
+    id: string
     startLine: number
     endLine: number
     anchor: string
     proposed: string
   }
 
-  const handleApplyAiEditsBatch = useCallback((proposals: BatchEdit[], sourceDocument: string): boolean => {
-    if (readOnly) return false
-    if (!sourceDocument) return false
+  const handleApplyAiEditsBatch = useCallback((proposals: BatchEdit[], sourceDocument: string): string[] => {
+    if (readOnly) return []
+    if (!sourceDocument) return []
 
     const currentContent = adapterRef.current?.getContent?.() || latestContentRef.current.html || ''
     // Normalize trailing whitespace before comparison — editor/collab can add/remove trailing newlines
     const normalize = (s: string) => s.replace(/\s+$/, '')
     if (normalize(currentContent) !== normalize(sourceDocument)) {
       showToast('Edits are stale: document changed. Please regenerate.', 'error')
-      return false
+      return []
     }
 
     // Apply edits against the sourceDocument snapshot (the version the AI saw)
@@ -821,16 +822,13 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
       return b.endLine - a.endLine
     })
 
+    // Pass 1: Validate anchors against ORIGINAL unmodified lines
+    const anchorValid: typeof sorted = []
     for (const proposal of sorted) {
-      const { startLine, endLine, anchor, proposed } = proposal
-      if (startLine < 1 || endLine < startLine || startLine > totalLines) {
-        showToast(`Invalid edit range at line ${startLine}. Please regenerate.`, 'error')
-        return false
-      }
+      const { startLine, endLine, anchor } = proposal
+      if (startLine < 1 || endLine < startLine || startLine > totalLines) continue
 
       const startIdx = startLine - 1
-      const endIdx = Math.min(endLine - 1, totalLines - 1)
-
       if (anchor && anchor.trim()) {
         const actualLineStart = lines[startIdx] || ''
         const normalizedAnchor = anchor.trim().slice(0, 40).toLowerCase()
@@ -841,21 +839,42 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
         const wordMatch = normalizedAnchor.split(/\s+/).filter(w => w.length > 2).slice(0, 3)
           .every((word) => normalizedActual.includes(word))
         const anchorMatches = substringMatch || wordMatch
-
-        if (!anchorMatches) {
-          showToast(`Edit rejected: document changed at line ${startLine}. Please regenerate.`, 'error')
-          return false
-        }
+        if (!anchorMatches) continue // skip instead of abort
       }
+      anchorValid.push(proposal)
+    }
 
-      const replacementLines = proposed.split('\n')
-      lines.splice(startIdx, endIdx - startIdx + 1, ...replacementLines)
+    // Pass 1.5: Discard overlapping ranges (sorted descending, so check if current endLine >= prev startLine)
+    const validProposals: typeof sorted = []
+    for (const proposal of anchorValid) {
+      const prev = validProposals[validProposals.length - 1]
+      if (prev && proposal.endLine >= prev.startLine) continue // overlap — skip
+      validProposals.push(proposal)
+    }
+
+    if (validProposals.length === 0) {
+      showToast('Could not apply edits: no proposals matched the document.', 'error')
+      return []
+    }
+
+    // Pass 2: Apply all valid edits in reverse order (already sorted descending)
+    const appliedIds: string[] = []
+    for (const proposal of validProposals) {
+      const startIdx = proposal.startLine - 1
+      const endIdx = Math.min(proposal.endLine - 1, totalLines - 1)
+      lines.splice(startIdx, endIdx - startIdx + 1, ...proposal.proposed.split('\n'))
+      appliedIds.push(proposal.id)
+    }
+
+    if (appliedIds.length < proposals.length) {
+      const skipped = proposals.length - appliedIds.length
+      showToast(`Applied ${appliedIds.length}/${proposals.length} edits. ${skipped} skipped.`, 'success')
     }
 
     const newContent = lines.join('\n')
     if (newContent === currentContent) {
       showToast('No changes detected after applying edits.', 'error')
-      return false
+      return []
     }
 
     adapterRef.current?.setContent?.(newContent, { overwriteRealtime: true })
@@ -865,7 +884,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
       : latestContentRef.current.json
     updateLatestContent(newContent, nextJson)
     requestAutosave('ai-edit-applied-batch')
-    return true
+    return appliedIds
   }, [isLatex, readOnly, requestAutosave, showToast, updateLatestContent])
 
   const rootCls = fullBleed

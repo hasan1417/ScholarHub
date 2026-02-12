@@ -405,7 +405,7 @@ class SmartAgentServiceV2:
         model = self.QUALITY_MODEL
         reasoning_effort = self.FULL_REASONING_EFFORT if reasoning_mode else self.QUALITY_REASONING_EFFORT
 
-        print(f"[SmartAgentV2] Using {model} with reasoning_effort={reasoning_effort}")
+        logger.debug("[SmartAgentV2] Using %s with reasoning_effort=%s", model, reasoning_effort)
 
         history_messages = self._get_recent_history(
             db=db,
@@ -452,9 +452,7 @@ class SmartAgentServiceV2:
             while turn < max_turns:
                 turn += 1
 
-                tool_choice = "required" if turn == 1 else "auto"
-                if turn == 1 and not self._should_require_tool_choice(effective_query):
-                    tool_choice = "auto"
+                tool_choice = "required"
 
                 response = self.client.chat.completions.create(
                     model=model,
@@ -472,7 +470,7 @@ class SmartAgentServiceV2:
                     tool_name = tool_call.function.name
                     tool_args = json.loads(tool_call.function.arguments)
 
-                    print(f"[SmartAgentV2] Turn {turn}: {tool_name}")
+                    logger.debug("[SmartAgentV2] Turn %d: %s", turn, tool_name)
 
                     # Intermediate tools - return info to AI for further processing
                     if tool_name == "apply_template":
@@ -648,10 +646,20 @@ class SmartAgentServiceV2:
         return None
 
     def _detect_target(self, q_lower: str) -> Optional[str]:
-        for term in self._TARGET_TERMS:
-            if term in q_lower:
-                return term
-        return None
+        # Sort longest-first so "methodology" is found before "method"/"methods",
+        # then deduplicate substrings (skip terms contained in an already-matched term).
+        candidates = sorted(self._TARGET_TERMS, key=len, reverse=True)
+        found: list[str] = []
+        for term in candidates:
+            if term in q_lower and not any(term in f for f in found):
+                found.append(term)
+        if not found:
+            return None
+        # Restore natural order (order of appearance in query)
+        found.sort(key=lambda t: q_lower.index(t))
+        if len(found) == 1:
+            return found[0]
+        return " and ".join(found)
 
     def _has_constraints(self, q_lower: str) -> bool:
         if re.search(r"\b\d+\s*(words?|pages?|sentences?)\b", q_lower):
@@ -719,13 +727,7 @@ class SmartAgentServiceV2:
         return content
 
     def _should_require_tool_choice(self, query: str) -> bool:
-        q = (query or "").strip().lower()
-        if not q:
-            return True
-        if "apply all suggested changes" in q or "apply suggested changes" in q or "apply all suggestions" in q:
-            return False
-        if "apply critical fixes" in q or "apply critical" in q:
-            return False
+        """Always require tool choice — all output goes through tools."""
         return True
 
     def _get_recent_history(
