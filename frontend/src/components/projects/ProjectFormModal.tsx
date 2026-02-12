@@ -117,7 +117,7 @@ const ProjectFormModal = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-gray-900/50 dark:bg-black/70" aria-hidden="true" onClick={onClose} />
+      <div className="absolute inset-0 bg-gray-900/50 backdrop-blur-sm dark:bg-black/70" aria-hidden="true" onClick={onClose} />
       <form
         onSubmit={handleSubmit}
         className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-gray-50 shadow-2xl dark:bg-slate-900"
