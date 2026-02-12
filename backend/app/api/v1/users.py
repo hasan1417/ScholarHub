@@ -11,7 +11,7 @@ from app.api.deps import get_current_user
 from app.models.user import User as UserModel
 from app.schemas.user import UserUpdate, UserResponse
 from app.core.security import get_password_hash, verify_password
-from app.core.encryption import decrypt_openrouter_key, encrypt_openrouter_key, mask_openrouter_key
+from app.core.encryption import decrypt_openrouter_key, encrypt_openrouter_key, mask_openrouter_key, encrypt_api_key, decrypt_api_key, mask_api_key
 from app.services.subscription_service import SubscriptionService
 from typing import List
 from pydantic import BaseModel
@@ -255,12 +255,25 @@ async def get_api_keys(
         except ValueError:
             logger.error("Failed to decrypt stored OpenRouter API key for user %s", current_user.id)
             masked_key = None
+
+    zotero_masked = None
+    if current_user.zotero_api_key:
+        try:
+            decrypted_z = decrypt_api_key(current_user.zotero_api_key)
+            zotero_masked = mask_api_key(decrypted_z, prefix="...")
+        except ValueError:
+            zotero_masked = None
+
     return {
         "openrouter": {
             "configured": bool(current_user.openrouter_api_key),
-            # Return masked key if present (last 4 chars)
             "masked_key": masked_key,
-        }
+        },
+        "zotero": {
+            "configured": bool(current_user.zotero_api_key and current_user.zotero_user_id),
+            "masked_key": zotero_masked,
+            "user_id": current_user.zotero_user_id,
+        },
     }
 
 
@@ -315,4 +328,44 @@ async def set_openrouter_key(
         "message": f"OpenRouter API key updated successfully. {tier_message}",
         "configured": bool(current_user.openrouter_api_key),
         "tier": subscription.tier_id,
+    }
+
+
+# ========== Zotero API Key Management ==========
+
+class ZoteroKeyRequest(BaseModel):
+    api_key: str | None = None
+    user_id: str | None = None
+
+
+@router.put("/me/api-keys/zotero")
+async def set_zotero_key(
+    request: ZoteroKeyRequest,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Set or clear the user's Zotero API key and user ID."""
+    if request.api_key and request.user_id:
+        # Validate by making a test call
+        try:
+            from pyzotero import zotero as pyzotero
+            zot = pyzotero.Zotero(request.user_id, "user", request.api_key)
+            zot.collections(limit=1)
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid Zotero credentials. Please check your API key and user ID.",
+            )
+
+        current_user.zotero_api_key = encrypt_api_key(request.api_key)
+        current_user.zotero_user_id = request.user_id
+    else:
+        current_user.zotero_api_key = None
+        current_user.zotero_user_id = None
+
+    db.commit()
+
+    return {
+        "message": "Zotero credentials updated successfully.",
+        "configured": bool(current_user.zotero_api_key and current_user.zotero_user_id),
     }

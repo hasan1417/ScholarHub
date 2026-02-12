@@ -401,9 +401,14 @@ export const usersAPI = {
   },
   deleteAvatar: () => api.delete<User>('/me/avatar'),
   // API Keys management
-  getApiKeys: () => api.get<{ openrouter: { configured: boolean; masked_key: string | null } }>('/me/api-keys'),
+  getApiKeys: () => api.get<{
+    openrouter: { configured: boolean; masked_key: string | null }
+    zotero: { configured: boolean; masked_key: string | null; user_id: string | null }
+  }>('/me/api-keys'),
   setOpenRouterKey: (apiKey: string | null) =>
     api.put<{ message: string; configured: boolean }>('/me/api-keys/openrouter', { api_key: apiKey }),
+  setZoteroKey: (apiKey: string | null, userId: string | null) =>
+    api.put<{ message: string; configured: boolean }>('/me/api-keys/zotero', { api_key: apiKey, user_id: userId }),
 }
 
 // Projects API endpoints
@@ -1454,6 +1459,37 @@ export const snapshotsAPI = {
   // Restore document to a snapshot
   restoreSnapshot: (paperId: string, snapshotId: string) =>
     api.post<SnapshotRestoreResponse>(`/papers/${paperId}/snapshots/${snapshotId}/restore`),
+}
+
+// Zotero API
+export const zoteroAPI = {
+  getCollections: () =>
+    api.get<{
+      collections: Array<{ key: string; name: string; num_items: number }>
+    }>('/zotero/collections'),
+
+  getItems: (params?: { collection_key?: string; limit?: number }) =>
+    api.get<{
+      items: Array<{
+        key: string
+        title: string
+        authors: string[]
+        year: number | null
+        doi: string | null
+        journal: string | null
+        abstract: string | null
+        url: string | null
+        item_type: string
+        already_imported: boolean
+      }>
+      total: number
+    }>('/zotero/items', { params }),
+
+  importItems: (payload: { item_keys: string[]; project_id?: string }) =>
+    api.post<{ imported: number; skipped: number; reference_ids: string[] }>(
+      '/zotero/import',
+      payload
+    ),
 }
 
 // Subscription API

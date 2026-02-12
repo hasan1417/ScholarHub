@@ -45,3 +45,15 @@ def mask_openrouter_key(value: Optional[str]) -> Optional[str]:
         return None
     suffix = value[-4:] if len(value) >= 4 else value
     return f"sk-or-...{suffix}"
+
+
+# Generic aliases for any API key
+encrypt_api_key = encrypt_openrouter_key
+decrypt_api_key = decrypt_openrouter_key
+
+
+def mask_api_key(value: Optional[str], prefix: str = "...") -> Optional[str]:
+    if not value:
+        return None
+    suffix = value[-4:] if len(value) >= 4 else value
+    return f"{prefix}{suffix}"

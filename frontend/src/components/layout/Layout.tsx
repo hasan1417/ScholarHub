@@ -1,12 +1,12 @@
 import { Outlet, useNavigate, Link, useLocation } from 'react-router-dom'
 import { useMemo, useState, useEffect, useCallback } from 'react'
-import { FolderKanban, UserCircle, Settings as SettingsIcon, Sun, Moon, ChevronRight, Palette, Sparkles, Key, Eye, EyeOff, Check, Loader2, Mail, X, RefreshCw } from 'lucide-react'
+import { FolderKanban, UserCircle, Settings as SettingsIcon, Sun, Moon, ChevronRight, Palette, Sparkles, Mail, X, RefreshCw } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import SettingsModal from '../settings/SettingsModal'
 import { useThemePreference } from '../../hooks/useThemePreference'
 import { Logo } from '../brand/Logo'
 import { UpgradeModal, SubscriptionSection } from '../subscription'
-import { subscriptionAPI, usersAPI, authAPI } from '../../services/api'
+import { subscriptionAPI, authAPI } from '../../services/api'
 
 const Layout = () => {
   const { user, logout } = useAuth()
@@ -17,14 +17,6 @@ const Layout = () => {
   const [tierLoaded, setTierLoaded] = useState(false)
 
   const { theme, setTheme } = useThemePreference()
-
-  // API Keys state
-  const [openRouterKey, setOpenRouterKey] = useState('')
-  const [openRouterKeyMasked, setOpenRouterKeyMasked] = useState<string | null>(null)
-  const [openRouterKeyConfigured, setOpenRouterKeyConfigured] = useState(false)
-  const [showOpenRouterKey, setShowOpenRouterKey] = useState(false)
-  const [savingApiKey, setSavingApiKey] = useState(false)
-  const [apiKeySaved, setApiKeySaved] = useState(false)
 
   // Email verification banner state
   const [verificationBannerDismissed, setVerificationBannerDismissed] = useState(false)
@@ -56,37 +48,6 @@ const Layout = () => {
     window.addEventListener('verification-required', handleVerificationRequired)
     return () => window.removeEventListener('verification-required', handleVerificationRequired)
   }, [])
-
-  // Load API keys when settings modal opens
-  useEffect(() => {
-    if (isSettingsOpen) {
-      usersAPI.getApiKeys().then((res) => {
-        setOpenRouterKeyConfigured(res.data.openrouter.configured)
-        setOpenRouterKeyMasked(res.data.openrouter.masked_key)
-        setOpenRouterKey('')
-        setApiKeySaved(false)
-      }).catch(() => {
-        // Ignore errors
-      })
-    }
-  }, [isSettingsOpen])
-
-  const handleSaveOpenRouterKey = useCallback(async () => {
-    setSavingApiKey(true)
-    setApiKeySaved(false)
-    try {
-      const res = await usersAPI.setOpenRouterKey(openRouterKey || null)
-      setOpenRouterKeyConfigured(res.data.configured)
-      setOpenRouterKeyMasked(openRouterKey ? `sk-or-...${openRouterKey.slice(-4)}` : null)
-      setOpenRouterKey('')
-      setApiKeySaved(true)
-      setTimeout(() => setApiKeySaved(false), 2000)
-    } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Failed to save API key')
-    } finally {
-      setSavingApiKey(false)
-    }
-  }, [openRouterKey])
 
   const handleResendVerification = useCallback(async () => {
     if (!user?.email || resendingVerification) return
@@ -183,64 +144,10 @@ const Layout = () => {
         </div>
       </div>
 
-      {/* API Keys Section */}
-      <div className="space-y-3">
-        <div className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-slate-300">
-          <Key className="h-4 w-4" />
-          <span>API Keys</span>
-          <span className="ml-auto rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Beta</span>
-        </div>
-        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-gray-600 dark:text-slate-400">OpenRouter API Key</span>
-            {openRouterKeyConfigured && (
-              <span className="text-xs text-green-600 dark:text-green-400">✓ Configured</span>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <input
-                type={showOpenRouterKey ? 'text' : 'password'}
-                value={openRouterKey}
-                onChange={(e) => setOpenRouterKey(e.target.value)}
-                placeholder={openRouterKeyMasked || 'sk-or-...'}
-                className="w-full rounded-md border border-gray-300 bg-white px-3 py-1.5 pr-8 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
-              />
-              <button
-                type="button"
-                onClick={() => setShowOpenRouterKey(!showOpenRouterKey)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-slate-500 dark:hover:text-slate-300"
-              >
-                {showOpenRouterKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={handleSaveOpenRouterKey}
-              disabled={savingApiKey}
-              className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:bg-indigo-400"
-            >
-              {savingApiKey ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : apiKeySaved ? (
-                <Check className="h-3 w-3" />
-              ) : null}
-              {savingApiKey ? 'Validating...' : apiKeySaved ? 'Saved' : 'Save'}
-            </button>
-          </div>
-          <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
-            Your key is used for Discussion Beta. Get one at{' '}
-            <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline dark:text-indigo-400">
-              openrouter.ai/keys
-            </a>
-          </p>
-        </div>
-      </div>
-
       {/* Subscription Section */}
       <SubscriptionSection />
     </div>
-  ), [theme, user, setIsSettingsOpen, openRouterKey, openRouterKeyMasked, openRouterKeyConfigured, showOpenRouterKey, savingApiKey, apiKeySaved, handleSaveOpenRouterKey])
+  ), [theme, user, setIsSettingsOpen])
 
   return (
     <div className="min-h-screen transition-colors duration-200">

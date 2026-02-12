@@ -164,6 +164,10 @@ app.include_router(snapshots.router, prefix="/api/v1", tags=["document history"]
 # Subscription management
 app.include_router(subscription.router, prefix="/api/v1/subscription", tags=["subscription"])
 
+# Zotero integration
+from app.api.v1 import zotero  # noqa: F401, E402
+app.include_router(zotero.router, prefix="/api/v1/zotero", tags=["zotero"])
+
 
 @app.on_event("startup")
 async def startup_warmup_event() -> None:

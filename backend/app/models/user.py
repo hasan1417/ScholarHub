@@ -37,6 +37,8 @@ class User(Base):
 
     # API Keys (user-provided, used instead of system keys)
     openrouter_api_key = Column(String(255), nullable=True)  # User's OpenRouter API key
+    zotero_api_key = Column(String(255), nullable=True)  # encrypted
+    zotero_user_id = Column(String(50), nullable=True)
 
     # Relationships
     owned_projects = relationship("Project", back_populates="owner", cascade="all, delete-orphan")

@@ -43,7 +43,7 @@ const SettingsModal = ({ isOpen, onClose, onLogout, children }: SettingsModalPro
         <div className="mx-5 h-px bg-gray-100 dark:bg-slate-700" />
 
         {/* Content */}
-        <div className="px-5 py-5 text-gray-700 dark:text-slate-200">
+        <div className="px-5 py-5 text-gray-700 dark:text-slate-200 overflow-y-auto max-h-[calc(100vh-10rem)]">
           {children ? (
             children
           ) : (

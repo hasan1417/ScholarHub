@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
-import { referencesAPI, researchPapersAPI } from '../../services/api'
+import { referencesAPI, researchPapersAPI, usersAPI } from '../../services/api'
 import { Link } from 'react-router-dom'
+import ZoteroImportModal from '../../components/references/ZoteroImportModal'
 
 interface RefItem {
   id: string
@@ -33,6 +34,8 @@ const MyReferences: React.FC = () => {
   const [newRef, setNewRef] = useState<Partial<RefItem> & { authorsText?: string }>({ title: '', authors: [], authorsText: '', year: undefined, doi: '', url: '', source: 'manual', journal: '', abstract: '', is_open_access: false, pdf_url: '' })
   const [newPdf, setNewPdf] = useState<File | null>(null)
   const [savingNew, setSavingNew] = useState(false)
+  const [zoteroConfigured, setZoteroConfigured] = useState(false)
+  const [showZoteroModal, setShowZoteroModal] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -55,6 +58,12 @@ const MyReferences: React.FC = () => {
   }
 
   useEffect(() => { load() }, [])
+
+  useEffect(() => {
+    usersAPI.getApiKeys().then((res) => {
+      setZoteroConfigured(res.data.zotero?.configured ?? false)
+    }).catch(() => {})
+  }, [])
 
   useEffect(() => {
     // Load user's papers for title lookup
@@ -153,6 +162,18 @@ const MyReferences: React.FC = () => {
           />
           <button onClick={load} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Search</button>
           <Link to="/discovery" className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Discover</Link>
+          <button
+            onClick={() => {
+              if (zoteroConfigured) {
+                setShowZoteroModal(true)
+              } else {
+                alert('Connect your Zotero account first in Settings > Integrations.')
+              }
+            }}
+            className="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700"
+          >
+            Import from Zotero
+          </button>
           <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-gray-100 border rounded hover:bg-gray-200">Add Reference</button>
         </div>
 
@@ -271,6 +292,12 @@ const MyReferences: React.FC = () => {
           </div>
         )}
       </div>
+
+      <ZoteroImportModal
+        isOpen={showZoteroModal}
+        onClose={() => setShowZoteroModal(false)}
+        onImportComplete={() => load()}
+      />
 
       {showAdd && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">

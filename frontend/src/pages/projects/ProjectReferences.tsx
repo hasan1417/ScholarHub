@@ -16,11 +16,12 @@ import {
   Upload,
 } from 'lucide-react'
 import { useProjectContext } from './ProjectLayout'
-import { projectReferencesAPI, referencesAPI } from '../../services/api'
+import { projectReferencesAPI, referencesAPI, usersAPI } from '../../services/api'
 import { ProjectReferenceSuggestion } from '../../types'
 import { useAuth } from '../../contexts/AuthContext'
 import AddProjectReferenceModal from '../../components/projects/AddProjectReferenceModal'
 import ConfirmationModal from '../../components/common/ConfirmationModal'
+import ZoteroImportModal from '../../components/references/ZoteroImportModal'
 
 const ProjectReferences = () => {
   const { project } = useProjectContext()
@@ -39,6 +40,8 @@ const ProjectReferences = () => {
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const [ingestFailedIds, setIngestFailedIds] = useState<Set<string>>(new Set())
+  const [zoteroConfigured, setZoteroConfigured] = useState(false)
+  const [showZoteroModal, setShowZoteroModal] = useState(false)
   const [toast, setToast] = useState<{
     message: string
     actionLabel?: string
@@ -51,6 +54,12 @@ const ProjectReferences = () => {
   } | null>(null)
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    usersAPI.getApiKeys().then((res) => {
+      setZoteroConfigured(res.data.zotero?.configured ?? false)
+    }).catch(() => {})
+  }, [])
 
   const suggestionsQuery = useQuery({
     queryKey: ['project', project.id, 'relatedReferences'],
@@ -347,16 +356,34 @@ const ProjectReferences = () => {
             <BookOpen className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
             <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">Related papers</h2>
           </div>
-          {canAddManual && (
-            <button
-              type="button"
-              onClick={() => setShowAddModal(true)}
-              className="inline-flex items-center gap-1 rounded-full border border-indigo-200 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 dark:border-indigo-400/40 dark:text-indigo-200 dark:hover:bg-indigo-500/10"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add related paper
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {canAddManual && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (zoteroConfigured) {
+                    setShowZoteroModal(true)
+                  } else {
+                    alert('Connect your Zotero account first in Settings > Integrations.')
+                  }
+                }}
+                className="inline-flex items-center gap-1 rounded-full border border-emerald-200 px-3 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:border-emerald-400/40 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+              >
+                <BookOpen className="h-3.5 w-3.5" />
+                Import from Zotero
+              </button>
+            )}
+            {canAddManual && (
+              <button
+                type="button"
+                onClick={() => setShowAddModal(true)}
+                className="inline-flex items-center gap-1 rounded-full border border-indigo-200 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 dark:border-indigo-400/40 dark:text-indigo-200 dark:hover:bg-indigo-500/10"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add related paper
+              </button>
+            )}
+          </div>
         </div>
 
         {references.length === 0 ? (
@@ -614,6 +641,15 @@ const ProjectReferences = () => {
           title="Add Related Paper"
         />
       )}
+
+      <ZoteroImportModal
+        isOpen={showZoteroModal}
+        onClose={() => setShowZoteroModal(false)}
+        onImportComplete={() => {
+          queryClient.invalidateQueries({ queryKey: ['project', project.id, 'relatedReferences'] })
+        }}
+        projectId={project.id}
+      />
 
       <ConfirmationModal
         isOpen={deleteModalOpen}

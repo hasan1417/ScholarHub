@@ -17,6 +17,8 @@ import {
   Trash2,
   UserCircle,
   Info,
+  Check,
+  Plug,
 } from 'lucide-react'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -43,6 +45,20 @@ const EditProfile = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [subscriptionTier, setSubscriptionTier] = useState<string>('free')
 
+  // Integrations state
+  const [openRouterKey, setOpenRouterKey] = useState('')
+  const [openRouterKeyMasked, setOpenRouterKeyMasked] = useState<string | null>(null)
+  const [openRouterKeyConfigured, setOpenRouterKeyConfigured] = useState(false)
+  const [showOpenRouterKey, setShowOpenRouterKey] = useState(false)
+  const [savingApiKey, setSavingApiKey] = useState(false)
+  const [apiKeySaved, setApiKeySaved] = useState(false)
+  const [zoteroApiKey, setZoteroApiKey] = useState('')
+  const [zoteroUserId, setZoteroUserId] = useState('')
+  const [zoteroConfigured, setZoteroConfigured] = useState(false)
+  const [zoteroMaskedKey, setZoteroMaskedKey] = useState<string | null>(null)
+  const [savingZotero, setSavingZotero] = useState(false)
+  const [zoteroSaved, setZoteroSaved] = useState(false)
+
   // Fetch subscription tier
   useEffect(() => {
     const fetchSubscription = async () => {
@@ -54,6 +70,17 @@ const EditProfile = () => {
       }
     }
     fetchSubscription()
+  }, [])
+
+  // Load API keys
+  useEffect(() => {
+    usersAPI.getApiKeys().then((res) => {
+      setOpenRouterKeyConfigured(res.data.openrouter.configured)
+      setOpenRouterKeyMasked(res.data.openrouter.masked_key)
+      setZoteroConfigured(res.data.zotero.configured)
+      setZoteroMaskedKey(res.data.zotero.masked_key)
+      setZoteroUserId(res.data.zotero.user_id || '')
+    }).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -187,6 +214,42 @@ const EditProfile = () => {
       setError(error.response?.data?.detail || 'Failed to remove avatar')
     } finally {
       setIsAvatarLoading(false)
+    }
+  }
+
+  const handleSaveOpenRouterKey = async () => {
+    setSavingApiKey(true)
+    setApiKeySaved(false)
+    try {
+      const res = await usersAPI.setOpenRouterKey(openRouterKey || null)
+      setOpenRouterKeyConfigured(res.data.configured)
+      setOpenRouterKeyMasked(openRouterKey ? `sk-or-...${openRouterKey.slice(-4)}` : null)
+      setOpenRouterKey('')
+      setApiKeySaved(true)
+      setTimeout(() => setApiKeySaved(false), 2000)
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || 'Failed to save API key')
+      setTimeout(() => setError(''), 3000)
+    } finally {
+      setSavingApiKey(false)
+    }
+  }
+
+  const handleSaveZoteroKey = async () => {
+    setSavingZotero(true)
+    setZoteroSaved(false)
+    try {
+      const res = await usersAPI.setZoteroKey(zoteroApiKey || null, zoteroUserId || null)
+      setZoteroConfigured(res.data.configured)
+      if (zoteroApiKey) setZoteroMaskedKey(`...${zoteroApiKey.slice(-4)}`)
+      setZoteroApiKey('')
+      setZoteroSaved(true)
+      setTimeout(() => setZoteroSaved(false), 2000)
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || 'Failed to save Zotero credentials')
+      setTimeout(() => setError(''), 3000)
+    } finally {
+      setSavingZotero(false)
     }
   }
 
@@ -558,6 +621,7 @@ const EditProfile = () => {
               </div>
             </form>
           </div>
+
         </div>
 
         {/* Right Column - Account Info */}
@@ -642,6 +706,111 @@ const EditProfile = () => {
                 }`}>
                   {subscriptionTier === 'pro' ? 'Pro' : subscriptionTier === 'byok' ? 'BYOK' : 'Free'}
                 </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Integrations */}
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-900/30">
+                  <Plug className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                </div>
+                <div>
+                  <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Integrations</h2>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Connect external services</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-5 space-y-5">
+              {/* OpenRouter */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">OpenRouter</label>
+                  {openRouterKeyConfigured && (
+                    <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                      <CheckCircle className="h-3 w-3" />
+                      Connected
+                    </span>
+                  )}
+                </div>
+                <div className="relative">
+                  <input
+                    type={showOpenRouterKey ? 'text' : 'password'}
+                    value={openRouterKey}
+                    onChange={(e) => setOpenRouterKey(e.target.value)}
+                    placeholder={openRouterKeyMasked || 'sk-or-...'}
+                    className="w-full px-3 py-2 pr-9 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowOpenRouterKey(!showOpenRouterKey)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  >
+                    {showOpenRouterKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
+                <div className="mt-2 flex items-center justify-between">
+                  <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-600 hover:underline dark:text-indigo-400">
+                    Get a key
+                  </a>
+                  <button
+                    type="button"
+                    onClick={handleSaveOpenRouterKey}
+                    disabled={savingApiKey}
+                    className="inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-medium py-1.5 px-3 rounded-lg text-xs transition-colors"
+                  >
+                    {savingApiKey ? <Loader2 className="h-3 w-3 animate-spin" /> : apiKeySaved ? <Check className="h-3 w-3" /> : null}
+                    {savingApiKey ? 'Validating...' : apiKeySaved ? 'Saved' : 'Save'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="h-px bg-gray-100 dark:bg-gray-700" />
+
+              {/* Zotero */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Zotero</label>
+                  {zoteroConfigured && (
+                    <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                      <CheckCircle className="h-3 w-3" />
+                      Connected
+                    </span>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <input
+                    type="password"
+                    value={zoteroApiKey}
+                    onChange={(e) => setZoteroApiKey(e.target.value)}
+                    placeholder={zoteroMaskedKey || 'API key'}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                  />
+                  <input
+                    type="text"
+                    value={zoteroUserId}
+                    onChange={(e) => setZoteroUserId(e.target.value)}
+                    placeholder="User ID (numeric)"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                  />
+                </div>
+                <div className="mt-2 flex items-center justify-between">
+                  <a href="https://www.zotero.org/settings/keys" target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-600 hover:underline dark:text-indigo-400">
+                    Get API key & user ID
+                  </a>
+                  <button
+                    type="button"
+                    onClick={handleSaveZoteroKey}
+                    disabled={savingZotero || (!zoteroApiKey && !zoteroUserId)}
+                    className="inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-medium py-1.5 px-3 rounded-lg text-xs transition-colors"
+                  >
+                    {savingZotero ? <Loader2 className="h-3 w-3 animate-spin" /> : zoteroSaved ? <Check className="h-3 w-3" /> : null}
+                    {savingZotero ? 'Validating...' : zoteroSaved ? 'Saved' : 'Save'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
