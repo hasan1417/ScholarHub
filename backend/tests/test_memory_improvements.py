@@ -28,7 +28,7 @@ class ConcreteMemoryMixin(MemoryMixin):
         self.ai_service = MagicMock()
         self.ai_service.openai_client = None  # Disable LLM calls
         self.db = MagicMock()
-        self._model = "gpt-4o-mini"
+        self._model = "gpt-5-mini"
 
     @property
     def model(self) -> str:

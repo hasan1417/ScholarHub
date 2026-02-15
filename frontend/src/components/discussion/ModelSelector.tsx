@@ -21,7 +21,7 @@ export const OPENROUTER_MODELS: OpenRouterModelOption[] = [
   { id: 'openai/gpt-5.2-codex-20260114', name: 'GPT-5.2 Codex', provider: 'OpenAI', supportsReasoning: true },
   { id: 'openai/gpt-5.1-20251113', name: 'GPT-5.1', provider: 'OpenAI', supportsReasoning: true },
   { id: 'openai/gpt-4o', name: 'GPT-4o', provider: 'OpenAI', supportsReasoning: false },
-  { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini', provider: 'OpenAI', supportsReasoning: false },
+  { id: 'openai/gpt-5-mini', name: 'GPT-5 Mini', provider: 'OpenAI', supportsReasoning: false },
   // Anthropic (Claude 4.5 series - latest) - Claude 4.5+ supports extended thinking
   { id: 'anthropic/claude-4.5-opus-20251124', name: 'Claude 4.5 Opus', provider: 'Anthropic', supportsReasoning: true },
   { id: 'anthropic/claude-4.5-sonnet-20250929', name: 'Claude 4.5 Sonnet', provider: 'Anthropic', supportsReasoning: true },

@@ -121,12 +121,12 @@ class MemoryMixin:
         # OpenRouter client is set on OpenRouterOrchestrator instances
         or_client = getattr(self, "openrouter_client", None)
         if or_client:
-            return or_client, "openai/gpt-4o-mini"
+            return or_client, "openai/gpt-5-mini"
 
         # Fallback: direct OpenAI client from AIService
         client = getattr(self.ai_service, "openai_client", None)
         if client:
-            return client, "gpt-4o-mini"
+            return client, "gpt-5-mini"
 
         return None, None
 

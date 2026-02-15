@@ -137,11 +137,7 @@ app.include_router(research_papers.router, prefix="/api/v1/research-papers", tag
 app.include_router(documents.router, prefix="/api/v1/documents", tags=["documents"])
 app.include_router(ai.router, prefix="/api/v1/ai", tags=["ai features"])
 
-# Smart Agent (experimental)
-from app.api.v1 import agent  # noqa: F401
-app.include_router(agent.router, prefix="/api/v1/agent", tags=["smart agent"])
-
-# Smart Agent OpenRouter (Beta - multi-model support)
+# Smart Agent OpenRouter (multi-model support)
 from app.api.v1 import agent_openrouter  # noqa: F401
 app.include_router(agent_openrouter.router, prefix="/api/v1/agent-or", tags=["smart agent openrouter"])
 

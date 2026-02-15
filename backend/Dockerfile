@@ -18,6 +18,7 @@ RUN apt-get update \
         postgresql-client \
         pandoc \
         libfontconfig1 \
+        fonts-hosny-amiri \
         ffmpeg \
     && arch="$(dpkg --print-architecture)" \
     && case "$arch" in \

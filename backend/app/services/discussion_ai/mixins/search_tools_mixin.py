@@ -337,6 +337,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         limit: Optional[int] = None,
         year_from: Optional[int] = None,
         year_to: Optional[int] = None,
+        **kwargs,
     ) -> Dict:
         """Search for papers online and return results directly."""
         from uuid import uuid4
@@ -639,7 +640,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 "topics": [],
             }
 
-    def _tool_batch_search_papers(self, ctx: Dict[str, Any], topics: List) -> Dict:
+    def _tool_batch_search_papers(self, ctx: Dict[str, Any], topics: List, **kwargs) -> Dict:
         """Search for papers on multiple topics at once (server-side execution)."""
         import asyncio
         from uuid import uuid4

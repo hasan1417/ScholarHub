@@ -77,11 +77,10 @@ class ProjectDiscoveryManager:
         self.db = db
         self._last_run_id: Optional[UUID] = None
 
-    async def _discover_async(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    async def _discover_async(
         self,
         query: str,
         sources: List[str],
-        research_topic: Optional[str],
         target_keywords: Optional[List[str]],
         max_results: int,
         *,
@@ -91,7 +90,6 @@ class ProjectDiscoveryManager:
         async with PaperDiscoveryService() as service:
             return await service.discover_papers(
                 query=query,
-                research_topic=research_topic,
                 sources=sources,
                 max_results=max_results,
                 target_keywords=target_keywords,
@@ -215,7 +213,6 @@ class ProjectDiscoveryManager:
                     self._discover_async(
                         query=query,
                         sources=sources,
-                        research_topic=project.scope,
                         target_keywords=keywords,
                         max_results=fetch_cap,
                         fast_mode=fast_mode,
@@ -262,17 +259,18 @@ class ProjectDiscoveryManager:
                 filtered_results.append(paper)
 
             discovered = filtered_results
-            # Apply relevance threshold filter if specified
-            if relevance_threshold is not None:
+            # Apply relevance threshold filter (default 0.1 to remove confirmed-irrelevant noise)
+            effective_threshold = relevance_threshold if relevance_threshold is not None else 0.1
+            if effective_threshold > 0:
                 original_count = len(discovered)
                 discovered = [
                     paper for paper in discovered
-                    if paper.relevance_score >= relevance_threshold
+                    if paper.relevance_score >= effective_threshold
                 ]
                 filtered_count = original_count - len(discovered)
                 logger.info(
                     "Applied relevance threshold %s: filtered %s papers, %s remaining",
-                    relevance_threshold,
+                    effective_threshold,
                     filtered_count,
                     len(discovered)
                 )

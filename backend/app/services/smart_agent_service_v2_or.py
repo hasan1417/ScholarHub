@@ -1,8 +1,8 @@
 """
-Smart Agent Service V2 OR - OpenRouter version for LaTeX Editor AI.
+Smart Agent Service V2 OR - OpenRouter-powered LaTeX Editor AI.
 
-Subclass of SmartAgentServiceV2 that overrides streaming, history, and
-reference handling to work with OpenRouter's API.
+Standalone service for the LaTeX editor AI chat. Uses OpenRouter for
+multi-model support, token budgeting, and persistent history.
 """
 import os
 import re
@@ -11,17 +11,13 @@ import time
 import logging
 import concurrent.futures
 from typing import Optional, Generator, List, Dict, Any, Tuple
+from uuid import UUID
 from sqlalchemy import text as sa_text
 from sqlalchemy.orm import Session
 from openai import OpenAI
 
 from app.core.config import settings
-from app.services.smart_agent_service_v2 import (
-    SmartAgentServiceV2,
-    EDITOR_TOOLS,
-    SYSTEM_PROMPT,
-    _resolve_paper_id,
-)
+from app.constants.paper_templates import CONFERENCE_TEMPLATES
 from app.services.discussion_ai.openrouter_orchestrator import model_supports_reasoning, ThinkTagFilter
 from app.services.discussion_ai.token_utils import (
     count_tokens,
@@ -43,6 +39,246 @@ _summary_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_
 # Summary trigger thresholds
 _SUMMARY_MSG_THRESHOLD = 16  # Total messages before considering summary
 _SUMMARY_STALE_THRESHOLD = 6  # New messages since last summary before re-summarizing
+
+
+def _is_valid_uuid(val: str) -> bool:
+    """Check if string is a valid UUID."""
+    try:
+        UUID(val)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+def _parse_short_id(url_id: str) -> str | None:
+    """Extract short_id from url_id (e.g., 'slug-abc123' -> 'abc123')."""
+    if not url_id:
+        return None
+    parts = url_id.rsplit("-", 1)
+    if len(parts) == 2 and re.match(r"^[a-z0-9]{6,12}$", parts[1]):
+        return parts[1]
+    if re.match(r"^[a-z0-9]{6,12}$", url_id):
+        return url_id
+    return None
+
+
+def _resolve_paper_id(db: Session, paper_id: str) -> Optional[UUID]:
+    """Resolve paper_id (UUID or slug) to actual UUID."""
+    from app.models.research_paper import ResearchPaper
+
+    if _is_valid_uuid(paper_id):
+        try:
+            paper = db.query(ResearchPaper).filter(ResearchPaper.id == UUID(paper_id)).first()
+            if paper:
+                return paper.id
+        except (ValueError, AttributeError):
+            pass
+
+    short_id = _parse_short_id(paper_id)
+    if short_id:
+        paper = db.query(ResearchPaper).filter(ResearchPaper.short_id == short_id).first()
+        if paper:
+            return paper.id
+
+    return None
+
+
+# Tools available to the LaTeX Editor AI
+EDITOR_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "answer_question",
+            "description": "Answer a question about the paper, its content, structure, or writing. Use this for general questions that don't require editing. Do NOT use for listing templates (use list_available_templates) or reference questions (use explain_references).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "answer": {
+                        "type": "string",
+                        "description": "Your answer to the user's question"
+                    }
+                },
+                "required": ["answer"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ask_clarification",
+            "description": "Ask a single clarifying question when the request is too vague to act on. Use only when missing a clear target or operation.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {
+                        "type": "string",
+                        "description": "The clarifying question to ask the user"
+                    },
+                    "options": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "2-4 short suggested options for quick replies"
+                    }
+                },
+                "required": ["question", "options"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_edit",
+            "description": "Propose an edit to the document. Use for any changes: modify, extend, shorten, rewrite, fix, improve, add, remove. NOT for template conversion - use apply_template for that.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "explanation": {
+                        "type": "string",
+                        "description": "Brief explanation of what you're changing and why"
+                    },
+                    "edits": {
+                        "type": "array",
+                        "description": "List of edits to make",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "description": {
+                                    "type": "string",
+                                    "description": "Brief description of this specific edit"
+                                },
+                                "start_line": {
+                                    "type": "integer",
+                                    "description": "Line number where the text to replace STARTS"
+                                },
+                                "end_line": {
+                                    "type": "integer",
+                                    "description": "Line number where the text to replace ENDS (inclusive)"
+                                },
+                                "anchor": {
+                                    "type": "string",
+                                    "description": "First 30-50 characters from start_line (for verification)"
+                                },
+                                "proposed": {
+                                    "type": "string",
+                                    "description": "The new VALID LaTeX text"
+                                }
+                            },
+                            "required": ["description", "start_line", "end_line", "anchor", "proposed"]
+                        }
+                    }
+                },
+                "required": ["explanation", "edits"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "review_document",
+            "description": "Review the document and provide writing feedback, recommendations, suggestions for improvement, or enhancement tips. Use this when the user asks how to improve, enhance, or strengthen their writing.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "summary": {"type": "string", "description": "Brief overall assessment"},
+                    "strengths": {"type": "array", "items": {"type": "string"}},
+                    "improvements": {"type": "array", "items": {"type": "string"}},
+                    "offer_edits": {"type": "boolean", "description": "Whether to offer to make changes"}
+                },
+                "required": ["summary", "strengths", "improvements"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "explain_references",
+            "description": "Explain or discuss the attached references.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "explanation": {"type": "string"},
+                    "suggest_discovery": {"type": "boolean", "description": "Suggest using Discovery page for more papers"}
+                },
+                "required": ["explanation"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_available_templates",
+            "description": "List available conference/journal templates. Use ONLY when user asks what formats are available, NOT for conversion.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "apply_template",
+            "description": "Convert the document to a specific conference/journal format. Use ONLY when user explicitly asks to convert, reformat, or change to a named format (IEEE, ACL, NeurIPS, CVPR, etc.). Do NOT use for general writing improvement or review requests.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "template_id": {
+                        "type": "string",
+                        "enum": list(CONFERENCE_TEMPLATES.keys()),
+                        "description": "Target template format"
+                    }
+                },
+                "required": ["template_id"]
+            }
+        }
+    }
+]
+
+
+SYSTEM_PROMPT = """You are an expert academic writing assistant for the LaTeX editor in ScholarHub.
+
+## YOUR CAPABILITIES
+- Answer questions about the paper
+- Propose edits to any part of the document
+- Review and provide feedback
+- Convert documents to conference formats
+
+## CLARIFYING QUESTIONS
+If the user's request is vague or missing a clear target and operation (e.g., "make it better", "fix this"),
+call ask_clarification.
+- Ask only ONE question.
+- Provide 2-4 short options.
+- Do NOT propose edits until clarified.
+- If the user responds with "Clarification: ...", do NOT ask another clarification.
+
+## LINE-BASED EDITING
+The document shows line numbers like "  15| content here".
+Use these EXACT line numbers for start_line and end_line in propose_edit.
+
+## TEMPLATE CONVERSION (TWO-STEP PROCESS)
+When user asks to convert (e.g., "convert to ACM", "reformat for IEEE"):
+1. FIRST call apply_template with the template_id
+2. You will receive the AUTHORITATIVE template structure
+3. THEN call propose_edit with ALL necessary edits:
+   - Replace lines 1 through \\maketitle with the new preamble
+   - Replace any format-specific environments or commands in the document body that are incompatible with the new template (e.g., replace \\begin{IEEEkeywords} with \\begin{keywords})
+4. Extract title, authors, affiliations, emails from the CURRENT document and fill into template
+
+IMPORTANT:
+- Use apply_template for conversion, NOT list_available_templates
+- After apply_template returns, you MUST call propose_edit to apply the changes
+- The propose_edit edits array can contain MULTIPLE edits — use one for the preamble and additional ones for body cleanup
+- The template preamble ends with \\maketitle — do NOT leave a duplicate \\maketitle in the document
+- PRESERVE the existing bibliography format: if the document uses inline \\begin{thebibliography}, keep it (only update \\bibliographystyle). Do NOT replace it with \\bibliography{references}
+
+## REFERENCE SCOPE
+You can ONLY discuss or cite references shown in the ATTACHED REFERENCES section.
+Do NOT invent, fabricate, or guess reference titles, authors, or findings.
+If asked about references not in the attached list, say:
+"I can only work with references attached to this paper. Use the Discussion AI or Discovery page to find and add more."
+
+Be concise and helpful. Focus on academic writing quality."""
 
 
 # Tool for searching attached references (RAG)
@@ -70,21 +306,37 @@ SEARCH_REFERENCES_TOOL = {
 }
 
 
-class SmartAgentServiceV2OR(SmartAgentServiceV2):
-    """
-    OpenRouter-powered LaTeX Editor AI.
-
-    Inherits deterministic helpers (_build_clarification, _detect_operation,
-    _format_tool_response, etc.) from SmartAgentServiceV2.  Overrides streaming,
-    history loading, reference context, and chat storage for OpenRouter.
-    """
+class SmartAgentServiceV2OR:
+    """OpenRouter-powered LaTeX Editor AI."""
 
     _MAX_RETRIES = 3
     _INITIAL_BACKOFF = 1.0
     _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
+    _QUESTION_PREFIXES = ("what", "which", "how", "when", "where", "who", "why")
+    _TARGET_TERMS = (
+        "title", "abstract", "introduction", "background", "related work",
+        "literature review", "method", "methods", "methodology", "results",
+        "discussion", "conclusion", "limitations", "section", "paragraph",
+        "sentence", "document", "paper", "manuscript",
+    )
+
+    _LITE_SYSTEM_PROMPT = (
+        "You are a helpful academic writing assistant for the LaTeX editor in ScholarHub. "
+        "Respond concisely and warmly. If the user greets you, greet them back briefly. "
+        "If they thank you or acknowledge something, confirm briefly. "
+        "If they seem to need editing help, let them know you're ready. "
+        "Keep responses under 2 sentences."
+    )
+
+    _EDITOR_ACTION_VERBS = re.compile(
+        r"\b(improve|fix|rewrite|shorten|expand|change|edit|modify|correct|proofread|review|"
+        r"convert|reformat|replace|insert|delete|remove|rephrase|revise|polish|"
+        r"make better|tighten|clean up|strengthen|enhance)\b",
+        re.IGNORECASE,
+    )
+
     def __init__(self, model: str = "openai/gpt-5.2-20251211", user_api_key: Optional[str] = None):
-        # Don't call super().__init__() — we use a different client
         self.model = model
 
         api_key = user_api_key or os.getenv("OPENROUTER_API_KEY")
@@ -104,6 +356,283 @@ class SmartAgentServiceV2OR(SmartAgentServiceV2):
         self._db = None
         self._user_id = None
         self._paper_id = None
+
+    # ------------------------------------------------------------------
+    # Deterministic helpers (clarification, formatting, routing)
+    # ------------------------------------------------------------------
+
+    def _is_lite_route(self, query: str, history: List[Dict[str, str]]) -> bool:
+        """Check if this message should take the lite path (no tools, no document)."""
+        if self._EDITOR_ACTION_VERBS.search(query or ""):
+            return False
+        # Load memory_facts from editor_ai_context so the classifier knows
+        # whether the previous turn used tools (prevents misrouting "try again")
+        memory_facts: Dict[str, Any] = {}
+        if self._paper_id and self._db:
+            try:
+                from app.models.research_paper import ResearchPaper
+                paper = self._db.query(ResearchPaper).filter(
+                    ResearchPaper.id == self._paper_id
+                ).first()
+                if paper and paper.editor_ai_context:
+                    tools = paper.editor_ai_context.get("_last_tools_called", [])
+                    if tools:
+                        memory_facts["_last_tools_called"] = tools
+            except Exception:
+                pass
+        from app.services.discussion_ai.route_classifier import classify_route
+        decision = classify_route(query, history, memory_facts)
+        return decision.route == "lite"
+
+    def _add_line_numbers(self, text: str) -> str:
+        """Add line numbers to text for line-based editing."""
+        lines = text.split('\n')
+        width = max(len(str(len(lines))), 3)
+        numbered_lines = [f"{i:>{width}}| {line}" for i, line in enumerate(lines, 1)]
+        return '\n'.join(numbered_lines)
+
+    def _build_clarification(self, query: str, document_excerpt: Optional[str]) -> Optional[Dict[str, Any]]:
+        q = (query or "").strip()
+        if not q:
+            return None
+        q_lower = q.lower()
+        if q_lower.startswith("clarification:"):
+            return None
+        if q_lower.endswith("?") and q_lower.split(" ", 1)[0] in self._QUESTION_PREFIXES:
+            return None
+        if self._is_convert_request(q_lower):
+            return None
+
+        operation = self._detect_operation(q_lower)
+        if not operation:
+            return None
+
+        target = self._detect_target(q_lower)
+        if not target and document_excerpt:
+            target = "document"
+
+        if self._has_explicit_replacement(q_lower, q):
+            return None
+
+        if not target:
+            return {
+                "question": "What should I change?",
+                "options": [
+                    "Title",
+                    "Abstract",
+                    "Specific section (tell me which)",
+                    "Entire document",
+                ],
+            }
+
+        if operation == "fix":
+            return None
+
+        if operation in ("improve", "rewrite", "shorten", "expand", "change") and not self._has_constraints(q_lower):
+            return {
+                "question": f"For the {target}, what should I optimize for?",
+                "options": [
+                    "Shorter/concise",
+                    "More specific focus",
+                    "More formal/academic",
+                    "Improve clarity/flow",
+                ],
+            }
+
+        return None
+
+    def _detect_operation(self, q_lower: str) -> Optional[str]:
+        if any(term in q_lower for term in ("fix grammar", "fix typos", "grammar", "typo", "proofread")):
+            return "fix"
+        if any(term in q_lower for term in ("shorten", "condense", "compress", "summarize", "trim", "cut", "reduce", "make shorter", "make concise")):
+            return "shorten"
+        if any(term in q_lower for term in ("expand", "elaborate", "add detail", "lengthen", "add more")):
+            return "expand"
+        if any(term in q_lower for term in ("rewrite", "rephrase", "paraphrase", "reword")):
+            return "rewrite"
+        if any(term in q_lower for term in ("improve", "make better", "enhance", "polish", "refine", "tighten", "clean up", "strengthen", "revise")):
+            return "improve"
+        if any(term in q_lower for term in ("change", "update")):
+            return "change"
+        return None
+
+    def _detect_target(self, q_lower: str) -> Optional[str]:
+        candidates = sorted(self._TARGET_TERMS, key=len, reverse=True)
+        found: list[str] = []
+        for term in candidates:
+            if term in q_lower and not any(term in f for f in found):
+                found.append(term)
+        if not found:
+            return None
+        found.sort(key=lambda t: q_lower.index(t))
+        if len(found) == 1:
+            return found[0]
+        return " and ".join(found)
+
+    def _has_constraints(self, q_lower: str) -> bool:
+        if re.search(r"\b\d+\s*(words?|pages?|sentences?)\b", q_lower):
+            return True
+        if any(term in q_lower for term in ("shorter", "longer", "concise", "brief", "detailed", "in depth")):
+            return True
+        if any(term in q_lower for term in ("focus", "emphasize", "highlight", "specifically", "scope", "about")):
+            return True
+        if any(term in q_lower for term in ("tone", "formal", "academic", "casual", "technical", "simple", "professional")):
+            return True
+        if any(term in q_lower for term in ("suggest", "options", "examples", "alternatives")):
+            return True
+        return False
+
+    def _is_convert_request(self, q_lower: str) -> bool:
+        if any(term in q_lower for term in ("convert", "reformat", "template")):
+            return True
+        for template_id in CONFERENCE_TEMPLATES.keys():
+            if template_id in q_lower:
+                return True
+        return False
+
+    def _has_explicit_replacement(self, q_lower: str, query: str) -> bool:
+        if '"' in query or "'" in query or "\\title{" in query:
+            return True
+        if re.search(r"\btitle\b.*\bto\b.{5,}", q_lower):
+            return True
+        return False
+
+    def _is_review_message(self, content: str) -> bool:
+        if not content:
+            return False
+        return "## Review" in content or "Suggested Improvements" in content
+
+    def _rewrite_affirmation(self, query: str, history: List[Dict[str, str]]) -> Optional[str]:
+        q = (query or "").strip().lower()
+        if not q:
+            return None
+        short_ack = {
+            "please", "yes", "ok", "okay", "sure", "go ahead",
+            "do it", "do so", "apply", "apply it", "sounds good", "yep",
+        }
+        if q not in short_ack:
+            return None
+        last_assistant = next((m for m in reversed(history) if m.get("role") == "assistant"), None)
+        if not last_assistant or not self._is_review_message(last_assistant.get("content", "")):
+            return None
+        return "Apply the suggested changes from your last review."
+
+    def _sanitize_assistant_content(self, content: str) -> str:
+        if "<<<EDIT>>>" in content:
+            content = content.split("<<<EDIT>>>", 1)[0].strip()
+        if "<<<CLARIFY>>>" in content:
+            content = content.split("<<<CLARIFY>>>", 1)[0].strip()
+        return content
+
+    def _format_tool_response(self, tool_name: str, args: Dict[str, Any]) -> Generator[str, None, None]:
+        """Format the tool response for the frontend."""
+        if tool_name == "answer_question":
+            yield args.get("answer", "")
+
+        elif tool_name == "ask_clarification":
+            question = (args.get("question") or "").strip()
+            raw_options = args.get("options") or []
+            if isinstance(raw_options, str):
+                raw_options = [raw_options]
+            options = [opt.strip() for opt in raw_options if isinstance(opt, str) and opt.strip()]
+
+            yield "<<<CLARIFY>>>\n"
+            yield f"QUESTION: {question}\n"
+            yield f"OPTIONS: {' | '.join(options)}\n"
+            yield "<<<END>>>\n"
+
+        elif tool_name == "propose_edit":
+            explanation = args.get("explanation", "")
+            edits = args.get("edits", [])
+
+            yield f"{explanation}\n\n"
+
+            for edit in edits:
+                yield "<<<EDIT>>>\n"
+                yield f"{edit.get('description', 'Edit')}\n"
+                yield "<<<LINES>>>\n"
+                yield f"{edit.get('start_line', 1)}-{edit.get('end_line', 1)}\n"
+                yield "<<<ANCHOR>>>\n"
+                yield f"{edit.get('anchor', '')}\n"
+                yield "<<<PROPOSED>>>\n"
+                yield f"{edit.get('proposed', '')}\n"
+                yield "<<<END>>>\n\n"
+
+        elif tool_name == "review_document":
+            summary = args.get("summary", "")
+            strengths = args.get("strengths", [])
+            improvements = args.get("improvements", [])
+            offer_edits = args.get("offer_edits", True)
+
+            yield f"## Review\n\n{summary}\n\n"
+
+            if strengths:
+                yield "### Strengths\n"
+                for s in strengths:
+                    yield f"- {s}\n"
+                yield "\n"
+
+            if improvements:
+                yield "### Suggested Improvements\n"
+                for i in improvements:
+                    yield f"- {i}\n"
+                yield "\n"
+
+            if offer_edits:
+                yield "Would you like me to make any of these suggested changes?"
+
+        elif tool_name == "explain_references":
+            yield args.get("explanation", "")
+            if args.get("suggest_discovery"):
+                yield "\n\nTo discover new papers, use the **Discussion AI** or **Discovery page**."
+
+        elif tool_name == "list_available_templates":
+            yield from self._handle_list_templates()
+
+        elif tool_name == "apply_template":
+            yield from self._handle_apply_template(args.get("template_id", ""))
+
+        else:
+            yield f"Unknown tool: {tool_name}"
+
+    def _handle_list_templates(self) -> Generator[str, None, None]:
+        """Return formatted list of available templates."""
+        yield "## Available Conference Templates\n\n"
+        yield "| Template | ID | Notes |\n"
+        yield "|----------|-----|-------|\n"
+        for template_id, template in CONFERENCE_TEMPLATES.items():
+            name = template.get("name", template_id)
+            notes = template.get("notes", "")
+            yield f"| {name} | `{template_id}` | {notes} |\n"
+        yield "\nTo convert, say: \"Convert this to ACL format\" or \"Reformat for IEEE\"\n"
+
+    def _handle_apply_template(self, template_id: str) -> Generator[str, None, None]:
+        """Return template info for AI to use with propose_edit."""
+        if template_id not in CONFERENCE_TEMPLATES:
+            yield f"Unknown template: `{template_id}`. Available: {', '.join(CONFERENCE_TEMPLATES.keys())}"
+            return
+
+        template = CONFERENCE_TEMPLATES[template_id]
+
+        yield f"## Template: {template['name']}\n\n"
+        yield f"{template['description']}\n\n"
+
+        yield "### EXACT Preamble Structure to Use\n\n"
+        yield "Copy this structure and fill in the actual title/authors from the document:\n\n"
+        yield f"```latex\n{template['preamble_example']}\n```\n\n"
+
+        yield f"### Author Format: `{template['author_format']}`\n\n"
+        yield f"### Bibliography: `\\bibliographystyle{{{template['bib_style']}}}`\n\n"
+        yield "### Recommended Sections\n\n"
+        for section in template.get("sections", []):
+            yield f"- {section}\n"
+        yield "\n"
+        yield f"### Notes: {template['notes']}\n\n"
+
+        yield "---\n\n"
+        yield "**NOW call propose_edit** with all necessary edits:\n"
+        yield "1. Replace lines 1 through \\maketitle with this template (extract title, authors, affiliations, emails from the current document)\n"
+        yield "2. Replace any format-specific environments in the body that the new template does not define (e.g., replace `\\begin{IEEEkeywords}` with `\\begin{keywords}`)\n"
 
     # ------------------------------------------------------------------
     # OR-only helpers
@@ -572,7 +1101,8 @@ class SmartAgentServiceV2OR(SmartAgentServiceV2):
                     }],
                 }
 
-                # Intermediate tools — execute and loop back
+                # Intermediate tools — execute and loop back.
+                # Remove intermediate tools after use to prevent repeat calls.
                 if tool_name == "search_references":
                     yield self._emit_status("Searching references")
                     search_results = self._search_references_for_tool(
@@ -580,6 +1110,7 @@ class SmartAgentServiceV2OR(SmartAgentServiceV2):
                     )
                     messages.append(assistant_msg)
                     messages.append({"role": "tool", "tool_call_id": tc["id"], "content": search_results})
+                    tools = [t for t in tools if t["function"]["name"] != "search_references"]
                     continue
 
                 elif tool_name == "apply_template":
@@ -621,6 +1152,7 @@ class SmartAgentServiceV2OR(SmartAgentServiceV2):
                     review_output = "".join(self._format_tool_response(tool_name, tool_args))
                     messages.append(assistant_msg)
                     messages.append({"role": "tool", "tool_call_id": tc["id"], "content": review_output})
+                    tools = [t for t in tools if t["function"]["name"] != "review_document"]
                     continue
 
                 elif tool_name == "list_available_templates":
@@ -628,6 +1160,7 @@ class SmartAgentServiceV2OR(SmartAgentServiceV2):
                     list_output = "".join(self._format_tool_response(tool_name, tool_args))
                     messages.append(assistant_msg)
                     messages.append({"role": "tool", "tool_call_id": tc["id"], "content": list_output})
+                    tools = [t for t in tools if t["function"]["name"] != "list_available_templates"]
                     continue
 
                 # Final action tools — hard-branch on answer_question
@@ -1207,7 +1740,7 @@ Summary:"""
             }
         )
         response = client.chat.completions.create(
-            model="openai/gpt-4o-mini",
+            model="openai/gpt-5-mini",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=400,
             temperature=0.3,

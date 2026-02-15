@@ -182,7 +182,7 @@ async def run_qa_sequence():
         orchestrator = OpenRouterOrchestrator(
             db=db,
             ai_service=None,
-            model="openai/gpt-4o-mini",
+            model="openai/gpt-5-mini",
         )
 
         conversation_history = []

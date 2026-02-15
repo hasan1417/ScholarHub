@@ -8,9 +8,20 @@ from __future__ import annotations
 
 import re
 import logging
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 logger = logging.getLogger(__name__)
+
+_STOPWORDS = frozenset({
+    'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+    'of', 'with', 'by', 'from', 'is', 'are', 'was', 'were', 'be', 'been',
+    'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+    'could', 'should', 'may', 'might', 'can', 'shall', 'not', 'no', 'nor',
+    'so', 'if', 'then', 'than', 'that', 'this', 'these', 'those', 'it',
+    'its', 'as', 'up', 'out', 'about', 'into', 'over', 'after', 'before',
+    'between', 'under', 'above', 'such', 'each', 'which', 'their', 'we',
+    'how', 'what', 'when', 'where', 'who', 'why', 'use', 'using', 'based',
+})
 
 
 def _extract_quoted_phrases(query: str) -> Tuple[List[str], str]:
@@ -21,10 +32,15 @@ def _extract_quoted_phrases(query: str) -> Tuple[List[str], str]:
     return phrases, remainder
 
 
+def _meaningful_words(query: str) -> List[str]:
+    """Extract meaningful words from query, preserving academic acronyms."""
+    return [w for w in query.split() if w.lower() not in _STOPWORDS and len(w) > 0]
+
+
 def _is_short_phrase(query: str) -> bool:
-    """Check if query is a short noun phrase (2-3 meaningful words)."""
-    words = [w for w in query.split() if len(w) > 2]
-    return 2 <= len(words) <= 3
+    """Check if query is a short noun phrase (2-4 meaningful words)."""
+    words = _meaningful_words(query)
+    return 2 <= len(words) <= 4
 
 
 def build_arxiv_query(query: str) -> str:
@@ -36,9 +52,9 @@ def build_arxiv_query(query: str) -> str:
     - Boolean: AND, OR, ANDNOT
 
     Strategy:
-    - Short queries (2-3 words): Search title OR abstract with phrase matching
+    - Short queries (2-4 words): AND each word in title OR abstract
     - Quoted phrases: Preserve exact matching
-    - Long queries: Use all: field (current behavior)
+    - Long queries: Use all: field
     """
     query = query.strip()
     if not query:
@@ -50,24 +66,24 @@ def build_arxiv_query(query: str) -> str:
     if phrases:
         parts = []
         for phrase in phrases:
-            # Search phrase in title or abstract
             parts.append(f'(ti:"{phrase}" OR abs:"{phrase}")')
         if remainder:
             parts.append(f'all:{remainder}')
         result = ' AND '.join(parts)
-        logger.debug(f"[QueryBuilder] arXiv: '{query}' → '{result}' (quoted phrases)")
+        logger.debug("[QueryBuilder] arXiv: '%s' → '%s' (quoted phrases)", query, result)
         return result
 
-    # Short phrase: try title + abstract matching
+    # Short phrase: search each word in title OR abstract with AND
     if _is_short_phrase(query):
-        # Quote the phrase for exact matching in title OR abstract
-        result = f'(ti:"{query}" OR abs:"{query}")'
-        logger.debug(f"[QueryBuilder] arXiv: '{query}' → '{result}' (short phrase)")
+        words = _meaningful_words(query)
+        parts = [f'(ti:{w} OR abs:{w})' for w in words]
+        result = ' AND '.join(parts)
+        logger.debug("[QueryBuilder] arXiv: '%s' → '%s' (short phrase)", query, result)
         return result
 
-    # Default: all fields (current behavior)
+    # Default: all fields
     result = f'all:{query}'
-    logger.debug(f"[QueryBuilder] arXiv: '{query}' → '{result}' (default)")
+    logger.debug("[QueryBuilder] arXiv: '%s' → '%s' (default)", query, result)
     return result
 
 
@@ -75,14 +91,13 @@ def build_pubmed_query(query: str) -> str:
     """Build optimized PubMed query.
 
     PubMed supports field tags:
-    - [Title] or [ti] - title field
     - [Title/Abstract] or [tiab] - title or abstract
-    - [MeSH Terms] - medical subject headings
+    - Automatic Term Mapping for plain text
 
     Strategy:
-    - Short queries: Search title/abstract
+    - Short queries: AND each word in title/abstract
     - Quoted phrases: Preserve with [tiab] tag
-    - Long queries: Plain text (PubMed's default is good)
+    - Long queries: Plain text (PubMed's ATM handles it well)
     """
     query = query.strip()
     if not query:
@@ -97,29 +112,31 @@ def build_pubmed_query(query: str) -> str:
         if remainder:
             parts.append(remainder)
         result = ' AND '.join(parts)
-        logger.debug(f"[QueryBuilder] PubMed: '{query}' → '{result}' (quoted phrases)")
+        logger.debug("[QueryBuilder] PubMed: '%s' → '%s' (quoted phrases)", query, result)
         return result
 
-    # Short phrase: search in title/abstract
+    # Short phrase: AND each word in title/abstract
     if _is_short_phrase(query):
-        result = f'"{query}"[tiab]'
-        logger.debug(f"[QueryBuilder] PubMed: '{query}' → '{result}' (short phrase)")
+        words = _meaningful_words(query)
+        result = ' AND '.join(f'{w}[tiab]' for w in words)
+        logger.debug("[QueryBuilder] PubMed: '%s' → '%s' (short phrase)", query, result)
         return result
 
-    # Default: plain text (PubMed handles it well)
-    logger.debug(f"[QueryBuilder] PubMed: '{query}' → unchanged (default)")
+    # Default: plain text
+    logger.debug("[QueryBuilder] PubMed: '%s' → unchanged (default)", query)
     return query
 
 
 def build_europe_pmc_query(query: str) -> str:
     """Build optimized Europe PMC query.
 
-    Europe PMC supports similar syntax to PubMed:
-    - TITLE: field prefix
-    - ABSTRACT: field prefix
+    Europe PMC supports:
+    - TITLE: and ABSTRACT: field prefixes
     - Phrase matching with quotes
 
-    Strategy similar to PubMed.
+    Strategy: only use field-specific search for explicit quoted phrases.
+    Unquoted queries use plain text so Europe PMC's relevance engine
+    can match across all indexed fields (full text, keywords, MeSH, etc.).
     """
     query = query.strip()
     if not query:
@@ -134,48 +151,82 @@ def build_europe_pmc_query(query: str) -> str:
         if remainder:
             parts.append(remainder)
         result = ' AND '.join(parts)
-        logger.debug(f"[QueryBuilder] EuropePMC: '{query}' → '{result}' (quoted phrases)")
+        logger.debug("[QueryBuilder] EuropePMC: '%s' → '%s' (quoted phrases)", query, result)
         return result
 
-    # Short phrase: search in title/abstract
-    if _is_short_phrase(query):
-        result = f'(TITLE:"{query}" OR ABSTRACT:"{query}")'
-        logger.debug(f"[QueryBuilder] EuropePMC: '{query}' → '{result}' (short phrase)")
-        return result
-
-    # Default: plain text
-    logger.debug(f"[QueryBuilder] EuropePMC: '{query}' → unchanged (default)")
+    # Plain text — let Europe PMC's own search engine handle relevance
+    logger.debug("[QueryBuilder] EuropePMC: '%s' → unchanged (plain text)", query)
     return query
 
 
-def build_openalex_query(query: str) -> str:
-    """Build OpenAlex query.
+def build_sciencedirect_query(query: str) -> str:
+    """Build optimized ScienceDirect (Elsevier) query.
 
-    OpenAlex uses simple text search which works well.
-    Their API handles phrase matching internally.
+    ScienceDirect supports:
+    - TITLE(), ABS(), KEY() field functions
+    - Boolean: AND, OR, NOT
+    - Phrase matching with quotes
 
-    No optimization needed - pass through.
+    Strategy:
+    - Short queries: AND each word in TITLE or ABS
+    - Quoted phrases: Exact match in TITLE or ABS
+    - Long queries: Plain text
     """
-    return query.strip()
+    query = query.strip()
+    if not query:
+        return query
+
+    phrases, remainder = _extract_quoted_phrases(query)
+
+    if phrases:
+        parts = []
+        for phrase in phrases:
+            parts.append(f'TITLE("{phrase}") OR ABS("{phrase}")')
+        if remainder:
+            parts.append(remainder)
+        result = ' AND '.join(parts)
+        logger.debug("[QueryBuilder] ScienceDirect: '%s' → '%s' (quoted phrases)", query, result)
+        return result
+
+    if _is_short_phrase(query):
+        words = _meaningful_words(query)
+        title_part = ' AND '.join(f'TITLE({w})' for w in words)
+        abs_part = ' AND '.join(f'ABS({w})' for w in words)
+        result = f'({title_part}) OR ({abs_part})'
+        logger.debug("[QueryBuilder] ScienceDirect: '%s' → '%s' (short phrase)", query, result)
+        return result
+
+    logger.debug("[QueryBuilder] ScienceDirect: '%s' → unchanged (default)", query)
+    return query
 
 
-def build_crossref_query(query: str) -> str:
-    """Build Crossref query.
+def build_core_query(query: str) -> str:
+    """Build optimized CORE query.
 
-    Crossref's query parameter works well with plain text.
-    Could use query.bibliographic for better bibliographic search.
+    CORE v3 uses Elasticsearch/Lucene syntax:
+    - title:(word1 AND word2) for title-specific search
+    - Phrase matching with quotes
 
-    No optimization needed - pass through.
+    Strategy: only use field-specific search for explicit quoted phrases.
+    Unquoted queries use plain text so CORE's full-text search can match
+    across titles, abstracts, and full text.
     """
-    return query.strip()
+    query = query.strip()
+    if not query:
+        return query
 
+    phrases, remainder = _extract_quoted_phrases(query)
 
-def build_semantic_scholar_query(query: str) -> str:
-    """Build Semantic Scholar query.
+    if phrases:
+        parts = []
+        for phrase in phrases:
+            parts.append(f'title:"{phrase}"')
+        if remainder:
+            parts.append(remainder)
+        result = ' AND '.join(parts)
+        logger.debug("[QueryBuilder] CORE: '%s' → '%s' (quoted phrases)", query, result)
+        return result
 
-    Semantic Scholar has excellent NLP-based search.
-    Plain text works best - let their system handle it.
-
-    No optimization needed - pass through.
-    """
-    return query.strip()
+    # Plain text — let CORE's full-text search handle relevance
+    logger.debug("[QueryBuilder] CORE: '%s' → unchanged (plain text)", query)
+    return query

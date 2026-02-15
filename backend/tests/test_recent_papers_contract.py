@@ -130,7 +130,7 @@ class MockQuery:
 
 class MockAIService:
     def __init__(self):
-        self.default_model = "gpt-4o-mini"
+        self.default_model = "gpt-5-mini"
 
 
 def _make_ctx(project=None, channel=None, recent_search_results=None):

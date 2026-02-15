@@ -8,7 +8,7 @@ from typing import Dict, Optional
 class DiscoveryConfig:
     """Centralized configuration for discovery behaviour and limits."""
 
-    max_concurrent_searches: int = 3
+    max_concurrent_searches: int = 5
     max_concurrent_enrichments: int = 5
     max_concurrent_pdf_checks: int = 3
     search_timeout: float = 60.0
@@ -17,17 +17,6 @@ class DiscoveryConfig:
     cache_max_size: int = 1000
     cache_ttl_seconds: float = 3600.0
     simple_scoring: bool = True
-
-    source_weights: Dict[str, float] = field(
-        default_factory=lambda: {
-            "openalex": 3.0,
-            "semantic_scholar": 3.0,
-            "sciencedirect": 3.0,
-            "arxiv": 2.0,
-            "pubmed": 2.0,
-            "crossref": 1.0,
-        }
-    )
 
     ranking_weights: Dict[str, float] = field(
         default_factory=lambda: {

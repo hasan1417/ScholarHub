@@ -1,4 +1,4 @@
-import React, { useEffect, useState, forwardRef, useImperativeHandle, useCallback } from 'react'
+import React, { useEffect, useState, useRef, forwardRef, useImperativeHandle, useCallback } from 'react'
 import 'katex/dist/katex.min.css'
 import pdfViewerHtml from '../../assets/pdf-viewer.html?raw'
 import FigureUploadDialog from './FigureUploadDialog'
@@ -14,6 +14,7 @@ import { useHistoryRestore } from './hooks/useHistoryRestore'
 import { useLatexSnippets } from './hooks/useLatexSnippets'
 import { useCitationHandlers } from './hooks/useCitationHandlers'
 import { useAiTextTools } from './hooks/useAiTextTools'
+import { API_ROOT, latexAPI } from '../../services/api'
 import { EditorToolbar } from './components/EditorToolbar'
 import { PdfPreviewPane } from './components/PdfPreviewPane'
 import { OutlinePanel } from './components/OutlinePanel'
@@ -67,6 +68,7 @@ function LaTeXEditorImpl(
   const [viewMode, setViewMode] = useState<'code' | 'split' | 'pdf'>('split')
   const [figureDialogOpen, setFigureDialogOpen] = useState(false)
   const [outlinePanelOpen, setOutlinePanelOpen] = useState(false)
+  const [exportDocxLoading, setExportDocxLoading] = useState(false)
 
   // Resizable split view
   const { splitPosition, splitContainerRef, handleSplitDragStart } = useSplitPane()
@@ -169,6 +171,68 @@ function LaTeXEditorImpl(
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
   }, [backwardSync, iframeRef])
+
+  // Keep a ref to contentHash for use in async export handlers
+  const contentHashRef = useRef(contentHash)
+  useEffect(() => { contentHashRef.current = contentHash }, [contentHash])
+
+  // Export: Download PDF
+  const handleExportPdf = useCallback(async () => {
+    let hash = contentHashRef.current
+    if (!hash) {
+      // No compile yet — trigger one and wait for it
+      await compileNow()
+      // After compile, contentHash state updates asynchronously;
+      // give it a tick to propagate
+      await new Promise(r => setTimeout(r, 300))
+      hash = contentHashRef.current
+    }
+    if (!hash) return
+    try {
+      const resp = await fetch(`${API_ROOT}/api/v1/latex/artifacts/${hash}/main.pdf`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` },
+      })
+      if (!resp.ok) return
+      const blob = await resp.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'paper.pdf'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      console.error('PDF download failed', e)
+    }
+  }, [compileNow])
+
+  // Export: Download Word (DOCX)
+  const handleExportDocx = useCallback(async () => {
+    setExportDocxLoading(true)
+    try {
+      flushBufferedChange()
+      const source = getLatestSource()
+      const extraFiles = getExtraFiles()
+      const resp = await latexAPI.exportDocx({
+        latex_source: source,
+        paper_id: paperId,
+        latex_files: extraFiles ?? undefined,
+        include_bibtex: true,
+      })
+      const blob = new Blob([resp.data as BlobPart], {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'paper.docx'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      console.error('DOCX export failed', e)
+    } finally {
+      setExportDocxLoading(false)
+    }
+  }, [flushBufferedChange, getLatestSource, getExtraFiles, paperId])
 
   // Dispatch compile error diagnostics to CodeMirror lint layer
   useEffect(() => {
@@ -286,6 +350,9 @@ function LaTeXEditorImpl(
         aiActionLoading={aiActionLoading}
         onAiAction={handleAiAction}
         onForwardSync={handleForwardSync}
+        onExportPdf={handleExportPdf}
+        onExportDocx={handleExportDocx}
+        exportDocxLoading={exportDocxLoading}
       />
       <div ref={splitContainerRef} className={contentLayoutCls}>
         {showEditor && (

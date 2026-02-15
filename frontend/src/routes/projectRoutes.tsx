@@ -1,9 +1,8 @@
-import { RouteObject } from 'react-router-dom'
+import { Navigate, RouteObject } from 'react-router-dom'
 import ProjectsHome from '../pages/projects/ProjectsHome'
 import ProjectLayout from '../pages/projects/ProjectLayout'
 import ProjectOverview from '../pages/projects/ProjectOverview'
 import ProjectDiscussion from '../pages/projects/ProjectDiscussion'
-import ProjectSyncSpace from '../pages/projects/ProjectSyncSpace'
 import ProjectPapers from '../pages/projects/ProjectPapers'
 import ProjectDiscovery from '../pages/projects/ProjectDiscovery'
 import ProjectReferences from '../pages/projects/ProjectReferences'
@@ -11,7 +10,6 @@ import PaperDetail from '../pages/projects/PaperDetail'
 import PaperEditor from '../pages/projects/PaperEditor'
 import ViewPaper from '../pages/projects/ViewPaper'
 import CreatePaperWithTemplate from '../pages/projects/CreatePaperWithTemplate'
-import ProjectCollaborate from '../pages/projects/ProjectCollaborate'
 import ProjectLibrary from '../pages/projects/ProjectLibrary'
 
 export const projectRoutes: RouteObject[] = [
@@ -32,35 +30,21 @@ export const projectRoutes: RouteObject[] = [
         children: [
           {
             index: true,
+            element: <Navigate to="overview" replace />,
+          },
+          {
+            path: 'overview/*',
             element: <ProjectOverview />,
           },
-          // OLD NAVIGATION ROUTES (kept for backward compatibility)
           {
             path: 'discussion',
             element: <ProjectDiscussion />,
           },
           {
-            path: 'sync-space',
-            element: <ProjectSyncSpace />,
-          },
-          {
-            path: 'discovery',
-            element: <ProjectDiscovery />,
-          },
-          {
-            path: 'related-papers',
-            element: <ProjectReferences />,
-          },
-          // NEW NAVIGATION ROUTES
-          {
-            path: 'collaborate/*',
-            element: <ProjectCollaborate />,
-          },
-          {
             path: 'library/*',
             element: <ProjectLibrary />,
           },
-          // SHARED ROUTES (work with both navigation modes)
+          // SHARED ROUTES (papers)
           {
             path: 'papers',
             element: <ProjectPapers />,
@@ -89,6 +73,36 @@ export const projectRoutes: RouteObject[] = [
                 element: <PaperEditor />,
               },
             ],
+          },
+          // OLD NAVIGATION backward-compat routes
+          {
+            path: 'discovery',
+            element: <ProjectDiscovery />,
+          },
+          {
+            path: 'related-papers',
+            element: <ProjectReferences />,
+          },
+          // Backward-compat redirects for old Collaborate routes
+          {
+            path: 'collaborate/chat-beta',
+            element: <Navigate to="../discussion" replace />,
+          },
+          {
+            path: 'collaborate/chat',
+            element: <Navigate to="../discussion" replace />,
+          },
+          {
+            path: 'collaborate/meetings',
+            element: <Navigate to="../overview/meetings" replace />,
+          },
+          {
+            path: 'collaborate',
+            element: <Navigate to="../discussion" replace />,
+          },
+          {
+            path: 'sync-space',
+            element: <Navigate to="../overview/meetings" replace />,
           },
         ],
       },

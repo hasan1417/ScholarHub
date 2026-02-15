@@ -1491,33 +1491,37 @@ async def invoke_discussion_assistant(
                     elif event.get("type") == "error":
                         yield "data: " + json.dumps({"type": "error", "message": event.get("message", "Error")}) + "\n\n"
 
-                # Persist completed exchange
+                # Fire-and-forget: persist + broadcast in background so the stream closes immediately
                 if final_result:
-                    response_model = _build_ai_response(final_result, selected_model)
-                    payload_dict = response_model.model_dump(mode="json")
-                    conversation_state = final_result.get("conversation_state", {})
+                    _final = final_result
 
-                    await asyncio.to_thread(
-                        _persist_assistant_exchange,
-                        proj_id, chan_id, user_id, exchange_id,
-                        question_text, payload_dict, exchange_created_at,
-                        conversation_state, "completed",
-                    )
-                    await _broadcast_discussion_event(
-                        proj_id, chan_id, "assistant_reply",
-                        {"exchange": {
-                            "id": exchange_id,
-                            "question": question_text,
-                            "response": payload_dict,
-                            "created_at": exchange_created_at,
-                            "author": author_info,
-                            "status": "completed",
-                        }},
-                    )
-                    try:
-                        await asyncio.to_thread(SubscriptionService.increment_usage, db, user_id, "discussion_ai_calls", credit_cost)
-                    except Exception as e:
-                        logger.error(f"Failed to increment discussion AI usage for user {user_id}: {e}")
+                    async def _post_stream_work():
+                        try:
+                            resp = _build_ai_response(_final, selected_model)
+                            pdict = resp.model_dump(mode="json")
+                            cstate = _final.get("conversation_state", {})
+                            await asyncio.to_thread(
+                                _persist_assistant_exchange,
+                                proj_id, chan_id, user_id, exchange_id,
+                                question_text, pdict, exchange_created_at,
+                                cstate, "completed",
+                            )
+                            await _broadcast_discussion_event(
+                                proj_id, chan_id, "assistant_reply",
+                                {"exchange": {
+                                    "id": exchange_id,
+                                    "question": question_text,
+                                    "response": pdict,
+                                    "created_at": exchange_created_at,
+                                    "author": author_info,
+                                    "status": "completed",
+                                }},
+                            )
+                            await asyncio.to_thread(SubscriptionService.increment_usage, db, user_id, "discussion_ai_calls", credit_cost)
+                        except Exception as e:
+                            logger.error(f"Post-stream work failed for exchange {exchange_id}: {e}")
+
+                    asyncio.create_task(_post_stream_work())
 
             except GeneratorExit:
                 logger.info(f"Client disconnected during streaming for exchange {exchange_id}")

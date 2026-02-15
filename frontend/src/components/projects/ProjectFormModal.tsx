@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Plus, X, Folder, FileText, Tag, Flag, GripVertical } from 'lucide-react'
 import { ProjectCreateInput, ProjectSummary } from '../../types'
 
@@ -115,7 +116,7 @@ const ProjectFormModal = ({
 
   const heading = mode === 'create' ? 'Create New Project' : 'Edit Project'
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-gray-900/50 backdrop-blur-sm dark:bg-black/70" aria-hidden="true" onClick={onClose} />
       <form
@@ -324,7 +325,8 @@ const ProjectFormModal = ({
           </button>
         </div>
       </form>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

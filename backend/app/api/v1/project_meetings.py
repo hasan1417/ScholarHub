@@ -212,7 +212,7 @@ async def _generate_meeting_summary(transcript_text: str) -> Optional[str]:
 
         def _call_openai() -> str:
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-5-mini",
                 messages=[
                     {
                         "role": "system",

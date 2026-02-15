@@ -30,7 +30,7 @@ DEFAULT_FALLBACK: Tuple[str, float] = ("general", 0.5)
 CLASSIFIER_PROMPT = """Classify the user message into exactly one intent.
 - direct_search: find/search for new papers externally
 - analysis: compare, analyze, or identify gaps across papers
-- library: view, manage, export, annotate, or search within saved library
+- library: view, manage, export, annotate, ingest, add to library, or search within saved library
 - writing: create, write, edit, or update a paper/document/artifact
 - project_update: change project description, keywords, or objectives
 - general: greeting, acknowledgment, unclear, or doesn't fit above
@@ -40,7 +40,7 @@ _JSON_RE = re.compile(r"\{[^}]+\}")
 
 
 def _get_classifier_model() -> str:
-    """Config fallback chain: settings.INTENT_CLASSIFIER_MODEL -> 'openai/gpt-4o-mini'."""
+    """Config fallback chain: settings.INTENT_CLASSIFIER_MODEL -> 'openai/gpt-5-mini'."""
     try:
         from app.core.config import settings
         model = getattr(settings, "INTENT_CLASSIFIER_MODEL", None)
@@ -48,7 +48,7 @@ def _get_classifier_model() -> str:
             return model
     except Exception:
         pass
-    return "openai/gpt-4o-mini"
+    return "openai/gpt-5-mini"
 
 
 def _parse_response(text: str) -> Tuple[str, float]:
@@ -97,7 +97,7 @@ def classify_intent_sync(
         message: Current user message
         conversation_tail: Last 2-4 messages for deictic context
         client: OpenAI-compatible sync client (or None to no-op)
-        model: Override model ID (default: config or gpt-4o-mini)
+        model: Override model ID (default: config or gpt-5-mini)
 
     Returns:
         (intent, confidence) tuple. Falls back to DEFAULT_FALLBACK on any error.

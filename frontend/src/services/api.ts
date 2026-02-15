@@ -539,6 +539,11 @@ export const projectReferencesAPI = {
     api.get<{ project_id: string; paper_id: string; references: any[] }>(
       `/projects/${projectId}/papers/${paperId}/references`
     ),
+  getIngestionStatus: (projectId: string, referenceIds: string[]) =>
+    api.post<{ statuses: Record<string, string> }>(
+      `/projects/${projectId}/references/ingestion-status`,
+      { reference_ids: referenceIds }
+    ),
 }
 
 export const projectAIAPI = {
@@ -1319,6 +1324,20 @@ export const tagsAPI = {
   
   getTags: () => 
     api.get<Tag[]>('/tags/'),
+}
+
+// LaTeX API
+export const latexAPI = {
+  exportDocx: (payload: {
+    latex_source: string
+    paper_id?: string
+    latex_files?: Record<string, string>
+    include_bibtex?: boolean
+  }) =>
+    api.post('/latex/export-docx', payload, {
+      responseType: 'blob',
+      timeout: 60000,
+    }),
 }
 
 export default api

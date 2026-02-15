@@ -3,7 +3,7 @@ import {
   ArrowLeft, Library, Save, Loader2, Undo2, Redo2,
   Clock, ChevronDown, Bold,
   Italic, Sigma, List, ListOrdered, Image, Table, Link2,
-  ListTree, ArrowRightToLine,
+  ListTree, ArrowRightToLine, Download,
 } from 'lucide-react'
 import { AiToolsMenu } from './AiToolsMenu'
 import { CompileStatusBar } from './CompileStatusBar'
@@ -83,6 +83,11 @@ interface EditorToolbarProps {
 
   // SyncTeX
   onForwardSync?: () => void
+
+  // Export
+  onExportPdf?: () => void
+  onExportDocx?: () => void
+  exportDocxLoading?: boolean
 }
 
 export const EditorToolbar: React.FC<EditorToolbarProps> = ({
@@ -122,6 +127,9 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   aiActionLoading,
   onAiAction,
   onForwardSync,
+  onExportPdf,
+  onExportDocx,
+  exportDocxLoading,
 }) => {
   const [openDropdown, setOpenDropdown] = useState<string | null>(null)
 
@@ -437,8 +445,51 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           {/* Spacer */}
           <div className="flex-1" />
 
-          {/* Right side: SyncTeX, History, Compile, Save */}
+          {/* Right side: Export, SyncTeX, History, Compile, Save */}
           <div className="flex items-center gap-1">
+            {/* Export dropdown */}
+            {(onExportPdf || onExportDocx) && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setOpenDropdown(openDropdown === 'export' ? null : 'export')}
+                  className={`rounded p-1.5 transition-colors ${
+                    openDropdown === 'export'
+                      ? 'bg-slate-200 text-slate-900 dark:bg-slate-600 dark:text-white'
+                      : 'text-slate-500 hover:bg-slate-200 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200'
+                  }`}
+                  title="Export / Download"
+                >
+                  <Download className="h-4 w-4" />
+                </button>
+                {openDropdown === 'export' && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setOpenDropdown(null)} />
+                    <div className="absolute right-0 top-full z-50 mt-1 min-w-[160px] rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-800">
+                      {onExportPdf && (
+                        <button
+                          onClick={() => { onExportPdf(); setOpenDropdown(null) }}
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                        >
+                          Download PDF
+                        </button>
+                      )}
+                      {onExportDocx && (
+                        <button
+                          onClick={() => { onExportDocx(); setOpenDropdown(null) }}
+                          disabled={exportDocxLoading}
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-200 dark:hover:bg-slate-700"
+                        >
+                          {exportDocxLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                          Download Word
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
             {onForwardSync && (
               <button
                 type="button"

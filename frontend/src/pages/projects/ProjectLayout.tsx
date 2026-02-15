@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { NavLink, Outlet, useNavigate, useOutletContext, useParams, useLocation } from 'react-router-dom'
-import { ArrowLeft, Calendar, Users as UsersIcon, Trash2, Home, MessageSquare, FileEdit, Search, Video, BookOpen, FileText, Settings } from 'lucide-react'
+import { ArrowLeft, Calendar, Users, Trash2, Home, MessageSquare, FileEdit, Search, Video, BookOpen, FileText, Settings, Sparkles } from 'lucide-react'
 import { projectDiscoveryAPI, projectsAPI } from '../../services/api'
 import { ProjectCreateInput, ProjectDetail } from '../../types'
 import ProjectFormModal from '../../components/projects/ProjectFormModal'
@@ -74,8 +74,7 @@ const NEW_TAB_GROUPS = {
   main: [
     {
       label: 'Overview',
-      path: '',
-      exact: true,
+      path: 'overview',
       icon: Home,
       tooltip: 'Project dashboard, team, and activity'
     },
@@ -86,10 +85,11 @@ const NEW_TAB_GROUPS = {
       tooltip: 'View and edit research papers'
     },
     {
-      label: 'Collaborate',
-      path: 'collaborate',
-      icon: UsersIcon,
-      tooltip: 'Team chat and video meetings'
+      label: 'Scholar AI',
+      path: 'discussion',
+      icon: Sparkles,
+      tooltip: 'AI-powered research assistant',
+      animate: true,
     },
     {
       label: 'Library',
@@ -343,7 +343,7 @@ const ProjectLayout = () => {
               <span>Updated {new Date(project.updated_at).toLocaleDateString()}</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <UsersIcon className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+              <Users className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
               <span>{memberCount} member{memberCount === 1 ? '' : 's'}</span>
             </div>
           </div>
@@ -351,19 +351,19 @@ const ProjectLayout = () => {
         <nav className="mt-6 sm:mt-8 flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium overflow-x-auto pb-1">
           {getNavigationMode() === 'new' ? (
             // NEW NAVIGATION: 4 simple tabs
-            NEW_TAB_GROUPS.main.map(({ label, path, exact, icon: Icon, tooltip, badge }) => (
+            NEW_TAB_GROUPS.main.map(({ label, path, icon: Icon, tooltip, badge, animate }) => (
               <div key={label} className="relative flex-shrink-0">
                 <NavLink
-                  to={path ? `/projects/${getProjectUrlId(project)}/${path}` : `/projects/${getProjectUrlId(project)}`}
-                  end={Boolean(exact)}
+                  to={`/projects/${getProjectUrlId(project)}/${path}`}
+                  end={path === 'discussion'}
                   title={tooltip}
                   className={({ isActive }) =>
                     `inline-flex items-center gap-1 sm:gap-1.5 rounded-full px-2.5 py-1 sm:px-3 sm:py-1.5 transition-colors whitespace-nowrap ${
                       isActive ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-700'
-                    }`
+                    }${animate ? ' group' : ''}`
                   }
                 >
-                  {Icon && <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />}
+                  {Icon && <Icon className={`h-3.5 w-3.5 sm:h-4 sm:w-4${animate ? ' transition-all duration-300 group-hover:scale-110 group-hover:drop-shadow-[0_0_6px_rgba(99,102,241,0.6)]' : ''}`} />}
                   <span className="hidden xs:inline sm:inline">{label}</span>
                 </NavLink>
                 {badge === 'discovery' && hasLibraryNotifications && (

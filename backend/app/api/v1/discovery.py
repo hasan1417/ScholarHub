@@ -176,7 +176,7 @@ class PaperDiscoveryRequest(BaseModel):
     max_context_chars: int = Field(default=4000, ge=500, le=20000, description="Max characters from paper to use in context")
 
     # Common controls
-    max_results: int = Field(20, ge=5, le=50, description="Maximum number of results")
+    max_results: int = Field(20, ge=5, le=100, description="Maximum number of results")
     sources: Optional[List[str]] = Field(
         default=None,
         description="Sources to search: arxiv, semantic_scholar, crossref, pubmed, openalex, sciencedirect"
@@ -187,7 +187,7 @@ class PaperDiscoveryRequest(BaseModel):
 class DiscoveredPaperResponse(BaseModel):
     title: str
     authors: List[str]
-    abstract: str
+    abstract: Optional[str] = None
     year: Optional[int]
     doi: Optional[str]
     url: Optional[str]
@@ -443,15 +443,15 @@ async def discover_papers(
 
         # Perform discovery
         async with PaperDiscoveryService() as discovery_service:
-            discovered_papers = await discovery_service.discover_papers(
+            result = await discovery_service.discover_papers(
                 query=effective_query,
-                research_topic=request.research_topic,
                 max_results=request.max_results,
                 sources=request.sources,
-                target_text=target_text,
+                target_text=target_text or request.research_topic,
                 target_keywords=target_keywords
             )
-        
+            discovered_papers = result.papers if hasattr(result, 'papers') else result
+
         # Convert to response format
         paper_responses = []
         for paper in discovered_papers:
@@ -727,14 +727,14 @@ async def discover_papers_stream(
             logger.info(f"📋 Sources breakdown: {', '.join(request.sources) if request.sources else 'NO SOURCES'}")
 
             async with PaperDiscoveryService() as svc:
-                papers = await svc.discover_papers(
+                discovery_result = await svc.discover_papers(
                     query=effective_query,
-                    research_topic=request.research_topic,
                     max_results=request.max_results,
-                    target_text=request.paper_text,
+                    target_text=request.paper_text or request.research_topic,
                     sources=request.sources,
                     debug=False # Consider making this configurable
                 )
+                papers = discovery_result.papers if hasattr(discovery_result, 'papers') else discovery_result
 
                 # Stream results as a single batch
                 batch = []
@@ -866,14 +866,14 @@ async def score_debug(
 
     # Run discovery (non-stream)
     async with PaperDiscoveryService() as svc:
-        papers = await svc.discover_papers(
+        discovery_result = await svc.discover_papers(
             query=effective_query,
-            research_topic=request.research_topic,
             max_results=request.max_results,
             sources=request.sources,
-            target_text=target_text,
+            target_text=target_text or request.research_topic,
             target_keywords=target_keywords
         )
+        papers = discovery_result.papers if hasattr(discovery_result, 'papers') else discovery_result
 
     # Compute lexical components
     def _tokenize_set(s: str) -> set:
@@ -1390,10 +1390,6 @@ async def _try_alternative_access(url: str, title: str) -> Optional[PaperContent
                     'extractor': '_extract_annas_pdf_url'
                 }
             ]
-            
-            # URL encode the search query
-            import urllib.parse
-            encoded_query = urllib.parse.quote(search_query)
             
             # Prepare multiple search strategies
             search_queries = [search_query]

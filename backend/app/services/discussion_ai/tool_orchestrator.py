@@ -15,8 +15,7 @@ from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional, TYPE_CHECKING
 
 from app.services.discussion_ai.tools import build_tool_registry
-from app.services.discussion_ai.policy import DiscussionPolicy, PolicyDecision, ActionPlan
-from app.services.discussion_ai.intent_classifier import classify_intent_sync
+from app.services.discussion_ai.policy import DiscussionPolicy, PolicyDecision
 from app.services.discussion_ai.quality_metrics import get_discussion_ai_metrics_collector
 from app.services.discussion_ai.utils import filter_duplicate_mutations
 from app.services.discussion_ai.mixins import (
@@ -37,62 +36,17 @@ DISCUSSION_TOOL_REGISTRY = build_tool_registry()
 # Note: Don't pre-filter tools at module level - filter at runtime based on user role
 DISCUSSION_TOOLS = DISCUSSION_TOOL_REGISTRY.get_schema_list()  # Full list for reference
 
-# ── Dynamic tool exposure groups ────────────────────────────────────────
-# Base: read-only context tools only (no mutating/action tools)
-_BASE_TOOLS = frozenset({
-    "get_recent_search_results",
-    "get_project_references",
-    "get_project_info",
-})
-
-_INTENT_TOOLS = {
-    "direct_search": frozenset({
-        "search_papers", "get_related_papers", "semantic_search_library",
-        "discover_topics", "batch_search_papers", "focus_on_papers",
-        "add_to_library",
-    }),
-    "analysis": frozenset({
-        "focus_on_papers", "compare_papers", "analyze_across_papers",
-        "suggest_research_gaps", "get_reference_details",
-    }),
-    "library": frozenset({
-        "get_reference_details", "analyze_reference", "annotate_reference",
-        "export_citations", "get_channel_papers", "semantic_search_library",
-        "add_to_library", "focus_on_papers",
-    }),
-    "writing": frozenset({
-        "create_paper", "update_paper", "get_project_papers",
-        "generate_section_from_discussion", "generate_abstract",
-        "create_artifact", "get_created_artifacts", "focus_on_papers",
-    }),
-    "project_update": frozenset({"update_project_info"}),
-    "general": frozenset({"search_papers", "get_project_papers", "focus_on_papers"}),
-    "clarify": frozenset(),
-}
-
-# Broad set for low-confidence fallback — READ + SEARCH only, no mutating tools
-_BROAD_TOOLS = (
-    _BASE_TOOLS
-    | frozenset({
-        "search_papers", "get_related_papers", "semantic_search_library",
-        "discover_topics", "batch_search_papers", "focus_on_papers",
-        "get_project_papers", "get_reference_details", "get_channel_papers",
-        "export_citations",
-    })
-)  # ~13 tools — all read-only
-
-_INTENT_PRIMARY_TOOL = {
-    "direct_search": "search_papers",
-    "analysis": "compare_papers",
-    "library": "get_project_references",
-    "writing": "create_paper",
-    "project_update": "update_project_info",
-    "general": None,
-}
+# Tool exposure: all role-permitted tools are sent to the LLM.
+# Role-based permissions (permissions.py) handle access control.
+# No intent-based filtering — modern models handle 28 tools fine (~5K tokens).
 
 # System prompt with adaptive workflow based on request clarity
 BASE_SYSTEM_PROMPT = r"""You are a research assistant helping with academic papers for researchers and scholars.
 Prioritize research quality: precision, traceability to sources, and academically rigorous outputs over broad but noisy results.
+
+## SCOPE
+You only assist with tasks related to this research project: literature search, paper analysis, academic writing, and project management. If a request is clearly unrelated to research or this project (e.g., personal emails, coding homework, casual chat, creative fiction), briefly explain that you're a research assistant and offer to help with something research-related instead.
+Do NOT refuse adjacent requests that could reasonably support research (e.g., explaining a statistical method, summarizing a concept, helping frame a research question, clarifying terminology).
 
 ## GOLDEN RULE: ONLY DO WHAT THE USER ASKED
 
@@ -174,9 +128,11 @@ Project: {project_title} | Channel: {channel_name}
 {context_summary}"""
 
 LITE_SYSTEM_PROMPT = """You are a research assistant for the project "{project_title}".
-Respond concisely and helpfully. If the user greets you, greet them back warmly.
+Respond concisely and helpfully. Only assist with research-related tasks for this project.
+If the user greets you, greet them back warmly.
 If they acknowledge something, confirm briefly. If they ask a research question
 or need papers/analysis, let them know you're ready to help and ask what they need.
+If a request is clearly unrelated to research, briefly explain you're a research assistant.
 Keep responses under 3 sentences for simple exchanges."""
 
 # Reminder injected after conversation history to reinforce key rules
@@ -1045,13 +1001,17 @@ If asked to perform write actions, explain that editor/admin access is required.
                 normalized["year_from"] = year_from or args.get("year_from")
                 normalized["year_to"] = year_to or args.get("year_to")
 
-            # Query: trust model if substantive, else policy fallback chain
+            # Query: when the user explicitly asked to search, prefer the
+            # policy-extracted topic (user's own words) so that the downstream
+            # understand_query() receives clean input instead of model keyword
+            # soup.  When the model autonomously decided to search (no policy
+            # search detected), the model query is the only signal available.
             model_query = (args.get("query") or "").strip()
             policy_query = policy_decision.search.query if has_policy_search else ""
-            if model_query and not self._policy.is_low_information_query(model_query):
-                normalized["query"] = model_query
-            elif policy_query and not self._policy.is_low_information_query(policy_query):
+            if has_policy_search and policy_query and not self._policy.is_low_information_query(policy_query):
                 normalized["query"] = policy_query
+            elif model_query and not self._policy.is_low_information_query(model_query):
+                normalized["query"] = model_query
             else:
                 normalized["query"] = self._build_fallback_search_query(ctx)
 
@@ -1252,66 +1212,20 @@ If asked to perform write actions, explain that editor/admin access is required.
         ctx: Dict[str, Any],
         conversation_history: Optional[List[Dict]] = None,
     ) -> PolicyDecision:
-        """Policy first, classifier second. Saves latency when regex already detects intent."""
-        # 1. Deterministic policy FIRST (regex for direct_search, project_update)
+        """Build deterministic policy (search params, project update).
+
+        No LLM classifier — all role-permitted tools are always available.
+        """
         policy = self._build_policy_decision(ctx)
-
-        # 2. Only call LLM classifier when policy returns "general"
-        if policy.intent == "general":
-            intent, confidence = classify_intent_sync(
-                ctx.get("user_message", ""),
-                (conversation_history or [])[-4:],
-                self._get_classifier_client(),
-            )
-            ctx["classified_intent"] = intent
-            ctx["intent_confidence"] = confidence
-            logger.info("[IntentClassifier] intent=%s confidence=%.2f", intent, confidence)
-
-            # Upgrade general -> specific if classifier is confident
-            if intent != "general" and confidence >= 0.6:
-                policy = PolicyDecision(
-                    intent=intent,
-                    force_tool=None,
-                    search=policy.search,
-                    reasons=policy.reasons + [f"llm_classified_{intent}"],
-                    action_plan=ActionPlan(
-                        primary_tool=_INTENT_PRIMARY_TOOL.get(intent),
-                        reasons=policy.reasons + [f"llm_classified_{intent}"],
-                    ),
-                )
-        else:
-            # Regex already determined intent — skip classifier, save ~200ms
-            ctx["classified_intent"] = policy.intent
-            ctx["intent_confidence"] = 1.0
-            logger.info("[IntentClassifier] skipped — regex detected %s", policy.intent)
-
         ctx["policy_decision"] = policy
+        logger.info("[Policy] intent=%s reasons=%s", policy.intent, policy.reasons)
         return policy
 
     def _get_tools_for_context(self, ctx: Dict[str, Any]) -> List[Dict]:
-        """Get tools filtered by intent confidence AND user role.
-
-        High confidence -> narrow tool set (6-13 tools per intent).
-        Low confidence  -> broad read+search set (~13 tools).
-        """
-        intent = getattr(ctx.get("policy_decision"), "intent", "general")
-        confidence = ctx.get("intent_confidence", 1.0)
-
-        if confidence >= 0.7:
-            allowed = _BASE_TOOLS | _INTENT_TOOLS.get(intent, _INTENT_TOOLS["general"])
-        else:
-            allowed = _BROAD_TOOLS
-
+        """Get all tools the user's role permits."""
         user_role = ctx.get("user_role", "viewer")
         is_owner = ctx.get("is_owner", False)
-        role_tools = DISCUSSION_TOOL_REGISTRY.get_schema_list_for_role(user_role, is_owner)
-        tools = [t for t in role_tools if t["function"]["name"] in allowed]
-
-        logger.debug(
-            "[ToolExposure] intent=%s confidence=%.2f tools=%d/%d",
-            intent, confidence, len(tools), len(role_tools),
-        )
-        return tools
+        return DISCUSSION_TOOL_REGISTRY.get_schema_list_for_role(user_role, is_owner)
 
     def _get_tools_for_user(self, ctx: Dict[str, Any]) -> List[Dict]:
         """Get tools filtered by intent + user role (backward compat wrapper)."""

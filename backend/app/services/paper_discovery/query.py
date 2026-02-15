@@ -1,11 +1,13 @@
-"""Helpers for generating enhanced discovery queries."""
+"""Helpers for query understanding and core-term extraction."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
-from typing import List, Optional, Set
+from dataclasses import dataclass, field
+from typing import List, Set
 
 from app.services.paper_discovery.cache import LRUCache
 
@@ -67,88 +69,128 @@ def extract_core_terms(query: str) -> Set[str]:
     return core_terms
 
 
-class QueryEnhancer:
-    """Produce enriched search queries using optional LLM assistance."""
+# ---------------------------------------------------------------------------
+# Query Understanding — replaces the old QueryEnhancer
+# ---------------------------------------------------------------------------
 
-    def __init__(self, openai_client=None) -> None:
-        self.openai_client = openai_client
-        self.cache = LRUCache(max_size=100, ttl_seconds=3600)
+@dataclass
+class QueryIntent:
+    """Structured understanding of an academic search query."""
+    interpreted_query: str  # Natural language description for the ranker
+    search_terms: List[str] = field(default_factory=list)  # Better search phrasings
 
-    async def enhance_query(
-        self,
-        query: str,
-        research_topic: Optional[str] = None,
-        max_queries: int = 3,
-    ) -> List[str]:
-        """Return a list of refined queries (prefixed with the original)."""
 
-        query = (query or '').strip()
-        if not query and not research_topic:
-            logger.warning("QueryEnhancer received empty query and no topic")
-            return ['']
+_intent_cache = LRUCache(max_size=200, ttl_seconds=3600)
 
-        if len(query.split()) <= 2 and not research_topic:
-            return [query]
+_UNDERSTAND_SYSTEM = (
+    "You are an academic search query interpreter. "
+    "Given a research query, identify if it contains compound concepts, model names, "
+    "technique combinations, or domain-specific terms that should be kept together.\n\n"
+    "Return ONLY compact single-line JSON, no markdown:\n"
+    '{"interpreted_query":"...","search_terms":["...","..."]}\n\n'
+    "- interpreted_query: A clear description of what the user is actually looking for.\n"
+    "- search_terms: 1-2 alternative search phrasings that better capture the intent "
+    "(omit the original query). Empty array if the query is already clear.\n\n"
+    "Examples:\n"
+    '- "Arabic character BERT" → {"interpreted_query":"CharacterBERT (a BERT variant using character-level CNN instead of WordPiece tokenization) applied to Arabic language","search_terms":["CharacterBERT Arabic","character-level BERT Arabic NLP"]}\n'
+    '- "graph neural network" → {"interpreted_query":"graph neural networks","search_terms":[]}\n'
+    '- "federated learning privacy" → {"interpreted_query":"privacy-preserving techniques in federated learning","search_terms":["federated learning differential privacy"]}\n'
+    '- "transformer attention" → {"interpreted_query":"attention mechanisms in transformer models","search_terms":[]}\n'
+)
 
-        cache_key = f"{query}::{research_topic or ''}::{max_queries}"
-        cached = await self.cache.get(cache_key)
-        if cached:
-            return cached
 
-        if not self.openai_client:
-            baseline = [q for q in [query, research_topic] if q]
-            result = baseline or [query]
-            await self.cache.set(cache_key, result)
-            return result
+async def understand_query(query: str) -> QueryIntent:
+    """Use a fast LLM call to understand compound academic concepts in a query.
 
-        try:
-            enhanced = await self._generate_with_gpt(query, research_topic, max_queries)
-            final = [query] + [q for q in enhanced if q and q != query]
-            await self.cache.set(cache_key, final)
-            return final
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("Query enhancement failed: %s", exc)
-            fallback = [q for q in [query, research_topic] if q]
-            return fallback or [query]
+    Returns a QueryIntent with semantic interpretation and better search terms.
+    Falls back to the original query on any failure.
+    """
+    query = (query or "").strip()
+    if not query:
+        return QueryIntent(interpreted_query=query)
 
-    async def _generate_with_gpt(
-        self,
-        query: str,
-        research_topic: Optional[str],
-        max_queries: int,
-    ) -> List[str]:
-        """Call the OpenAI client to obtain query variations."""
+    # Short-circuit: 1-2 word queries don't need LLM understanding
+    if len(query.split()) <= 2:
+        return QueryIntent(interpreted_query=query)
 
-        prompt_parts = [
-            "You are an expert research assistant.",
-            "Given a base query, propose additional academic search queries.",
-            "Return a JSON array of strings.",
-        ]
-        if research_topic:
-            prompt_parts.append(f"Research topic: {research_topic}")
-        prompt_parts.append(f"Base query: {query}")
-        prompt_parts.append(f"Generate up to {max_queries} diverse queries.")
+    # Check cache
+    cached = await _intent_cache.get(query)
+    if cached is not None:
+        logger.debug("[QueryIntent] Cache hit for '%s'", query)
+        return cached
 
-        messages = [
-            {"role": "system", "content": prompt_parts[0]},
-            {"role": "user", "content": "\n".join(prompt_parts[1:])},
-        ]
+    try:
+        from openai import AsyncOpenAI
+        from app.core.config import settings
 
-        # Use gpt-4o-mini for query enhancement - fast and cost-effective
-        # Note: reasoning models (gpt-5, o3, o4) don't support temperature
-        response = self.openai_client.responses.create(
-            model='gpt-4o-mini',
-            input=messages,
-            temperature=0.2,
-            max_output_tokens=256,
+        api_key = settings.OPENROUTER_API_KEY
+        if not api_key:
+            intent = QueryIntent(interpreted_query=query)
+            await _intent_cache.set(query, intent)
+            return intent
+
+        client = AsyncOpenAI(
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",
+            default_headers={
+                "HTTP-Referer": "https://scholarhub.space",
+                "X-Title": "ScholarHub",
+            },
         )
 
-        raw = (response.output_text or '[]').strip()
+        # Retry once on timeout — reasoning models can be slow on first call
+        last_exc = None
+        for attempt in range(2):
+            try:
+                resp = await asyncio.wait_for(
+                    client.chat.completions.create(
+                        model="openai/gpt-5-mini",
+                        messages=[
+                            {"role": "system", "content": _UNDERSTAND_SYSTEM},
+                            {"role": "user", "content": query},
+                        ],
+                        max_completion_tokens=512,
+                        temperature=0.0,
+                    ),
+                    timeout=8.0,
+                )
+                break
+            except asyncio.TimeoutError:
+                last_exc = asyncio.TimeoutError()
+                logger.warning("[QueryIntent] Timeout for '%s' (attempt %d)", query, attempt + 1)
+                continue
+        else:
+            raise last_exc  # type: ignore[misc]
+
+        raw = (resp.choices[0].message.content or "").strip()
+        # Strip markdown code fences if present
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            raw = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
+
+        # Extract first JSON object if model returned extra data
         try:
             data = json.loads(raw)
-            if isinstance(data, list):
-                return [str(item).strip() for item in data if str(item).strip()]
-        except Exception:
-            logger.debug("Failed to parse enhanced query JSON: %s", raw)
+        except json.JSONDecodeError:
+            # Try extracting first {...} block
+            match = re.search(r'\{[^{}]*\}', raw)
+            if match:
+                data = json.loads(match.group())
+            else:
+                raise
+        intent = QueryIntent(
+            interpreted_query=data.get("interpreted_query", query),
+            search_terms=[s for s in data.get("search_terms", []) if s and s != query],
+        )
+        logger.info(
+            "[QueryIntent] '%s' → interpreted='%s', search_terms=%s",
+            query, intent.interpreted_query, intent.search_terms,
+        )
+        await _intent_cache.set(query, intent)
+        return intent
 
-        return []
+    except Exception as exc:
+        logger.warning("[QueryIntent] Failed for '%s': %s", query, exc)
+        intent = QueryIntent(interpreted_query=query)
+        await _intent_cache.set(query, intent)
+        return intent

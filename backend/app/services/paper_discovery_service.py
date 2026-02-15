@@ -4,6 +4,7 @@ Paper Discovery Service - Refactored with Clean Architecture
 
 import asyncio
 import aiohttp
+import hashlib
 import logging
 import os
 import time
@@ -16,14 +17,15 @@ import xml.etree.ElementTree as ET
 import re
 import inspect
 
+from app.core.config import settings
 from app.services.paper_discovery.config import DiscoveryConfig
 from app.services.paper_discovery.interfaces import (
     PaperEnricher,
     PaperRanker,
     PaperSearcher,
 )
-from app.services.paper_discovery.models import DiscoveredPaper, PaperSource
-from app.services.paper_discovery.query import QueryEnhancer, extract_core_terms
+from app.services.paper_discovery.models import DiscoveredPaper, PaperSource, _normalize_title
+from app.services.paper_discovery.query import QueryIntent, extract_core_terms, understand_query
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +103,7 @@ class SearchOrchestrator:
         year_from: Optional[int] = None,
         year_to: Optional[int] = None,
         open_access_only: bool = False,
+        query_intent: Optional[QueryIntent] = None,
     ) -> DiscoveryResult:
         """Orchestrate paper discovery and return results with per-source stats."""
         search_start_time = time.time()
@@ -134,9 +137,6 @@ class SearchOrchestrator:
                 active_searchers,
                 key=lambda s: priority_order.get(s.get_source_name(), len(priority_order))
             )
-            if max_results <= 5 and len(active_searchers) > 3:
-                active_searchers = active_searchers[:3]
-
         # Initialize per-source stats tracking
         source_stats_map: Dict[str, SourceStats] = {
             s.get_source_name(): SourceStats(source=s.get_source_name(), status="pending")
@@ -198,6 +198,8 @@ class SearchOrchestrator:
         # Flatten and deduplicate results as they arrive
         # Keep track of papers by key, preferring papers with more complete metadata
         papers_by_key: Dict[str, DiscoveredPaper] = {}
+        sources_with_papers = 0
+        collection_start = time.monotonic()
 
         def _paper_completeness_score(p: DiscoveredPaper) -> int:
             """Score paper by metadata completeness. Higher = better."""
@@ -232,7 +234,9 @@ class SearchOrchestrator:
                     logger.error("Discovery task failed: %s", exc)
                     papers = []
 
-                if isinstance(papers, list):
+                # Fix #8: Only count sources that actually returned papers
+                if isinstance(papers, list) and len(papers) > 0:
+                    sources_with_papers += 1
                     for paper in papers:
                         key = paper.get_unique_key()
                         if key not in papers_by_key:
@@ -247,14 +251,85 @@ class SearchOrchestrator:
                                     paper.title[:50], existing.source, paper.source
                                 )
 
-                # Early exit in fast_mode once we have enough results
-                if fast_mode and len(papers_by_key) >= max_results:
-                    logger.info(f"Early exit: got {len(papers_by_key)} papers, needed {max_results}")
+                # Fix #1: Early exit requires >=3 sources with papers, enough results,
+                # and at least 3s elapsed to give slower diverse sources time to respond
+                elapsed = time.monotonic() - collection_start
+                if (fast_mode
+                        and sources_with_papers >= 3
+                        and len(papers_by_key) >= max_results
+                        and elapsed >= 3.0):
+                    logger.info(
+                        "Early exit: %d papers from %d sources in %.1fs, needed %d",
+                        len(papers_by_key), sources_with_papers, elapsed, max_results,
+                    )
                     break
         finally:
-            await asyncio.gather(*tasks, return_exceptions=True)
+            # Collect results from any tasks that completed during the gather
+            remaining = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in remaining:
+                if isinstance(result, Exception) or not isinstance(result, tuple):
+                    continue
+                source_name, papers, status, error, elapsed_ms = result
+                if source_name in source_stats_map and source_stats_map[source_name].status == "pending":
+                    source_stats_map[source_name].count = len(papers)
+                    source_stats_map[source_name].status = status
+                    source_stats_map[source_name].error = error
+                    source_stats_map[source_name].elapsed_ms = elapsed_ms
+                if isinstance(papers, list):
+                    for paper in papers:
+                        key = paper.get_unique_key()
+                        if key not in papers_by_key:
+                            papers_by_key[key] = paper
 
-        all_papers = list(papers_by_key.values())
+        # Phase 1.5: Supplementary searches using query-understanding search_terms.
+        # These catch papers indexed under variant terms (e.g., "CharacterBERT" vs "Character BERT").
+        if query_intent and query_intent.search_terms:
+            fast_sources = [s for s in active_searchers
+                            if s.get_source_name() in ('semantic_scholar', 'openalex', 'arxiv')]
+            pre_count = len(papers_by_key)
+            supp_tasks = []
+            for term in query_intent.search_terms[:2]:
+                for searcher in fast_sources:
+                    supp_tasks.append(
+                        asyncio.wait_for(searcher.search(term, 10), timeout=5.0)
+                    )
+            supp_results = await asyncio.gather(*supp_tasks, return_exceptions=True)
+            for res in supp_results:
+                if isinstance(res, Exception) or not isinstance(res, list):
+                    continue
+                for paper in res:
+                    key = paper.get_unique_key()
+                    if key not in papers_by_key:
+                        papers_by_key[key] = paper
+            if len(papers_by_key) > pre_count:
+                logger.info(
+                    "[Search] Supplementary search_terms added %d papers (total %d)",
+                    len(papers_by_key) - pre_count, len(papers_by_key),
+                )
+
+        # Fix #7: Secondary title-based dedup to catch cross-key duplicates
+        # (e.g., arXiv paper with title-hash key + CrossRef paper with DOI key)
+        seen_titles: Dict[str, int] = {}
+        deduped: List[DiscoveredPaper] = []
+        for paper in papers_by_key.values():
+            norm_title = _normalize_title(paper.title)
+            if not norm_title:
+                deduped.append(paper)
+                continue
+            title_hash = hashlib.md5(norm_title.encode()).hexdigest()
+            if title_hash in seen_titles:
+                idx = seen_titles[title_hash]
+                if _paper_completeness_score(paper) > _paper_completeness_score(deduped[idx]):
+                    logger.debug(
+                        "Title-dedup: replaced '%s' from %s with %s (better metadata)",
+                        paper.title[:50], deduped[idx].source, paper.source,
+                    )
+                    deduped[idx] = paper
+            else:
+                seen_titles[title_hash] = len(deduped)
+                deduped.append(paper)
+
+        all_papers = deduped
 
         # Phase 2: Enrichment
         enrichment_tasks = [
@@ -279,14 +354,23 @@ class SearchOrchestrator:
                 len(all_papers),
             )
 
-        # Phase 3: Ranking (pass core_terms for boost)
+        # Phase 3: Ranking (pass core_terms for boost + semantic context from query understanding)
+        rank_kwargs: Dict[str, Any] = {
+            "target_text": target_text,
+            "target_keywords": target_keywords,
+            "core_terms": core_terms or set(),
+        }
+        if query_intent and query_intent.interpreted_query != query:
+            rank_kwargs["semantic_context"] = query_intent.interpreted_query
         ranked_papers = await self.ranker.rank(
             filtered_papers,
             query,
-            target_text=target_text,
-            target_keywords=target_keywords,
-            core_terms=core_terms or set(),
+            **rank_kwargs,
         )
+
+        # Phase 3.5: Source-diversity reranking
+        # Prevent any single source from dominating the final results
+        ranked_papers = self._apply_source_diversity(ranked_papers, max_results)
 
         # Telemetry: comprehensive search summary
         search_elapsed = time.time() - search_start_time
@@ -363,6 +447,34 @@ class SearchOrchestrator:
 
         return (filtered, removed_by_year, removed_by_oa)
 
+    @staticmethod
+    def _apply_source_diversity(
+        papers: List[DiscoveredPaper], max_results: int
+    ) -> List[DiscoveredPaper]:
+        """Prevent any single source from dominating the top results.
+
+        Caps each source at 40% of max_results. Papers bumped out are appended
+        at the end so total count is preserved.
+        """
+        if len(papers) <= 1:
+            return papers
+
+        max_per_source = max(2, int(max_results * 0.4))
+        source_counts: Dict[str, int] = {}
+        result: List[DiscoveredPaper] = []
+        deferred: List[DiscoveredPaper] = []
+
+        for paper in papers:
+            count = source_counts.get(paper.source, 0)
+            if count < max_per_source:
+                result.append(paper)
+                source_counts[paper.source] = count + 1
+            else:
+                deferred.append(paper)
+
+        # Fill remaining slots with deferred papers
+        return result + deferred
+
 
 # ============= Main Service Factory =============
 class PaperDiscoveryServiceFactory:
@@ -434,24 +546,16 @@ class PaperDiscoveryServiceFactory:
         if use_semantic:
             logger.info("[Discovery] Using SemanticRanker (bi-encoder + cross-encoder)")
             service_ranker = SemanticRanker(config)
-        elif os.getenv("OPENAI_API_KEY"):
+        elif settings.OPENROUTER_API_KEY:
             service_ranker = GptRanker(config)
         else:
             service_ranker = SimpleRanker(config)
-        
+
         # Create orchestrator
         orchestrator = SearchOrchestrator(searchers, enrichers, service_ranker, config)
         
-        # Create query enhancer
-        openai_client = None
-        if openai_api_key:
-            from openai import OpenAI
-            openai_client = OpenAI(api_key=openai_api_key)
-        query_enhancer = QueryEnhancer(openai_client)
-        
         return PaperDiscoveryService(
             orchestrator=orchestrator,
-            query_enhancer=query_enhancer,
             session=session,
             config=config,
             ncbi_email=resolved_ncbi_email,
@@ -466,7 +570,6 @@ class PaperDiscoveryService:
     def __init__(
         self,
         orchestrator: Optional[SearchOrchestrator] = None,
-        query_enhancer: Optional[QueryEnhancer] = None,
         session: Optional[aiohttp.ClientSession] = None,
         config: Optional[DiscoveryConfig] = None,
         *,
@@ -496,21 +599,6 @@ class PaperDiscoveryService:
             session = aiohttp.ClientSession(timeout=timeout, connector=connector)
             self._owns_session = True
         self.session = session
-
-        # Query enhancement (optional OpenAI support)
-        if query_enhancer is None:
-            if openai_api_key is None:
-                openai_api_key = os.getenv("OPENAI_API_KEY")
-            openai_client = None
-            if openai_api_key:
-                try:
-                    from openai import OpenAI
-
-                    openai_client = OpenAI(api_key=openai_api_key)
-                except Exception as exc:  # pragma: no cover - network/client import errors
-                    logger.warning("Failed to initialize OpenAI client: %s", exc)
-            query_enhancer = QueryEnhancer(openai_client)
-        self.query_enhancer = query_enhancer
 
         resolved_ncbi_email = (
             ncbi_email
@@ -563,7 +651,7 @@ class PaperDiscoveryService:
             use_semantic = os.getenv("USE_SEMANTIC_RANKER", "").lower() in ("true", "1", "yes")
             if use_semantic:
                 ranker_for_env = SemanticRanker(self.config)
-            elif os.getenv("OPENAI_API_KEY"):
+            elif settings.OPENROUTER_API_KEY:
                 ranker_for_env = GptRanker(self.config)
             else:
                 ranker_for_env = SimpleRanker(self.config)
@@ -575,7 +663,6 @@ class PaperDiscoveryService:
     async def discover_papers(
         self,
         query: str,
-        research_topic: Optional[str] = None,
         max_results: int = 20,
         target_text: Optional[str] = None,
         target_keywords: Optional[List[str]] = None,
@@ -592,10 +679,9 @@ class PaperDiscoveryService:
         timings = {}
 
         logger.info(
-            "PaperDiscoveryService.discover_papers called with query='%s', research_topic='%s', sources=%s, "
+            "PaperDiscoveryService.discover_papers called with query='%s', sources=%s, "
             "year_from=%s, year_to=%s, open_access_only=%s",
             query,
-            research_topic,
             sources,
             year_from,
             year_to,
@@ -603,27 +689,31 @@ class PaperDiscoveryService:
         )
 
         try:
-            # Extract core terms from original query BEFORE enhancement (Phase 1.3)
+            # Extract core terms from original query BEFORE enhancement
             core_terms = extract_core_terms(query)
             logger.info(f"[CoreTerms] Extracted from '{query}': {core_terms}")
 
-            # Enhance query
-            phase_start = time.time()
-            enhanced_queries = await self.query_enhancer.enhance_query(
-                query, research_topic
-            )
-            timings['query_enhancement'] = time.time() - phase_start
-
-            # Use best enhanced query
-            best_query = enhanced_queries[0] if enhanced_queries else query
-            logger.info(f"Enhanced queries: {enhanced_queries}, using best: '{best_query}'")
+            # Fire query understanding in parallel with source searches.
+            # The LLM interprets compound academic concepts for ranking
+            # (e.g. "Arabic character BERT" → semantic context about CharacterBERT).
+            # We always search with the ORIGINAL query because LLM rewrites can
+            # introduce compound terms (e.g. "CharacterBERT") that don't match
+            # source indices where papers use separate words ("Character BERT").
+            intent_task = asyncio.create_task(understand_query(query))
 
             # Run discovery
-            # Use research_topic as target_text for ranking if target_text not provided
-            effective_target_text = target_text or research_topic
+            effective_target_text = target_text
             phase_start = time.time()
+
+            # Await query intent (used for ranking context + supplementary searches)
+            intent = await intent_task
+            if intent.search_terms:
+                logger.info(f"[QueryIntent] Understood '{query}' → search_terms={intent.search_terms}")
+            else:
+                logger.info(f"[QueryIntent] No rewrite for query: '{query}'")
+
             result = await self.orchestrator.discover_papers(
-                best_query,
+                query,
                 max_results,
                 target_text=effective_target_text,
                 target_keywords=target_keywords,
@@ -633,9 +723,15 @@ class PaperDiscoveryService:
                 year_from=year_from,
                 year_to=year_to,
                 open_access_only=open_access_only,
+                query_intent=intent,
             )
             papers = result.papers
-            await self._augment_pdf_links(papers, fast_mode=fast_mode)
+            if fast_mode:
+                logger.info("[PDF] Skipping PDF augmentation in fast mode (%d papers)", len(papers))
+            else:
+                pdf_start = time.time()
+                await self._augment_pdf_links(papers, fast_mode=fast_mode)
+                logger.info("[PDF] Augmentation took %.1fs for %d papers", time.time() - pdf_start, len(papers))
             for paper in papers:
                 if getattr(paper, 'pdf_url', None):
                     paper.is_open_access = True
@@ -671,7 +767,7 @@ class PaperDiscoveryService:
                 core_term_pct = 0.0
 
             logger.info(
-                f"[Discovery] query='{query}' → enhanced='{best_query}' | "
+                f"[Discovery] query='{query}' | "
                 f"core_terms={core_terms} | "
                 f"papers={len(papers)} | "
                 f"core_term_presence={core_term_pct:.1f}% ({core_term_hits}/{len(papers)}) | "

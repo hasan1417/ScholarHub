@@ -1155,10 +1155,20 @@ class LibraryToolsMixin:
         project = ctx["project"]
         recent_search_results = self._get_recent_papers(ctx)
 
+        # Fallback: if no recent search results, use focused papers from AI memory
+        if not recent_search_results:
+            channel = ctx.get("channel")
+            if channel:
+                memory = self._get_ai_memory(channel)
+                focused = memory.get("focused_papers", [])
+                if focused:
+                    logger.info(f"[AddToLibrary] No search results, falling back to {len(focused)} focused papers")
+                    recent_search_results = focused
+
         if not recent_search_results:
             return {
                 "status": "error",
-                "message": "No recent search results. Search for papers first using search_papers.",
+                "message": "No recent search results or focused papers. Search for papers first using search_papers.",
             }
 
         if not paper_indices:

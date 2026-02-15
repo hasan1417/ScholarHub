@@ -6,6 +6,7 @@ interface OnboardingState {
   hasCreatedFirstPaper: boolean
   hasUsedDiscovery: boolean
   hasUsedCollaboration: boolean
+  hasSeenScholarAI: boolean
   currentTourStep: number | null
 }
 
@@ -16,6 +17,7 @@ interface OnboardingContextValue {
   markFirstPaperCreated: () => void
   markDiscoveryUsed: () => void
   markCollaborationUsed: () => void
+  markScholarAISeen: () => void
   startTour: (step?: number) => void
   nextTourStep: () => void
   endTour: () => void
@@ -32,6 +34,7 @@ const defaultState: OnboardingState = {
   hasCreatedFirstPaper: false,
   hasUsedDiscovery: false,
   hasUsedCollaboration: false,
+  hasSeenScholarAI: false,
   currentTourStep: null,
 }
 
@@ -77,6 +80,10 @@ export const OnboardingProvider: React.FC<{ children: ReactNode }> = ({ children
     setState(prev => ({ ...prev, hasUsedCollaboration: true }))
   }
 
+  const markScholarAISeen = () => {
+    setState(prev => ({ ...prev, hasSeenScholarAI: true }))
+  }
+
   const startTour = (step: number = 0) => {
     setState(prev => ({ ...prev, currentTourStep: step }))
   }
@@ -106,6 +113,7 @@ export const OnboardingProvider: React.FC<{ children: ReactNode }> = ({ children
         markFirstPaperCreated,
         markDiscoveryUsed,
         markCollaborationUsed,
+        markScholarAISeen,
         startTour,
         nextTourStep,
         endTour,

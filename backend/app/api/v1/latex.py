@@ -104,6 +104,72 @@ def _parse_latex_errors(log_lines: list[str]) -> list[dict]:
     return errors
 
 
+_UNICODE_ESCAPE_RE = re.compile(r'\\u([0-9a-fA-F]{4})(?![0-9a-fA-F])')
+
+
+def _decode_unicode_escapes(source: str) -> str:
+    r"""Convert \uXXXX escape sequences to actual UTF-8 characters.
+
+    AI models sometimes emit Python/JS-style unicode escapes (e.g. \u0641)
+    instead of real UTF-8 Arabic characters.  LaTeX doesn't understand these,
+    so we decode them before compilation.  LaTeX commands that happen to start
+    with ``\u`` (like \usepackage, \underline) are left untouched because the
+    4 hex digits are followed by more letters, making them part of a longer
+    command name.
+    """
+    def _replace(m: re.Match) -> str:
+        # If the character right after the 4 hex digits is a letter, this is
+        # part of a LaTeX command (e.g. \usepackage) — leave it alone.
+        end = m.end()
+        if end < len(source) and source[end].isalpha():
+            return m.group(0)
+        return chr(int(m.group(1), 16))
+    return _UNICODE_ESCAPE_RE.sub(_replace, source)
+
+
+_ARABIC_RE = re.compile(r'[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]')
+_INPUTENC_RE = re.compile(r'\\usepackage\[.*?\]\{inputenc\}')
+_FONTENC_RE = re.compile(r'\\usepackage\[.*?\]\{fontenc\}')
+
+
+def _inject_arabic_support(source: str) -> str:
+    """Auto-detect Arabic text/RTL commands and inject bidi+fontspec packages."""
+    has_arabic = (
+        bool(_ARABIC_RE.search(source))
+        or r'\RL{' in source
+        or r'\begin{Arabic}' in source
+    )
+    if not has_arabic:
+        return source
+
+    # Already has RTL support
+    if r'\usepackage{bidi}' in source or r'\usepackage{polyglossia}' in source:
+        return source
+
+    # fontspec conflicts with inputenc/fontenc — remove them
+    source = _INPUTENC_RE.sub(r'% \g<0>  % disabled for fontspec/bidi', source)
+    source = _FONTENC_RE.sub(r'% \g<0>  % disabled for fontspec/bidi', source)
+
+    # Build injection block
+    lines = []
+    if r'\usepackage{fontspec}' not in source:
+        lines.append(r'\usepackage{fontspec}')
+    lines.append(r'\usepackage{bidi}')
+    if r'\arabicfont' not in source:
+        lines.append(r'\newfontfamily\arabicfont[Script=Arabic]{Amiri}')
+    # Make \RL automatically use the Arabic font so glyphs actually render
+    lines.append(r'\let\origRL\RL')
+    lines.append(r'\renewcommand{\RL}[1]{{\arabicfont\origRL{#1}}}')
+    inject = '\n'.join(lines) + '\n'
+
+    # Insert just before \begin{document}
+    idx = source.find(r'\begin{document}')
+    if idx != -1:
+        return source[:idx] + inject + source[idx:]
+    logger.warning("Arabic text detected but no \\begin{document} found; skipping RTL injection")
+    return source
+
+
 def _ensure_body_content(source: str) -> str:
     """Ensure the document body is not completely empty to keep tectonic happy."""
     try:
@@ -201,6 +267,8 @@ async def compile_latex(request: CompileRequest, current_user: User = Depends(ge
         }
 
     effective_source = _ensure_body_content(request.latex_source)
+    effective_source = _decode_unicode_escapes(effective_source)
+    effective_source = _inject_arabic_support(effective_source)
     content_hash = _sha256(effective_source, request.latex_files)
     paths = _artifact_paths(content_hash)
 
@@ -266,6 +334,169 @@ async def compile_latex(request: CompileRequest, current_user: User = Depends(ge
     return resp
 
 
+def _unwrap_latex_command(source: str, cmd: str) -> str:
+    r"""Remove \cmd{...} wrappers, keeping brace contents. Handles nested braces."""
+    result: list[str] = []
+    i = 0
+    prefix = cmd + '{'
+    plen = len(prefix)
+    while i < len(source):
+        if source[i:i + plen] == prefix:
+            i += plen
+            depth = 1
+            start = i
+            while i < len(source) and depth > 0:
+                if source[i] == '{':
+                    depth += 1
+                elif source[i] == '}':
+                    depth -= 1
+                if depth > 0:
+                    i += 1
+            result.append(source[start:i])
+            i += 1  # skip closing }
+        else:
+            result.append(source[i])
+            i += 1
+    return ''.join(result)
+
+
+_XELATEX_LINE_PATTERNS = (
+    r'\usepackage{fontspec}',
+    r'\usepackage{bidi}',
+    r'\usepackage{polyglossia}',
+    r'\newfontfamily',
+    r'\let\origRL',
+    r'\renewcommand{\RL}',
+    r'\setmainlanguage',
+    r'\setotherlanguage',
+)
+
+
+def _strip_xelatex_for_pandoc(source: str) -> str:
+    r"""Strip XeLaTeX-specific Arabic/RTL commands for pandoc compatibility.
+
+    Pandoc handles raw UTF-8 Arabic text natively in DOCX but chokes on
+    fontspec/bidi packages and \RL{} commands.  Remove these wrappers while
+    preserving the Arabic text content.
+    """
+    # Unwrap \RL{...} → contents
+    source = _unwrap_latex_command(source, r'\RL')
+    # Unwrap \begin{Arabic}...\end{Arabic} → contents
+    source = source.replace(r'\begin{Arabic}', '').replace(r'\end{Arabic}', '')
+
+    # Remove XeLaTeX-specific package/command lines; restore commented-out
+    # inputenc/fontenc that _inject_arabic_support may have disabled.
+    lines = source.split('\n')
+    filtered: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        # Restore lines commented out by _inject_arabic_support
+        if stripped.startswith('%') and 'disabled for fontspec' in stripped:
+            restored = stripped.lstrip('% ').split('%')[0].strip()
+            if restored:
+                filtered.append(restored)
+            continue
+        if any(pat in stripped for pat in _XELATEX_LINE_PATTERNS):
+            continue
+        filtered.append(line)
+    return '\n'.join(filtered)
+
+
+class ExportDocxRequest(BaseModel):
+    latex_source: str
+    paper_id: Optional[str] = None
+    include_bibtex: Optional[bool] = True
+    latex_files: Optional[Dict[str, str]] = None
+
+
+@router.post("/latex/export-docx")
+async def export_docx(request: ExportDocxRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Convert LaTeX source to DOCX via pandoc."""
+    # Validate / fallback source
+    if not request.latex_source or len(request.latex_source.strip()) < 5:
+        if not request.paper_id:
+            raise HTTPException(status_code=400, detail="latex_source is empty")
+        paper = db.query(ResearchPaper).filter(ResearchPaper.id == request.paper_id).first()
+        if not paper:
+            raise HTTPException(status_code=404, detail="Paper not found")
+        fallback = ''
+        if paper.content_json and isinstance(paper.content_json, dict):
+            fallback = paper.content_json.get('latex_source') or paper.content or ''
+        else:
+            fallback = paper.content or ''
+        if not fallback or len(fallback.strip()) < 5:
+            raise HTTPException(status_code=400, detail="latex_source is empty")
+        request.latex_source = fallback
+
+    effective_source = _decode_unicode_escapes(request.latex_source)
+    effective_source = _strip_xelatex_for_pandoc(effective_source)
+    effective_source = _ensure_body_content(effective_source)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        (tmp / "main.tex").write_text(effective_source, encoding="utf-8")
+
+        # Write extra .tex files
+        if request.latex_files:
+            for fname, content in request.latex_files.items():
+                safe_name = Path(fname).name
+                if not safe_name.endswith('.tex') or safe_name == 'main.tex':
+                    continue
+                (tmp / safe_name).write_text(content, encoding="utf-8")
+
+        # Copy figures
+        if request.paper_id:
+            figures_src = Path("uploads") / "papers" / request.paper_id / "figures"
+            if figures_src.exists():
+                shutil.copytree(figures_src, tmp / "figures")
+
+        # Copy or generate .bib
+        if request.paper_id:
+            paper_dir = Path("uploads") / "papers" / request.paper_id
+            copied_bib = False
+            if paper_dir.exists():
+                for bib_file in paper_dir.glob("*.bib"):
+                    shutil.copy2(bib_file, tmp / bib_file.name)
+                    copied_bib = True
+            if not copied_bib and request.include_bibtex:
+                try:
+                    bib = _generate_bibtex_for_paper(db, current_user.id, request.paper_id)
+                    (tmp / "main.bib").write_text(bib, encoding="utf-8")
+                except Exception as e:
+                    logger.warning("Failed to generate bibtex for DOCX export: %s", e)
+
+        _copy_style_files(tmp)
+
+        # Run pandoc
+        proc = await asyncio.create_subprocess_exec(
+            "pandoc", "main.tex", "-o", "output.docx",
+            cwd=str(tmp),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+        except asyncio.TimeoutError:
+            proc.kill()
+            raise HTTPException(status_code=504, detail="DOCX conversion timed out")
+
+        if proc.returncode != 0:
+            err_msg = stderr.decode(errors="ignore")[:500] if stderr else "unknown error"
+            raise HTTPException(status_code=500, detail=f"Pandoc conversion failed: {err_msg}")
+
+        docx_path = tmp / "output.docx"
+        if not docx_path.exists():
+            raise HTTPException(status_code=500, detail="Pandoc did not produce output.docx")
+
+        docx_bytes = docx_path.read_bytes()
+
+    return Response(
+        content=docx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": "attachment; filename=paper.docx"},
+    )
+
+
 @router.get("/latex/artifacts/{content_hash}/{filename}")
 async def get_artifact(content_hash: str, filename: str, current_user: User = Depends(get_current_user)):
     paths = _artifact_paths(content_hash)
@@ -309,6 +540,8 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
         return StreamingResponse(empty_stream(), media_type='text/event-stream', headers=headers)
 
     effective_source = _ensure_body_content(request.latex_source)
+    effective_source = _decode_unicode_escapes(effective_source)
+    effective_source = _inject_arabic_support(effective_source)
     content_hash = _sha256(effective_source, request.latex_files)
     paths = _artifact_paths(content_hash)
 

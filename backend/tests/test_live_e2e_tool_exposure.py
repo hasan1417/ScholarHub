@@ -851,8 +851,8 @@ def main():
         help="Quiet mode (summary only)",
     )
     parser.add_argument(
-        "--model", type=str, default="openai/gpt-4o-mini",
-        help="OpenRouter model ID (default: openai/gpt-4o-mini)",
+        "--model", type=str, default="openai/gpt-5-mini",
+        help="OpenRouter model ID (default: openai/gpt-5-mini)",
     )
     args = parser.parse_args()
 

@@ -159,14 +159,14 @@ ADD_TO_LIBRARY_SCHEMA = {
     "type": "function",
     "function": {
         "name": "add_to_library",
-        "description": "Add papers from recent search results to the project library AND ingest their PDFs for full-text AI analysis. IMPORTANT: Use this BEFORE creating a paper so you have full PDF content, not just abstracts. Returns which papers were added and their ingestion status.",
+        "description": "Add papers to the project library AND ingest their PDFs for full-text AI analysis. Works with recent search results OR currently focused papers. IMPORTANT: Use this BEFORE creating a paper so you have full PDF content, not just abstracts. Returns which papers were added and their ingestion status.",
         "parameters": {
             "type": "object",
             "properties": {
                 "paper_indices": {
                     "type": "array",
                     "items": {"type": "integer"},
-                    "description": "Indices of papers from recent search results to add (0-based). Use [0,1,2,3,4] to add first 5 papers.",
+                    "description": "Indices of papers to add (0-based). Uses recent search results, or focused papers if no search results. Use [0,1,2,3,4] to add first 5 papers.",
                 },
                 "ingest_pdfs": {
                     "type": "boolean",

@@ -6,6 +6,7 @@
  */
 
 import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   MessageCircle,
@@ -70,6 +71,7 @@ import { DiscoveredPaper, IngestionStatus } from '../../components/discussion/Di
 import { DiscoveryQueuePanel, PaperIngestionState, IngestionStatesMap } from '../../components/discussion/DiscoveryQueuePanel'
 import { getProjectUrlId } from '../../utils/urlId'
 import { modelSupportsReasoning, useOpenRouterModels } from '../../components/discussion/ModelSelector'
+import { useOnboarding } from '../../contexts/OnboardingContext'
 
 // Types
 type AssistantExchange = {
@@ -149,6 +151,8 @@ const ProjectDiscussion = () => {
   const assistantAbortController = useRef<AbortController | null>(null)
   const STORAGE_PREFIX = `assistantHistory:${project.id}`
   const { models: openrouterModels, warning: openrouterWarning } = useOpenRouterModels(project.id)
+  const { state: onboardingState, markScholarAISeen } = useOnboarding()
+  const [showWelcome, setShowWelcome] = useState(!onboardingState.hasSeenScholarAI)
 
   const buildStorageKey = useCallback(
     (channelId: string | null) => {
@@ -294,6 +298,8 @@ const ProjectDiscussion = () => {
   const [ingestionStatesByChannel, setIngestionStatesByChannel] = useState<
     Record<string, IngestionStatesMap>
   >({})
+  // Channels whose ingestion states came from history replay and haven't been verified by polling yet
+  const [ingestionUnverifiedChannels, setIngestionUnverifiedChannels] = useState<Set<string>>(new Set())
 
   // Get current channel's ingestion states
   const currentIngestionStates = useMemo(() => {
@@ -472,6 +478,9 @@ const ProjectDiscussion = () => {
 
   // Ingestion summary for notification bar - derived from unified ingestion state
   const ingestionSummary = useMemo(() => {
+    // Suppress banner while history-replayed states are being verified by polling
+    if (activeChannelId && ingestionUnverifiedChannels.has(activeChannelId)) return null
+
     const states = Object.values(currentIngestionStates)
     if (states.length === 0) return null
 
@@ -496,7 +505,66 @@ const ProjectDiscussion = () => {
       isAllSuccess: successCount === totalAdded && totalAdded > 0,
       isProcessing: pendingCount > 0,
     }
+  }, [currentIngestionStates, activeChannelId, ingestionUnverifiedChannels])
+
+  // Poll backend for fresh ingestion statuses for non-success references
+  const pendingReferenceIds = useMemo(() => {
+    return Object.values(currentIngestionStates)
+      .filter((s) => s.referenceId && s.status !== 'success')
+      .map((s) => s.referenceId)
   }, [currentIngestionStates])
+
+  // If channel is unverified but there's nothing to poll, verify immediately
+  useEffect(() => {
+    if (activeChannelId && ingestionUnverifiedChannels.has(activeChannelId) && pendingReferenceIds.length === 0) {
+      setIngestionUnverifiedChannels((prev) => {
+        const next = new Set(prev)
+        next.delete(activeChannelId)
+        return next
+      })
+    }
+  }, [activeChannelId, ingestionUnverifiedChannels, pendingReferenceIds.length])
+
+  const ingestionPollQuery = useQuery({
+    queryKey: ['ingestion-status', project.id, ...pendingReferenceIds],
+    queryFn: async () => {
+      const res = await projectReferencesAPI.getIngestionStatus(project.id, pendingReferenceIds)
+      return res.data
+    },
+    enabled: pendingReferenceIds.length > 0 && !!activeChannelId && !dismissedNotificationChannels.has(activeChannelId),
+    refetchInterval: 10_000,
+    staleTime: 5_000,
+  })
+
+  useEffect(() => {
+    const freshStatuses = ingestionPollQuery.data?.statuses
+    if (!freshStatuses || !activeChannelId) return
+
+    setIngestionStatesByChannel((prev) => {
+      const channelStates = { ...(prev[activeChannelId] || {}) }
+      let changed = false
+      for (const [paperId, state] of Object.entries(channelStates)) {
+        const freshStatus = freshStatuses[state.referenceId]
+        if (freshStatus && freshStatus !== state.status) {
+          channelStates[paperId] = {
+            ...state,
+            status: freshStatus as IngestionStatus,
+            isAdding: freshStatus === 'pending',
+          }
+          changed = true
+        }
+      }
+      return changed ? { ...prev, [activeChannelId]: channelStates } : prev
+    })
+
+    // Polling returned - channel states are now verified
+    setIngestionUnverifiedChannels((prev) => {
+      if (!prev.has(activeChannelId)) return prev
+      const next = new Set(prev)
+      next.delete(activeChannelId)
+      return next
+    })
+  }, [ingestionPollQuery.data, activeChannelId])
 
   const setDiscoveryQueue = useCallback(
     (
@@ -1719,6 +1787,23 @@ const ProjectDiscussion = () => {
               }
               return { ...prev, [activeChannelId]: channelStates }
             })
+
+            // History-replayed states may be stale - mark for verification by polling
+            if (exchange.fromHistory) {
+              setIngestionUnverifiedChannels((prev) => {
+                if (prev.has(activeChannelId)) return prev
+                const next = new Set(prev)
+                next.add(activeChannelId)
+                return next
+              })
+            } else {
+              setIngestionUnverifiedChannels((prev) => {
+                if (!prev.has(activeChannelId)) return prev
+                const next = new Set(prev)
+                next.delete(activeChannelId)
+                return next
+              })
+            }
           }
           continue
         }
@@ -2500,7 +2585,7 @@ const ProjectDiscussion = () => {
               </div>
 
               {/* Floating notification bar */}
-              {!isChannelSwitching && (discoveryQueue.papers.length > 0 || ingestionSummary) && (
+              {!isChannelSwitching && !(activeChannelId && ingestionUnverifiedChannels.has(activeChannelId)) && (discoveryQueue.papers.length > 0 || ingestionSummary) && (
                 <>
                   {ingestionSummary?.isProcessing ? (
                     <div className="mx-2 sm:mx-4 mb-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 sm:px-4 sm:py-2.5 shadow-sm dark:border-blue-500/30 dark:bg-blue-900/20">
@@ -2768,10 +2853,10 @@ const ProjectDiscussion = () => {
         </div>
       </div>
 
-      {/* Dialogs */}
-      {openDialog && activeChannel && (
+      {/* Dialogs - portaled to body so backdrop-filter covers the entire viewport */}
+      {openDialog && activeChannel && createPortal(
         <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-gray-900/40 sm:px-4 backdrop-blur-sm dark:bg-black/70"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-gray-900/50 sm:px-4 backdrop-blur-md dark:bg-black/70"
           onClick={() => setOpenDialog(null)}
         >
           <div
@@ -2833,7 +2918,8 @@ const ProjectDiscussion = () => {
               )}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Create Channel Modal */}
@@ -3134,6 +3220,46 @@ const ProjectDiscussion = () => {
           meetings={availableMeetingsQuery.data || []}
           isLoadingResources={availablePapersQuery.isLoading || availableReferencesQuery.isLoading || availableMeetingsQuery.isLoading}
         />
+      )}
+
+      {showWelcome && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-gray-900/50 backdrop-blur-sm dark:bg-black/70" aria-hidden="true" onClick={() => { markScholarAISeen(); setShowWelcome(false) }} />
+          <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-900">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-500/20">
+                <Sparkles className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+              </div>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Welcome to Scholar AI</h2>
+            </div>
+            <ul className="mt-5 space-y-3 text-sm text-gray-600 dark:text-slate-300">
+              <li className="flex items-start gap-2.5">
+                <Bot className="mt-0.5 h-4 w-4 flex-shrink-0 text-indigo-500" />
+                <span><strong>Multi-model AI</strong> — GPT, Claude, Gemini, DeepSeek — pick the best model for your task</span>
+              </li>
+              <li className="flex items-start gap-2.5">
+                <Search className="mt-0.5 h-4 w-4 flex-shrink-0 text-indigo-500" />
+                <span><strong>Research tools</strong> — search papers, manage references, analyze your library</span>
+              </li>
+              <li className="flex items-start gap-2.5">
+                <Hash className="mt-0.5 h-4 w-4 flex-shrink-0 text-indigo-500" />
+                <span><strong>Channels</strong> — organize conversations by topic like methodology or literature review</span>
+              </li>
+              <li className="flex items-start gap-2.5">
+                <BookOpen className="mt-0.5 h-4 w-4 flex-shrink-0 text-indigo-500" />
+                <span><strong>Context-aware</strong> — Scholar AI knows your project's papers, references, and objectives</span>
+              </li>
+            </ul>
+            <button
+              type="button"
+              onClick={() => { markScholarAISeen(); setShowWelcome(false) }}
+              className="mt-6 w-full rounded-full bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
+            >
+              Get Started
+            </button>
+          </div>
+        </div>,
+        document.body
       )}
     </>
   )

@@ -20,8 +20,9 @@ from app.services.paper_discovery.interfaces import PaperSearcher
 from app.services.paper_discovery.models import DiscoveredPaper, PaperSource
 from app.services.paper_discovery.query_builder import (
     build_arxiv_query,
-    build_pubmed_query,
+    build_core_query,
     build_europe_pmc_query,
+    build_pubmed_query,
 )
 
 
@@ -59,7 +60,7 @@ class ArxivSearcher(SearcherBase):
                 'sortOrder': 'descending'
             }
 
-            url = f"http://export.arxiv.org/api/query?{urlencode(params)}"
+            url = f"https://export.arxiv.org/api/query?{urlencode(params)}"
             
             async with self.session.get(url) as response:
                 if response.status != 200:
@@ -163,7 +164,7 @@ class SemanticScholarSearcher(SearcherBase):
         try:
             headers = {'User-Agent': 'ScholarHub/1.0'}
             if self.api_key:
-                headers['x-api-key'] = self.api_key
+                headers['Authorization'] = f'Bearer {self.api_key}'
             
             params = {
                 "query": query,
@@ -419,7 +420,7 @@ class CrossrefSearcher(SearcherBase):
             rows = max(5, min(int(max_results or 20), 25))
 
             base_params = {
-                'query': query.strip()[:400],  # avoid overly long queries
+                'query.bibliographic': query.strip()[:400],  # title/author/biblio weighted search
                 'rows': rows,
                 'select': ','.join([
                     'DOI', 'title', 'author', 'issued', 'URL', 'abstract',
@@ -682,11 +683,12 @@ class PubMedSearcher(SearcherBase):
             if not ids:
                 return []
 
-            summaries = await self._esummary(ids)
+            summaries, abstracts = await asyncio.gather(
+                self._esummary(ids),
+                self._efetch_abstracts(ids),
+            )
             if not summaries:
                 return []
-
-            abstracts = await self._efetch_abstracts(ids)
 
             papers: List[DiscoveredPaper] = []
             for pmid in ids:
@@ -912,22 +914,25 @@ class ScienceDirectSearcher(SearcherBase):
             logger.warning("ScienceDirectSearcher received empty query")
             return []
 
-        params = {
-            'query': query.strip()[:400],
-            'count': max(1, min(int(max_results or 20), 25)),
-            'start': 0,
-            'httpAccept': 'application/json',
+        # ScienceDirect Search API requires PUT with JSON body
+        payload = {
+            "qs": query.strip()[:400],
+            "display": {
+                "offset": 0,
+                "show": max(1, min(int(max_results or 20), 25)),
+            },
         }
 
         headers = {
             'X-ELS-APIKey': self.api_key,
             'Accept': 'application/json',
+            'Content-Type': 'application/json',
         }
 
         timeout = aiohttp.ClientTimeout(total=30)
 
         try:
-            async with self.session.get(self.BASE_URL, params=params, headers=headers, timeout=timeout) as resp:
+            async with self.session.put(self.BASE_URL, json=payload, headers=headers, timeout=timeout) as resp:
                 if resp.status != 200:
                     text = await resp.text()
                     logger.warning("ScienceDirect API status %s: %s", resp.status, text[:200])
@@ -940,73 +945,42 @@ class ScienceDirectSearcher(SearcherBase):
             logger.error("ScienceDirect request failed: %s", exc)
             return []
 
-        entries_raw = ((data or {}).get('search-results') or {}).get('entry') or []
-        entries = entries_raw if isinstance(entries_raw, list) else [entries_raw]
+        entries = (data or {}).get('results') or []
+        if not isinstance(entries, list):
+            entries = []
         papers: List[DiscoveredPaper] = []
 
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
 
-            title = (entry.get('dc:title') or '').strip()
+            title = (entry.get('title') or '').strip()
             if not title:
                 continue
 
-            authors_data = (entry.get('authors') or {}).get('author') or []
             authors: List[str] = []
-            for author in authors_data:
-                if not isinstance(author, dict):
-                    continue
-                parts = [author.get('given-name'), author.get('surname')]
-                name = ' '.join(part.strip() for part in parts if part and part.strip())
-                if name:
-                    authors.append(name)
+            for author in entry.get('authors') or []:
+                if isinstance(author, dict) and author.get('name'):
+                    authors.append(author['name'].strip())
 
-            abstract = (entry.get('dc:description') or entry.get('prism:teaser') or '').strip()
-            doi = (entry.get('prism:doi') or '').strip() or None
+            doi = (entry.get('doi') or '').strip() or None
+            url = (entry.get('uri') or '').strip() or None
+            journal = (entry.get('sourceTitle') or '').strip() or None
+            is_open_access = entry.get('openAccess') is True
             year = self._extract_year(entry)
-            journal = (entry.get('prism:publicationName') or '').strip() or None
-
-            url = None
-            for link in entry.get('link') or []:
-                if not isinstance(link, dict):
-                    continue
-                if link.get('@ref') == 'scidir' and link.get('@href'):
-                    url = link['@href']
-                    break
-            if not url:
-                url = entry.get('prism:url')
-
-            open_access_value = entry.get('openaccess')
-            if isinstance(open_access_value, str):
-                is_open_access = open_access_value.strip() in {'1', 'true', 'True'}
-            elif isinstance(open_access_value, (int, float)):
-                is_open_access = bool(open_access_value)
-            elif isinstance(open_access_value, bool):
-                is_open_access = open_access_value
-            else:
-                is_open_access = False
-            pdf_url = None
-            if is_open_access:
-                for link in entry.get('link') or []:
-                    if not isinstance(link, dict):
-                        continue
-                    if link.get('@ref') == 'sciencedirect' and link.get('@href'):
-                        pdf_url = link['@href']
-                        break
 
             papers.append(
                 DiscoveredPaper(
                     title=title,
                     authors=authors,
-                    abstract=abstract,
+                    abstract="",  # ScienceDirect search API does not return abstracts
                     year=year,
                     doi=doi,
                     url=url,
                     source=self.get_source_name(),
                     journal=journal,
                     is_open_access=is_open_access,
-                    pdf_url=pdf_url,
+                    pdf_url=url if is_open_access else None,
                 )
             )
 
@@ -1014,17 +988,14 @@ class ScienceDirectSearcher(SearcherBase):
 
     @staticmethod
     def _extract_year(entry: Dict[str, Any]) -> Optional[int]:
-        candidates = [entry.get('prism:coverDate'), entry.get('prism:coverDisplayDate')]
-        for candidate in candidates:
-            if not candidate:
-                continue
+        date_str = entry.get('publicationDate') or entry.get('loadDate') or ''
+        if date_str:
             try:
-                year = int(str(candidate)[:4])
-                current_year = datetime.utcnow().year
-                if 1600 <= year <= current_year + 1:
+                year = int(str(date_str)[:4])
+                if 1600 <= year <= datetime.utcnow().year + 1:
                     return year
-            except Exception:
-                continue
+            except (ValueError, TypeError):
+                pass
         return None
 
 
@@ -1053,8 +1024,8 @@ class OpenAlexSearcher(SearcherBase):
             params = {
                 'search': query.strip()[:400],  # Search parameter works for OpenAlex
                 'per-page': min(int(max_results or 20), 25),  # Limit results
-                'select': 'id,display_name,authorships,publication_year,abstract_inverted_index,doi,primary_location,open_access,best_oa_location',
-                # 'mailto': 'contact@example.com',  # Remove mailto to avoid issues
+                'select': 'id,display_name,authorships,publication_year,abstract_inverted_index,doi,primary_location,open_access,best_oa_location,cited_by_count',
+                'mailto': 'g202403940@kfupm.edu.sa',  # Polite pool: 10x higher rate limits
             }
             filters = []
             if year_from is not None:
@@ -1136,12 +1107,16 @@ class OpenAlexSearcher(SearcherBase):
                 abstract_index = item.get('abstract_inverted_index', {})
                 if abstract_index:
                     # Reconstruct abstract from inverted index
-                    words = [''] * max(abstract_index.keys()) if abstract_index else []
-                    for word, positions in abstract_index.items():
-                        for pos in positions:
-                            if pos < len(words):
-                                words[pos] = word
-                    abstract = ' '.join(words).strip()
+                    # Keys are words, values are lists of integer positions
+                    all_positions = [pos for positions in abstract_index.values() for pos in positions]
+                    if all_positions:
+                        max_pos = max(all_positions)
+                        words = [''] * (max_pos + 1)
+                        for word, positions in abstract_index.items():
+                            for pos in positions:
+                                if pos < len(words):
+                                    words[pos] = word
+                        abstract = ' '.join(w for w in words if w)
 
                 # Extract URL / OA info
                 url = None
@@ -1193,7 +1168,7 @@ class OpenAlexSearcher(SearcherBase):
                     url=url,
                     source=self.get_source_name(),
                     relevance_score=0.0,  # Will be set by ranker
-                    citations_count=None,  # OpenAlex doesn't provide citation counts in basic search
+                    citations_count=item.get('cited_by_count'),
                     journal=None,
                     keywords=[],
                     raw_data=item,
@@ -1230,11 +1205,9 @@ class CoreSearcher(SearcherBase):
             # CORE API v3 search endpoint (trailing slash required to avoid redirect)
             url = "https://api.core.ac.uk/v3/search/works/"
             params = {
-                'q': query,
+                'q': build_core_query(query),
                 'limit': min(max_results, 100),  # CORE max is 100 per request
             }
-
-            print(f"[CORE] Searching for '{query}' with limit {max_results}")
             logger.info(f"CORE: Searching for '{query}' with limit {max_results}")
             async with self.session.get(url, params=params, headers=headers, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=40)) as response:
                 logger.info(f"CORE: Response status {response.status}")

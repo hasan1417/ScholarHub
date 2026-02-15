@@ -30,6 +30,7 @@ from pydantic import BaseModel
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _guard_feature() -> None:
@@ -234,6 +235,48 @@ def list_project_references(
         "project_id": str(project.id),
         "references": [_serialize_project_reference(item) for item in references],
     }
+
+
+class IngestionStatusRequest(BaseModel):
+    reference_ids: list[str]
+
+
+@router.post("/projects/{project_id}/references/ingestion-status")
+def get_ingestion_status(
+    project_id: str,
+    payload: IngestionStatusRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    project = get_project_or_404(db, project_id)
+    ensure_project_member(db, project, current_user)
+
+    statuses: dict[str, str] = {}
+    for ref_id_str in payload.reference_ids[:200]:
+        try:
+            ref_id = UUID(ref_id_str)
+        except (ValueError, AttributeError):
+            continue
+
+        ref = db.query(Reference).filter(Reference.id == ref_id).first()
+        if not ref:
+            continue
+
+        _sync_reference_analysis_state(ref)
+
+        if ref.status == 'analyzed':
+            statuses[ref_id_str] = 'success'
+        elif ref.status == 'ingested':
+            statuses[ref_id_str] = 'pending'
+        elif ref.document is not None:
+            statuses[ref_id_str] = 'pending'
+        elif ref.pdf_url:
+            statuses[ref_id_str] = 'failed'
+        else:
+            statuses[ref_id_str] = 'no_pdf'
+
+    db.commit()
+    return {"statuses": statuses}
 
 
 @router.post("/projects/{project_id}/references/suggestions/refresh")

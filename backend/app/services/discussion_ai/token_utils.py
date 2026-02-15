@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # These are conservative estimates leaving room for response generation.
 _FALLBACK_CONTEXT_LIMITS: Dict[str, int] = {
     "openai/gpt-4o": 120000,
-    "openai/gpt-4o-mini": 120000,
+    "openai/gpt-5-mini": 120000,
     "openai/gpt-4-turbo": 120000,
     "openai/gpt-4": 8000,
     "openai/gpt-3.5-turbo": 14000,

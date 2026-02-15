@@ -80,6 +80,10 @@ BATCH_SEARCH_PAPERS_SCHEMA = {
                         "required": ["topic", "query"],
                     },
                 },
+                "use_project_context": {
+                    "type": "boolean",
+                    "description": "Set to true when the user asks for papers related to their project, research topic, or paper. Set to false (default) when the user specifies an explicit search topic.",
+                },
             },
             "required": ["topics"],
         },

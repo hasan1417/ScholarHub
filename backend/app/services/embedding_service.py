@@ -124,12 +124,17 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     - Cost: $0.02 per 1M tokens
     """
 
-    MODEL = "text-embedding-3-small"
+    MODEL = "openai/text-embedding-3-small"
     DIMENSIONS = 1536
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, base_url: str | None = None, default_headers: dict | None = None):
         from openai import AsyncOpenAI
-        self._client = AsyncOpenAI(api_key=api_key)
+        kwargs: dict = {"api_key": api_key}
+        if base_url:
+            kwargs["base_url"] = base_url
+        if default_headers:
+            kwargs["default_headers"] = default_headers
+        self._client = AsyncOpenAI(**kwargs)
 
     @property
     def model_name(self) -> str:
@@ -389,13 +394,20 @@ def get_embedding_service_for_persistence() -> EmbeddingService:
 
 def get_embedding_service_with_openai(api_key: str) -> EmbeddingService:
     """
-    Create an embedding service using OpenAI provider.
+    Create an embedding service using OpenAI provider via OpenRouter.
 
     WARNING: This returns 1536-dim embeddings. Only use for ephemeral
     operations (e.g., search-time reranking). Do NOT use for persisted
     embeddings stored in paper_embeddings table.
     """
-    provider = OpenAIEmbeddingProvider(api_key)
+    provider = OpenAIEmbeddingProvider(
+        api_key,
+        base_url="https://openrouter.ai/api/v1",
+        default_headers={
+            "HTTP-Referer": "https://scholarhub.space",
+            "X-Title": "ScholarHub",
+        },
+    )
     return EmbeddingService(provider=provider)
 
 

@@ -225,7 +225,7 @@ async def run_full_workflow():
         orchestrator = OpenRouterOrchestrator(
             db=db,
             ai_service=None,
-            model="openai/gpt-4o-mini",
+            model="openai/gpt-5-mini",
         )
 
         conversation_history = []

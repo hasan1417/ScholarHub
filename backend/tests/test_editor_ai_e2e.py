@@ -13,7 +13,7 @@ Run single channel:
     docker compose exec backend python tests/test_editor_ai_e2e.py --channel 3
 
 Cheap model (default):
-    docker compose exec backend python tests/test_editor_ai_e2e.py --model openai/gpt-4o-mini
+    docker compose exec backend python tests/test_editor_ai_e2e.py --model openai/gpt-5-mini
 
 Summary only:
     docker compose exec backend python tests/test_editor_ai_e2e.py --quiet
@@ -1051,8 +1051,8 @@ def main():
         help=f"Run only a specific channel (1-{len(CHANNELS)})",
     )
     parser.add_argument(
-        "--model", type=str, default="openai/gpt-4o-mini",
-        help="OpenRouter model ID (default: openai/gpt-4o-mini)",
+        "--model", type=str, default="openai/gpt-5-mini",
+        help="OpenRouter model ID (default: openai/gpt-5-mini)",
     )
     parser.add_argument(
         "--quiet", "-q", action="store_true",

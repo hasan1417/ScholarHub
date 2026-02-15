@@ -151,7 +151,7 @@ const Layout = () => {
 
   return (
     <div className="min-h-screen transition-colors duration-200">
-      <header className="relative z-40 border-b border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+      <header className="border-b border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-800">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <Link to="/projects" className="transition-opacity hover:opacity-80">
             <Logo textClassName="text-lg font-semibold" />

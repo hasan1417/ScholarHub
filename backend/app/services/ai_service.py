@@ -49,10 +49,8 @@ class AIService:
                 "name": "OpenAI",
                 "embedding_models": ["text-embedding-ada-002", "text-embedding-3-small", "text-embedding-3-large"],
                 "chat_models": [
-                    "gpt-4o-mini",
                     "gpt-5-mini",
                     "gpt-5",
-                    "gpt-4o-mini",           # Latest GPT-4o mini (fastest, cheapest)
                     "gpt-4o",                 # Latest GPT-4o (most capable)
                     "gpt-4o-2024-05-13",     # Specific GPT-4o version
                     "gpt-4-turbo",            # GPT-4 Turbo
@@ -68,7 +66,7 @@ class AIService:
                 "embedding_models": ["text-embedding-ada-002", "text-embedding-3-small"],
                 "chat_models": [
                     # OpenAI models via OpenRouter
-                    "openai/gpt-4o-mini",
+                    "openai/gpt-5-mini",
                     "openai/gpt-4o",
                     "openai/gpt-4-turbo",
                     "openai/gpt-4",
@@ -244,9 +242,12 @@ class AIService:
     def _supports_sampling_params(model_name: str) -> bool:
         """Some reasoning models disallow temperature/top_p tweaks.
 
-        Only gpt-5+ reasoning models don't support temperature.
-        gpt-4o and gpt-4o-mini are standard chat models that DO support temperature.
+        gpt-5-mini is a standard chat model that DOES support temperature.
+        Full gpt-5/5.1/5.2 reasoning models do NOT.
         """
+        # gpt-5-mini supports temperature — exclude it from the reasoning check
+        if "mini" in model_name:
+            return True
         reasoning_prefixes = ("gpt-5", "gpt-6", "gpt-7")
         return not any(model_name.startswith(prefix) for prefix in reasoning_prefixes)
 
@@ -294,9 +295,7 @@ class AIService:
             "model_descriptions": {
                 "gpt-5.2": "Latest GPT-5 model with advanced reasoning",
                 "gpt-5": "GPT-5 reasoning model",
-                "gpt-5-mini": "Faster GPT-5 variant suitable for interactive chats",
-                "gpt-4o-mini": "Fast GPT-4o variant ideal for streaming conversation",
-                "gpt-4o-mini": "Fastest & cheapest GPT-4o model, great for most tasks",
+                "gpt-5-mini": "Fast, cost-effective GPT-5 variant for most tasks",
                 "gpt-4o": "Most capable GPT-4o model, best for complex reasoning",
                 "gpt-4-turbo": "Fast GPT-4 with latest knowledge, good balance",
                 "gpt-4": "Standard GPT-4, reliable and well-tested",

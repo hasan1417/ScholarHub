@@ -1316,7 +1316,7 @@ async def ai_text_tools(
         from uuid import UUID as _UUID
 
         # Default model
-        model = "openai/gpt-4o-mini"
+        model = "openai/gpt-5-mini"
 
         # Get project settings if project_id provided
         project = None

@@ -1,17 +1,34 @@
 import { ReactNode, useMemo, useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom'
 import {
   AlertCircle, Bell, FilePenLine, FilePlus, FolderPlus, Loader2, Settings,
   UserMinus, UserPlus, UserX, Video, Check, ChevronDown,
-  FileText, BookOpen, Search, MessageSquare, Sparkles, X, Target
+  FileText, BookOpen, Search, MessageSquare, Sparkles, X, Target, Home
 } from 'lucide-react'
 import ProjectTeamManager from '../../components/projects/ProjectTeamManager'
 import { useProjectContext } from './ProjectLayout'
 import { projectNotificationsAPI, researchPapersAPI, projectReferencesAPI } from '../../services/api'
 import { ProjectNotification } from '../../types'
+import SubTabs, { SubTab } from '../../components/navigation/SubTabs'
+import ProjectSyncSpace from './ProjectSyncSpace'
 
-const ProjectOverview = () => {
+const OVERVIEW_TABS: SubTab[] = [
+  {
+    label: 'Dashboard',
+    path: 'dashboard',
+    icon: Home,
+    tooltip: 'Project dashboard, team, and activity',
+  },
+  {
+    label: 'Meetings',
+    path: 'meetings',
+    icon: Video,
+    tooltip: 'Video calls with automatic transcription',
+  },
+]
+
+const OverviewDashboard = () => {
   const { project } = useProjectContext()
   const projectId = project?.id
   const navigate = useNavigate()
@@ -438,7 +455,7 @@ const ProjectOverview = () => {
               <span className="text-xs font-medium text-gray-600 dark:text-slate-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400">Find Papers</span>
             </button>
             <button
-              onClick={() => navigate(`/projects/${projectId}/collaborate`)}
+              onClick={() => navigate(`/projects/${projectId}/discussion`)}
               className="flex flex-col items-center gap-1.5 p-3 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-300 dark:hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors group"
             >
               <MessageSquare className="h-5 w-5 text-gray-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400" />
@@ -680,6 +697,31 @@ const ProjectOverview = () => {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+const ProjectOverview = () => {
+  const { projectId } = useParams<{ projectId: string }>()
+
+  if (!projectId) {
+    return (
+      <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200">
+        <p>Project ID is required</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-0 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800/60">
+      <SubTabs tabs={OVERVIEW_TABS} basePath={`/projects/${projectId}/overview`} />
+      <div className="p-6 dark:bg-slate-900/10">
+        <Routes>
+          <Route index element={<Navigate to="dashboard" replace />} />
+          <Route path="dashboard" element={<OverviewDashboard />} />
+          <Route path="meetings" element={<ProjectSyncSpace />} />
+        </Routes>
+      </div>
     </div>
   )
 }

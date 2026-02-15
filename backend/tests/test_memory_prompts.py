@@ -41,7 +41,7 @@ class MockDB:
 
 class MockAIService:
     def __init__(self):
-        self.default_model = "gpt-4o-mini"
+        self.default_model = "gpt-5-mini"
         self.openai_client = MagicMock()
 
 

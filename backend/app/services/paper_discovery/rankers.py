@@ -217,12 +217,15 @@ class SimpleRanker(PaperRanker):
         norm_citations = normalize_scores(citation_scores)
         norm_recency = normalize_scores(recency_scores)
 
-        # Combine with weights: 50% relevance, 30% citations, 20% recency
+        # Combine with weights: 55% relevance, 15% citations, 30% recency
+        # Citation weight kept low because many sources (arXiv, OpenAlex, PubMed)
+        # don't reliably provide citation counts, which would bias toward
+        # sources like Semantic Scholar that do.
         for i, paper in enumerate(papers):
             combined = (
-                0.50 * norm_relevance[i] +
-                0.30 * norm_citations[i] +
-                0.20 * norm_recency[i]
+                0.55 * norm_relevance[i] +
+                0.15 * norm_citations[i] +
+                0.30 * norm_recency[i]
             )
             paper.relevance_score = float(min(1.0, max(0.0, combined)))
 
@@ -240,8 +243,8 @@ class GptRanker(PaperRanker):
 
     def __init__(self, config: DiscoveryConfig):
         self.config = config
-        # Use gpt-4o-mini by default - supports temperature and is cost-effective
-        self.model_name = os.getenv("OPENAI_RERANK_MODEL", "gpt-4o-mini")
+        # Use gpt-5-mini by default - supports temperature and is cost-effective
+        self.model_name = os.getenv("OPENROUTER_RERANK_MODEL", "openai/gpt-5-mini")
 
         # Scoring weights for post-processing bonuses
         self.recency_weight = 0.05  # Max 5% bonus for recent papers
@@ -256,22 +259,22 @@ class GptRanker(PaperRanker):
         target_keywords: Optional[List[str]] = None,
         **kwargs
     ) -> List[DiscoveredPaper]:
-        api_key = os.getenv("OPENAI_API_KEY")
+        from app.core.config import settings
+        api_key = settings.OPENROUTER_API_KEY
         if not api_key:
-            logger.info("No OPENAI_API_KEY, falling back to SimpleRanker")
+            logger.info("No OPENROUTER_API_KEY, falling back to SimpleRanker")
             return await SimpleRanker(self.config).rank(papers, query, target_text, target_keywords)
 
         try:
-            # Prepare concise items for scoring
+            # Prepare concise items for scoring — score ALL papers
             items = []
-            top_k = min(50, len(papers))
             current_year = datetime.now().year
 
-            for idx, p in enumerate(papers[:top_k]):
+            for idx, p in enumerate(papers):
                 item = {
                     "id": idx,
-                    "title": (p.title or "")[:256],
-                    "abstract": (p.abstract or "")[:800],
+                    "title": (p.title or "")[:200],
+                    "abstract": (p.abstract or "")[:500],
                 }
                 # Include year and citations if available (helps GPT assess quality)
                 if p.year:
@@ -281,17 +284,27 @@ class GptRanker(PaperRanker):
                 items.append(item)
 
             try:
-                from openai import OpenAI  # type: ignore
+                from openai import AsyncOpenAI  # type: ignore
             except Exception as exc:
                 logger.info("OpenAI SDK unavailable: %s", exc)
                 return await SimpleRanker(self.config).rank(papers, query, target_text, target_keywords)
 
-            client = OpenAI(api_key=api_key)
+            client = AsyncOpenAI(
+                api_key=api_key,
+                base_url="https://openrouter.ai/api/v1",
+                default_headers={
+                    "HTTP-Referer": "https://scholarhub.space",
+                    "X-Title": "ScholarHub",
+                },
+            )
 
             # Build rich project context
             project_context_parts = []
             if query:
                 project_context_parts.append(f"Research Query: {query}")
+            semantic_context = kwargs.get("semantic_context")
+            if semantic_context:
+                project_context_parts.append(f"Query Intent: {semantic_context}")
             if target_text:
                 project_context_parts.append(f"Project Scope: {target_text[:500]}")
             if target_keywords:
@@ -300,16 +313,20 @@ class GptRanker(PaperRanker):
             project_context = "\n".join(project_context_parts) if project_context_parts else query
 
             system = (
-                "You are an expert academic research assistant. Your task is to score how relevant "
-                "each paper is to a research project.\n\n"
-                "Scoring criteria (0.0 to 1.0):\n"
-                "- 0.9-1.0: Directly addresses the research topic, highly relevant methodology or findings\n"
-                "- 0.7-0.8: Strongly related, covers key concepts or methods\n"
-                "- 0.5-0.6: Moderately relevant, useful background or related work\n"
-                "- 0.3-0.4: Tangentially related, might provide context\n"
-                "- 0.0-0.2: Not relevant to the research project\n\n"
-                "Consider: topic alignment, methodology relevance, and potential contribution to the research.\n"
-                "Return ONLY a JSON array. Each element: {\"id\": number, \"score\": number}. No other text."
+                "You are an expert academic research assistant. Score each paper's relevance "
+                "to the research project (0.0 to 1.0).\n\n"
+                "Scoring guide:\n"
+                "- 0.9-1.0: Directly addresses the specific research question; matches the core intersection of all key concepts\n"
+                "- 0.7-0.8: Strongly related; covers most key concepts with relevant methodology\n"
+                "- 0.5-0.6: Moderately relevant; useful background or addresses a subset of the topic\n"
+                "- 0.3-0.4: Tangentially related; shares terminology but different focus\n"
+                "- 0.0-0.2: Not relevant; different domain or only superficial keyword overlap\n\n"
+                "Important:\n"
+                "- Carefully analyze the research query to identify ALL key concepts and their relationships.\n"
+                "- For multi-concept queries, papers addressing the full intersection score highest.\n"
+                "- Distinguish genuine topical relevance from superficial keyword matches.\n"
+                "- Read the abstract — a paper's actual contribution may differ from its title.\n\n"
+                "Return ONLY a compact JSON array: [{\"id\":0,\"score\":0.8},...]"
             )
 
             user_payload = {
@@ -319,51 +336,68 @@ class GptRanker(PaperRanker):
 
             logger.info(f"GPT Ranker: scoring {len(items)} papers with {self.model_name}")
 
-            resp = client.chat.completions.create(
+            resp = await client.chat.completions.create(
                 model=self.model_name,
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
                 ],
-                max_completion_tokens=2000,
+                max_completion_tokens=8000,
+                temperature=0.0,
             )
+            finish_reason = resp.choices[0].finish_reason
             content = (resp.choices[0].message.content or "[]").strip()
+            logger.info("GPT Ranker response (%d chars, finish=%s): %s", len(content), finish_reason, content[:300])
 
             # Handle potential markdown code blocks
             if content.startswith("```"):
                 lines = content.split("\n")
                 content = "\n".join(lines[1:-1] if lines[-1] == "```" else lines[1:])
 
-            # Parse JSON
+            # Parse JSON — with partial recovery for truncated responses
+            scores_map = {}
             try:
                 data = json.loads(content)
-                scores_map = {
-                    int(obj.get("id", -1)): float(obj.get("score", 0.0))
-                    for obj in data if isinstance(obj, dict)
-                }
-                logger.debug(f"GPT Ranker: parsed {len(scores_map)} scores")
-            except Exception as parse_err:
-                logger.warning(f"Failed to parse GPT response: {parse_err}, content: {content[:200]}")
-                scores_map = {}
+                if isinstance(data, list):
+                    scores_map = {
+                        int(obj.get("id", -1)): float(obj.get("score", 0.0))
+                        for obj in data if isinstance(obj, dict)
+                    }
+                else:
+                    logger.warning("GPT Ranker: expected JSON array, got %s", type(data).__name__)
+            except json.JSONDecodeError:
+                # Truncated JSON — extract individual score objects via regex
+                import re
+                for m in re.finditer(r'\{"id"\s*:\s*(\d+)\s*,\s*"score"\s*:\s*([\d.]+)\s*\}', content):
+                    try:
+                        scores_map[int(m.group(1))] = float(m.group(2))
+                    except (ValueError, IndexError):
+                        continue
+                if scores_map:
+                    logger.info("GPT Ranker: recovered %d scores from truncated response", len(scores_map))
+                else:
+                    logger.warning("GPT Ranker: failed to parse response: %s", content[:300])
 
-            # Apply GPT scores + bonuses
+            logger.info("GPT Ranker: parsed %d scores, sample: %s",
+                        len(scores_map), dict(list(scores_map.items())[:3]))
+
+            # Apply GPT scores + bonuses to all papers
             for idx, p in enumerate(papers):
                 base_score = scores_map.get(idx, 0.0)
 
-                # Apply bonuses for papers that were scored
-                if idx < top_k and base_score > 0:
+                if base_score > 0:
                     bonus = 0.0
 
                     # Recency bonus: papers from last 3 years get up to 5% bonus
                     if p.year and p.year >= current_year - 3:
                         years_old = current_year - p.year
-                        recency_factor = 1 - (years_old / 3)  # 1.0 for current year, 0 for 3 years old
+                        recency_factor = 1 - (years_old / 3)
                         bonus += self.recency_weight * recency_factor
 
                     # Citation bonus: log-scaled, capped at 5%
                     if p.citations_count and p.citations_count > 0:
                         import math
-                        citation_factor = min(1.0, math.log10(1 + p.citations_count) / 3)  # ~1000 citations = max
+                        citation_factor = min(1.0, math.log10(1 + p.citations_count) / 3)
                         bonus += self.citation_weight * citation_factor
 
                     # PDF availability bonus

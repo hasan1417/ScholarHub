@@ -81,7 +81,7 @@ class MockQuery:
 class MockAIService:
     """Mock AI service for testing."""
     def __init__(self):
-        self.default_model = "gpt-4o-mini"
+        self.default_model = "gpt-5-mini"
         self.openai_client = MockOpenAIClient()
 
 

@@ -243,6 +243,22 @@ class DiscussionPolicy:
             cleaned_user,
             flags=re.IGNORECASE,
         )
+        # Strip "papers about", "10 articles on", "recent studies on", etc.
+        cleaned_user = re.sub(
+            r"^(?:for\s+)?(?:\d+\s+)?(?:(?:more|additional|some|any|recent|a\s+few)\s+)?"
+            r"(?:papers?|articles?|studies?|literature|references?)\s*"
+            r"(?:about|on|regarding|related\s+to|concerning)?\s*",
+            "",
+            cleaned_user,
+            flags=re.IGNORECASE,
+        )
+        # Strip trailing year filters — handled separately by extract_year_bounds
+        cleaned_user = re.sub(
+            r"\s+(?:from|since|after|before|between)\s+\d{4}(?:\s*[-–to]+\s*\d{4})?\s*$",
+            "",
+            cleaned_user,
+            flags=re.IGNORECASE,
+        )
         cleaned_user = re.sub(r"\s+", " ", cleaned_user).strip(" ?.!")
         return cleaned_user
 
