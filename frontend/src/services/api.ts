@@ -1338,6 +1338,16 @@ export const latexAPI = {
       responseType: 'blob',
       timeout: 60000,
     }),
+  exportSourceZip: (payload: {
+    latex_source: string
+    paper_id?: string
+    latex_files?: Record<string, string>
+    include_bibtex?: boolean
+  }) =>
+    api.post('/latex/export-source-zip', payload, {
+      responseType: 'blob',
+      timeout: 60000,
+    }),
 }
 
 export default api

@@ -320,7 +320,7 @@ async def get_research_paper(
     # Check if user has access
     if paper.owner_id != current_user.id:
         member = db.query(PaperMember).filter(
-            PaperMember.paper_id == paper_id,
+            PaperMember.paper_id == paper.id,
             PaperMember.user_id == current_user.id,
             PaperMember.status == "accepted",
         ).first()
@@ -364,7 +364,7 @@ async def update_research_paper(
     # Check if user is owner or has edit permissions
     if paper.owner_id != current_user.id:
         member = db.query(PaperMember).filter(
-            PaperMember.paper_id == paper_id,
+            PaperMember.paper_id == paper.id,
             PaperMember.user_id == current_user.id
         ).first()
         if not member:
@@ -470,7 +470,7 @@ async def update_paper_content(
     # Check if user is owner or has edit permissions
     if paper.owner_id != current_user.id:
         member = db.query(PaperMember).filter(
-            PaperMember.paper_id == paper_id,
+            PaperMember.paper_id == paper.id,
             PaperMember.user_id == current_user.id
         ).first()
         if not member:
@@ -688,7 +688,7 @@ async def add_reference(
     # Access check: owner or accepted member
     if paper.owner_id != current_user.id:
         member = db.query(PaperMember).filter(
-            PaperMember.paper_id == paper_id,
+            PaperMember.paper_id == paper.id,
             PaperMember.user_id == current_user.id,
             PaperMember.status == "accepted"
         ).first()
@@ -773,13 +773,13 @@ async def list_references(
     paper = _get_paper_or_404(db, paper_id)
     if paper.owner_id != current_user.id:
         member = db.query(PaperMember).filter(
-            PaperMember.paper_id == paper_id,
+            PaperMember.paper_id == paper.id,
             PaperMember.user_id == current_user.id,
             PaperMember.status == "accepted"
         ).first()
         if not member:
             raise HTTPException(status_code=403, detail="Access denied")
-    refs = db.query(Reference).filter(Reference.paper_id == paper_id).order_by(Reference.created_at.desc()).all()
+    refs = db.query(Reference).filter(Reference.paper_id == paper.id).order_by(Reference.created_at.desc()).all()
     return ReferenceList(references=refs, total=len(refs))
 
 @router.delete("/{paper_id}/references/{reference_id}")
@@ -789,13 +789,13 @@ async def delete_reference(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    ref = db.query(Reference).filter(Reference.id == reference_id, Reference.paper_id == paper_id).first()
+    paper = _get_paper_or_404(db, paper_id)
+    ref = db.query(Reference).filter(Reference.id == reference_id, Reference.paper_id == paper.id).first()
     if not ref:
         raise HTTPException(status_code=404, detail="Reference not found")
-    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
     if paper.owner_id != current_user.id:
         member = db.query(PaperMember).filter(
-            PaperMember.paper_id == paper_id,
+            PaperMember.paper_id == paper.id,
             PaperMember.user_id == current_user.id,
             PaperMember.status == "accepted"
         ).first()
@@ -910,7 +910,7 @@ async def add_paper_member(
     
     # Check if member already exists
     existing_member = db.query(PaperMember).filter(
-        PaperMember.paper_id == paper_id,
+        PaperMember.paper_id == paper.id,
         PaperMember.user_id == member_data.user_id
     ).first()
     
@@ -935,7 +935,7 @@ async def accept_paper_invitation(
     # Check if the current user is the invited member
     if current_user.id != member_id:
         raise HTTPException(status_code=403, detail="You can only accept your own invitations")
-    
+
     member = db.query(PaperMember).filter(
         PaperMember.paper_id == paper_id,
         PaperMember.user_id == member_id
@@ -965,7 +965,7 @@ async def decline_paper_invitation(
     # Check if the current user is the invited member
     if current_user.id != member_id:
         raise HTTPException(status_code=403, detail="You can only decline your own invitations")
-    
+
     member = db.query(PaperMember).filter(
         PaperMember.paper_id == paper_id,
         PaperMember.user_id == member_id
@@ -1001,7 +1001,7 @@ async def remove_paper_member(
         raise HTTPException(status_code=400, detail="Cannot remove yourself as owner")
     
     member = db.query(PaperMember).filter(
-        PaperMember.paper_id == paper_id,
+        PaperMember.paper_id == paper.id,
         PaperMember.user_id == member_id
     ).first()
     
@@ -1053,7 +1053,7 @@ async def get_paper_versions(
     # Check if user has access
     if paper.owner_id != current_user.id:
         member = db.query(PaperMember).filter(
-            PaperMember.paper_id == paper_id,
+            PaperMember.paper_id == paper.id,
             PaperMember.user_id == current_user.id,
             PaperMember.status == "accepted"
         ).first()
@@ -1086,7 +1086,7 @@ async def get_paper_version(
     # Check if user has access
     if paper.owner_id != current_user.id:
         member = db.query(PaperMember).filter(
-            PaperMember.paper_id == paper_id,
+            PaperMember.paper_id == paper.id,
             PaperMember.user_id == current_user.id,
             PaperMember.status == "accepted"
         ).first()
@@ -1119,7 +1119,7 @@ async def create_paper_version(
     # Check if user has edit access
     if paper.owner_id != current_user.id:
         member = db.query(PaperMember).filter(
-            PaperMember.paper_id == paper_id,
+            PaperMember.paper_id == paper.id,
             PaperMember.user_id == current_user.id,
             PaperMember.status == "accepted"
         ).first()
@@ -1175,7 +1175,7 @@ async def restore_paper_version(
     # Check if user has edit access
     if paper.owner_id != current_user.id:
         member = db.query(PaperMember).filter(
-            PaperMember.paper_id == paper_id,
+            PaperMember.paper_id == paper.id,
             PaperMember.user_id == current_user.id,
             PaperMember.status == "accepted"
         ).first()
@@ -1228,7 +1228,7 @@ async def upload_figure(
     # Check permissions
     if paper.owner_id != current_user.id:
         member = db.query(PaperMember).filter(
-            PaperMember.paper_id == paper_id,
+            PaperMember.paper_id == paper.id,
             PaperMember.user_id == current_user.id,
             PaperMember.status == "accepted"
         ).first()

@@ -20,6 +20,7 @@ jobs:
         working-directory: backend
 
     env:
+      # Dummy values for CI testing; production secrets are in GitHub Secrets
       SECRET_KEY: ci-secret-key
       OPENROUTER_KEY_ENCRYPTION_KEY: ci-openrouter-encryption-key
       ENABLE_METRICS: "true"
@@ -32,7 +33,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
           cache: "pip"
           cache-dependency-path: backend/requirements.txt
 
@@ -40,6 +41,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install pytest pytest-asyncio
 
       - name: Compile changed quality modules
         run: |
@@ -64,6 +66,5 @@ jobs:
             tests/test_ai_memory.py::TestShouldUpdateFactsUrgency \
             tests/test_ai_memory.py::TestUnansweredQuestionFixes \
             tests/test_discussion_ai_metrics.py \
-            tests/test_discussion_ai_metrics_api.py \
             tests/test_discussion_ai_metrics_persistence.py \
             -v

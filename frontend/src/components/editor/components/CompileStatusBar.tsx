@@ -7,6 +7,7 @@ interface CompileStatusBarProps {
   lastCompileAt: number | null
   saveState: 'idle' | 'saving' | 'success' | 'error'
   saveError: string | null
+  wordCount?: number | null
 }
 
 export const CompileStatusBar: React.FC<CompileStatusBarProps> = ({
@@ -16,6 +17,7 @@ export const CompileStatusBar: React.FC<CompileStatusBarProps> = ({
   lastCompileAt,
   saveState,
   saveError,
+  wordCount,
 }) => {
   return (
     <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500 dark:text-slate-300">
@@ -33,6 +35,9 @@ export const CompileStatusBar: React.FC<CompileStatusBarProps> = ({
       {saveState === 'saving' && <span className="text-indigo-500 dark:text-indigo-200">Saving…</span>}
       {saveState === 'success' && <span className="text-emerald-600 dark:text-emerald-200">Draft saved</span>}
       {saveState === 'error' && saveError && <span className="max-w-xs truncate text-rose-600 dark:text-rose-200" title={saveError}>{saveError}</span>}
+      {typeof wordCount === 'number' && wordCount > 0 && (
+        <span className="text-slate-400 dark:text-slate-400">{wordCount.toLocaleString()} words</span>
+      )}
     </div>
   )
 }

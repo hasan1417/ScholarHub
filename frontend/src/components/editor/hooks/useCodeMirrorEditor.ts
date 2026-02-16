@@ -13,6 +13,7 @@ import { latexSpellcheck } from '../extensions/latexSpellcheck'
 import { overleafLatexTheme } from '../codemirror/overleafTheme'
 import { setRemoteSelectionsEffect, remoteSelectionsField, createRemoteDecorations } from '../extensions/remoteSelectionsField'
 import { scrollOnDragSelection } from '../extensions/scrollOnDragSelection'
+import { trackChangesExtension } from '../extensions/trackChangesDecoration'
 import type { RemoteSelection } from '../extensions/remoteSelectionsField'
 import type { UndoManager } from 'yjs'
 
@@ -33,6 +34,7 @@ interface UseCodeMirrorEditorOptions {
   remoteSelections: RemoteSelection[]
   synced?: boolean
   paperId?: string
+  trackChangesFilter?: Extension
 }
 
 interface UseCodeMirrorEditorReturn {
@@ -65,6 +67,7 @@ export function useCodeMirrorEditor({
   remoteSelections,
   synced,
   paperId,
+  trackChangesFilter,
 }: UseCodeMirrorEditorOptions): UseCodeMirrorEditorReturn {
   // Debug helper -- enable with `window.__SH_DEBUG_LTX = true` in DevTools
   const debugLog = useCallback((...args: any[]) => {
@@ -194,6 +197,8 @@ export function useCodeMirrorEditor({
       latexFoldService,
       lintGutter(),
       latexSpellcheck(),
+      trackChangesExtension(),
+      ...(trackChangesFilter ? [trackChangesFilter] : []),
       ...realtimeExtensions,
       EditorView.updateListener.of((update) => {
         if (update.selectionSet || update.docChanged) {
@@ -230,7 +235,7 @@ export function useCodeMirrorEditor({
         Promise.resolve().then(() => { applyingFromEditorRef.current = false })
       }),
     ]
-  }, [realtimeDoc, realtimeAwareness, readOnly, realtimeExtensions, scheduleBufferedChange, debugLog, yUndoManager, paperId])
+  }, [realtimeDoc, realtimeAwareness, readOnly, realtimeExtensions, scheduleBufferedChange, debugLog, yUndoManager, paperId, trackChangesFilter])
 
   // -----------------------------------------------------------------------
   // View lifecycle helpers

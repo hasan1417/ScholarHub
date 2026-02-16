@@ -34,28 +34,26 @@ const heroPromises = [
 
 const heroProofStats = [
   {
-    value: '18+',
-    label: 'Research Labs',
-    sublabel: 'shipping weekly',
+    value: '8',
+    label: 'Academic Sources',
+    sublabel: 'integrated',
   },
   {
-    value: '43%',
-    label: 'Fewer Revisions',
-    sublabel: 'on average',
+    value: '28',
+    label: 'AI Functions',
+    sublabel: 'built in',
   },
   {
-    value: '<2min',
-    label: 'Export Time',
-    sublabel: 'journal-ready',
+    value: '3',
+    label: 'Export Formats',
+    sublabel: 'PDF, DOCX, ZIP',
   },
 ]
 
-const heroTestimonial = {
-  quote:
-    'ScholarHub transformed how our lab collaborates. Every submission now closes with complete context and zero lost decisions.',
-  author: 'Dr. Laila Hassan',
-  role: 'PI, Precision Therapeutics Lab',
-  avatar: null,
+const heroPlatformHighlight = {
+  headline: 'Built for Academic Teams',
+  description:
+    'Search across Semantic Scholar, OpenAlex, CORE, CrossRef, PubMed, ArXiv, ScienceDirect, and EuropePMC. Write in LaTeX or rich-text with real-time collaboration, AI-powered tools, and journal-ready exports.',
 }
 
 // Custom hook for intersection observer animations
@@ -455,24 +453,18 @@ const Landing = () => {
                   ))}
                 </div>
 
-                {/* Testimonial */}
+                {/* Platform Highlight */}
                 <div className={`flex flex-col justify-center opacity-0 ${socialProof.isVisible ? 'animate-[fade-in-up_0.6s_ease-out_0.4s_forwards]' : ''}`}>
                   <div className="relative">
-                    <svg className="absolute -top-4 -left-2 h-8 w-8 text-indigo-500/30 animate-pulse" fill="currentColor" viewBox="0 0 32 32">
-                      <path d="M9.352 4C4.456 7.456 1 13.12 1 19.36c0 5.088 3.072 8.064 6.624 8.064 3.36 0 5.856-2.688 5.856-5.856 0-3.168-2.208-5.472-5.088-5.472-.576 0-1.344.096-1.536.192.48-3.264 3.552-7.104 6.624-9.024L9.352 4zm16.512 0c-4.8 3.456-8.256 9.12-8.256 15.36 0 5.088 3.072 8.064 6.624 8.064 3.264 0 5.856-2.688 5.856-5.856 0-3.168-2.304-5.472-5.184-5.472-.576 0-1.248.096-1.44.192.48-3.264 3.456-7.104 6.528-9.024L25.864 4z" />
-                    </svg>
-                    <p className="text-lg text-slate-300 leading-relaxed pl-6">
-                      {heroTestimonial.quote}
-                    </p>
-                    <div className="mt-6 flex items-center gap-4 pl-6">
-                      <div className="h-12 w-12 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-semibold shadow-lg shadow-indigo-500/30 hover:scale-110 transition-transform">
-                        {heroTestimonial.author.split(' ').map(n => n[0]).join('')}
+                    <div className="inline-flex items-center gap-2 mb-4">
+                      <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+                        <Globe className="h-5 w-5 text-white" />
                       </div>
-                      <div>
-                        <p className="font-semibold text-white">{heroTestimonial.author}</p>
-                        <p className="text-sm text-slate-400">{heroTestimonial.role}</p>
-                      </div>
+                      <h3 className="text-xl font-bold text-white">{heroPlatformHighlight.headline}</h3>
                     </div>
+                    <p className="text-lg text-slate-300 leading-relaxed">
+                      {heroPlatformHighlight.description}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -609,7 +601,7 @@ const Landing = () => {
                 research workflow?
               </h2>
               <p className="relative text-base sm:text-xl text-indigo-100 mb-8 sm:mb-10 max-w-2xl mx-auto px-2 sm:px-0">
-                Join thousands of researchers who ship papers faster with ScholarHub.
+                Write, collaborate, and publish research papers with your team.
                 Start free, no credit card required.
               </p>
               <div className="relative flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
@@ -658,9 +650,7 @@ const Landing = () => {
               <div>
                 <h4 className="font-semibold text-gray-900 dark:text-white mb-3 sm:mb-4 text-xs sm:text-sm">Company</h4>
                 <ul className="space-y-2 sm:space-y-3">
-                  <li><a href="mailto:support@scholarhub.ai" className="text-xs sm:text-sm text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors hover:translate-x-1 inline-block">Contact</a></li>
-                  <li><a href="#" className="text-xs sm:text-sm text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors hover:translate-x-1 inline-block">Privacy</a></li>
-                  <li><a href="#" className="text-xs sm:text-sm text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors hover:translate-x-1 inline-block">Terms</a></li>
+                  <li><span className="text-xs sm:text-sm text-gray-600 dark:text-slate-400">Contact</span></li>
                 </ul>
               </div>
               <div>
@@ -673,18 +663,10 @@ const Landing = () => {
             </div>
           </div>
 
-          <div className="mt-8 sm:mt-12 pt-6 sm:pt-8 border-t border-gray-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="mt-8 sm:mt-12 pt-6 sm:pt-8 border-t border-gray-200 dark:border-slate-800 flex items-center justify-center">
             <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-500">
               © {new Date().getFullYear()} ScholarHub. All rights reserved.
             </p>
-            <div className="flex items-center gap-6">
-              <a href="#" className="text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 transition-colors hover:scale-110">
-                <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" /></svg>
-              </a>
-              <a href="#" className="text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 transition-colors hover:scale-110">
-                <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" /></svg>
-              </a>
-            </div>
           </div>
         </div>
       </footer>

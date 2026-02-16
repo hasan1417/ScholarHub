@@ -24,8 +24,11 @@ export function useHistoryRestore({
     if (realtimeDoc) {
       try {
         const yText = realtimeDoc.getText('main')
-        yText.delete(0, yText.length)
-        yText.insert(0, content)
+        // Use 'history-restore' origin so the track changes observer skips marking
+        realtimeDoc.transact(() => {
+          yText.delete(0, yText.length)
+          yText.insert(0, content)
+        }, 'history-restore')
       } catch (err) {
         console.warn('[LaTeXEditor] realtime restore failed', err)
       }

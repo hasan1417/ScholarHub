@@ -3,7 +3,7 @@ import {
   ArrowLeft, Library, Save, Loader2, Undo2, Redo2,
   Clock, ChevronDown, Bold,
   Italic, Sigma, List, ListOrdered, Image, Table, Link2,
-  ListTree, ArrowRightToLine, Download,
+  ListTree, ArrowRightToLine, Download, ToggleLeft, ToggleRight,
 } from 'lucide-react'
 import { AiToolsMenu } from './AiToolsMenu'
 import { CompileStatusBar } from './CompileStatusBar'
@@ -87,7 +87,27 @@ interface EditorToolbarProps {
   // Export
   onExportPdf?: () => void
   onExportDocx?: () => void
+  onExportSourceZip?: () => void
   exportDocxLoading?: boolean
+  exportSourceZipLoading?: boolean
+
+  // Word count
+  wordCount?: number | null
+
+  // Symbol palette
+  symbolPaletteOpen?: boolean
+  onToggleSymbolPalette?: () => void
+
+  // Auto-compile
+  autoCompileEnabled?: boolean
+  onToggleAutoCompile?: () => void
+
+  // Track changes
+  trackChangesEnabled?: boolean
+  onToggleTrackChanges?: () => void
+  trackChangesPanelOpen?: boolean
+  onToggleTrackChangesPanel?: () => void
+  hasTrackedChanges?: boolean
 }
 
 export const EditorToolbar: React.FC<EditorToolbarProps> = ({
@@ -129,7 +149,19 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   onForwardSync,
   onExportPdf,
   onExportDocx,
+  onExportSourceZip,
   exportDocxLoading,
+  exportSourceZipLoading,
+  wordCount,
+  symbolPaletteOpen,
+  onToggleSymbolPalette,
+  autoCompileEnabled,
+  onToggleAutoCompile,
+  trackChangesEnabled,
+  onToggleTrackChanges,
+  trackChangesPanelOpen,
+  onToggleTrackChangesPanel,
+  hasTrackedChanges,
 }) => {
   const [openDropdown, setOpenDropdown] = useState<string | null>(null)
 
@@ -158,6 +190,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             lastCompileAt={lastCompileAt}
             saveState={saveState}
             saveError={saveError}
+            wordCount={wordCount}
           />
       </div>
 
@@ -445,8 +478,59 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           {/* Spacer */}
           <div className="flex-1" />
 
-          {/* Right side: Export, SyncTeX, History, Compile, Save */}
+          {/* Right side: Symbol Palette, Track Changes, Export, SyncTeX, History, Compile, Save */}
           <div className="flex items-center gap-1">
+            {/* Symbol Palette toggle */}
+            {onToggleSymbolPalette && viewMode !== 'pdf' && !readOnly && (
+              <button
+                type="button"
+                onClick={onToggleSymbolPalette}
+                className={`rounded p-1.5 transition-colors ${
+                  symbolPaletteOpen
+                    ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-400'
+                    : 'text-slate-500 hover:bg-slate-200 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200'
+                }`}
+                title="Symbol palette"
+              >
+                <Sigma className="h-4 w-4" />
+              </button>
+            )}
+
+            {/* Track Changes toggle */}
+            {onToggleTrackChanges && viewMode !== 'pdf' && (
+              <button
+                type="button"
+                onClick={onToggleTrackChanges}
+                className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors ${
+                  trackChangesEnabled
+                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400'
+                    : 'text-slate-500 hover:bg-slate-200 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200'
+                }`}
+                title={trackChangesEnabled ? 'Track changes ON' : 'Track changes OFF'}
+              >
+                {trackChangesEnabled ? <ToggleRight className="h-3.5 w-3.5" /> : <ToggleLeft className="h-3.5 w-3.5" />}
+                <span className="hidden sm:inline">Track</span>
+              </button>
+            )}
+
+            {/* Track Changes panel toggle */}
+            {onToggleTrackChangesPanel && hasTrackedChanges && (
+              <button
+                type="button"
+                onClick={onToggleTrackChangesPanel}
+                className={`rounded px-1.5 py-1 text-[10px] font-semibold transition-colors ${
+                  trackChangesPanelOpen
+                    ? 'bg-amber-200 text-amber-800 dark:bg-amber-800/50 dark:text-amber-300'
+                    : 'bg-amber-100 text-amber-600 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-800/40'
+                }`}
+                title="Review tracked changes"
+              >
+                Review
+              </button>
+            )}
+
+            <span className="mx-0.5 h-5 w-px bg-slate-300 dark:bg-slate-600" />
+
             {/* Export dropdown */}
             {(onExportPdf || onExportDocx) && (
               <div className="relative">
@@ -483,6 +567,19 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                           {exportDocxLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                           Download Word
                         </button>
+                      )}
+                      {onExportSourceZip && (
+                        <>
+                          <div className="my-1 border-t border-slate-200 dark:border-slate-600" />
+                          <button
+                            onClick={() => { onExportSourceZip(); setOpenDropdown(null) }}
+                            disabled={exportSourceZipLoading}
+                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-200 dark:hover:bg-slate-700"
+                          >
+                            {exportSourceZipLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                            Download Source (.zip)
+                          </button>
+                        </>
                       )}
                     </div>
                   </>
@@ -533,6 +630,22 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                 ) : (
                   <Save className="h-4 w-4" />
                 )}
+              </button>
+            )}
+
+            {/* Auto-compile toggle */}
+            {onToggleAutoCompile && (
+              <button
+                type="button"
+                onClick={onToggleAutoCompile}
+                className={`rounded px-1.5 py-1 text-[10px] font-medium transition-colors ${
+                  autoCompileEnabled
+                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
+                    : 'text-slate-400 hover:bg-slate-200 hover:text-slate-600 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-slate-300'
+                }`}
+                title={autoCompileEnabled ? 'Auto-compile ON (4s debounce)' : 'Auto-compile OFF'}
+              >
+                Auto
               </button>
             )}
 

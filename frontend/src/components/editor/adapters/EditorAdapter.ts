@@ -41,6 +41,7 @@ export interface EditorAdapterProps {
     peers?: Array<{ id: string; name: string; email: string; color?: string }>
     synced?: boolean
     enabled?: boolean
+    paperRole?: 'admin' | 'editor' | 'viewer'
   }
   collaborationStatus?: string | null
 }

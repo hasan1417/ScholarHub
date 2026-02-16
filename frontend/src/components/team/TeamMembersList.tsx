@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { Users, Shield, Edit, Eye, Trash2, Clock, Crown } from 'lucide-react'
+import { Users, Shield, Edit, Eye, Trash2, Clock, Crown, Settings } from 'lucide-react'
 import clsx from 'clsx'
 import { useAuth } from '../../contexts/AuthContext'
 import { teamAPI } from '../../services/api'
@@ -78,6 +78,7 @@ const TeamMembersList: React.FC<TeamMembersListProps> = ({
   const [error, setError] = useState<string | null>(null)
   const [updatingMemberId, setUpdatingMemberId] = useState<string | null>(null)
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null)
+  const [managing, setManaging] = useState(false)
 
   const normalizeRole = useCallback((role: string): RoleOption => {
     const value = (role || '').toLowerCase()
@@ -209,14 +210,30 @@ const TeamMembersList: React.FC<TeamMembersListProps> = ({
           <Users className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
           <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">Team</h2>
         </div>
-        {!isProjectScope && onInviteMember && (
-          <button
-            onClick={onInviteMember}
-            className="rounded-full border border-indigo-200 px-3 py-1.5 text-xs font-medium text-indigo-600 transition-colors hover:bg-indigo-50 dark:border-indigo-400/40 dark:text-indigo-200 dark:hover:bg-indigo-500/10"
-          >
-            Invite member
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {canManageTeam && (
+            <button
+              onClick={() => setManaging((v) => !v)}
+              className={clsx(
+                'rounded-full p-1.5 transition-colors',
+                managing
+                  ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300'
+                  : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200'
+              )}
+              title={managing ? 'Done managing' : 'Manage team'}
+            >
+              <Settings className="h-4 w-4" />
+            </button>
+          )}
+          {!isProjectScope && onInviteMember && (
+            <button
+              onClick={onInviteMember}
+              className="rounded-full border border-indigo-200 px-3 py-1.5 text-xs font-medium text-indigo-600 transition-colors hover:bg-indigo-50 dark:border-indigo-400/40 dark:text-indigo-200 dark:hover:bg-indigo-500/10"
+            >
+              Invite member
+            </button>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -250,29 +267,27 @@ const TeamMembersList: React.FC<TeamMembersListProps> = ({
             return (
               <li
                 key={member.id}
-                className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm transition-colors sm:flex-row sm:items-center sm:justify-between dark:border-slate-700 dark:bg-slate-800/60"
+                className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800/60"
               >
-                <div className="flex items-start gap-3">
-                  <div className={clsx(
-                    'mt-0.5 flex h-8 w-8 items-center justify-center rounded-full',
-                    roleIconBgClasses[normalizedRole]
-                  )}>
-                    {getRoleIcon(normalizedRole)}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="flex items-center gap-2 truncate text-sm font-semibold text-gray-900 dark:text-slate-100">
-                      <span className="truncate">{displayName}</span>
-                      {isSelf && (
-                        <span className="text-[10px] uppercase tracking-wide text-indigo-500 dark:text-indigo-300">You</span>
-                      )}
-                    </p>
-                    {member.email && (
-                      <p className="truncate text-xs text-gray-500 dark:text-slate-400">{member.email}</p>
+                <div className={clsx(
+                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
+                  roleIconBgClasses[normalizedRole]
+                )}>
+                  {getRoleIcon(normalizedRole)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="flex items-center gap-2 truncate text-sm font-semibold text-gray-900 dark:text-slate-100">
+                    <span className="truncate">{displayName}</span>
+                    {isSelf && (
+                      <span className="text-[10px] uppercase tracking-wide text-indigo-500 dark:text-indigo-300">You</span>
                     )}
-                  </div>
+                  </p>
+                  {member.email && (
+                    <p className="truncate text-xs text-gray-500 dark:text-slate-400">{member.email}</p>
+                  )}
                 </div>
 
-                <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3">
+                <div className="flex shrink-0 items-center gap-2">
                   <span className={clsx(
                     'inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium',
                     rolePillClasses[normalizedRole]
@@ -284,7 +299,7 @@ const TeamMembersList: React.FC<TeamMembersListProps> = ({
                     )}
                   </span>
 
-                  {canManageTeam && !member.is_owner && normalizedRole !== 'owner' && (
+                  {managing && canManageTeam && !member.is_owner && normalizedRole !== 'owner' && (
                     <div className="flex items-center gap-2">
                       <select
                         className="rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-700 transition-colors dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"

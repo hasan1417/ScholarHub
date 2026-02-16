@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, forwardRef, useImperativeHandle, useCallback } from 'react'
+import React, { useEffect, useState, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react'
 import 'katex/dist/katex.min.css'
 import pdfViewerHtml from '../../assets/pdf-viewer.html?raw'
 import FigureUploadDialog from './FigureUploadDialog'
@@ -14,13 +14,19 @@ import { useHistoryRestore } from './hooks/useHistoryRestore'
 import { useLatexSnippets } from './hooks/useLatexSnippets'
 import { useCitationHandlers } from './hooks/useCitationHandlers'
 import { useAiTextTools } from './hooks/useAiTextTools'
+import { useAuth } from '../../contexts/AuthContext'
 import { API_ROOT, latexAPI } from '../../services/api'
 import { EditorToolbar } from './components/EditorToolbar'
 import { PdfPreviewPane } from './components/PdfPreviewPane'
 import { OutlinePanel } from './components/OutlinePanel'
 import { FileSelector } from './components/FileSelector'
+import { SymbolPalette } from './components/SymbolPalette'
+import { TrackChangesPanel } from './components/TrackChangesPanel'
 import { useDocumentOutline } from './hooks/useDocumentOutline'
 import { useSyncTeX } from './hooks/useSyncTeX'
+import { useTrackChanges } from './hooks/useTrackChanges'
+import { countLatexWords } from './utils/latexWordCount'
+import { dispatchTrackedChanges, type TrackedChangeDecoration } from './extensions/trackChangesDecoration'
 import { setDiagnostics } from '@codemirror/lint'
 import { latexErrorsToDiagnostics } from './extensions/latexErrorMarkers'
 
@@ -49,6 +55,7 @@ interface LaTeXEditorProps {
     peers?: Array<{ id: string; name: string; email: string; color?: string }>
     version?: number
     synced?: boolean
+    paperRole?: 'admin' | 'editor' | 'viewer'
   }
   collaborationStatus?: string | null
 }
@@ -69,6 +76,18 @@ function LaTeXEditorImpl(
   const [figureDialogOpen, setFigureDialogOpen] = useState(false)
   const [outlinePanelOpen, setOutlinePanelOpen] = useState(false)
   const [exportDocxLoading, setExportDocxLoading] = useState(false)
+  const [exportSourceZipLoading, setExportSourceZipLoading] = useState(false)
+  const [symbolPaletteOpen, setSymbolPaletteOpen] = useState(false)
+  const tcKey = paperId ? `tc-enabled-${paperId}` : null
+  const [trackChangesEnabled, setTrackChangesEnabled] = useState(() => {
+    if (!tcKey) return false
+    try { return localStorage.getItem(tcKey) === '1' } catch { return false }
+  })
+  const [trackChangesPanelOpen, setTrackChangesPanelOpen] = useState(false)
+  const [wordCount, setWordCount] = useState<number | null>(null)
+
+  // Current user identity (for track changes attribution)
+  const { user: authUser } = useAuth()
 
   // Resizable split view
   const { splitPosition, splitContainerRef, handleSplitDragStart } = useSplitPane()
@@ -92,6 +111,17 @@ function LaTeXEditorImpl(
     yTextReady,
   })
 
+  // Track changes hook (must come before useCodeMirrorEditor to provide the transaction filter)
+  const trackChanges = useTrackChanges({
+    yText: ySharedText,
+    enabled: trackChangesEnabled,
+    userId: authUser?.id || 'local',
+    userName: [authUser?.first_name, authUser?.last_name].filter(Boolean).join(' ') || 'You',
+    userColor: '#3B82F6',
+  })
+  // getTransactionFilter has [] deps (uses refs internally), so this is created once
+  const trackFilterExt = useMemo(() => trackChanges.getTransactionFilter(), [trackChanges.getTransactionFilter])
+
   // CodeMirror editor lifecycle
   const {
     viewRef, editorReady, undoEnabled, redoEnabled, hasTextSelected,
@@ -102,6 +132,7 @@ function LaTeXEditorImpl(
     realtimeAwareness: realtime?.awareness || null,
     realtimeExtensions, ySharedText, yUndoManager, yTextReady, remoteSelections,
     synced: realtime?.synced, paperId,
+    trackChangesFilter: trackFilterExt,
   })
 
   // Stable accessor for latest document source
@@ -127,6 +158,7 @@ function LaTeXEditorImpl(
   // LaTeX compilation
   const {
     iframeRef, compileStatus, compileError, compileLogs, compileErrors, lastCompileAt, compileNow, contentHash,
+    autoCompileEnabled, toggleAutoCompile, triggerAutoCompile,
   } = useLatexCompilation({ paperId, readOnly, getLatestSource, flushBufferedChange, getExtraFiles })
 
   // SyncTeX: bidirectional PDF <-> source sync
@@ -233,6 +265,90 @@ function LaTeXEditorImpl(
       setExportDocxLoading(false)
     }
   }, [flushBufferedChange, getLatestSource, getExtraFiles, paperId])
+
+  // Export: Download Source ZIP
+  const handleExportSourceZip = useCallback(async () => {
+    setExportSourceZipLoading(true)
+    try {
+      flushBufferedChange()
+      const source = getLatestSource()
+      const extraFiles = getExtraFiles()
+      const resp = await latexAPI.exportSourceZip({
+        latex_source: source,
+        paper_id: paperId,
+        latex_files: extraFiles ?? undefined,
+        include_bibtex: true,
+      })
+      const blob = new Blob([resp.data as BlobPart], { type: 'application/zip' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'source.zip'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      console.error('Source ZIP export failed', e)
+    } finally {
+      setExportSourceZipLoading(false)
+    }
+  }, [flushBufferedChange, getLatestSource, getExtraFiles, paperId])
+
+  // Word count: debounced update from latest source
+  const wordCountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const updateWordCount = useCallback(() => {
+    if (wordCountTimerRef.current) clearTimeout(wordCountTimerRef.current)
+    wordCountTimerRef.current = setTimeout(() => {
+      const source = getLatestSource()
+      if (source.length > 10) {
+        setWordCount(countLatexWords(source).words)
+      }
+    }, 1000)
+  }, [getLatestSource])
+
+  // Update word count after compile and on initial load
+  useEffect(() => {
+    updateWordCount()
+  }, [compileStatus]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Symbol palette: insert symbol at cursor
+  const handleInsertSymbol = useCallback((latex: string) => {
+    const view = viewRef.current
+    if (!view) return
+    const sel = view.state.selection.main
+    view.dispatch({ changes: { from: sel.from, to: sel.to, insert: latex } })
+    view.focus()
+  }, [viewRef])
+
+  // Sync tracked changes decorations to CodeMirror
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view) return
+    const decos: TrackedChangeDecoration[] = trackChanges.trackedChanges.map(c => ({
+      from: c.position,
+      to: c.position + c.length,
+      type: c.type,
+      userName: c.userName,
+      userColor: c.userColor,
+      timestamp: c.timestamp,
+    }))
+    dispatchTrackedChanges(view, decos)
+  }, [trackChanges.trackedChanges, viewRef])
+
+  // Wire document changes to trigger auto-compile and word count
+  const triggerAutoCompileRef = useRef(triggerAutoCompile)
+  triggerAutoCompileRef.current = triggerAutoCompile
+  const updateWordCountRef = useRef(updateWordCount)
+  updateWordCountRef.current = updateWordCount
+
+  // Listen for doc changes via the value prop (which onChange passes up)
+  const prevValueLenRef = useRef(value.length)
+  useEffect(() => {
+    if (value.length !== prevValueLenRef.current) {
+      prevValueLenRef.current = value.length
+      triggerAutoCompileRef.current()
+      updateWordCountRef.current()
+    }
+  }, [value])
 
   // Dispatch compile error diagnostics to CodeMirror lint layer
   useEffect(() => {
@@ -352,7 +468,23 @@ function LaTeXEditorImpl(
         onForwardSync={handleForwardSync}
         onExportPdf={handleExportPdf}
         onExportDocx={handleExportDocx}
+        onExportSourceZip={handleExportSourceZip}
         exportDocxLoading={exportDocxLoading}
+        exportSourceZipLoading={exportSourceZipLoading}
+        wordCount={wordCount}
+        symbolPaletteOpen={symbolPaletteOpen}
+        onToggleSymbolPalette={() => setSymbolPaletteOpen(prev => !prev)}
+        autoCompileEnabled={autoCompileEnabled}
+        onToggleAutoCompile={toggleAutoCompile}
+        trackChangesEnabled={trackChangesEnabled}
+        onToggleTrackChanges={ySharedText ? () => setTrackChangesEnabled(prev => {
+          const next = !prev
+          if (tcKey) try { localStorage.setItem(tcKey, next ? '1' : '0') } catch {}
+          return next
+        }) : undefined}
+        trackChangesPanelOpen={trackChangesPanelOpen}
+        onToggleTrackChangesPanel={realtime?.paperRole === 'admin' ? () => setTrackChangesPanelOpen(prev => !prev) : undefined}
+        hasTrackedChanges={trackChanges.trackedChanges.length > 0}
       />
       <div ref={splitContainerRef} className={contentLayoutCls}>
         {showEditor && (
@@ -442,6 +574,24 @@ function LaTeXEditorImpl(
           onClose={() => setHistoryPanelOpen(false)}
           onRestore={handleRestoreFromHistory}
           currentContent={viewRef.current?.state?.doc?.toString() || ''}
+        />
+      )}
+
+      {symbolPaletteOpen && (
+        <SymbolPalette
+          onInsertSymbol={handleInsertSymbol}
+          onClose={() => setSymbolPaletteOpen(false)}
+        />
+      )}
+
+      {trackChangesPanelOpen && trackChanges.trackedChanges.length > 0 && (
+        <TrackChangesPanel
+          changes={trackChanges.trackedChanges}
+          onAcceptChange={trackChanges.acceptChange}
+          onRejectChange={trackChanges.rejectChange}
+          onAcceptAll={trackChanges.acceptAllChanges}
+          onRejectAll={trackChanges.rejectAllChanges}
+          onClose={() => setTrackChangesPanelOpen(false)}
         />
       )}
     </div>

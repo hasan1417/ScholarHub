@@ -20,6 +20,9 @@ interface UseLatexCompilationReturn {
   lastCompileAt: number | null
   compileNow: () => Promise<void>
   contentHash: string | null
+  autoCompileEnabled: boolean
+  toggleAutoCompile: () => void
+  triggerAutoCompile: () => void
 }
 
 export function useLatexCompilation({
@@ -239,6 +242,51 @@ export function useLatexCompilation({
     }
   }, [paperId, readOnly])
 
+  // Auto-compile: debounced compilation triggered by document changes
+  const [autoCompileEnabled, setAutoCompileEnabled] = useState(
+    () => localStorage.getItem('latex-auto-compile') === 'true'
+  )
+  const autoCompileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const toggleAutoCompile = useCallback(() => {
+    setAutoCompileEnabled(prev => {
+      const next = !prev
+      localStorage.setItem('latex-auto-compile', String(next))
+      return next
+    })
+  }, [])
+
+  // Keep refs for values needed inside the timer callback
+  const autoCompileEnabledRef = useRef(autoCompileEnabled)
+  autoCompileEnabledRef.current = autoCompileEnabled
+  const compileStatusRef = useRef(compileStatus)
+  compileStatusRef.current = compileStatus
+
+  const triggerAutoCompile = useCallback(() => {
+    if (autoCompileTimerRef.current) {
+      clearTimeout(autoCompileTimerRef.current)
+      autoCompileTimerRef.current = null
+    }
+    if (!autoCompileEnabledRef.current) return
+    if (compileStatusRef.current === 'compiling') return
+
+    autoCompileTimerRef.current = setTimeout(() => {
+      autoCompileTimerRef.current = null
+      const src = getLatestSource()
+      if (src.length < 50) return
+      compileNowRef.current()
+    }, 4000)
+  }, [getLatestSource])
+
+  // Cleanup auto-compile timer on unmount
+  useEffect(() => {
+    return () => {
+      if (autoCompileTimerRef.current) {
+        clearTimeout(autoCompileTimerRef.current)
+      }
+    }
+  }, [])
+
   return {
     iframeRef,
     compileStatus,
@@ -248,5 +296,8 @@ export function useLatexCompilation({
     lastCompileAt,
     compileNow,
     contentHash,
+    autoCompileEnabled,
+    toggleAutoCompile,
+    triggerAutoCompile,
   }
 }

@@ -149,9 +149,12 @@ const Layout = () => {
     </div>
   ), [theme, user, setIsSettingsOpen])
 
+  // Hide the global header on full-screen editor pages
+  const isEditorPage = /\/(editor|collaborate)$/.test(location.pathname)
+
   return (
     <div className="min-h-screen transition-colors duration-200">
-      <header className="border-b border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+      {!isEditorPage && <header className="border-b border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-800">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <Link to="/projects" className="transition-opacity hover:opacity-80">
             <Logo textClassName="text-lg font-semibold" />
@@ -193,10 +196,10 @@ const Layout = () => {
             </button>
           </div>
         </div>
-      </header>
+      </header>}
 
       {/* Email Verification Banner */}
-      {user && !user.is_verified && !verificationBannerDismissed && (
+      {!isEditorPage && user && !user.is_verified && !verificationBannerDismissed && (
         <div className="border-b border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950">
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-2 sm:px-6 lg:px-8">
             <div className="flex items-center gap-3">
@@ -232,7 +235,7 @@ const Layout = () => {
         </div>
       )}
 
-      <main className="mx-auto max-w-7xl px-3 py-4 sm:px-6 sm:py-8 lg:px-8">
+      <main className={isEditorPage ? 'flex flex-col h-[100vh]' : 'mx-auto max-w-7xl px-3 py-4 sm:px-6 sm:py-8 lg:px-8'}>
         <Outlet />
       </main>
 

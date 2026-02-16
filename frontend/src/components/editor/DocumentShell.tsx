@@ -505,8 +505,9 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
       version: collab.providerVersion ?? 0,
       synced: collabTimedOut ? true : collabSynced, // Mark as synced when timed out so editor proceeds
       enabled: !collabTimedOut,
+      paperRole,
     }
-  }, [collab.awareness, collab.doc, collabEnabled, collab.status, collab.providerVersion, collabPeers, collabSynced, collabTimedOut])
+  }, [collab.awareness, collab.doc, collabEnabled, collab.status, collab.providerVersion, collabPeers, collabSynced, collabTimedOut, paperRole])
 
   const handleContentChange = (html: string, json?: any) => {
     if (expectingCollab && !collabUnavailable && !collabReady) {

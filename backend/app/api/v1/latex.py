@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from typing import Optional, Dict, Any, Set
 import asyncio
 import hashlib
+import io
 import json
 import logging
 import os
@@ -13,6 +14,7 @@ import shutil
 import tempfile
 import time
 import uuid
+import zipfile
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -412,6 +414,11 @@ class ExportDocxRequest(BaseModel):
 @router.post("/latex/export-docx")
 async def export_docx(request: ExportDocxRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Convert LaTeX source to DOCX via pandoc."""
+    if request.paper_id:
+        try:
+            uuid.UUID(request.paper_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid paper_id")
     # Validate / fallback source
     if not request.latex_source or len(request.latex_source.strip()) < 5:
         if not request.paper_id:
@@ -494,6 +501,89 @@ async def export_docx(request: ExportDocxRequest, current_user: User = Depends(g
         content=docx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": "attachment; filename=paper.docx"},
+    )
+
+
+class ExportSourceZipRequest(BaseModel):
+    latex_source: str
+    paper_id: Optional[str] = None
+    include_bibtex: Optional[bool] = True
+    latex_files: Optional[Dict[str, str]] = None
+
+
+@router.post("/latex/export-source-zip")
+async def export_source_zip(request: ExportSourceZipRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Package all project source files into a downloadable ZIP archive."""
+    if request.paper_id:
+        try:
+            uuid.UUID(request.paper_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid paper_id")
+    # Validate / fallback source
+    if not request.latex_source or len(request.latex_source.strip()) < 5:
+        if not request.paper_id:
+            raise HTTPException(status_code=400, detail="latex_source is empty")
+        paper = db.query(ResearchPaper).filter(ResearchPaper.id == request.paper_id).first()
+        if not paper:
+            raise HTTPException(status_code=404, detail="Paper not found")
+        fallback = ''
+        if paper.content_json and isinstance(paper.content_json, dict):
+            fallback = paper.content_json.get('latex_source') or paper.content or ''
+        else:
+            fallback = paper.content or ''
+        if not fallback or len(fallback.strip()) < 5:
+            raise HTTPException(status_code=400, detail="latex_source is empty")
+        request.latex_source = fallback
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        (tmp / "main.tex").write_text(request.latex_source, encoding="utf-8")
+
+        # Write extra .tex files
+        if request.latex_files:
+            for fname, content in request.latex_files.items():
+                safe_name = Path(fname).name
+                if not safe_name.endswith('.tex') or safe_name == 'main.tex':
+                    continue
+                (tmp / safe_name).write_text(content, encoding="utf-8")
+
+        # Copy figures
+        if request.paper_id:
+            figures_src = Path("uploads") / "papers" / request.paper_id / "figures"
+            if figures_src.exists():
+                shutil.copytree(figures_src, tmp / "figures")
+
+        # Copy or generate .bib
+        if request.paper_id:
+            paper_dir = Path("uploads") / "papers" / request.paper_id
+            copied_bib = False
+            if paper_dir.exists():
+                for bib_file in paper_dir.glob("*.bib"):
+                    shutil.copy2(bib_file, tmp / bib_file.name)
+                    copied_bib = True
+            if not copied_bib and request.include_bibtex:
+                try:
+                    bib = _generate_bibtex_for_paper(db, current_user.id, request.paper_id)
+                    (tmp / "main.bib").write_text(bib, encoding="utf-8")
+                except Exception as e:
+                    logger.warning("Failed to generate bibtex for source ZIP export: %s", e)
+
+        _copy_style_files(tmp)
+
+        # Create ZIP in memory
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for root, _dirs, files in os.walk(tmpdir):
+                for file in files:
+                    abs_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(abs_path, tmpdir)
+                    zf.write(abs_path, rel_path)
+        zip_bytes = buf.getvalue()
+
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=paper-source.zip"},
     )
 
 
