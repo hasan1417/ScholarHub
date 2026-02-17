@@ -298,6 +298,23 @@ body.dark, [data-theme='dark'], :root.dark {
     scrollbar-width: thin;
     scrollbar-color: rgb(209 213 219) rgb(243 244 246); /* gray-300 gray-100 */
   }
+
+  /* Hidden scrollbar for horizontally scrollable containers */
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+}
+
+/* Visible tap highlight on mobile */
+@media (hover: none) {
+  button, a, [role="button"] {
+    -webkit-tap-highlight-color: rgba(99, 102, 241, 0.15);
+  }
 }
 
 /* Print styles for academic papers */

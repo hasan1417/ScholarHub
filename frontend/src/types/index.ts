@@ -91,6 +91,21 @@ export interface AIArtifact {
   updated_at?: string | null
 }
 
+// Proactive AI insights
+export interface ProactiveInsight {
+  type: string
+  title: string
+  message: string
+  priority: 'high' | 'medium' | 'low'
+  action_type: 'search' | 'navigate' | 'dismiss'
+  action_data: Record<string, unknown>
+}
+
+export interface ProjectInsightsResponse {
+  project_id: string
+  insights: ProactiveInsight[]
+}
+
 export interface ProjectReferenceSuggestion {
   id: string
   reference_id: string
@@ -124,6 +139,29 @@ export interface ProjectReferenceSuggestion {
     paper_id: string
     title?: string
   }>
+}
+
+// Citation Graph types
+export interface CitationGraphNode {
+  id: string
+  title: string
+  authors: string[]
+  year: number | null
+  doi: string | null
+  in_library: boolean
+  type: 'library' | 'cited' | 'citing'
+}
+
+export interface CitationGraphEdge {
+  source: string
+  target: string
+  type: 'cites'
+}
+
+export interface CitationGraphData {
+  nodes: CitationGraphNode[]
+  edges: CitationGraphEdge[]
+  warnings?: string[]
 }
 
 export interface CitationSuggestion {
@@ -872,4 +910,48 @@ export interface SubscriptionState {
   usage: UsageTracking | null
   limits: Record<string, number>
   loading: boolean
+}
+
+// PDF Annotation types
+export interface PdfAnnotation {
+  id: string
+  document_id: string
+  user_id: string
+  page_number: number
+  type: 'highlight' | 'note' | 'underline'
+  color: string
+  content?: string | null
+  position_data: {
+    rects: Array<{ x: number; y: number; width: number; height: number }>
+    [key: string]: unknown
+  }
+  selected_text?: string | null
+  created_at: string
+  updated_at?: string | null
+}
+
+export interface PdfAnnotationCreate {
+  page_number: number
+  type: 'highlight' | 'note' | 'underline'
+  color?: string
+  content?: string
+  position_data: {
+    rects: Array<{ x: number; y: number; width: number; height: number }>
+    [key: string]: unknown
+  }
+  selected_text?: string
+}
+
+export interface PdfAnnotationUpdate {
+  content?: string | null
+  color?: string
+  position_data?: {
+    rects: Array<{ x: number; y: number; width: number; height: number }>
+    [key: string]: unknown
+  }
+}
+
+export interface PdfAnnotationListResponse {
+  annotations: PdfAnnotation[]
+  total: number
 }

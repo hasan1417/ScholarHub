@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import re
 from typing import Optional
 from uuid import UUID
 
+import httpx
+import redis
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, UploadFile, File as FastAPIFile, status
 from sqlalchemy.orm import Session
 
@@ -41,6 +45,263 @@ def _guard_feature() -> None:
 
 class ProjectReferenceResponse(dict):
     """Lightweight serializer to avoid creating a dedicated Pydantic model right now."""
+
+
+# ──────────────────────────────────────────────────────────────
+# Citation graph
+# ──────────────────────────────────────────────────────────────
+
+CITATION_GRAPH_CACHE_TTL = 60 * 60 * 24  # 24 hours
+CITATION_GRAPH_CACHE_PREFIX = "citation_graph:"
+SEMANTIC_SCHOLAR_TIMEOUT = 5  # seconds
+MAX_GRAPH_NODES = 100
+MAX_EXTERNAL_PER_LIBRARY = 2
+
+
+_redis_singleton: redis.Redis | None = None
+_redis_initialized: bool = False
+
+
+def _redis_client() -> redis.Redis | None:
+    global _redis_singleton, _redis_initialized
+    if _redis_initialized:
+        return _redis_singleton
+    _redis_initialized = True
+    try:
+        client = redis.Redis.from_url(
+            settings.REDIS_URL,
+            decode_responses=True,
+            socket_connect_timeout=2,
+        )
+        client.ping()
+        _redis_singleton = client
+    except Exception:
+        _redis_singleton = None
+    return _redis_singleton
+
+
+_S2_LOCK = asyncio.Lock()
+_S2_LAST_REQUEST: float = 0.0
+
+
+def _normalize_doi(doi: str) -> str:
+    """Strip URL prefixes from DOIs (e.g. 'https://doi.org/10.xxx' -> '10.xxx')."""
+    return re.sub(r'^https?://(dx\.)?doi\.org/', '', doi).strip()
+
+
+async def _fetch_semantic_scholar(doi: str) -> dict | None:
+    """Fetch references and citations for a DOI from Semantic Scholar.
+
+    Enforces 1 request/second rate limit (S2 API key constraint).
+    """
+    global _S2_LAST_REQUEST
+    doi = _normalize_doi(doi)
+    url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}"
+    params = {"fields": "references.externalIds,references.title,citations.externalIds,citations.title"}
+    headers: dict[str, str] = {}
+    if settings.SEMANTIC_SCHOLAR_API_KEY:
+        headers["Authorization"] = f"Bearer {settings.SEMANTIC_SCHOLAR_API_KEY}"
+    async with _S2_LOCK:
+        # Enforce 1 req/sec rate limit
+        import time
+        elapsed = time.monotonic() - _S2_LAST_REQUEST
+        if elapsed < 1.05:
+            await asyncio.sleep(1.05 - elapsed)
+        try:
+            async with httpx.AsyncClient(timeout=SEMANTIC_SCHOLAR_TIMEOUT) as client:
+                _S2_LAST_REQUEST = time.monotonic()
+                resp = await client.get(url, params=params, headers=headers)
+                if resp.status_code == 200:
+                    return resp.json()
+                if resp.status_code == 429:
+                    logger.warning("Semantic Scholar rate-limited (429) for DOI %s", doi)
+                elif resp.status_code == 403:
+                    logger.warning("Semantic Scholar auth failed (403) for DOI %s — check API key", doi)
+                else:
+                    logger.debug("Semantic Scholar returned %d for DOI %s", resp.status_code, doi)
+        except Exception as exc:
+            logger.debug("Semantic Scholar fetch failed for DOI %s: %s", doi, exc)
+    return None
+
+
+def _extract_doi(external_ids: dict | None) -> str | None:
+    if not external_ids:
+        return None
+    return external_ids.get("DOI") or external_ids.get("doi")
+
+
+@router.get("/projects/{project_id}/references/citation-graph")
+async def get_citation_graph(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Build a citation graph showing how papers in the project library cite each other."""
+    project = get_project_or_404(db, project_id)
+    ensure_project_member(db, project, current_user)
+
+    cache_key = f"{CITATION_GRAPH_CACHE_PREFIX}{project.id}"
+
+    # Try cache first
+    rc = _redis_client()
+    if rc:
+        try:
+            cached = rc.get(cache_key)
+            if cached:
+                return json.loads(cached)
+        except Exception:
+            pass
+
+    # Fetch approved references
+    project_refs = (
+        db.query(ProjectReference)
+        .filter(
+            ProjectReference.project_id == project.id,
+            ProjectReference.status == ProjectReferenceStatus.APPROVED,
+        )
+        .all()
+    )
+
+    if not project_refs:
+        return {"nodes": [], "edges": [], "warnings": []}
+
+    # Build library nodes indexed by DOI for fast lookup
+    nodes_by_id: dict[str, dict] = {}
+    doi_to_node_id: dict[str, str] = {}
+    library_dois: set[str] = set()
+
+    for pr in project_refs:
+        ref = pr.reference
+        if not ref:
+            continue
+        node_id = str(pr.id)
+        authors = ref.authors or []
+        node = {
+            "id": node_id,
+            "title": ref.title or "Untitled",
+            "authors": authors[:5],
+            "year": ref.year,
+            "doi": ref.doi,
+            "in_library": True,
+            "type": "library",
+        }
+        nodes_by_id[node_id] = node
+        if ref.doi:
+            norm_doi = _normalize_doi(ref.doi).lower()
+            doi_to_node_id[norm_doi] = node_id
+            library_dois.add(norm_doi)
+
+    # For each library paper with a DOI, fetch from Semantic Scholar concurrently
+    refs_with_doi = [(pr, pr.reference) for pr in project_refs if pr.reference and pr.reference.doi]
+    s2_results = await asyncio.gather(
+        *[_fetch_semantic_scholar(ref.doi) for _pr, ref in refs_with_doi],
+        return_exceptions=True,
+    )
+
+    # Count failures for warnings
+    failed_count = sum(
+        1 for r in s2_results if r is None or isinstance(r, BaseException)
+    )
+    warnings: list[str] = []
+    if failed_count > 0:
+        warnings.append(f"{failed_count} paper(s) could not be fetched from Semantic Scholar")
+
+    edges: list[dict] = []
+    seen_edges: set[tuple[str, str]] = set()
+    external_counter = 0
+
+    def _add_edge(source: str, target: str) -> None:
+        key = (source, target)
+        if key not in seen_edges:
+            seen_edges.add(key)
+            edges.append({"source": source, "target": target, "type": "cites"})
+
+    for (pr, ref), data in zip(refs_with_doi, s2_results):
+        if data is None or isinstance(data, BaseException):
+            continue
+
+        lib_node_id = str(pr.id)
+        added_for_this = 0
+
+        # Process references (papers this library paper cites)
+        for cited in (data.get("references") or []):
+            if added_for_this >= MAX_EXTERNAL_PER_LIBRARY and len(nodes_by_id) >= MAX_GRAPH_NODES:
+                break
+            cited_doi = _extract_doi(cited.get("externalIds"))
+            cited_title = cited.get("title") or "Untitled"
+
+            if cited_doi and cited_doi.lower() in doi_to_node_id:
+                target_id = doi_to_node_id[cited_doi.lower()]
+                _add_edge(lib_node_id, target_id)
+            else:
+                if added_for_this >= MAX_EXTERNAL_PER_LIBRARY:
+                    continue
+                if len(nodes_by_id) >= MAX_GRAPH_NODES:
+                    continue
+                ext_id = f"ext_cited_{cited_doi.lower()}" if cited_doi else f"ext_cited_{external_counter}"
+                external_counter += 1
+                if ext_id not in nodes_by_id:
+                    nodes_by_id[ext_id] = {
+                        "id": ext_id,
+                        "title": cited_title,
+                        "authors": [],
+                        "year": None,
+                        "doi": cited_doi,
+                        "in_library": False,
+                        "type": "cited",
+                    }
+                    if cited_doi:
+                        doi_to_node_id[cited_doi.lower()] = ext_id
+                _add_edge(lib_node_id, ext_id)
+                added_for_this += 1
+
+        # Process citations (papers that cite this library paper)
+        added_citing = 0
+        for citing in (data.get("citations") or []):
+            if added_citing >= MAX_EXTERNAL_PER_LIBRARY and len(nodes_by_id) >= MAX_GRAPH_NODES:
+                break
+            citing_doi = _extract_doi(citing.get("externalIds"))
+            citing_title = citing.get("title") or "Untitled"
+
+            if citing_doi and citing_doi.lower() in doi_to_node_id:
+                source_id = doi_to_node_id[citing_doi.lower()]
+                _add_edge(source_id, lib_node_id)
+            else:
+                if added_citing >= MAX_EXTERNAL_PER_LIBRARY:
+                    continue
+                if len(nodes_by_id) >= MAX_GRAPH_NODES:
+                    continue
+                ext_id = f"ext_citing_{citing_doi.lower()}" if citing_doi else f"ext_citing_{external_counter}"
+                external_counter += 1
+                if ext_id not in nodes_by_id:
+                    nodes_by_id[ext_id] = {
+                        "id": ext_id,
+                        "title": citing_title,
+                        "authors": [],
+                        "year": None,
+                        "doi": citing_doi,
+                        "in_library": False,
+                        "type": "citing",
+                    }
+                    if citing_doi:
+                        doi_to_node_id[citing_doi.lower()] = ext_id
+                _add_edge(ext_id, lib_node_id)
+                added_citing += 1
+
+    result = {
+        "nodes": list(nodes_by_id.values()),
+        "edges": edges,
+        "warnings": warnings,
+    }
+
+    # Cache result
+    if rc:
+        try:
+            rc.setex(cache_key, CITATION_GRAPH_CACHE_TTL, json.dumps(result))
+        except Exception:
+            pass
+
+    return result
 
 
 class AttachReferencePayload(BaseModel):

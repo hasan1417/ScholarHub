@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -6,6 +6,7 @@ import {
   Check,
   Eye,
   FileText,
+  Highlighter,
   Link2,
   MoreHorizontal,
   Pencil,
@@ -48,6 +49,8 @@ import { trackRecentPaper } from '../../components/ui/CommandPalette'
 import { parseObjectives } from '../../utils/objectives'
 import { getPaperUrlId } from '../../utils/urlId'
 
+const PdfAnnotationViewer = lazy(() => import('../../components/annotations/PdfAnnotationViewer'))
+
 const PaperDetail: React.FC = () => {
   const { toast } = useToast()
   const { projectId, paperId } = useParams<{ projectId?: string; paperId: string }>()
@@ -71,6 +74,10 @@ const PaperDetail: React.FC = () => {
   const [isSavingObjectives, setIsSavingObjectives] = useState(false)
   const [referenceUploads, setReferenceUploads] = useState<Record<string, boolean>>({})
   const [referenceUploadError, setReferenceUploadError] = useState<string | null>(null)
+  const [annotationViewer, setAnnotationViewer] = useState<{
+    documentId: string
+    downloadUrl: string
+  } | null>(null)
 
   const projectMembers = project?.members ?? []
   const currentUserId = user?.id
@@ -891,14 +898,31 @@ const PaperDetail: React.FC = () => {
                               </span>
                             )}
                             {ref.document_download_url && (
-                              <button
-                                type="button"
-                                onClick={() => handleViewReferencePdf(ref.document_download_url as string)}
-                                className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-                              >
-                                <Link2 className="h-3 w-3" />
-                                View PDF
-                              </button>
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleViewReferencePdf(ref.document_download_url as string)}
+                                  className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                                >
+                                  <Link2 className="h-3 w-3" />
+                                  View PDF
+                                </button>
+                                {ref.document_id && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setAnnotationViewer({
+                                        documentId: ref.document_id as string,
+                                        downloadUrl: ref.document_download_url as string,
+                                      })
+                                    }
+                                    className="inline-flex items-center gap-1 font-medium text-amber-600 hover:underline dark:text-amber-400"
+                                  >
+                                    <Highlighter className="h-3 w-3" />
+                                    Annotate
+                                  </button>
+                                )}
+                              </>
                             )}
                             {!hasFullText && ref.reference_id && canManageReferences && (
                               <label
@@ -1019,6 +1043,23 @@ const PaperDetail: React.FC = () => {
         onInvite={handleInvite}
         paperTitle={paper?.title || 'this paper'}
       />
+
+      {/* PDF Annotation Viewer */}
+      {annotationViewer && (
+        <Suspense
+          fallback={
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+              <div className="h-10 w-10 animate-spin rounded-full border-b-2 border-indigo-600" />
+            </div>
+          }
+        >
+          <PdfAnnotationViewer
+            documentId={annotationViewer.documentId}
+            downloadUrl={annotationViewer.downloadUrl}
+            onClose={() => setAnnotationViewer(null)}
+          />
+        </Suspense>
+      )}
 
       {/* Objectives Modal */}
       {showObjectivesModal && (

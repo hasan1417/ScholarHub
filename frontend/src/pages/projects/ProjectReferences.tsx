@@ -10,6 +10,8 @@ import {
   ExternalLink,
   FileEdit,
   FileText,
+  GitFork,
+  List,
   Loader2,
   MessageSquare,
   MoreVertical,
@@ -26,6 +28,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import AddProjectReferenceModal from '../../components/projects/AddProjectReferenceModal'
 import ConfirmationModal from '../../components/common/ConfirmationModal'
 import ZoteroImportModal from '../../components/references/ZoteroImportModal'
+import CitationGraph from '../../components/references/CitationGraph'
 import { getProjectUrlId } from '../../utils/urlId'
 import { useToast } from '../../hooks/useToast'
 
@@ -58,6 +61,7 @@ const ProjectReferences = () => {
   const bibFileInputRef = useRef<HTMLInputElement | null>(null)
   const [bibImporting, setBibImporting] = useState(false)
   const [bibExporting, setBibExporting] = useState(false)
+  const [viewMode, setViewMode] = useState<'list' | 'graph'>('list')
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
@@ -334,35 +338,63 @@ const ProjectReferences = () => {
   return (
     <div className="space-y-6">
       <section className="space-y-4 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900/50">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-2">
             <BookOpen className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
             <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">Related papers</h2>
+
+            {/* View mode toggle */}
+            <div className="ml-3 inline-flex rounded-lg border border-gray-200 p-0.5 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => setViewMode('list')}
+                className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                  viewMode === 'list'
+                    ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-200'
+                    : 'text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200'
+                }`}
+              >
+                <List className="h-3.5 w-3.5" />
+                List
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('graph')}
+                className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                  viewMode === 'graph'
+                    ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-200'
+                    : 'text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200'
+                }`}
+              >
+                <GitFork className="h-3.5 w-3.5" />
+                Graph
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            {references.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            {references.length > 0 && viewMode === 'list' && (
               <button
                 type="button"
                 onClick={handleBibExport}
                 disabled={bibExporting}
-                className="inline-flex items-center gap-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                className="inline-flex items-center gap-1 rounded-full border border-gray-200 px-3 py-2 sm:py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
               >
                 {bibExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
                 Export .bib
               </button>
             )}
-            {canAddManual && (
+            {canAddManual && viewMode === 'list' && (
               <button
                 type="button"
                 onClick={() => bibFileInputRef.current?.click()}
                 disabled={bibImporting}
-                className="inline-flex items-center gap-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                className="inline-flex items-center gap-1 rounded-full border border-gray-200 px-3 py-2 sm:py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
               >
                 {bibImporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
                 Import .bib
               </button>
             )}
-            {canAddManual && (
+            {canAddManual && viewMode === 'list' && (
               <button
                 type="button"
                 onClick={() => {
@@ -372,26 +404,28 @@ const ProjectReferences = () => {
                     toast.warning('Connect your Zotero account first in Settings > Integrations.')
                   }
                 }}
-                className="inline-flex items-center gap-1 rounded-full border border-emerald-200 px-3 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:border-emerald-400/40 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                className="inline-flex items-center gap-1 rounded-full border border-emerald-200 px-3 py-2 sm:py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:border-emerald-400/40 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
               >
                 <BookOpen className="h-3.5 w-3.5" />
-                Import from Zotero
+                <span className="hidden xs:inline">Import from</span><span className="xs:hidden">From</span> Zotero
               </button>
             )}
-            {canAddManual && (
+            {canAddManual && viewMode === 'list' && (
               <button
                 type="button"
                 onClick={() => setShowAddModal(true)}
-                className="inline-flex items-center gap-1 rounded-full border border-indigo-200 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 dark:border-indigo-400/40 dark:text-indigo-200 dark:hover:bg-indigo-500/10"
+                className="inline-flex items-center gap-1 rounded-full border border-indigo-200 px-3 py-2 sm:py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 dark:border-indigo-400/40 dark:text-indigo-200 dark:hover:bg-indigo-500/10"
               >
                 <Plus className="h-3.5 w-3.5" />
-                Add related paper
+                Add paper
               </button>
             )}
           </div>
         </div>
 
-        {references.length === 0 ? (
+        {viewMode === 'graph' ? (
+          <CitationGraph projectId={project.id} />
+        ) : references.length === 0 ? (
           <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-6 text-sm text-gray-500 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
             No approved related papers yet. Review suggestions from the Discovery tab to build this list.
           </div>
@@ -450,8 +484,8 @@ const ProjectReferences = () => {
                         {ref?.title ?? 'Untitled reference'}
                       </h3>
 
-                      {/* Actions - always visible on mobile, hover on desktop */}
-                      <div className="relative flex items-center gap-2 flex-shrink-0">
+                      {/* Actions - always visible on touch, hover on desktop */}
+                      <div className="relative flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
                         {/* PDF Status/Action Button */}
                         {isPdfProcessed ? (
                           <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-200">
@@ -497,7 +531,7 @@ const ProjectReferences = () => {
                           <div className="relative">
                             <button
                               type="button"
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-500 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                              className="inline-flex h-11 w-11 sm:h-8 sm:w-8 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-500 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
                               onClick={() => setOpenMenuId(openMenuId === item.id ? null : item.id)}
                               aria-label="More options"
                             >
@@ -510,10 +544,10 @@ const ProjectReferences = () => {
                                   className="fixed inset-0 z-10"
                                   onClick={() => setOpenMenuId(null)}
                                 />
-                                <div className="absolute right-0 top-full z-20 mt-1 w-40 rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                                <div className="absolute right-0 top-full z-20 mt-1 w-[calc(100vw-3rem)] sm:w-48 max-w-xs rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
                                   <button
                                     type="button"
-                                    className="flex w-full items-center gap-2 px-3 py-2 text-xs text-rose-600 transition hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-500/10"
+                                    className="flex w-full items-center gap-2 px-4 py-3 sm:px-3 sm:py-2 text-sm sm:text-xs text-rose-600 transition hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-500/10"
                                     onClick={() => {
                                       setOpenMenuId(null)
                                       setDeleteContext({
@@ -524,7 +558,7 @@ const ProjectReferences = () => {
                                       setDeleteModalOpen(true)
                                     }}
                                   >
-                                    <Trash2 className="h-3.5 w-3.5" />
+                                    <Trash2 className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
                                     Remove paper
                                   </button>
                                 </div>

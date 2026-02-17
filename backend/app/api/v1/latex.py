@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Response, Query
 from app.core.config import settings
 from starlette.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
-from typing import Optional, Dict, Any, Set
+from typing import Optional, Dict, Any
 import asyncio
 import hashlib
 import io
@@ -20,10 +20,18 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 from app.api.deps import get_current_user, get_db
 from app.models.user import User
-from app.models.reference import Reference
 from app.models.research_paper import ResearchPaper
 from sqlalchemy.orm import Session
 from app.services.compilation_version_manager import compilation_version_manager
+from app.services.submission_builder import (
+    get_venue_configs,
+    get_venue_config,
+    validate_for_venue,
+    build_submission_package,
+    _generate_bibtex,
+    VENUE_CONFIGS,
+)
+from app.models.paper_member import PaperMember
 
 router = APIRouter()
 
@@ -885,71 +893,422 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
 # Snapshot materialization removed; LaTeX source must be provided directly
 
 
-def _make_bibtex_key(title: Optional[str], authors: Optional[list], year: Optional[int]) -> str:
-    try:
-        last = ''
-        if isinstance(authors, list) and authors:
-            parts = str(authors[0]).split()
-            last = parts[-1].lower() if parts else ''
-        yr = str(year or '')
-        base = (title or '').strip().lower()
-        base = ''.join(ch for ch in base if ch.isalnum() or ch.isspace()).split()
-        short = ''.join(base[:3])[:12]
-        key = (last + yr + short) or ("ref" + yr)
-        return key
-    except Exception:
-        return "ref"
-
-
-def _esc(s: Optional[str]) -> Optional[str]:
-    if not s:
-        return s
-    # basic brace-safe escaping
-    return s.replace('{', '\\{').replace('}', '\\}')
-
-
-def _to_bibtex_entry(ref: Reference, seen_keys: Optional[Set[str]] = None) -> str:
-    key = _make_bibtex_key(ref.title, ref.authors, ref.year)
-    # Disambiguate duplicate keys by appending a, b, c, etc.
-    if seen_keys is not None:
-        original_key = key
-        suffix_idx = 0
-        while key in seen_keys:
-            suffix_idx += 1
-            key = original_key + chr(ord('a') + suffix_idx - 1)
-        seen_keys.add(key)
-    fields = []
-    def add(k: str, v: Optional[str]):
-        if v:
-            fields.append(f"  {k} = {{{_esc(v)}}}")
-    has_journal = bool(ref.journal)
-    has_authors = bool(ref.authors and len(ref.authors) > 0)
-    has_year = ref.year is not None
-    # Common fields
-    add("title", ref.title)
-    if has_authors:
-        try:
-            add("author", ' and '.join(ref.authors))
-        except Exception as e:
-            logger.warning("Failed to join authors for reference %s: %s", ref.id, e)
-    add("year", str(ref.year) if has_year else None)
-    add("doi", ref.doi)
-    add("url", ref.url)
-    add("journal", ref.journal)
-    # Choose entry type: article if journal present; else misc
-    entry_type = "article" if has_journal else "misc"
-    entry = f"@{entry_type}" + "{" + key + ",\n" + ",\n".join(fields) + "\n}"
-    return entry
-
-
 def _generate_bibtex_for_paper(db: Session, owner_id: Any, paper_id: str) -> str:
-    refs = db.query(Reference).filter(Reference.owner_id == owner_id, Reference.paper_id == paper_id).all()
-    entries = []
-    seen_keys: Set[str] = set()
-    for r in refs:
-        try:
-            entries.append(_to_bibtex_entry(r, seen_keys=seen_keys))
-        except Exception as e:
-            logger.warning("Failed to generate BibTeX entry for reference %s: %s", r.id, e)
+    """Thin wrapper around submission_builder._generate_bibtex."""
+    return _generate_bibtex(db, owner_id, paper_id)
+
+
+# ---------------------------------------------------------------------------
+# Writing Quality Analyzer
+# ---------------------------------------------------------------------------
+
+class WritingAnalysisRequest(BaseModel):
+    latex_source: str
+    paper_id: Optional[str] = None
+    venue: Optional[str] = None  # e.g. "ieee", "acm", "springer", "nature", "arxiv"
+
+
+class WritingIssue(BaseModel):
+    type: str  # "citation_density", "hedging", "structure", "venue"
+    severity: str  # "error", "warning", "info"
+    message: str
+    line: Optional[int] = None
+    suggestion: Optional[str] = None
+
+
+class WritingAnalysisResponse(BaseModel):
+    issues: list[WritingIssue]
+    stats: dict
+    score: int
+
+
+# Regex patterns for writing analysis
+_SECTION_CMD_RE = re.compile(r'\\(?:section|subsection|subsubsection)\*?\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}')
+_CITE_RE = re.compile(r'\\cite[tp]?\*?\{[^}]+\}')
+_COMMENT_LINE_RE = re.compile(r'(?<!\\)%.*$', re.MULTILINE)
+
+# Claim indicators that typically require citation support
+_CLAIM_INDICATORS = [
+    "shows that", "demonstrates", "has been proven", "according to",
+    "studies have found", "research indicates", "it is known that",
+    "evidence suggests", "has shown", "have shown", "was demonstrated",
+    "is well established", "is well known", "previous work",
+    "prior research", "existing literature", "has been reported",
+    "has been observed", "studies suggest", "recent work",
+]
+
+# Hedging: absolute terms and their suggested alternatives
+_HEDGING_MAP = {
+    "proves": "suggests/demonstrates",
+    "definitely": "likely",
+    "clearly shows": "indicates",
+    "is certain": "appears likely",
+    "always": "typically/often",
+    "never": "rarely/seldom",
+    "undoubtedly": "likely",
+    "obviously": "notably",
+    "without doubt": "with high confidence",
+    "unquestionably": "arguably",
+}
+
+# Standard academic sections (normalized lowercase)
+_REQUIRED_SECTIONS = [
+    ("introduction", {"introduction", "background"}),
+    ("related work", {"related work", "literature review", "background"}),
+    ("methodology", {"methodology", "methods", "method", "approach", "proposed method", "proposed approach"}),
+    ("results", {"results", "experiments", "experimental results", "evaluation"}),
+    ("discussion", {"discussion", "analysis"}),
+    ("conclusion", {"conclusion", "conclusions", "concluding remarks", "summary"}),
+]
+
+# Expected section order (by group index in _REQUIRED_SECTIONS)
+_SECTION_ORDER = ["introduction", "related work", "methodology", "results", "discussion", "conclusion"]
+
+# Venue-specific abstract word limits (derived from submission_builder VENUE_CONFIGS)
+_VENUE_ABSTRACT_LIMITS: Dict[str, int] = {
+    k: v["abstract_max_words"]
+    for k, v in VENUE_CONFIGS.items()
+    if v.get("abstract_max_words")
+}
+
+
+def _strip_comments(source: str) -> str:
+    """Remove LaTeX comments (lines starting with % or inline %)."""
+    return _COMMENT_LINE_RE.sub('', source)
+
+
+def _extract_body(source: str) -> tuple[str, int]:
+    """Extract content between \\begin{document} and \\end{document}.
+
+    Returns (body_text, line_offset) where line_offset is the number of
+    newlines before the start of the body so that callers can convert
+    body-relative line numbers to source-absolute line numbers.
+    """
+    lower = source.lower()
+    begin = lower.find('\\begin{document}')
+    end = lower.find('\\end{document}')
+    if begin == -1:
+        return source, 0
+    start = begin + len('\\begin{document}')
+    # Count newlines in everything up to (and including) \begin{document} line
+    offset = source[:start].count('\n')
+    if end == -1:
+        return source[start:], offset
+    return source[start:end], offset
+
+
+def _extract_abstract(source: str) -> str:
+    """Extract text within \\begin{abstract}...\\end{abstract}."""
+    lower = source.lower()
+    begin = lower.find('\\begin{abstract}')
+    end = lower.find('\\end{abstract}')
+    if begin == -1 or end == -1:
+        return ""
+    start = begin + len('\\begin{abstract}')
+    return source[start:end].strip()
+
+
+def _split_paragraphs(body: str, line_offset: int = 0) -> list[tuple[str, int]]:
+    """Split body into paragraphs with approximate line numbers.
+
+    Returns list of (paragraph_text, start_line_number).
+    ``line_offset`` is added to every reported line number so that results
+    are relative to the full source file, not just the body.
+    """
+    paragraphs = []
+    current_lines: list[str] = []
+    current_start = 1
+    for i, line in enumerate(body.split('\n'), 1):
+        stripped = line.strip()
+        # Paragraph break on blank line or section command
+        if stripped == '' or _SECTION_CMD_RE.match(stripped):
+            if current_lines:
+                text = ' '.join(current_lines)
+                paragraphs.append((text, current_start + line_offset))
+                current_lines = []
+            current_start = i + 1
+        else:
+            if not current_lines:
+                current_start = i
+            current_lines.append(stripped)
+    if current_lines:
+        text = ' '.join(current_lines)
+        paragraphs.append((text, current_start + line_offset))
+    return paragraphs
+
+
+def _plain_text(text: str) -> str:
+    """Very rough LaTeX-to-plain-text for word counting. Strips commands."""
+    # Remove \command{...} but keep content inside braces
+    t = re.sub(r'\\[a-zA-Z]+\*?\{', '', text)
+    t = t.replace('{', '').replace('}', '')
+    # Remove remaining backslash commands
+    t = re.sub(r'\\[a-zA-Z]+\*?', '', t)
+    # Remove special chars
+    t = re.sub(r'[~$&^_#]', ' ', t)
+    return t
+
+
+def _word_count(text: str) -> int:
+    return len(_plain_text(text).split())
+
+
+def _analyze_writing(source: str, venue: Optional[str] = None) -> WritingAnalysisResponse:
+    """Perform deterministic writing quality analysis on LaTeX source."""
+    issues: list[WritingIssue] = []
+    clean = _strip_comments(source)
+    body, body_line_offset = _extract_body(clean)
+    abstract_text = _extract_abstract(clean)
+
+    # --- Stats ---
+    total_words = _word_count(body)
+    citation_matches = _CITE_RE.findall(clean)
+    citation_count = len(citation_matches)
+    sections = _SECTION_CMD_RE.findall(clean)
+    section_count = len(sections)
+    paragraphs = _split_paragraphs(body, body_line_offset)
+    para_word_counts = [_word_count(p[0]) for p in paragraphs]
+    avg_paragraph_length = round(sum(para_word_counts) / max(len(para_word_counts), 1))
+    citations_per_1000 = round(citation_count / max(total_words, 1) * 1000, 1)
+
+    stats = {
+        "word_count": total_words,
+        "citation_count": citation_count,
+        "section_count": section_count,
+        "avg_paragraph_length": avg_paragraph_length,
+        "citations_per_1000": citations_per_1000,
+    }
+
+    # --- Citation Density Check ---
+    for para_text, para_line in paragraphs:
+        wc = _word_count(para_text)
+        if wc <= 50:
             continue
-    return "\n\n".join(entries) if entries else "% Bibliography is empty for this paper."
+        has_cite = bool(_CITE_RE.search(para_text))
+        if has_cite:
+            continue
+        # Check for claim indicators
+        lower_para = para_text.lower()
+        for indicator in _CLAIM_INDICATORS:
+            if indicator in lower_para:
+                issues.append(WritingIssue(
+                    type="citation_density",
+                    severity="warning",
+                    message=f'Paragraph contains claim indicator "{indicator}" but has no \\cite{{}} command.',
+                    line=para_line,
+                    suggestion="Add a citation to support this claim.",
+                ))
+                break  # one issue per paragraph
+
+    # --- Hedging Analysis ---
+    for i, line in enumerate(body.split('\n'), 1):
+        lower_line = line.lower()
+        for absolute_term, alternative in _HEDGING_MAP.items():
+            if absolute_term in lower_line:
+                issues.append(WritingIssue(
+                    type="hedging",
+                    severity="info",
+                    message=f'Absolute term "{absolute_term}" found. Academic writing typically uses hedged language.',
+                    line=i + body_line_offset,
+                    suggestion=f'Consider using "{alternative}" instead.',
+                ))
+                break  # one hedging issue per line
+
+    # --- Structure Analysis ---
+    section_names_lower = [s.strip().lower() for s in sections]
+    found_groups: dict[str, int] = {}  # group_label -> first occurrence index
+
+    for idx, sec_name in enumerate(section_names_lower):
+        for group_label, aliases in _REQUIRED_SECTIONS:
+            if sec_name in aliases and group_label not in found_groups:
+                found_groups[group_label] = idx
+
+    for group_label, _ in _REQUIRED_SECTIONS:
+        if group_label not in found_groups:
+            issues.append(WritingIssue(
+                type="structure",
+                severity="warning",
+                message=f'Missing standard section: {group_label.title()}.',
+                suggestion=f'Consider adding a {group_label.title()} section.',
+            ))
+
+    # Check ordering of found sections
+    found_order = sorted(found_groups.items(), key=lambda x: x[1])
+    expected_order = [g for g in _SECTION_ORDER if g in found_groups]
+    actual_order = [g for g, _ in found_order]
+    if actual_order != expected_order:
+        issues.append(WritingIssue(
+            type="structure",
+            severity="warning",
+            message="Section order does not follow the standard academic structure.",
+            suggestion=f"Expected order: {', '.join(g.title() for g in expected_order)}.",
+        ))
+
+    # --- Venue Conformance ---
+    if venue:
+        venue_lower = venue.lower()
+        # Abstract length
+        if venue_lower in _VENUE_ABSTRACT_LIMITS:
+            limit = _VENUE_ABSTRACT_LIMITS[venue_lower]
+            if abstract_text:
+                abstract_wc = _word_count(abstract_text)
+                if abstract_wc > limit:
+                    issues.append(WritingIssue(
+                        type="venue",
+                        severity="warning",
+                        message=f"Abstract is {abstract_wc} words, exceeding the {venue.upper()} limit of {limit} words.",
+                        suggestion=f"Reduce the abstract to {limit} words or fewer.",
+                    ))
+            else:
+                issues.append(WritingIssue(
+                    type="venue",
+                    severity="warning",
+                    message="No abstract found. Most venues require an abstract.",
+                    suggestion="Add a \\begin{{abstract}}...\\end{{abstract}} block.",
+                ))
+
+        # Nature: no separate Literature Review
+        if venue_lower == "nature":
+            for sec_name in section_names_lower:
+                if sec_name in {"literature review", "related work"}:
+                    issues.append(WritingIssue(
+                        type="venue",
+                        severity="warning",
+                        message=f'Nature-style papers typically do not have a separate "{sec_name.title()}" section.',
+                        suggestion="Integrate related work discussion into the Introduction.",
+                    ))
+
+    # --- Score Calculation ---
+    score = 100
+    citation_penalty = min(sum(1 for i in issues if i.type == "citation_density") * 5, 30)
+    hedging_penalty = min(sum(1 for i in issues if i.type == "hedging") * 3, 15)
+    structure_penalty = min(sum(1 for i in issues if i.type == "structure") * 10, 30)
+    venue_penalty = min(sum(1 for i in issues if i.type == "venue") * 5, 20)
+    score = max(0, score - citation_penalty - hedging_penalty - structure_penalty - venue_penalty)
+
+    return WritingAnalysisResponse(issues=issues, stats=stats, score=score)
+
+
+@router.post("/latex/analyze-writing")
+async def analyze_writing(
+    request: WritingAnalysisRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Analyze LaTeX source for writing quality issues."""
+    if not request.latex_source or len(request.latex_source.strip()) < 10:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="latex_source is too short to analyze.",
+        )
+    result = _analyze_writing(request.latex_source, request.venue)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Submission Package Builder
+# ---------------------------------------------------------------------------
+
+class SubmissionValidateRequest(BaseModel):
+    latex_source: str
+    venue: str
+    paper_id: Optional[str] = None
+
+
+class SubmissionBuildRequest(BaseModel):
+    latex_source: str
+    venue: str
+    paper_id: Optional[str] = None
+    latex_files: Optional[Dict[str, str]] = None
+    include_bibtex: Optional[bool] = True
+
+
+@router.get("/latex/submission-venues")
+async def list_submission_venues(
+    current_user: User = Depends(get_current_user),
+):
+    """Return all available submission venues with their configs."""
+    configs = get_venue_configs()
+    return {"venues": configs}
+
+
+@router.post("/latex/validate-submission")
+async def validate_submission(
+    request: SubmissionValidateRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Validate LaTeX source against a venue's submission rules."""
+    if not request.latex_source or len(request.latex_source.strip()) < 10:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="latex_source is too short to validate.",
+        )
+    cfg = get_venue_config(request.venue)
+    if not cfg:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown venue: {request.venue}",
+        )
+    issues = validate_for_venue(request.latex_source, request.venue)
+    return {"venue": request.venue, "venue_name": cfg["name"], "issues": issues}
+
+
+@router.post("/latex/build-submission")
+async def build_submission(
+    request: SubmissionBuildRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Build a submission-ready ZIP package for a venue."""
+    if not request.latex_source or len(request.latex_source.strip()) < 10:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="latex_source is too short to package.",
+        )
+    cfg = get_venue_config(request.venue)
+    if not cfg:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown venue: {request.venue}",
+        )
+    if request.paper_id:
+        try:
+            uuid.UUID(request.paper_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid paper_id")
+        # Verify the user owns or has access to this paper
+        paper = db.query(ResearchPaper).filter(ResearchPaper.id == request.paper_id).first()
+        if not paper:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found")
+        is_owner = str(paper.owner_id) == str(current_user.id)
+        is_member = db.query(PaperMember).filter(
+            PaperMember.paper_id == paper.id,
+            PaperMember.user_id == current_user.id,
+        ).first() is not None
+        if not is_owner and not is_member:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have access to this paper.",
+            )
+
+    try:
+        zip_bytes = build_submission_package(
+            latex_source=request.latex_source,
+            venue=request.venue,
+            paper_id=request.paper_id,
+            extra_files=request.latex_files,
+            db=db,
+            user_id=current_user.id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Failed to build submission package: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to build submission package.")
+
+    venue_slug = request.venue.lower().replace(" ", "-")
+    filename = f"submission-{venue_slug}.zip"
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )

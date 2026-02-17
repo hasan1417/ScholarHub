@@ -69,6 +69,7 @@ from .subscription import (
     UsageTracking,
 )
 from .pending_invitation import PendingInvitation
+from .annotation import PdfAnnotation
 
 __all__ = [
     "User",
@@ -135,4 +136,5 @@ __all__ = [
     "UserSubscription",
     "UsageTracking",
     "PendingInvitation",
+    "PdfAnnotation",
 ]

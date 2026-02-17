@@ -20,6 +20,7 @@ import {
   AIArtifactStatus,
   ProjectReferenceSuggestion,
   CitationSuggestion,
+  CitationGraphData,
   ProjectDiscoveryPreferences,
   ProjectDiscoverySettingsPayload,
   ProjectDiscoveryRunResponse,
@@ -59,6 +60,7 @@ import {
   DiscussionAssistantHistoryItem,
   OpenRouterModel,
   OpenRouterModelsResponse,
+  ProjectInsightsResponse,
 } from '../types'
 
 const deduceRuntimeOrigin = () => {
@@ -502,6 +504,10 @@ export const projectsAPI = {
     api.patch<{ completed_indices: number[] }>(`/projects/${projectId}/objectives`, {
       completed_indices: completedIndices,
     }),
+
+  // Proactive AI Insights
+  getInsights: (projectId: string) =>
+    api.get<ProjectInsightsResponse>(`/projects/${projectId}/insights`),
 }
 
 export const projectReferencesAPI = {
@@ -572,6 +578,8 @@ export const projectReferencesAPI = {
     api.get(`/projects/${projectId}/references/export-bibtex`, {
       responseType: 'blob',
     }),
+  getCitationGraph: (projectId: string) =>
+    api.get<CitationGraphData>(`/projects/${projectId}/references/citation-graph`),
 }
 
 export const projectAIAPI = {
@@ -1376,6 +1384,54 @@ export const latexAPI = {
       responseType: 'blob',
       timeout: 60000,
     }),
+  analyzeWriting: (payload: { latex_source: string; paper_id?: string; venue?: string }) =>
+    api.post<{
+      issues: Array<{
+        type: string
+        severity: string
+        message: string
+        line: number | null
+        suggestion: string | null
+      }>
+      stats: Record<string, number>
+      score: number
+    }>('/latex/analyze-writing', payload),
+  getSubmissionVenues: () =>
+    api.get<{
+      venues: Record<string, {
+        name: string
+        abstract_max_words: number | null
+        sections: string[] | null
+        reference_style: string
+        file_structure: string[]
+        document_class: string
+        required_packages: string[]
+        page_limit: number | null
+        font_size: string
+      }>
+    }>('/latex/submission-venues'),
+  validateSubmission: (payload: { latex_source: string; venue: string; paper_id?: string }) =>
+    api.post<{
+      venue: string
+      venue_name: string
+      issues: Array<{
+        type: string
+        severity: string
+        message: string
+        passed: boolean
+      }>
+    }>('/latex/validate-submission', payload),
+  buildSubmission: (payload: {
+    latex_source: string
+    venue: string
+    paper_id?: string
+    latex_files?: Record<string, string>
+    include_bibtex?: boolean
+  }) =>
+    api.post('/latex/build-submission', payload, {
+      responseType: 'blob',
+      timeout: 60000,
+    }),
 }
 
 export default api
@@ -1547,6 +1603,28 @@ export const zoteroAPI = {
       '/zotero/import',
       payload
     ),
+}
+
+// PDF Annotations API
+import type {
+  PdfAnnotationListResponse,
+  PdfAnnotationCreate,
+  PdfAnnotationUpdate,
+  PdfAnnotation as PdfAnnotationType,
+} from '../types'
+
+export const annotationsAPI = {
+  list: (documentId: string) =>
+    api.get<PdfAnnotationListResponse>(`/documents/${documentId}/annotations`),
+
+  create: (documentId: string, data: PdfAnnotationCreate) =>
+    api.post<PdfAnnotationType>(`/documents/${documentId}/annotations`, data),
+
+  update: (annotationId: string, data: PdfAnnotationUpdate) =>
+    api.patch<PdfAnnotationType>(`/annotations/${annotationId}`, data),
+
+  delete: (annotationId: string) =>
+    api.delete(`/annotations/${annotationId}`),
 }
 
 // Subscription API

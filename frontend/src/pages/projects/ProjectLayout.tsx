@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { NavLink, Outlet, useNavigate, useOutletContext, useParams, useLocation } from 'react-router-dom'
 import { ArrowLeft, Calendar, Users, Trash2, Home, MessageSquare, FileEdit, Search, Video, BookOpen, FileText, Settings } from 'lucide-react'
@@ -188,9 +188,20 @@ const ProjectLayout = () => {
 
   const canEditProject = normalizedRole === 'admin'
 
+  // Scroll active tab into view on mount (for horizontally scrollable tab bar)
+  const tabNavRef = useRef<HTMLElement>(null)
+  const location = useLocation()
+  useEffect(() => {
+    const nav = tabNavRef.current
+    if (!nav) return
+    const activeLink = nav.querySelector('[aria-current="page"]') as HTMLElement | null
+    if (activeLink) {
+      activeLink.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' })
+    }
+  }, [location.pathname])
+
   // Track whether user has viewed discovery since the last increase (dot indicator only)
   const storageKey = `library-discovery-${projectId}`
-  const location = useLocation()
 
   const [prevCount, setPrevCount] = useState<number>(() => {
     const stored = localStorage.getItem(`${storageKey}-count`)
@@ -349,7 +360,7 @@ const ProjectLayout = () => {
             </div>
           </div>
         </div>
-        <nav className="mt-6 sm:mt-8 flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium overflow-x-auto pb-1">
+        <nav ref={tabNavRef} className="mt-6 sm:mt-8 flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium overflow-x-auto scrollbar-hide pb-1 -mx-1 px-1">
           {getNavigationMode() === 'new' ? (
             // NEW NAVIGATION: 4 simple tabs
             NEW_TAB_GROUPS.main.map(({ label, path, icon: Icon, tooltip, badge }) => (
@@ -359,13 +370,13 @@ const ProjectLayout = () => {
                   end={path === 'discussion'}
                   title={tooltip}
                   className={({ isActive }) =>
-                    `inline-flex items-center gap-1 sm:gap-1.5 rounded-full px-2.5 py-1 sm:px-3 sm:py-1.5 transition-colors whitespace-nowrap ${
+                    `inline-flex items-center gap-1 sm:gap-1.5 rounded-full px-2.5 py-1.5 sm:px-3 sm:py-1.5 transition-colors whitespace-nowrap ${
                       isActive ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-700'
                     }`
                   }
                 >
                   {Icon && <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />}
-                  <span className="hidden xs:inline sm:inline">{label}</span>
+                  <span>{label}</span>
                 </NavLink>
                 {badge === 'discovery' && hasLibraryNotifications && (
                   <span
@@ -385,13 +396,13 @@ const ProjectLayout = () => {
                   end={Boolean(exact)}
                   title={tooltip}
                   className={({ isActive }) =>
-                    `inline-flex items-center gap-1 sm:gap-1.5 rounded-full px-2.5 py-1 sm:px-3 sm:py-1.5 transition-colors whitespace-nowrap flex-shrink-0 ${
+                    `inline-flex items-center gap-1 sm:gap-1.5 rounded-full px-2.5 py-1.5 sm:px-3 sm:py-1.5 transition-colors whitespace-nowrap flex-shrink-0 ${
                       isActive ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-700'
                     }`
                   }
                 >
                   {Icon && <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />}
-                  <span className="hidden xs:inline sm:inline">{label}</span>
+                  <span>{label}</span>
                 </NavLink>
               ))}
 

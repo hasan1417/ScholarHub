@@ -1,0 +1,67 @@
+{
+  "manifest_version": 3,
+  "name": "ScholarHub - Save to Library",
+  "version": "1.0.0",
+  "description": "One-click save academic papers to your ScholarHub library from Google Scholar, PubMed, arXiv, and more.",
+  "permissions": ["activeTab", "storage"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://scholar.google.com/*",
+        "*://scholar.google.co.uk/*",
+        "*://scholar.google.co.in/*",
+        "*://scholar.google.co.jp/*",
+        "*://scholar.google.de/*",
+        "*://scholar.google.fr/*",
+        "*://scholar.google.es/*",
+        "*://scholar.google.ca/*",
+        "*://scholar.google.com.au/*",
+        "*://scholar.google.com.br/*",
+        "*://pubmed.ncbi.nlm.nih.gov/*",
+        "*://arxiv.org/*",
+        "*://doi.org/*",
+        "*://dx.doi.org/*",
+        "*://www.sciencedirect.com/*",
+        "*://link.springer.com/*",
+        "*://www.nature.com/*",
+        "*://onlinelibrary.wiley.com/*",
+        "*://ieeexplore.ieee.org/*",
+        "*://dl.acm.org/*",
+        "*://aclanthology.org/*",
+        "*://www.aclweb.org/*",
+        "*://proceedings.mlr.press/*",
+        "*://papers.nips.cc/*",
+        "*://proceedings.neurips.cc/*",
+        "*://openreview.net/*",
+        "*://www.mdpi.com/*",
+        "*://journals.sagepub.com/*",
+        "*://www.tandfonline.com/*",
+        "*://academic.oup.com/*",
+        "*://www.frontiersin.org/*",
+        "*://peerj.com/*",
+        "*://www.pnas.org/*",
+        "*://science.org/*",
+        "*://www.science.org/*"
+      ],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

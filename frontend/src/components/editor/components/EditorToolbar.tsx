@@ -4,6 +4,9 @@ import {
   Clock, ChevronDown, Bold,
   Italic, Sigma, List, ListOrdered, Image, Table, Link2,
   ListTree, ArrowRightToLine, Download, ToggleLeft, ToggleRight,
+  FileSearch,
+  Package,
+  MoreHorizontal,
 } from 'lucide-react'
 import { AiToolsMenu } from './AiToolsMenu'
 import { CompileStatusBar } from './CompileStatusBar'
@@ -25,6 +28,9 @@ interface EditorToolbarProps {
   // View mode
   viewMode: 'code' | 'split' | 'pdf'
   onSetViewMode: (mode: 'code' | 'split' | 'pdf') => void
+
+  // Responsive
+  isMobile?: boolean
 
   // Navigation
   onNavigateBack?: () => void
@@ -108,11 +114,20 @@ interface EditorToolbarProps {
   trackChangesPanelOpen?: boolean
   onToggleTrackChangesPanel?: () => void
   hasTrackedChanges?: boolean
+
+  // Writing analysis
+  writingAnalysisPanelOpen?: boolean
+  onToggleWritingAnalysis?: () => void
+  writingAnalysisLoading?: boolean
+
+  // Submission builder
+  onOpenSubmissionBuilder?: () => void
 }
 
 export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   viewMode,
   onSetViewMode,
+  isMobile = false,
   onNavigateBack,
   templateTitle,
   collaborationStatus,
@@ -162,6 +177,10 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   trackChangesPanelOpen,
   onToggleTrackChangesPanel,
   hasTrackedChanges,
+  writingAnalysisPanelOpen,
+  onToggleWritingAnalysis,
+  writingAnalysisLoading,
+  onOpenSubmissionBuilder,
 }) => {
   const [openDropdown, setOpenDropdown] = useState<string | null>(null)
 
@@ -196,15 +215,15 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 
       {/* Toolbar row */}
       <div className="border-b border-slate-200 bg-slate-50 px-2 py-1.5 transition-colors dark:border-slate-700 dark:bg-slate-800/90">
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide">
           {/* View Mode Toggle */}
-          <div className="inline-flex items-center rounded-md bg-slate-200/80 p-0.5 dark:bg-slate-700">
+          <div className="inline-flex flex-shrink-0 items-center rounded-md bg-slate-200/80 p-0.5 dark:bg-slate-700">
             {(['code', 'split', 'pdf'] as const).map((mode) => (
               <button
                 key={mode}
                 type="button"
                 onClick={() => onSetViewMode(mode)}
-                className={`rounded px-3 py-1 text-xs font-medium transition-all ${
+                className={`rounded px-3 py-1.5 md:py-1 text-xs font-medium transition-all ${
                   viewMode === mode
                     ? 'bg-emerald-600 text-white shadow-sm'
                     : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
@@ -216,11 +235,11 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           </div>
 
           {/* Outline toggle */}
-          {onToggleOutline && (
+          {onToggleOutline && !isMobile && (
             <button
               type="button"
               onClick={onToggleOutline}
-              className={`rounded p-1.5 transition-colors ${
+              className={`flex-shrink-0 rounded p-2.5 md:p-1.5 transition-colors ${
                 outlinePanelOpen
                   ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-400'
                   : 'text-slate-500 hover:bg-slate-200 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200'
@@ -231,16 +250,16 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             </button>
           )}
 
-          <span className="mx-1 h-5 w-px bg-slate-300 dark:bg-slate-600" />
+          {!isMobile && <span className="mx-1 h-5 w-px flex-shrink-0 bg-slate-300 dark:bg-slate-600" />}
 
           {viewMode !== 'pdf' && !readOnly && (
             <>
-              {/* Undo/Redo */}
+              {/* Essential formatting: always visible */}
               <button
                 type="button"
                 onClick={onUndo}
                 disabled={!undoEnabled}
-                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-transparent dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                className="flex-shrink-0 rounded p-2.5 md:p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-transparent dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
                 title="Undo"
               >
                 <Undo2 className="h-4 w-4" />
@@ -249,67 +268,20 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                 type="button"
                 onClick={onRedo}
                 disabled={!redoEnabled}
-                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-transparent dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                className="flex-shrink-0 rounded p-2.5 md:p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-transparent dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
                 title="Redo"
               >
                 <Redo2 className="h-4 w-4" />
               </button>
 
-              <span className="mx-1 h-5 w-px bg-slate-300 dark:bg-slate-600" />
+              <span className="mx-1 h-5 w-px flex-shrink-0 bg-slate-300 dark:bg-slate-600" />
 
-              {/* Structure Dropdown */}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setOpenDropdown(openDropdown === 'structure' ? null : 'structure')}
-                  disabled={formattingDisabled}
-                  className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors ${
-                    formattingDisabled
-                      ? 'cursor-not-allowed text-slate-400'
-                      : openDropdown === 'structure'
-                      ? 'bg-slate-200 text-slate-900 dark:bg-slate-600 dark:text-white'
-                      : 'text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-700'
-                  }`}
-                >
-                  <span>Normal text</span>
-                  <ChevronDown className="h-3 w-3" />
-                </button>
-                {openDropdown === 'structure' && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setOpenDropdown(null)} />
-                    <div className="absolute left-0 top-full z-50 mt-1 min-w-[160px] rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-800">
-                      <button
-                        onClick={() => { setOpenDropdown(null) }}
-                        className="flex w-full items-center px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
-                      >
-                        Normal text
-                      </button>
-                      {formattingGroups.find(g => g.label === 'Structure')?.items.map(item => (
-                        <button
-                          key={item.key}
-                          onClick={() => { item.action(); setOpenDropdown(null) }}
-                          className={`flex w-full items-center px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-700 ${
-                            item.key === 'section' ? 'text-lg font-bold text-slate-800 dark:text-slate-100' :
-                            item.key === 'subsection' ? 'text-base font-semibold text-slate-700 dark:text-slate-200' :
-                            'text-sm font-medium text-slate-600 dark:text-slate-300'
-                          }`}
-                        >
-                          {item.label}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
-
-              <span className="mx-1 h-5 w-px bg-slate-300 dark:bg-slate-600" />
-
-              {/* Text Formatting Icons */}
+              {/* Bold + Italic: always visible (essential) */}
               <button
                 type="button"
                 onClick={onInsertBold}
                 disabled={formattingDisabled}
-                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                className="flex-shrink-0 rounded p-2.5 md:p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
                 title="Bold (\\textbf)"
               >
                 <Bold className="h-4 w-4" />
@@ -318,87 +290,139 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                 type="button"
                 onClick={onInsertItalics}
                 disabled={formattingDisabled}
-                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                className="flex-shrink-0 rounded p-2.5 md:p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
                 title="Italic (\\textit)"
               >
                 <Italic className="h-4 w-4" />
               </button>
 
-              <span className="mx-1 h-5 w-px bg-slate-300 dark:bg-slate-600" />
+              {/* Desktop-only formatting buttons */}
+              {!isMobile && (
+                <>
+                  <span className="mx-1 h-5 w-px flex-shrink-0 bg-slate-300 dark:bg-slate-600" />
 
-              {/* Math */}
-              <button
-                type="button"
-                onClick={onInsertInlineMath}
-                disabled={formattingDisabled}
-                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                title="Inline math ($...$)"
-              >
-                <Sigma className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={onInsertCite}
-                disabled={formattingDisabled}
-                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                title="Citation (\\cite)"
-              >
-                <Link2 className="h-4 w-4" />
-              </button>
+                  {/* Structure Dropdown */}
+                  <div className="relative flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setOpenDropdown(openDropdown === 'structure' ? null : 'structure')}
+                      disabled={formattingDisabled}
+                      className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors ${
+                        formattingDisabled
+                          ? 'cursor-not-allowed text-slate-400'
+                          : openDropdown === 'structure'
+                          ? 'bg-slate-200 text-slate-900 dark:bg-slate-600 dark:text-white'
+                          : 'text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      <span>Normal text</span>
+                      <ChevronDown className="h-3 w-3" />
+                    </button>
+                    {openDropdown === 'structure' && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setOpenDropdown(null)} />
+                        <div className="absolute left-0 top-full z-50 mt-1 min-w-[160px] rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-800">
+                          <button
+                            onClick={() => { setOpenDropdown(null) }}
+                            className="flex w-full items-center px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                          >
+                            Normal text
+                          </button>
+                          {formattingGroups.find(g => g.label === 'Structure')?.items.map(item => (
+                            <button
+                              key={item.key}
+                              onClick={() => { item.action(); setOpenDropdown(null) }}
+                              className={`flex w-full items-center px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-700 ${
+                                item.key === 'section' ? 'text-lg font-bold text-slate-800 dark:text-slate-100' :
+                                item.key === 'subsection' ? 'text-base font-semibold text-slate-700 dark:text-slate-200' :
+                                'text-sm font-medium text-slate-600 dark:text-slate-300'
+                              }`}
+                            >
+                              {item.label}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
 
-              <span className="mx-1 h-5 w-px bg-slate-300 dark:bg-slate-600" />
+                  <span className="mx-1 h-5 w-px flex-shrink-0 bg-slate-300 dark:bg-slate-600" />
 
-              {/* Insert Elements */}
-              <button
-                type="button"
-                onClick={onInsertFigure}
-                disabled={formattingDisabled}
-                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                title="Insert figure"
-              >
-                <Image className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={onInsertTable}
-                disabled={formattingDisabled}
-                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                title="Insert table"
-              >
-                <Table className="h-4 w-4" />
-              </button>
+                  {/* Math */}
+                  <button
+                    type="button"
+                    onClick={onInsertInlineMath}
+                    disabled={formattingDisabled}
+                    className="flex-shrink-0 rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                    title="Inline math ($...$)"
+                  >
+                    <Sigma className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onInsertCite}
+                    disabled={formattingDisabled}
+                    className="flex-shrink-0 rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                    title="Citation (\\cite)"
+                  >
+                    <Link2 className="h-4 w-4" />
+                  </button>
 
-              <span className="mx-1 h-5 w-px bg-slate-300 dark:bg-slate-600" />
+                  <span className="mx-1 h-5 w-px flex-shrink-0 bg-slate-300 dark:bg-slate-600" />
 
-              {/* Lists */}
-              <button
-                type="button"
-                onClick={onInsertItemize}
-                disabled={formattingDisabled}
-                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                title="Bullet list"
-              >
-                <List className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={onInsertEnumerate}
-                disabled={formattingDisabled}
-                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                title="Numbered list"
-              >
-                <ListOrdered className="h-4 w-4" />
-              </button>
+                  {/* Insert Elements */}
+                  <button
+                    type="button"
+                    onClick={onInsertFigure}
+                    disabled={formattingDisabled}
+                    className="flex-shrink-0 rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                    title="Insert figure"
+                  >
+                    <Image className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onInsertTable}
+                    disabled={formattingDisabled}
+                    className="flex-shrink-0 rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                    title="Insert table"
+                  >
+                    <Table className="h-4 w-4" />
+                  </button>
 
-              <span className="mx-1 h-5 w-px bg-slate-300 dark:bg-slate-600" />
+                  <span className="mx-1 h-5 w-px flex-shrink-0 bg-slate-300 dark:bg-slate-600" />
 
-              {/* More formatting dropdown */}
-              <div className="relative">
+                  {/* Lists */}
+                  <button
+                    type="button"
+                    onClick={onInsertItemize}
+                    disabled={formattingDisabled}
+                    className="flex-shrink-0 rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                    title="Bullet list"
+                  >
+                    <List className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onInsertEnumerate}
+                    disabled={formattingDisabled}
+                    className="flex-shrink-0 rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                    title="Numbered list"
+                  >
+                    <ListOrdered className="h-4 w-4" />
+                  </button>
+                </>
+              )}
+
+              <span className="mx-1 h-5 w-px flex-shrink-0 bg-slate-300 dark:bg-slate-600" />
+
+              {/* More formatting dropdown -- contains all items on mobile, extras on desktop */}
+              <div className="relative flex-shrink-0">
                 <button
                   type="button"
                   onClick={() => setOpenDropdown(openDropdown === 'more' ? null : 'more')}
                   disabled={formattingDisabled}
-                  className={`rounded p-1.5 transition-colors ${
+                  className={`rounded p-2.5 md:p-1.5 transition-colors ${
                     formattingDisabled
                       ? 'cursor-not-allowed text-slate-400'
                       : openDropdown === 'more'
@@ -407,18 +431,55 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                   }`}
                   title="More formatting"
                 >
-                  <ChevronDown className="h-4 w-4" />
+                  <MoreHorizontal className="h-4 w-4" />
                 </button>
                 {openDropdown === 'more' && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setOpenDropdown(null)} />
-                    <div className="absolute left-0 top-full z-50 mt-1 min-w-[180px] rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-800">
+                    <div className="absolute left-0 top-full z-50 mt-1 min-w-[200px] max-h-[70vh] overflow-y-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-800">
+                      {/* On mobile, show structure/math/insert items that are hidden */}
+                      {isMobile && (
+                        <>
+                          <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Structure</div>
+                          {formattingGroups.find(g => g.label === 'Structure')?.items.map(item => (
+                            <button
+                              key={item.key}
+                              onClick={() => { item.action(); setOpenDropdown(null) }}
+                              className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                            >
+                              {item.icon}
+                              <span>{item.label}</span>
+                            </button>
+                          ))}
+                          <div className="my-1 border-t border-slate-200 dark:border-slate-600" />
+                          <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Insert</div>
+                          <button onClick={() => { onInsertInlineMath(); setOpenDropdown(null) }} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">
+                            <Sigma className="h-4 w-4" /><span>Inline Math</span>
+                          </button>
+                          <button onClick={() => { onInsertCite(); setOpenDropdown(null) }} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">
+                            <Link2 className="h-4 w-4" /><span>Citation</span>
+                          </button>
+                          <button onClick={() => { onInsertFigure(); setOpenDropdown(null) }} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">
+                            <Image className="h-4 w-4" /><span>Figure</span>
+                          </button>
+                          <button onClick={() => { onInsertTable(); setOpenDropdown(null) }} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">
+                            <Table className="h-4 w-4" /><span>Table</span>
+                          </button>
+                          <button onClick={() => { onInsertItemize(); setOpenDropdown(null) }} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">
+                            <List className="h-4 w-4" /><span>Bullet List</span>
+                          </button>
+                          <button onClick={() => { onInsertEnumerate(); setOpenDropdown(null) }} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">
+                            <ListOrdered className="h-4 w-4" /><span>Numbered List</span>
+                          </button>
+                          <div className="my-1 border-t border-slate-200 dark:border-slate-600" />
+                        </>
+                      )}
                       <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Text</div>
                       {formattingGroups.find(g => g.label === 'Text')?.items.filter(i => !['bold', 'italic'].includes(i.key)).map(item => (
                         <button
                           key={item.key}
                           onClick={() => { item.action(); setOpenDropdown(null) }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                          className={`flex w-full items-center gap-2 text-left text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700 ${isMobile ? 'px-4 py-2.5 text-sm' : 'px-3 py-1.5 text-xs'}`}
                         >
                           {item.icon}
                           <span>{item.label}</span>
@@ -430,7 +491,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                         <button
                           key={item.key}
                           onClick={() => { item.action(); setOpenDropdown(null) }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                          className={`flex w-full items-center gap-2 text-left text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700 ${isMobile ? 'px-4 py-2.5 text-sm' : 'px-3 py-1.5 text-xs'}`}
                         >
                           {item.icon}
                           <span>{item.label}</span>
@@ -442,7 +503,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                         <button
                           key={item.key}
                           onClick={() => { item.action(); setOpenDropdown(null) }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                          className={`flex w-full items-center gap-2 text-left text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700 ${isMobile ? 'px-4 py-2.5 text-sm' : 'px-3 py-1.5 text-xs'}`}
                         >
                           {item.icon}
                           <span>{item.label}</span>
@@ -453,17 +514,21 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                 )}
               </div>
 
-              <span className="mx-1 h-5 w-px bg-slate-300 dark:bg-slate-600" />
+              {!isMobile && (
+                <>
+                  <span className="mx-1 h-5 w-px flex-shrink-0 bg-slate-300 dark:bg-slate-600" />
 
-              <button
-                type="button"
-                onClick={onOpenReferences}
-                disabled={readOnly || !paperId}
-                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                title="References & Citations"
-              >
-                <Library className="h-4 w-4" />
-              </button>
+                  <button
+                    type="button"
+                    onClick={onOpenReferences}
+                    disabled={readOnly || !paperId}
+                    className="flex-shrink-0 rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                    title="References & Citations"
+                  >
+                    <Library className="h-4 w-4" />
+                  </button>
+                </>
+              )}
 
               {/* AI Text Tools */}
               <AiToolsMenu
@@ -476,12 +541,12 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           )}
 
           {/* Spacer */}
-          <div className="flex-1" />
+          <div className="flex-1 min-w-[4px]" />
 
           {/* Right side: Symbol Palette, Track Changes, Export, SyncTeX, History, Compile, Save */}
-          <div className="flex items-center gap-1">
-            {/* Symbol Palette toggle */}
-            {onToggleSymbolPalette && viewMode !== 'pdf' && !readOnly && (
+          <div className="flex flex-shrink-0 items-center gap-1">
+            {/* Symbol Palette toggle - desktop only */}
+            {onToggleSymbolPalette && viewMode !== 'pdf' && !readOnly && !isMobile && (
               <button
                 type="button"
                 onClick={onToggleSymbolPalette}
@@ -496,8 +561,8 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
               </button>
             )}
 
-            {/* Track Changes toggle */}
-            {onToggleTrackChanges && viewMode !== 'pdf' && (
+            {/* Track Changes toggle - desktop only */}
+            {onToggleTrackChanges && viewMode !== 'pdf' && !isMobile && (
               <button
                 type="button"
                 onClick={onToggleTrackChanges}
@@ -514,7 +579,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             )}
 
             {/* Track Changes panel toggle */}
-            {onToggleTrackChangesPanel && hasTrackedChanges && (
+            {onToggleTrackChangesPanel && hasTrackedChanges && !isMobile && (
               <button
                 type="button"
                 onClick={onToggleTrackChangesPanel}
@@ -529,7 +594,38 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
               </button>
             )}
 
-            <span className="mx-0.5 h-5 w-px bg-slate-300 dark:bg-slate-600" />
+            {/* Writing Analysis toggle - desktop only */}
+            {onToggleWritingAnalysis && !isMobile && (
+              <button
+                type="button"
+                onClick={onToggleWritingAnalysis}
+                className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors ${
+                  writingAnalysisPanelOpen
+                    ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-400'
+                    : 'text-slate-500 hover:bg-slate-200 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200'
+                }`}
+                title="Writing quality analysis"
+              >
+                {writingAnalysisLoading
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  : <FileSearch className="h-3.5 w-3.5" />}
+                <span className="hidden sm:inline">Quality</span>
+              </button>
+            )}
+
+            {/* Submission Package Builder - desktop only */}
+            {onOpenSubmissionBuilder && !isMobile && (
+              <button
+                type="button"
+                onClick={onOpenSubmissionBuilder}
+                className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                title="Submission package builder"
+              >
+                <Package className="h-4 w-4" />
+              </button>
+            )}
+
+            <span className="mx-0.5 h-5 w-px flex-shrink-0 bg-slate-300 dark:bg-slate-600" />
 
             {/* Export dropdown */}
             {(onExportPdf || onExportDocx) && (
@@ -537,7 +633,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                 <button
                   type="button"
                   onClick={() => setOpenDropdown(openDropdown === 'export' ? null : 'export')}
-                  className={`rounded p-1.5 transition-colors ${
+                  className={`rounded p-2.5 md:p-1.5 transition-colors ${
                     openDropdown === 'export'
                       ? 'bg-slate-200 text-slate-900 dark:bg-slate-600 dark:text-white'
                       : 'text-slate-500 hover:bg-slate-200 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200'
@@ -553,7 +649,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                       {onExportPdf && (
                         <button
                           onClick={() => { onExportPdf(); setOpenDropdown(null) }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                          className={`flex w-full items-center gap-2 text-left text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700 ${isMobile ? 'px-4 py-2.5 text-sm' : 'px-3 py-1.5 text-xs'}`}
                         >
                           Download PDF
                         </button>
@@ -562,7 +658,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                         <button
                           onClick={() => { onExportDocx(); setOpenDropdown(null) }}
                           disabled={exportDocxLoading}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-200 dark:hover:bg-slate-700"
+                          className={`flex w-full items-center gap-2 text-left text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-200 dark:hover:bg-slate-700 ${isMobile ? 'px-4 py-2.5 text-sm' : 'px-3 py-1.5 text-xs'}`}
                         >
                           {exportDocxLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                           Download Word
@@ -574,7 +670,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                           <button
                             onClick={() => { onExportSourceZip(); setOpenDropdown(null) }}
                             disabled={exportSourceZipLoading}
-                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-200 dark:hover:bg-slate-700"
+                            className={`flex w-full items-center gap-2 text-left text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-200 dark:hover:bg-slate-700 ${isMobile ? 'px-4 py-2.5 text-sm' : 'px-3 py-1.5 text-xs'}`}
                           >
                             {exportSourceZipLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                             Download Source (.zip)
@@ -587,7 +683,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
               </div>
             )}
 
-            {onForwardSync && (
+            {onForwardSync && !isMobile && (
               <button
                 type="button"
                 onClick={onForwardSync}
@@ -598,7 +694,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
               </button>
             )}
 
-            {paperId && (
+            {paperId && !isMobile && (
               <button
                 type="button"
                 onClick={onOpenHistory}
@@ -612,7 +708,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             {!(disableSave || readOnly) && (
               <button
                 type="button"
-                className={`rounded p-1.5 transition-colors ${
+                className={`rounded p-2.5 md:p-1.5 transition-colors ${
                   saveState === 'saving'
                     ? 'text-indigo-500'
                     : saveState === 'success'
@@ -634,7 +730,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             )}
 
             {/* Auto-compile toggle */}
-            {onToggleAutoCompile && (
+            {onToggleAutoCompile && !isMobile && (
               <button
                 type="button"
                 onClick={onToggleAutoCompile}
@@ -667,10 +763,10 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
               {compileStatus === 'compiling' ? (
                 <>
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  <span>Compiling</span>
+                  <span className="hidden md:inline">Compiling</span>
                 </>
               ) : (
-                <span>Recompile</span>
+                <span>{isMobile ? 'Build' : 'Recompile'}</span>
               )}
             </button>
           </div>

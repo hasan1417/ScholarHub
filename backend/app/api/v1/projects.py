@@ -14,6 +14,7 @@ from app.api.deps import get_current_user, get_current_verified_user
 from app.database import get_db
 from app.models import Project, ProjectMember, ProjectRole, User, ResearchPaper, ProjectReference, PendingInvitation
 from app.services.activity_feed import record_project_activity, preview_text
+from app.services.proactive_ai import ProactiveAIService
 from app.services.subscription_service import SubscriptionService
 from app.services.email_service import send_project_invitation_email
 from app.core.config import settings
@@ -873,6 +874,38 @@ def get_project_objectives(
     project = _get_project(db, project_id)
     _require_project_access(db, project, current_user)
     return {"completed_indices": project.completed_objectives or []}
+
+
+# ========== PROACTIVE INSIGHTS ==========
+
+
+@router.get("/{project_id}/insights")
+def get_project_insights(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return deterministic proactive insights for a project."""
+    project = _get_project(db, project_id)
+    _require_project_access(db, project, current_user)
+
+    service = ProactiveAIService(db, project.id, current_user.id)
+    insights = service.generate_insights()
+
+    return {
+        "project_id": str(project.id),
+        "insights": [
+            {
+                "type": i.type,
+                "title": i.title,
+                "message": i.message,
+                "priority": i.priority,
+                "action_type": i.action_type,
+                "action_data": i.action_data,
+            }
+            for i in insights
+        ],
+    }
 
 
 # ========== DISCUSSION SETTINGS ==========

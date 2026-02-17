@@ -1,6 +1,6 @@
 import { Outlet, useNavigate, Link, useLocation } from 'react-router-dom'
-import { useMemo, useState, useEffect, useCallback } from 'react'
-import { FolderKanban, UserCircle, Settings as SettingsIcon, Sun, Moon, ChevronRight, Palette, Sparkles, Mail, X, RefreshCw } from 'lucide-react'
+import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
+import { FolderKanban, UserCircle, Settings as SettingsIcon, Sun, Moon, ChevronRight, Palette, Sparkles, Mail, X, RefreshCw, Menu } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import SettingsModal from '../settings/SettingsModal'
 import { useThemePreference } from '../../hooks/useThemePreference'
@@ -19,8 +19,40 @@ const Layout = () => {
   const [isFreeTier, setIsFreeTier] = useState(false)
   const [tierLoaded, setTierLoaded] = useState(false)
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const drawerCloseRef = useRef<HTMLButtonElement>(null)
 
   const { theme, setTheme } = useThemePreference()
+
+  // Close mobile nav on route change
+  useEffect(() => {
+    setMobileNavOpen(false)
+  }, [location.pathname])
+
+  // Escape key closes drawer
+  useEffect(() => {
+    if (!mobileNavOpen) return
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileNavOpen(false)
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [mobileNavOpen])
+
+  // Lock body scroll when drawer is open
+  useEffect(() => {
+    if (!mobileNavOpen) return
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
+  }, [mobileNavOpen])
+
+  // Focus close button when drawer opens
+  useEffect(() => {
+    if (mobileNavOpen) {
+      // Small delay to allow the DOM to render
+      requestAnimationFrame(() => drawerCloseRef.current?.focus())
+    }
+  }, [mobileNavOpen])
 
   // Email verification banner state
   const [verificationBannerDismissed, setVerificationBannerDismissed] = useState(false)
@@ -172,15 +204,26 @@ const Layout = () => {
     <div className="min-h-screen transition-colors duration-200">
       {!isEditorPage && <header className="border-b border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-800">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-          <Link to="/projects" className="transition-opacity hover:opacity-80">
-            <Logo textClassName="text-lg font-semibold" />
-          </Link>
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center gap-2">
+            {/* Mobile hamburger */}
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(true)}
+              aria-label="Open navigation"
+              className="inline-flex h-11 w-11 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:text-slate-300 dark:hover:bg-slate-700 sm:hidden"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            <Link to="/projects" className="transition-opacity hover:opacity-80">
+              <Logo textClassName="text-lg font-semibold" />
+            </Link>
+          </div>
+          <div className="hidden sm:flex items-center space-x-2">
             {/* Upgrade button for free tier users */}
             {tierLoaded && isFreeTier && (
               <Link
                 to="/pricing"
-                className="group relative mr-3 hidden sm:inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all hover:from-amber-600 hover:to-orange-600 hover:shadow-md overflow-hidden"
+                className="group relative mr-3 inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all hover:from-amber-600 hover:to-orange-600 hover:shadow-md overflow-hidden"
               >
                 {/* Gleam animation */}
                 <span className="absolute inset-0 animate-gleam bg-gradient-to-r from-transparent via-white/30 to-transparent" />
@@ -211,8 +254,81 @@ const Layout = () => {
               <SettingsIcon className="h-5 w-5" />
             </button>
           </div>
+          {/* Mobile: settings button stays visible */}
+          <button
+            type="button"
+            onClick={() => setIsSettingsOpen(true)}
+            aria-label="Open settings"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:text-slate-300 dark:hover:bg-slate-700 sm:hidden"
+          >
+            <SettingsIcon className="h-5 w-5" />
+          </button>
         </div>
       </header>}
+
+      {/* Mobile slide-out nav drawer */}
+      {mobileNavOpen && (
+        <div className="fixed inset-0 z-50 sm:hidden" role="dialog" aria-modal="true">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => setMobileNavOpen(false)}
+          />
+          {/* Drawer panel */}
+          <nav className="absolute inset-y-0 left-0 w-72 max-w-[80vw] bg-white dark:bg-slate-800 shadow-xl flex flex-col animate-slide-in-left">
+            <div className="flex items-center justify-between border-b border-gray-200 px-4 py-4 dark:border-slate-700">
+              <Logo textClassName="text-lg font-semibold" />
+              <button
+                ref={drawerCloseRef}
+                type="button"
+                onClick={() => setMobileNavOpen(false)}
+                aria-label="Close navigation"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-700"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
+              {navItems.map(({ to, label, icon: Icon, isActive }) => (
+                <Link
+                  key={label}
+                  to={to}
+                  className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-colors ${
+                    isActive
+                      ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300'
+                      : 'text-gray-700 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  <Icon className="h-5 w-5" />
+                  {label}
+                </Link>
+              ))}
+            </div>
+            {/* Upgrade CTA in mobile drawer */}
+            {tierLoaded && isFreeTier && (
+              <div className="border-t border-gray-200 px-4 py-3 dark:border-slate-700">
+                <Link
+                  to="/pricing"
+                  className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-3 text-sm font-medium text-white shadow-sm transition-all hover:from-amber-600 hover:to-orange-600"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Upgrade plan
+                </Link>
+              </div>
+            )}
+            <div className="border-t border-gray-200 px-4 py-3 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => { setMobileNavOpen(false); setIsSettingsOpen(true) }}
+                className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-700"
+              >
+                <SettingsIcon className="h-5 w-5" />
+                Settings
+              </button>
+            </div>
+          </nav>
+        </div>
+      )}
 
       {/* Email Verification Banner */}
       {!isEditorPage && user && !user.is_verified && !verificationBannerDismissed && (
@@ -251,7 +367,7 @@ const Layout = () => {
         </div>
       )}
 
-      <main className={isEditorPage ? 'flex flex-col h-[100vh]' : 'mx-auto max-w-7xl px-3 py-4 sm:px-6 sm:py-8 lg:px-8'}>
+      <main aria-hidden={mobileNavOpen || undefined} className={isEditorPage ? 'flex flex-col h-[100vh]' : 'mx-auto max-w-7xl px-3 py-4 sm:px-6 sm:py-8 lg:px-8'}>
         <Outlet />
       </main>
 

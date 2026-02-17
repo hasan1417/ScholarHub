@@ -42,6 +42,7 @@ app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.BACKEND_CORS_ORIGINS,
+    allow_origin_regex=r"^chrome-extension://.*$",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["*"],
@@ -163,6 +164,10 @@ app.include_router(subscription.router, prefix="/api/v1/subscription", tags=["su
 # Zotero integration
 from app.api.v1 import zotero  # noqa: F401, E402
 app.include_router(zotero.router, prefix="/api/v1/zotero", tags=["zotero"])
+
+# PDF Annotations
+from app.api.v1 import annotations  # noqa: F401, E402
+app.include_router(annotations.router, prefix="/api/v1", tags=["annotations"])
 
 
 @app.on_event("startup")

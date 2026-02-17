@@ -1,0 +1,56 @@
+/* ScholarHub Browser Extension - Content Script Styles */
+
+/* Floating badge - bottom-right corner */
+#scholarhub-badge {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2147483647;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #4f46e5;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.4), 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: transform 0.15s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+  outline: none;
+}
+
+#scholarhub-badge:hover {
+  transform: scale(1.1);
+  box-shadow: 0 6px 16px rgba(79, 70, 229, 0.5), 0 3px 6px rgba(0, 0, 0, 0.15);
+}
+
+#scholarhub-badge:focus-visible {
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.3), 0 4px 12px rgba(79, 70, 229, 0.4);
+}
+
+#scholarhub-badge:active {
+  transform: scale(0.95);
+}
+
+/* Saving state */
+#scholarhub-badge.scholarhub-badge-saving {
+  background: #6366f1;
+  pointer-events: none;
+  animation: scholarhub-pulse 1s infinite;
+}
+
+/* Success state */
+#scholarhub-badge.scholarhub-badge-success {
+  background: #16a34a;
+}
+
+/* Error state */
+#scholarhub-badge.scholarhub-badge-error {
+  background: #dc2626;
+}
+
+@keyframes scholarhub-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}

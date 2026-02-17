@@ -363,6 +363,61 @@ async def refresh_token(
         "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
     }
 
+class ExtensionTokenRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class ExtensionTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int  # seconds
+    user_email: str
+    user_name: str
+
+
+@router.post("/extension-token", response_model=ExtensionTokenResponse)
+@limiter.limit("5/minute")
+async def create_extension_token(
+    request: Request,
+    payload: ExtensionTokenRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Issue a long-lived JWT for the browser extension.
+
+    Accepts email + password and returns a 7-day access token.
+    This avoids cookie-based auth which does not work in extensions.
+    """
+    try:
+        user = db.query(User).filter(User.email == payload.email).first()
+    except SQLAlchemyError:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    if not user or not user.password_hash or not verify_password(payload.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+        )
+
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user")
+
+    expires = timedelta(days=7)
+    token = create_access_token(data={"sub": user.email}, expires_delta=expires)
+
+    name_parts = [user.first_name or "", user.last_name or ""]
+    display_name = " ".join(p for p in name_parts if p) or user.email
+
+    return ExtensionTokenResponse(
+        access_token=token,
+        token_type="bearer",
+        expires_in=int(expires.total_seconds()),
+        user_email=user.email,
+        user_name=display_name,
+    )
+
+
 @router.get("/me", response_model=UserSchema)
 async def read_users_me(current_user: User = Depends(get_current_active_user)):
     """Get current user information."""

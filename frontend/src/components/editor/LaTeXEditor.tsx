@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, forwardRef, useImperativeHandle, useCallback, useMemo } from 'react'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 import 'katex/dist/katex.min.css'
 import pdfViewerHtml from '../../assets/pdf-viewer.html?raw'
 import FigureUploadDialog from './FigureUploadDialog'
@@ -23,6 +24,9 @@ import { FileSelector } from './components/FileSelector'
 import { SymbolPalette } from './components/SymbolPalette'
 import { TrackChangesPanel } from './components/TrackChangesPanel'
 import CitationSuggestions from './components/CitationSuggestions'
+import { WritingAnalysisPanel, type WritingAnalysisResult } from './components/WritingAnalysisPanel'
+import { useToast } from '../../hooks/useToast'
+import SubmissionBuilder from './components/SubmissionBuilder'
 import { useDocumentOutline } from './hooks/useDocumentOutline'
 import { useSyncTeX } from './hooks/useSyncTeX'
 import { useTrackChanges } from './hooks/useTrackChanges'
@@ -73,7 +77,10 @@ function LaTeXEditorImpl(
   { value, onChange, onSave, templateTitle, paperId, projectId, readOnly = false, disableSave = false, onNavigateBack, onOpenAiChatWithMessage, realtime, collaborationStatus }: LaTeXEditorProps,
   ref: React.Ref<LaTeXEditorHandle>
 ) {
-  const [viewMode, setViewMode] = useState<'code' | 'split' | 'pdf'>('split')
+  const isMobile = useIsMobile()
+  const [viewMode, setViewMode] = useState<'code' | 'split' | 'pdf'>(() =>
+    window.innerWidth < 640 ? 'pdf' : 'split'
+  )
   const [figureDialogOpen, setFigureDialogOpen] = useState(false)
   const [outlinePanelOpen, setOutlinePanelOpen] = useState(false)
   const [exportDocxLoading, setExportDocxLoading] = useState(false)
@@ -85,10 +92,15 @@ function LaTeXEditorImpl(
     try { return localStorage.getItem(tcKey) === '1' } catch { return false }
   })
   const [trackChangesPanelOpen, setTrackChangesPanelOpen] = useState(false)
+  const [writingAnalysisPanelOpen, setWritingAnalysisPanelOpen] = useState(false)
+  const [writingAnalysisResult, setWritingAnalysisResult] = useState<WritingAnalysisResult | null>(null)
+  const [writingAnalysisLoading, setWritingAnalysisLoading] = useState(false)
+  const [submissionBuilderOpen, setSubmissionBuilderOpen] = useState(false)
   const [wordCount, setWordCount] = useState<number | null>(null)
 
   // Current user identity (for track changes attribution)
   const { user: authUser } = useAuth()
+  const { toast } = useToast()
 
   // Resizable split view
   const { splitPosition, splitContainerRef, handleSplitDragStart } = useSplitPane()
@@ -294,6 +306,26 @@ function LaTeXEditorImpl(
     }
   }, [flushBufferedChange, getLatestSource, getExtraFiles, paperId])
 
+  // Writing analysis handler
+  const handleAnalyzeWriting = useCallback(async (venue?: string) => {
+    setWritingAnalysisLoading(true)
+    try {
+      flushBufferedChange()
+      const source = getLatestSource()
+      const resp = await latexAPI.analyzeWriting({
+        latex_source: source,
+        paper_id: paperId,
+        venue,
+      })
+      setWritingAnalysisResult(resp.data)
+    } catch (e) {
+      console.error('Writing analysis failed', e)
+      toast.error('Writing analysis failed')
+    } finally {
+      setWritingAnalysisLoading(false)
+    }
+  }, [flushBufferedChange, getLatestSource, paperId, toast])
+
   // Word count: debounced update from latest source
   const wordCountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const updateWordCount = useCallback(() => {
@@ -483,6 +515,7 @@ function LaTeXEditorImpl(
       <EditorToolbar
         viewMode={viewMode}
         onSetViewMode={setViewMode}
+        isMobile={isMobile}
         onNavigateBack={onNavigateBack}
         templateTitle={templateTitle}
         collaborationStatus={collaborationStatus}
@@ -536,6 +569,10 @@ function LaTeXEditorImpl(
         trackChangesPanelOpen={trackChangesPanelOpen}
         onToggleTrackChangesPanel={realtime?.paperRole === 'admin' ? () => setTrackChangesPanelOpen(prev => !prev) : undefined}
         hasTrackedChanges={trackChanges.trackedChanges.length > 0}
+        writingAnalysisPanelOpen={writingAnalysisPanelOpen}
+        onToggleWritingAnalysis={() => setWritingAnalysisPanelOpen(prev => !prev)}
+        writingAnalysisLoading={writingAnalysisLoading}
+        onOpenSubmissionBuilder={() => setSubmissionBuilderOpen(true)}
       />
       <div ref={splitContainerRef} className={contentLayoutCls}>
         {showEditor && (
@@ -654,6 +691,23 @@ function LaTeXEditorImpl(
           onClose={() => setTrackChangesPanelOpen(false)}
         />
       )}
+
+      {writingAnalysisPanelOpen && (
+        <WritingAnalysisPanel
+          result={writingAnalysisResult}
+          loading={writingAnalysisLoading}
+          onAnalyze={handleAnalyzeWriting}
+          onClose={() => setWritingAnalysisPanelOpen(false)}
+        />
+      )}
+
+      <SubmissionBuilder
+        isOpen={submissionBuilderOpen}
+        onClose={() => setSubmissionBuilderOpen(false)}
+        getLatexSource={() => { flushBufferedChange(); return getLatestSource() }}
+        paperId={paperId}
+        getExtraFiles={getExtraFiles}
+      />
     </div>
   )
 }
