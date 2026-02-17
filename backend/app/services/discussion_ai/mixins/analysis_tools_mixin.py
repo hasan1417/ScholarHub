@@ -868,6 +868,205 @@ class AnalysisToolsMixin:
             "instruction": instruction,
         }
 
+    def _tool_recommend_methodology(
+        self,
+        ctx: Dict[str, Any],
+        research_question: str,
+        scope: str = "library",
+    ) -> Dict:
+        """
+        Recommend research methodologies based on the user's research question
+        and methods used in their library papers.
+        """
+        from app.models import Reference, ProjectReference
+
+        project = ctx["project"]
+        channel = ctx.get("channel")
+
+        papers_data: List[Dict[str, Any]] = []
+
+        if scope == "focused":
+            if not channel:
+                return {"status": "error", "message": "Channel context not available."}
+            memory = self._get_ai_memory(channel)
+            focused = memory.get("focused_papers", [])
+            if not focused:
+                return {
+                    "status": "error",
+                    "message": "No papers in focus. Use focus_on_papers first, or set scope to 'library'.",
+                }
+            papers_data = focused
+
+        elif scope == "library":
+            refs = (
+                self.db.query(Reference)
+                .join(ProjectReference, ProjectReference.reference_id == Reference.id)
+                .filter(ProjectReference.project_id == project.id)
+                .limit(20)
+                .all()
+            )
+            if not refs:
+                return {"status": "error", "message": "No references in the project library."}
+            for ref in refs:
+                paper: Dict[str, Any] = {
+                    "title": ref.title,
+                    "authors": ref.authors if isinstance(ref.authors, str) else ", ".join(ref.authors or []),
+                    "year": ref.year,
+                    "abstract": ref.abstract or "",
+                }
+                if ref.status in ("ingested", "analyzed"):
+                    paper["methodology"] = ref.methodology
+                    paper["summary"] = ref.summary
+                papers_data.append(paper)
+
+        elif scope == "channel":
+            if not channel:
+                return {"status": "error", "message": "Channel context not available."}
+            refs = (
+                self.db.query(Reference)
+                .join(ProjectReference, ProjectReference.reference_id == Reference.id)
+                .filter(
+                    ProjectReference.project_id == project.id,
+                    ProjectReference.added_via_channel_id == channel.id,
+                )
+                .limit(20)
+                .all()
+            )
+            if not refs:
+                return {
+                    "status": "error",
+                    "message": "No references added via this channel. Try scope='library'.",
+                }
+            for ref in refs:
+                paper = {
+                    "title": ref.title,
+                    "authors": ref.authors if isinstance(ref.authors, str) else ", ".join(ref.authors or []),
+                    "year": ref.year,
+                    "abstract": ref.abstract or "",
+                }
+                if ref.status in ("ingested", "analyzed"):
+                    paper["methodology"] = ref.methodology
+                    paper["summary"] = ref.summary
+                papers_data.append(paper)
+        else:
+            return {"status": "error", "message": f"Invalid scope '{scope}'. Use 'focused', 'library', or 'channel'."}
+
+        # Build methodology context from papers
+        methodology_parts = []
+        for i, p in enumerate(papers_data, 1):
+            parts = [f"### Paper {i}: {sanitize_for_context(str(p.get('title', 'Untitled')), 300)}"]
+            if p.get("abstract"):
+                parts.append(f"**Abstract:** {sanitize_for_context(str(p['abstract']), 400)}")
+            if p.get("methodology"):
+                parts.append(f"**Methodology:** {sanitize_for_context(str(p['methodology']), 800)}")
+            if p.get("summary"):
+                parts.append(f"**Summary:** {sanitize_for_context(str(p['summary']), 400)}")
+            methodology_parts.append("\n".join(parts))
+
+        full_context = "\n\n".join(methodology_parts)
+
+        instruction = (
+            f"Based on these {len(papers_data)} papers, recommend methodologies for this research question:\n\n"
+            f"**Research Question:** {research_question}\n\n"
+            "**Instructions:**\n"
+            "1. Identify methodologies used across the papers\n"
+            "2. Rank methodologies by relevance to the research question\n"
+            "3. For each methodology, cite which papers use it\n"
+            "4. Suggest the most appropriate approach with justification\n"
+            "5. Note any methodological gaps or opportunities\n"
+            "Only reference methods that appear in the provided text."
+        )
+
+        return {
+            "status": "success",
+            "research_question": research_question,
+            "paper_count": len(papers_data),
+            "context": full_context,
+            "instruction": instruction,
+        }
+
+    def _tool_refine_research_question(
+        self,
+        ctx: Dict[str, Any],
+        rough_idea: str,
+        framework: str = "general",
+    ) -> Dict:
+        """
+        Refine a rough research idea into 3-5 specific, actionable research questions.
+        """
+        from app.models import Reference, ProjectReference
+
+        project = ctx["project"]
+
+        # Always use library scope for context
+        refs = (
+            self.db.query(Reference)
+            .join(ProjectReference, ProjectReference.reference_id == Reference.id)
+            .filter(ProjectReference.project_id == project.id)
+            .limit(20)
+            .all()
+        )
+
+        library_parts = []
+        for i, ref in enumerate(refs, 1):
+            parts = [f"### Paper {i}: {sanitize_for_context(str(ref.title or 'Untitled'), 300)}"]
+            if ref.abstract:
+                parts.append(f"**Abstract:** {sanitize_for_context(str(ref.abstract), 400)}")
+            if ref.status in ("ingested", "analyzed") and ref.key_findings:
+                findings = ref.key_findings
+                if isinstance(findings, list):
+                    parts.append("**Key Findings:**")
+                    for f in findings:
+                        parts.append(f"- {f}")
+                else:
+                    parts.append(f"**Key Findings:** {findings}")
+            library_parts.append("\n".join(parts))
+
+        library_context = "\n\n".join(library_parts) if library_parts else "No papers in library yet."
+
+        framework_guidance = ""
+        if framework == "PICO":
+            framework_guidance = (
+                "\n\n**Use the PICO framework:**\n"
+                "- **P**opulation: Who is being studied?\n"
+                "- **I**ntervention: What treatment/exposure?\n"
+                "- **C**omparison: What is the alternative?\n"
+                "- **O**utcome: What is being measured?\n"
+                "Format each question as: In [P], does [I] compared to [C] affect [O]?"
+            )
+        elif framework == "SPIDER":
+            framework_guidance = (
+                "\n\n**Use the SPIDER framework:**\n"
+                "- **S**ample: Who is being studied?\n"
+                "- **P**henomenon of Interest: What is being explored?\n"
+                "- **D**esign: What methodology?\n"
+                "- **E**valuation: What outcomes/measures?\n"
+                "- **R**esearch type: Qualitative/quantitative/mixed?\n"
+                "Format each question using these components."
+            )
+
+        instruction = (
+            f"Refine this rough research idea into 3-5 specific, actionable research questions:\n\n"
+            f"**Rough Idea:** {rough_idea}\n"
+            f"{framework_guidance}\n\n"
+            "**Instructions:**\n"
+            "1. Generate 3-5 specific research questions from the rough idea\n"
+            "2. Each question should be testable and focused\n"
+            "3. Consider feasibility based on the library papers\n"
+            "4. Identify which library papers are relevant to each question\n"
+            "5. Suggest which question is most promising and why\n"
+            "Only reference papers that appear in the provided context."
+        )
+
+        return {
+            "status": "success",
+            "rough_idea": rough_idea,
+            "framework": framework,
+            "library_context": library_context,
+            "paper_count": len(refs),
+            "instruction": instruction,
+        }
+
     def _tool_generate_section_from_discussion(
         self,
         ctx: Dict[str, Any],

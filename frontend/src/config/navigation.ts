@@ -9,7 +9,7 @@ export const navigationConfig = {
   /**
    * Enable new simplified navigation (4 tabs with sub-sections)
    *
-   * true  = New: Overview | Papers | Scholar AI | Library
+   * true  = New: Overview | Papers | Discussion | Library
    * false = Old: Overview | Papers | Discussion | Sync Space | Research dropdown
    */
   USE_NEW_NAVIGATION: true,

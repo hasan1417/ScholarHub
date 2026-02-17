@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Users, Shield, Edit, Eye, Trash2, Clock, Crown, Settings } from 'lucide-react'
 import clsx from 'clsx'
 import { useAuth } from '../../contexts/AuthContext'
+import { useToast } from '../../hooks/useToast'
 import { teamAPI } from '../../services/api'
 import { ProjectMember } from '../../types'
 
@@ -53,6 +54,7 @@ const TeamMembersList: React.FC<TeamMembersListProps> = ({
   className,
 }) => {
   const { user } = useAuth()
+  const { toast } = useToast()
   const isProjectScope = Array.isArray(projectMembers)
 
   const mappedProjectMembers = useMemo<TeamMember[]>(() => {
@@ -156,7 +158,7 @@ const TeamMembersList: React.FC<TeamMembersListProps> = ({
       await loadTeamMembers()
     } catch (err) {
       console.error('Failed to update member role', err)
-      alert('Unable to update member role right now.')
+      toast.error('Unable to update member role right now.')
     } finally {
       setUpdatingMemberId(null)
     }
@@ -173,7 +175,7 @@ const TeamMembersList: React.FC<TeamMembersListProps> = ({
       await loadTeamMembers()
     } catch (err) {
       console.error('Failed to remove member', err)
-      alert('Unable to remove this member right now.')
+      toast.error('Unable to remove this member right now.')
     } finally {
       setRemovingMemberId(null)
     }

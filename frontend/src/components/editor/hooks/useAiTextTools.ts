@@ -1,6 +1,7 @@
 import { useState, useCallback, type MutableRefObject } from 'react'
 import type { EditorView } from '@codemirror/view'
 import { buildApiUrl } from '../../../services/api'
+import { useToast } from '../../../hooks/useToast'
 
 interface UseAiTextToolsOptions {
   viewRef: MutableRefObject<EditorView | null>
@@ -10,6 +11,7 @@ interface UseAiTextToolsOptions {
 }
 
 export function useAiTextTools({ viewRef, readOnly, projectId, onOpenAiChatWithMessage }: UseAiTextToolsOptions) {
+  const { toast } = useToast()
   const [aiActionLoading, setAiActionLoading] = useState<string | null>(null)
 
   const getSelectedText = useCallback(() => {
@@ -40,7 +42,7 @@ export function useAiTextTools({ viewRef, readOnly, projectId, onOpenAiChatWithM
 
     const selectedText = getSelectedText()
     if (!selectedText.trim()) {
-      alert('Please select some text first')
+      toast.warning('Please select some text first')
       return
     }
 
@@ -86,7 +88,7 @@ export function useAiTextTools({ viewRef, readOnly, projectId, onOpenAiChatWithM
       if (data.result) replaceSelectedText(data.result)
     } catch (error) {
       console.error('AI action failed:', error)
-      alert('Failed to process text. Please try again.')
+      toast.error('Failed to process text. Please try again.')
     } finally {
       setAiActionLoading(null)
     }

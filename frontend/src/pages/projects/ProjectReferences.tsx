@@ -1,13 +1,17 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import {
   AlertCircle,
   BookOpen,
   Calendar,
   CheckCircle2,
+  Download,
   ExternalLink,
+  FileEdit,
   FileText,
   Loader2,
+  MessageSquare,
   MoreVertical,
   Plus,
   ShieldCheck,
@@ -22,11 +26,15 @@ import { useAuth } from '../../contexts/AuthContext'
 import AddProjectReferenceModal from '../../components/projects/AddProjectReferenceModal'
 import ConfirmationModal from '../../components/common/ConfirmationModal'
 import ZoteroImportModal from '../../components/references/ZoteroImportModal'
+import { getProjectUrlId } from '../../utils/urlId'
+import { useToast } from '../../hooks/useToast'
 
 const ProjectReferences = () => {
+  const { toast } = useToast()
   const { project } = useProjectContext()
   const { user } = useAuth()
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [showAddModal, setShowAddModal] = useState(false)
   const [uploadTarget, setUploadTarget] = useState<string | null>(null)
   const [uploadingId, setUploadingId] = useState<string | null>(null)
@@ -42,17 +50,14 @@ const ProjectReferences = () => {
   const [ingestFailedIds, setIngestFailedIds] = useState<Set<string>>(new Set())
   const [zoteroConfigured, setZoteroConfigured] = useState(false)
   const [showZoteroModal, setShowZoteroModal] = useState(false)
-  const [toast, setToast] = useState<{
-    message: string
-    actionLabel?: string
-    onAction?: () => Promise<void>
-  } | null>(null)
   const undoContextRef = useRef<{
     projectReferenceId: string
     referenceId: string | null
     title: string
   } | null>(null)
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const bibFileInputRef = useRef<HTMLInputElement | null>(null)
+  const [bibImporting, setBibImporting] = useState(false)
+  const [bibExporting, setBibExporting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
@@ -166,7 +171,7 @@ const ProjectReferences = () => {
       await queryClient.invalidateQueries({ queryKey: ['project', project.id, 'relatedReferences'] })
     } catch (error) {
       console.error('Failed to upload PDF', error)
-      alert('Failed to upload PDF. Please try again.')
+      toast.error('Failed to upload PDF. Please try again.')
     } finally {
       setUploadingId(null)
       setUploadTarget(null)
@@ -190,56 +195,14 @@ const ProjectReferences = () => {
       console.error('Failed to ingest existing PDF', error)
       // Mark this reference as needing manual upload
       setIngestFailedIds((prev) => new Set(prev).add(referenceId))
-      alert('Unable to fetch the PDF automatically. Please upload the PDF manually.')
+      toast.warning('Unable to fetch the PDF automatically. Please upload the PDF manually.')
     } finally {
       setReindexingId(null)
     }
   }
 
-  const closeToast = () => {
-    if (toastTimerRef.current) {
-      clearTimeout(toastTimerRef.current)
-      toastTimerRef.current = null
-    }
-    setToast(null)
-    undoContextRef.current = null
-  }
-
-  const scheduleToastDismiss = () => {
-    if (toastTimerRef.current) {
-      clearTimeout(toastTimerRef.current)
-    }
-    toastTimerRef.current = setTimeout(() => {
-      closeToast()
-    }, 6500)
-  }
-
-  const triggerUndoToast = (context: {
-    projectReferenceId: string
-    referenceId: string | null
-    title: string
-  }) => {
-    undoContextRef.current = context
-    const baseMessage = context.title ? `Deleted “${context.title}”` : 'Related paper deleted'
-    setToast(
-      context.referenceId
-        ? {
-            message: `${baseMessage}.`,
-            actionLabel: 'Undo',
-            onAction: handleUndoDelete,
-          }
-        : {
-            message: `${baseMessage}.`,
-          }
-    )
-    scheduleToastDismiss()
-  }
-
   const handleUndoDelete = async () => {
-    if (!undoContextRef.current || !undoContextRef.current.referenceId) {
-      closeToast()
-      return
-    }
+    if (!undoContextRef.current || !undoContextRef.current.referenceId) return
     try {
       const response = await projectReferencesAPI.createSuggestion(
         project.id,
@@ -252,27 +215,29 @@ const ProjectReferences = () => {
         await projectReferencesAPI.approveSuggestion(project.id, suggestionId)
         await queryClient.invalidateQueries({ queryKey: ['project', project.id, 'relatedReferences'] })
       }
-      closeToast()
+      undoContextRef.current = null
     } catch (error) {
       console.error('Failed to undo delete', error)
-      setToast({ message: 'Unable to restore the related paper. Please try again.' })
-      scheduleToastDismiss()
+      toast.error('Unable to restore the related paper. Please try again.')
     }
   }
 
   const handleDeleteReference = async () => {
-    if (!deleteContext || !canManageReferences) {
-      return
-    }
+    if (!deleteContext || !canManageReferences) return
     try {
       setDeleteLoading(true)
+      undoContextRef.current = deleteContext
       await projectReferencesAPI.remove(project.id, deleteContext.projectReferenceId)
       await queryClient.invalidateQueries({ queryKey: ['project', project.id, 'relatedReferences'] })
-      triggerUndoToast(deleteContext)
+      const baseMessage = deleteContext.title ? `Deleted "${deleteContext.title}"` : 'Related paper deleted'
+      if (deleteContext.referenceId) {
+        toast.success(`${baseMessage}.`, { label: 'Undo', onClick: handleUndoDelete })
+      } else {
+        toast.success(`${baseMessage}.`)
+      }
     } catch (error) {
       console.error('Failed to remove related paper', error)
-      setToast({ message: 'Unable to remove the related paper right now. Please try again.' })
-      scheduleToastDismiss()
+      toast.error('Unable to remove the related paper right now. Please try again.')
     } finally {
       setDeleteLoading(false)
       setDeleteModalOpen(false)
@@ -280,24 +245,42 @@ const ProjectReferences = () => {
     }
   }
 
-  const handleToastAction = async () => {
-    if (!toast || !toast.onAction) {
-      return
+  const handleBibImport: React.ChangeEventHandler<HTMLInputElement> = async (event) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    try {
+      setBibImporting(true)
+      const response = await projectReferencesAPI.importBibtex(project.id, file)
+      const { imported, skipped } = response.data
+      await queryClient.invalidateQueries({ queryKey: ['project', project.id, 'relatedReferences'] })
+      toast.success(`Imported ${imported} reference${imported !== 1 ? 's' : ''}${skipped ? `, ${skipped} skipped` : ''}.`)
+    } catch {
+      toast.error('Failed to import BibTeX file. Please check the format and try again.')
+    } finally {
+      setBibImporting(false)
+      if (bibFileInputRef.current) bibFileInputRef.current.value = ''
     }
-    if (toastTimerRef.current) {
-      clearTimeout(toastTimerRef.current)
-      toastTimerRef.current = null
-    }
-    await toast.onAction()
   }
 
-  useEffect(() => {
-    return () => {
-      if (toastTimerRef.current) {
-        clearTimeout(toastTimerRef.current)
-      }
+  const handleBibExport = async () => {
+    try {
+      setBibExporting(true)
+      const response = await projectReferencesAPI.exportBibtex(project.id)
+      const blob = new Blob([response.data as BlobPart], { type: 'text/plain' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'references.bib'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Failed to export references.')
+    } finally {
+      setBibExporting(false)
     }
-  }, [])
+  }
 
   type BadgeTone = 'emerald' | 'amber' | 'slate' | 'sky' | 'purple'
   const toneClasses: Record<BadgeTone, string> = {
@@ -357,6 +340,28 @@ const ProjectReferences = () => {
             <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">Related papers</h2>
           </div>
           <div className="flex items-center gap-2">
+            {references.length > 0 && (
+              <button
+                type="button"
+                onClick={handleBibExport}
+                disabled={bibExporting}
+                className="inline-flex items-center gap-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                {bibExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                Export .bib
+              </button>
+            )}
+            {canAddManual && (
+              <button
+                type="button"
+                onClick={() => bibFileInputRef.current?.click()}
+                disabled={bibImporting}
+                className="inline-flex items-center gap-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                {bibImporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                Import .bib
+              </button>
+            )}
             {canAddManual && (
               <button
                 type="button"
@@ -364,7 +369,7 @@ const ProjectReferences = () => {
                   if (zoteroConfigured) {
                     setShowZoteroModal(true)
                   } else {
-                    alert('Connect your Zotero account first in Settings > Integrations.')
+                    toast.warning('Connect your Zotero account first in Settings > Integrations.')
                   }
                 }}
                 className="inline-flex items-center gap-1 rounded-full border border-emerald-200 px-3 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:border-emerald-400/40 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
@@ -615,6 +620,25 @@ const ProjectReferences = () => {
                             Added {decidedAt}
                           </span>
                         )}
+                        {/* Cross-feature navigation */}
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 hover:text-indigo-600 dark:hover:text-indigo-300"
+                          onClick={() => navigate(`/projects/${getProjectUrlId(project)}/discussion`)}
+                          title={`Discuss "${ref?.title ?? 'this paper'}"`}
+                        >
+                          <MessageSquare className="h-3 w-3" />
+                          Discuss
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 hover:text-indigo-600 dark:hover:text-indigo-300"
+                          onClick={() => navigate(`/projects/${getProjectUrlId(project)}/papers`)}
+                          title="Cite in a paper"
+                        >
+                          <FileEdit className="h-3 w-3" />
+                          Cite in Paper
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -631,6 +655,13 @@ const ProjectReferences = () => {
         accept="application/pdf"
         className="hidden"
         onChange={handleFileSelection}
+      />
+      <input
+        ref={bibFileInputRef}
+        type="file"
+        accept=".bib"
+        className="hidden"
+        onChange={handleBibImport}
       />
 
       {canAddManual && (
@@ -669,30 +700,6 @@ const ProjectReferences = () => {
         isSubmitting={deleteLoading}
       />
 
-      {toast && (
-        <div className="fixed bottom-6 right-6 z-40">
-          <div className="flex items-center gap-3 rounded-lg bg-gray-900 px-4 py-3 text-sm text-white shadow-xl">
-            <span className="max-w-xs leading-snug">{toast.message}</span>
-            {toast.actionLabel && toast.onAction && (
-              <button
-                type="button"
-                className="inline-flex items-center justify-center rounded border border-white/40 px-3 py-1 text-xs font-semibold uppercase tracking-wide transition hover:bg-white hover:text-gray-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-                onClick={handleToastAction}
-              >
-                {toast.actionLabel}
-              </button>
-            )}
-            <button
-              type="button"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/80 transition hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-              aria-label="Dismiss notification"
-              onClick={closeToast}
-            >
-              X
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

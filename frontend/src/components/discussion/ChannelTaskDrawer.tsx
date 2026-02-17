@@ -7,6 +7,7 @@ import {
   DiscussionTaskUpdate,
   DiscussionTaskCreate,
 } from '../../types'
+import { useToast } from '../../hooks/useToast'
 
 interface ChannelTaskDrawerProps {
   tasks: DiscussionTask[]
@@ -47,6 +48,7 @@ const ChannelTaskDrawer = ({
   isCollapsed = false,
   onToggleCollapse,
 }: ChannelTaskDrawerProps) => {
+  const { toast } = useToast()
   const [isCreating, setIsCreating] = useState(false)
   const [newTitle, setNewTitle] = useState('')
   const [newDescription, setNewDescription] = useState('')
@@ -65,7 +67,7 @@ const ChannelTaskDrawer = ({
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!newTitle.trim()) {
-      alert('Task title is required.')
+      toast.warning('Task title is required.')
       return
     }
 

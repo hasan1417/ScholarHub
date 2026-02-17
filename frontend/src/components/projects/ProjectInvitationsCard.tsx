@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { projectsAPI } from '../../services/api'
+import { useToast } from '../../hooks/useToast'
 
 interface ProjectInvitation {
   project_id: string
@@ -11,6 +12,7 @@ interface ProjectInvitation {
 }
 
 const ProjectInvitationsCard: React.FC = () => {
+  const { toast } = useToast()
   const [invites, setInvites] = useState<ProjectInvitation[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -38,7 +40,7 @@ const ProjectInvitationsCard: React.FC = () => {
       await projectsAPI.acceptInvitation(projectId, memberId)
       await load()
     } catch (e) {
-      alert('Failed to accept project invitation')
+      toast.error('Failed to accept project invitation')
     }
   }
 
@@ -47,7 +49,7 @@ const ProjectInvitationsCard: React.FC = () => {
       await projectsAPI.declineInvitation(projectId, memberId)
       await load()
     } catch (e) {
-      alert('Failed to decline project invitation')
+      toast.error('Failed to decline project invitation')
     }
   }
 

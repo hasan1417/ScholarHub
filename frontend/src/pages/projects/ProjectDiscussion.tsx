@@ -72,6 +72,7 @@ import { DiscoveryQueuePanel, PaperIngestionState, IngestionStatesMap } from '..
 import { getProjectUrlId } from '../../utils/urlId'
 import { modelSupportsReasoning, useOpenRouterModels } from '../../components/discussion/ModelSelector'
 import { useOnboarding } from '../../contexts/OnboardingContext'
+import { useToast } from '../../hooks/useToast'
 
 // Types
 type AssistantExchange = {
@@ -140,6 +141,7 @@ const ASSISTANT_SCOPE_OPTIONS = [
 
 
 const ProjectDiscussion = () => {
+  const { toast } = useToast()
   const { project } = useProjectContext()
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -839,7 +841,7 @@ const ProjectDiscussion = () => {
     onError: (error: any) => {
       console.error('Failed to create channel:', error)
       const message = error?.response?.data?.detail || 'Failed to create channel. Please try again.'
-      alert(message)
+      toast.error(message)
     },
   })
 
@@ -862,7 +864,7 @@ const ProjectDiscussion = () => {
     onError: (error: any) => {
       console.error('Failed to update channel:', error)
       const message = error?.response?.data?.detail || 'Failed to update channel. Please try again.'
-      alert(message)
+      toast.error(message)
     },
   })
 
@@ -883,7 +885,7 @@ const ProjectDiscussion = () => {
     },
     onError: (error) => {
       console.error('Failed to delete channel:', error)
-      alert('Failed to delete channel. Please try again.')
+      toast.error('Failed to delete channel. Please try again.')
     },
   })
 
@@ -934,7 +936,7 @@ const ProjectDiscussion = () => {
     },
     onError: (error) => {
       console.error('Failed to send message:', error)
-      alert('Failed to send message. Please try again.')
+      toast.error('Failed to send message. Please try again.')
     },
   })
 
@@ -949,7 +951,7 @@ const ProjectDiscussion = () => {
     },
     onError: (error) => {
       console.error('Failed to update message:', error)
-      alert('Failed to update message. Please try again.')
+      toast.error('Failed to update message. Please try again.')
     },
   })
 
@@ -963,7 +965,7 @@ const ProjectDiscussion = () => {
     },
     onError: (error) => {
       console.error('Failed to delete message:', error)
-      alert('Failed to delete message. Please try again.')
+      toast.error('Failed to delete message. Please try again.')
     },
   })
 
@@ -979,7 +981,7 @@ const ProjectDiscussion = () => {
     },
     onError: (error) => {
       console.error('Failed to create resource:', error)
-      alert('Failed to add resource. Please try again.')
+      toast.error('Failed to add resource. Please try again.')
     },
   })
 
@@ -993,7 +995,7 @@ const ProjectDiscussion = () => {
     },
     onError: (error) => {
       console.error('Failed to delete resource:', error)
-      alert('Failed to remove resource. Please try again.')
+      toast.error('Failed to remove resource. Please try again.')
     },
   })
 
@@ -1017,7 +1019,7 @@ const ProjectDiscussion = () => {
     },
     onError: (error) => {
       console.error('Paper action failed:', error)
-      alert('Failed to perform paper action. Please try again.')
+      toast.error('Failed to perform paper action. Please try again.')
     },
   })
 
@@ -1820,14 +1822,14 @@ const ProjectDiscussion = () => {
     // Slash commands trigger the assistant
     if (trimmed.startsWith('/')) {
       if (!activeChannelId) {
-        alert('Select a channel before asking Scholar AI.')
+        toast.warning('Select a channel before asking Scholar AI.')
         return
       }
       if (assistantMutation.isPending) return
 
       const commandBody = trimmed.slice(1).trim()
       if (!commandBody) {
-        alert('Add a command after the slash (e.g., /reason What should we do next?).')
+        toast.warning('Add a command after the slash (e.g., /reason What should we do next?).')
         return
       }
 
@@ -1852,7 +1854,7 @@ const ProjectDiscussion = () => {
       }
 
       if (!question) {
-        alert('Add a question after the slash (e.g., /reason What is next?) to ask Scholar AI.')
+        toast.warning('Add a question after the slash (e.g., /reason What is next?) to ask Scholar AI.')
         return
       }
 
@@ -1901,7 +1903,7 @@ const ProjectDiscussion = () => {
 
     // Regular message
     if (!activeChannelId && !editingMessage) {
-      alert('Select a channel before sending messages.')
+      toast.warning('Select a channel before sending messages.')
       return
     }
 
@@ -1948,7 +1950,7 @@ const ProjectDiscussion = () => {
   const handleCreateChannelSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!newChannelName.trim()) {
-      alert('Channel name is required.')
+      toast.warning('Channel name is required.')
       return
     }
     createChannelMutation.mutate({
@@ -2002,7 +2004,7 @@ const ProjectDiscussion = () => {
   const handlePaperCreationSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!paperFormData.title.trim()) {
-      alert('Paper title is required.')
+      toast.warning('Paper title is required.')
       return
     }
     if (!paperCreationDialog) return
@@ -2044,7 +2046,7 @@ const ProjectDiscussion = () => {
     index: number
   ) => {
     if (!activeChannelId) {
-      alert('Select a channel before accepting assistant suggestions.')
+      toast.warning('Select a channel before accepting assistant suggestions.')
       return
     }
 
@@ -2086,7 +2088,7 @@ const ProjectDiscussion = () => {
       const mimeType = String(action.payload?.mime_type || 'text/plain')
 
       if (!contentBase64) {
-        alert('The artifact is missing content.')
+        toast.warning('The artifact is missing content.')
         return
       }
 
@@ -2109,12 +2111,12 @@ const ProjectDiscussion = () => {
         queryClient.invalidateQueries({ queryKey: ['channel-artifacts', project.id, activeChannelId] })
       } catch (e) {
         console.error('Failed to decode artifact:', e)
-        alert('Failed to download artifact.')
+        toast.error('Failed to download artifact.')
       }
       return
     }
 
-    alert('This assistant suggestion type is not yet supported.')
+    toast.info('This assistant suggestion type is not yet supported.')
   }
 
   // ========== DERIVED STATE ==========
@@ -2622,6 +2624,13 @@ const ProjectDiscussion = () => {
                         </div>
                       </div>
                       <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/projects/${getProjectUrlId(project)}/library/references`)}
+                          className="rounded-lg border border-emerald-300 px-2.5 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-500/40 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
+                        >
+                          View in Library
+                        </button>
                         <button
                           type="button"
                           onClick={() => setOpenDialog('discoveries')}
@@ -3486,6 +3495,7 @@ const ChannelSettingsModal = ({
   meetings: MeetingSummary[]
   isLoadingResources: boolean
 }) => {
+  const { toast } = useToast()
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
   const [name, setName] = useState(channel.name)
@@ -3516,7 +3526,7 @@ const ChannelSettingsModal = ({
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!name.trim()) {
-      alert('Channel name is required.')
+      toast.warning('Channel name is required.')
       return
     }
 

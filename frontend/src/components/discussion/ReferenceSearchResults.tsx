@@ -4,6 +4,7 @@ import { X, Loader2, Search, AlertCircle } from 'lucide-react'
 import { DiscoveredPaperCard, DiscoveredPaper, IngestionStatus } from './DiscoveredPaperCard'
 import { projectDiscussionAPI } from '../../services/api'
 import api from '../../services/api'
+import { useToast } from '../../hooks/useToast'
 
 interface PaperIngestionState {
   referenceId: string
@@ -39,6 +40,7 @@ export function ReferenceSearchResults({
   onDismissPaper,
 }: ReferenceSearchResultsProps) {
   const queryClient = useQueryClient()
+  const { toast } = useToast()
   const [addedPapers, setAddedPapers] = useState<Set<string>>(new Set())
   const [addingPapers, setAddingPapers] = useState<Set<string>>(new Set())
   // Track ingestion status per paper
@@ -147,7 +149,7 @@ export function ReferenceSearchResults({
         // Invalidate references query to refresh the list
         queryClient.invalidateQueries({ queryKey: ['projectReferences', projectId] })
       } else {
-        alert(data.message || 'Failed to add reference')
+        toast.error(data.message || 'Failed to add reference')
       }
     },
     onError: (error: Error, paper) => {
@@ -157,7 +159,7 @@ export function ReferenceSearchResults({
         next.delete(paper.id)
         return next
       })
-      alert(error.message || 'Failed to add reference')
+      toast.error(error.message || 'Failed to add reference')
     },
   })
 
@@ -204,7 +206,7 @@ export function ReferenceSearchResults({
           status: 'failed',
         },
       }))
-      alert(`Failed to upload PDF: ${error.message}`)
+      toast.error(`Failed to upload PDF: ${error.message}`)
     },
   })
 

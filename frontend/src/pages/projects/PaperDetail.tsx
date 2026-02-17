@@ -43,10 +43,13 @@ import TeamInviteModal from '../../components/team/TeamInviteModal'
 import TeamMembersList from '../../components/team/TeamMembersList'
 import { useAuth } from '../../contexts/AuthContext'
 import { useProjectContext } from './ProjectLayout'
+import { useToast } from '../../hooks/useToast'
+import { trackRecentPaper } from '../../components/ui/CommandPalette'
 import { parseObjectives } from '../../utils/objectives'
 import { getPaperUrlId } from '../../utils/urlId'
 
 const PaperDetail: React.FC = () => {
+  const { toast } = useToast()
   const { projectId, paperId } = useParams<{ projectId?: string; paperId: string }>()
   const navigate = useNavigate()
   const { user } = useAuth()
@@ -172,6 +175,17 @@ const PaperDetail: React.FC = () => {
         is_public: paperData.is_public,
       })
 
+      // Track for Cmd+K recent papers
+      const pid = projectId || paperData.project_id
+      if (pid && paperData.title) {
+        trackRecentPaper({
+          id: paperData.id,
+          title: paperData.title,
+          projectId: pid,
+          projectTitle: project?.title || '',
+        })
+      }
+
     } catch (error: unknown) {
       const axiosError = error as { response?: { status?: number } } | undefined
       if (axiosError) {
@@ -224,7 +238,7 @@ const PaperDetail: React.FC = () => {
     try {
       const token = localStorage.getItem('access_token')
       if (!token) {
-        alert('Please login again to download the PDF')
+        toast.warning('Please login again to download the PDF')
         return
       }
       // downloadUrl from backend is already /api/v1/documents/{id}/download
@@ -242,14 +256,14 @@ const PaperDetail: React.FC = () => {
       setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000)
     } catch (error) {
       console.error('Failed to open PDF', error)
-      alert('Failed to open PDF')
+      toast.error('Failed to open PDF')
     }
   }
 
   const handleSaveChanges = async () => {
     if (!paper) return
     if (!canEditPaper) {
-      alert('You do not have permission to update this paper.')
+      toast.warning('You do not have permission to update this paper.')
       return
     }
 
@@ -260,7 +274,7 @@ const PaperDetail: React.FC = () => {
       setIsEditing(false)
     } catch (error) {
       console.error('Error updating paper:', error)
-      alert('Error updating paper. Please try again.')
+      toast.error('Error updating paper. Please try again.')
     } finally {
       setIsSaving(false)
     }
@@ -281,7 +295,7 @@ const PaperDetail: React.FC = () => {
 
   const handleStartWriting = () => {
     if (!canEditPaper) {
-      alert('You do not have permission to edit this paper.')
+      toast.warning('You do not have permission to edit this paper.')
       return
     }
     const targetProjectId = projectId || paper?.project_id
@@ -291,7 +305,7 @@ const PaperDetail: React.FC = () => {
 
   const handleDeletePaper = () => {
     if (!canDeletePaper) {
-      alert('You do not have permission to delete this paper.')
+      toast.warning('You do not have permission to delete this paper.')
       return
     }
     setShowDeletePaperConfirm(true)
@@ -301,7 +315,7 @@ const PaperDetail: React.FC = () => {
     if (!paper) return
     if (!canDeletePaper) {
       setShowDeletePaperConfirm(false)
-      alert('You do not have permission to delete this paper.')
+      toast.warning('You do not have permission to delete this paper.')
       return
     }
 
@@ -310,7 +324,7 @@ const PaperDetail: React.FC = () => {
       navigate(resolveProjectPath())
     } catch (error) {
       console.error('Error deleting paper:', error)
-      alert('Error deleting paper. Please try again.')
+      toast.error('Error deleting paper. Please try again.')
     } finally {
       setShowDeletePaperConfirm(false)
     }
@@ -397,7 +411,7 @@ const PaperDetail: React.FC = () => {
       setShowObjectivesModal(false)
     } catch (err) {
       console.error('Failed to save objectives', err)
-      alert('Failed to save objectives. Please try again.')
+      toast.error('Failed to save objectives. Please try again.')
     } finally {
       setIsSavingObjectives(false)
     }
@@ -793,7 +807,7 @@ const PaperDetail: React.FC = () => {
                                   await refreshReferences()
                                 } catch (error) {
                                   console.error('Error detaching reference', error)
-                                  alert('Unable to detach this reference right now.')
+                                  toast.error('Unable to detach this reference right now.')
                                 }
                               }}
                               className="flex-shrink-0 rounded-lg border border-gray-200 p-1.5 text-gray-400 opacity-0 transition-all hover:border-gray-300 hover:bg-gray-50 hover:text-gray-600 group-hover:opacity-100 dark:border-slate-600 dark:text-slate-500 dark:hover:border-slate-500 dark:hover:bg-slate-700 dark:hover:text-slate-300"

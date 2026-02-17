@@ -1,5 +1,5 @@
-import { ReactNode, useMemo, useState, useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { ReactNode, useMemo, useState, useCallback } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom'
 import {
   AlertCircle, Bell, FilePenLine, FilePlus, FolderPlus, Loader2, Settings,
@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import ProjectTeamManager from '../../components/projects/ProjectTeamManager'
 import { useProjectContext } from './ProjectLayout'
-import { projectNotificationsAPI, researchPapersAPI, projectReferencesAPI } from '../../services/api'
+import { projectNotificationsAPI, researchPapersAPI, projectReferencesAPI, projectsAPI } from '../../services/api'
 import { ProjectNotification } from '../../types'
 import SubTabs, { SubTab } from '../../components/navigation/SubTabs'
 import ProjectSyncSpace from './ProjectSyncSpace'
@@ -32,13 +32,24 @@ const OverviewDashboard = () => {
   const { project } = useProjectContext()
   const projectId = project?.id
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
-  // Objectives completion state (stored in localStorage)
-  const [completedObjectives, setCompletedObjectives] = useState<Set<number>>(() => {
-    if (typeof window === 'undefined') return new Set()
-    const stored = localStorage.getItem(`project-objectives-${projectId}`)
-    return stored ? new Set(JSON.parse(stored)) : new Set()
+  // Objectives completion state (persisted to backend)
+  const objectivesQuery = useQuery({
+    queryKey: ['project', projectId, 'objectives'],
+    queryFn: async () => {
+      if (!projectId) return []
+      const response = await projectsAPI.getObjectives(projectId)
+      return response.data.completed_indices ?? []
+    },
+    enabled: Boolean(projectId),
+    staleTime: 60_000,
   })
+
+  const completedObjectives = useMemo(
+    () => new Set(objectivesQuery.data ?? []),
+    [objectivesQuery.data]
+  )
 
   // Objectives modal state
   const [objectivesModalOpen, setObjectivesModalOpen] = useState(false)
@@ -60,27 +71,24 @@ const OverviewDashboard = () => {
     return project.scope.trim() ? [project.scope.trim()] : []
   }, [project.scope])
 
-  // Save completed objectives to localStorage
-  useEffect(() => {
-    if (projectId) {
-      localStorage.setItem(
-        `project-objectives-${projectId}`,
-        JSON.stringify([...completedObjectives])
-      )
+  const toggleObjective = useCallback((index: number) => {
+    const current = new Set(completedObjectives)
+    if (current.has(index)) {
+      current.delete(index)
+    } else {
+      current.add(index)
     }
-  }, [completedObjectives, projectId])
-
-  const toggleObjective = (index: number) => {
-    setCompletedObjectives(prev => {
-      const next = new Set(prev)
-      if (next.has(index)) {
-        next.delete(index)
-      } else {
-        next.add(index)
-      }
-      return next
-    })
-  }
+    const newIndices = [...current]
+    // Optimistic update
+    queryClient.setQueryData(['project', projectId, 'objectives'], newIndices)
+    // Persist to backend
+    if (projectId) {
+      projectsAPI.updateObjectives(projectId, newIndices).catch(() => {
+        // Revert on failure
+        queryClient.invalidateQueries({ queryKey: ['project', projectId, 'objectives'] })
+      })
+    }
+  }, [completedObjectives, projectId, queryClient])
 
   // Fetch project stats
   const papersQuery = useQuery({

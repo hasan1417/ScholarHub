@@ -637,6 +637,8 @@ If asked to perform write actions, explain that editor/admin access is required.
             "export_citations": "Exporting citations",
             "compare_papers": "Comparing papers",
             "suggest_research_gaps": "Analyzing research gaps",
+            "recommend_methodology": "Analyzing methodologies",
+            "refine_research_question": "Refining research question",
             "generate_abstract": "Generating abstract",
             "annotate_reference": "Annotating reference",
         }
@@ -1371,6 +1373,20 @@ If asked to perform write actions, explain that editor/admin access is required.
                 if name == "get_project_papers" and channel and result.get("count", 0) > 0:
                     self.cache_tool_result(channel, name, result)
 
+                # LaTeX validation for paper creation/update tools
+                if name in ("create_paper", "update_paper") and isinstance(result, dict) and result.get("status") == "success":
+                    try:
+                        from app.services.smart_agent_service_v2_or import _validate_latex_syntax
+                        # Extract LaTeX content from the paper that was just created/updated
+                        latex_source = self._get_paper_latex_for_validation(ctx, name, args, result)
+                        if latex_source:
+                            latex_warnings = _validate_latex_syntax(latex_source)
+                            if latex_warnings:
+                                result["latex_warnings"] = latex_warnings
+                                result["message"] = result.get("message", "") + " LaTeX warnings: " + "; ".join(latex_warnings)
+                    except Exception as val_err:
+                        logger.debug("LaTeX validation skipped: %s", val_err)
+
                 results.append({"name": name, "result": result})
                 self._persist_last_effective_search_topic(ctx, name, args, result)
 
@@ -1379,6 +1395,35 @@ If asked to perform write actions, explain that editor/admin access is required.
                 results.append({"name": name, "error": str(e)})
 
         return results
+
+    def _get_paper_latex_for_validation(
+        self,
+        ctx: Dict[str, Any],
+        tool_name: str,
+        args: Dict[str, Any],
+        result: Dict[str, Any],
+    ) -> Optional[str]:
+        """Extract LaTeX source from a newly created/updated paper for validation."""
+        from app.models import ResearchPaper
+
+        paper_id = None
+        action = result.get("action", {})
+        payload = action.get("payload", {})
+        paper_id = payload.get("paper_id")
+
+        if not paper_id:
+            return None
+
+        try:
+            from uuid import UUID
+            paper = self.db.query(ResearchPaper).filter(
+                ResearchPaper.id == UUID(paper_id)
+            ).first()
+            if paper and paper.content_json:
+                return paper.content_json.get("latex_source")
+        except Exception:
+            pass
+        return None
 
     def _enforce_finding_papers_stage_after_search(
         self,

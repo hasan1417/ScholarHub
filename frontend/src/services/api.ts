@@ -19,6 +19,7 @@ import {
   AIArtifactType,
   AIArtifactStatus,
   ProjectReferenceSuggestion,
+  CitationSuggestion,
   ProjectDiscoveryPreferences,
   ProjectDiscoverySettingsPayload,
   ProjectDiscoveryRunResponse,
@@ -492,6 +493,15 @@ export const projectsAPI = {
       server_key_available: boolean
       use_owner_key_for_team: boolean
     }>(`/projects/${projectId}/discussion-settings`, settings),
+
+  // Objectives
+  getObjectives: (projectId: string) =>
+    api.get<{ completed_indices: number[] }>(`/projects/${projectId}/objectives`),
+
+  updateObjectives: (projectId: string, completedIndices: number[]) =>
+    api.patch<{ completed_indices: number[] }>(`/projects/${projectId}/objectives`, {
+      completed_indices: completedIndices,
+    }),
 }
 
 export const projectReferencesAPI = {
@@ -544,6 +554,24 @@ export const projectReferencesAPI = {
       `/projects/${projectId}/references/ingestion-status`,
       { reference_ids: referenceIds }
     ),
+  suggestCitations: (projectId: string, text: string, limit?: number) =>
+    api.post<{ suggestions: CitationSuggestion[] }>(
+      `/projects/${projectId}/references/suggest-citations`,
+      { text, limit: limit ?? 3 }
+    ),
+  importBibtex: (projectId: string, file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post<{ imported: number; skipped: number; errors: string[] }>(
+      `/projects/${projectId}/references/import-bibtex`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    )
+  },
+  exportBibtex: (projectId: string) =>
+    api.get(`/projects/${projectId}/references/export-bibtex`, {
+      responseType: 'blob',
+    }),
 }
 
 export const projectAIAPI = {

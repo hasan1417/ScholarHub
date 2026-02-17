@@ -3,6 +3,7 @@ import { X, Loader2, Search } from 'lucide-react'
 import { DiscoveredPaperCard, DiscoveredPaper, IngestionStatus } from './DiscoveredPaperCard'
 import { projectDiscussionAPI } from '../../services/api'
 import api from '../../services/api'
+import { useToast } from '../../hooks/useToast'
 
 // Ingestion state for a single paper - managed by parent
 export interface PaperIngestionState {
@@ -41,6 +42,7 @@ export function DiscoveryQueuePanel({
   onIngestionStateChange,
 }: DiscoveryQueuePanelProps) {
   const queryClient = useQueryClient()
+  const { toast } = useToast()
 
   const addReferenceMutation = useMutation({
     mutationFn: async (paper: DiscoveredPaper) => {
@@ -83,12 +85,12 @@ export function DiscoveryQueuePanel({
         queryClient.invalidateQueries({ queryKey: ['projectReferences', projectId] })
       } else {
         onIngestionStateChange(paper.id, { isAdding: false })
-        alert(data.message || 'Failed to add reference')
+        toast.error(data.message || 'Failed to add reference')
       }
     },
     onError: (error: Error, paper) => {
       onIngestionStateChange(paper.id, { isAdding: false })
-      alert(error.message || 'Failed to add reference')
+      toast.error(error.message || 'Failed to add reference')
     },
   })
 
@@ -110,7 +112,7 @@ export function DiscoveryQueuePanel({
     },
     onError: (error: Error, { paperId }) => {
       onIngestionStateChange(paperId, { status: 'failed' })
-      alert(`Failed to upload PDF: ${error.message}`)
+      toast.error(`Failed to upload PDF: ${error.message}`)
     },
   })
 

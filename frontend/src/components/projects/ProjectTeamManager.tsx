@@ -5,6 +5,7 @@ import { useParams } from 'react-router-dom'
 
 import { useProjectContext } from '../../pages/projects/ProjectLayout'
 import { useAuth } from '../../contexts/AuthContext'
+import { useToast } from '../../hooks/useToast'
 import { projectsAPI } from '../../services/api'
 import TeamInviteModal from '../team/TeamInviteModal'
 
@@ -51,6 +52,7 @@ const roleIcon = (role: RoleOption) => {
 const ProjectTeamManager: React.FC = () => {
   const { project } = useProjectContext()
   const { user } = useAuth()
+  const { toast } = useToast()
   const queryClient = useQueryClient()
   const { projectId } = useParams<{ projectId: string }>()  // Get URL param for query key
 
@@ -144,7 +146,7 @@ const ProjectTeamManager: React.FC = () => {
       setPendingInvitations((prev) => prev.filter((inv) => inv.id !== invitationId))
     } catch (error: any) {
       const detail = error?.response?.data?.detail
-      alert(detail || 'Failed to cancel invitation')
+      toast.error(detail || 'Failed to cancel invitation')
     } finally {
       setActiveMemberId(null)
     }
@@ -214,7 +216,7 @@ const ProjectTeamManager: React.FC = () => {
       return
     }
     if (role === 'admin' && !canAssignAdmin) {
-      alert('Only the owner can assign the admin role.')
+      toast.warning('Only the owner can assign the admin role.')
       return
     }
     setActiveMemberId(memberId)
@@ -241,9 +243,9 @@ const ProjectTeamManager: React.FC = () => {
       console.error('[ProjectTeamManager] Role update failed:', error)
       const detail = error?.response?.data?.detail
       if (detail) {
-        alert(typeof detail === 'string' ? detail : JSON.stringify(detail))
+        toast.error(typeof detail === 'string' ? detail : JSON.stringify(detail))
       } else {
-        alert('Unable to update member role right now.')
+        toast.error('Unable to update member role right now.')
       }
     } finally {
       setActiveMemberId(null)
@@ -261,9 +263,9 @@ const ProjectTeamManager: React.FC = () => {
     } catch (error: any) {
       const detail = error?.response?.data?.detail
       if (detail) {
-        alert(detail)
+        toast.error(detail)
       } else {
-        alert('Unable to remove this member right now.')
+        toast.error('Unable to remove this member right now.')
       }
     } finally {
       setActiveMemberId(null)

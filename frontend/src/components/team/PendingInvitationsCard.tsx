@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { researchPapersAPI, teamAPI } from '../../services/api'
 import { usePapers } from '../../contexts/PapersContext'
+import { useToast } from '../../hooks/useToast'
 
 type PendingInvite = {
   id: string
@@ -11,6 +12,7 @@ type PendingInvite = {
 }
 
 const PendingInvitationsCard: React.FC = () => {
+  const { toast } = useToast()
   const [invites, setInvites] = useState<PendingInvite[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -41,7 +43,7 @@ const PendingInvitationsCard: React.FC = () => {
       // Refresh papers so the accepted paper appears in lists
       await refreshPapers()
     } catch (e) {
-      alert('Failed to accept invitation')
+      toast.error('Failed to accept invitation')
     }
   }
 
@@ -50,7 +52,7 @@ const PendingInvitationsCard: React.FC = () => {
       await teamAPI.declineInvitation(paperId, memberId)
       await load()
     } catch (e) {
-      alert('Failed to decline invitation')
+      toast.error('Failed to decline invitation')
     }
   }
 

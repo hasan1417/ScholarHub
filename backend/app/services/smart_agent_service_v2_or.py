@@ -41,25 +41,7 @@ _SUMMARY_MSG_THRESHOLD = 16  # Total messages before considering summary
 _SUMMARY_STALE_THRESHOLD = 6  # New messages since last summary before re-summarizing
 
 
-def _is_valid_uuid(val: str) -> bool:
-    """Check if string is a valid UUID."""
-    try:
-        UUID(val)
-        return True
-    except (ValueError, TypeError):
-        return False
-
-
-def _parse_short_id(url_id: str) -> str | None:
-    """Extract short_id from url_id (e.g., 'slug-abc123' -> 'abc123')."""
-    if not url_id:
-        return None
-    parts = url_id.rsplit("-", 1)
-    if len(parts) == 2 and re.match(r"^[a-z0-9]{6,12}$", parts[1]):
-        return parts[1]
-    if re.match(r"^[a-z0-9]{6,12}$", url_id):
-        return url_id
-    return None
+from app.utils.id_parsing import is_valid_uuid as _is_valid_uuid, parse_short_id as _parse_short_id
 
 
 def _resolve_paper_id(db: Session, paper_id: str) -> Optional[UUID]:
@@ -304,6 +286,27 @@ SEARCH_REFERENCES_TOOL = {
         }
     }
 }
+
+
+def _validate_latex_syntax(latex_source: str) -> list[str]:
+    """Quick regex-based LaTeX syntax check. Returns list of error strings."""
+    errors = []
+    # Check unmatched braces
+    open_b = latex_source.count('{')
+    close_b = latex_source.count('}')
+    if open_b != close_b:
+        errors.append(f"Unmatched braces: {open_b} opening vs {close_b} closing")
+
+    # Check unclosed environments
+    begins = re.findall(r'\\begin\{(\w+)\}', latex_source)
+    ends = re.findall(r'\\end\{(\w+)\}', latex_source)
+    for env in set(begins):
+        b_count = begins.count(env)
+        e_count = ends.count(env)
+        if b_count != e_count:
+            errors.append(f"Unclosed environment: {env} ({b_count} \\begin vs {e_count} \\end)")
+
+    return errors
 
 
 class SmartAgentServiceV2OR:

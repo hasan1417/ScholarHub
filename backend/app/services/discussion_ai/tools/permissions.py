@@ -44,6 +44,8 @@ TOOL_MIN_ROLE: Dict[str, str] = {
     "analyze_across_papers": "viewer",
     "compare_papers": "viewer",
     "suggest_research_gaps": "viewer",
+    "recommend_methodology": "viewer",
+    "refine_research_question": "viewer",
     "get_project_papers": "viewer",
     "get_project_info": "viewer",
     "get_created_artifacts": "viewer",

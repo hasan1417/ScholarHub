@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { Search, X, BookOpen, Upload } from 'lucide-react'
 import api, { projectReferencesAPI, researchPapersAPI } from '../../services/api'
+import { useToast } from '../../hooks/useToast'
 import { makeBibKey } from './utils/bibKey'
 
 interface ReferenceItem {
@@ -40,6 +41,7 @@ const CitationDialog: React.FC<CitationDialogProps> = ({
   onInsertBibliography,
   anchorElement,
 }) => {
+  const { toast } = useToast()
   const [references, setReferences] = useState<ReferenceItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
@@ -203,7 +205,7 @@ const CitationDialog: React.FC<CitationDialogProps> = ({
     try {
       const token = localStorage.getItem('access_token')
       if (!token) {
-        alert('Please login again to download the PDF')
+        toast.warning('Please login again to download the PDF')
         return
       }
       // downloadUrl from backend is already /api/v1/documents/{id}/download
@@ -221,7 +223,7 @@ const CitationDialog: React.FC<CitationDialogProps> = ({
       setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000)
     } catch (error) {
       console.error('Failed to open PDF', error)
-      alert('Failed to open PDF')
+      toast.error('Failed to open PDF')
     }
   }
 

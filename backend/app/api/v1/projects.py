@@ -41,27 +41,7 @@ from app.utils.slugify import slugify, generate_short_id
 router = APIRouter()
 
 
-def _is_valid_uuid(val: str) -> bool:
-    """Check if a string is a valid UUID."""
-    try:
-        UUID(str(val))
-        return True
-    except (ValueError, AttributeError):
-        return False
-
-
-def _parse_short_id(url_id: str) -> str | None:
-    """Extract short_id from a URL identifier (slug-shortid or just shortid)."""
-    if not url_id or _is_valid_uuid(url_id):
-        return None
-    if len(url_id) == 8 and url_id.isalnum():
-        return url_id
-    last_hyphen = url_id.rfind('-')
-    if last_hyphen > 0:
-        potential = url_id[last_hyphen + 1:]
-        if len(potential) == 8 and potential.isalnum():
-            return potential
-    return None
+from app.utils.id_parsing import is_valid_uuid as _is_valid_uuid, parse_short_id as _parse_short_id
 
 
 def _get_project(db: Session, project_id: str | UUID) -> Project:
@@ -858,6 +838,41 @@ def decline_project_invitation(
 
     db.commit()
     return {"message": "Invitation declined"}
+
+
+# ========== OBJECTIVES ==========
+
+class ObjectivesUpdatePayload(BaseModel):
+    completed_indices: List[int]
+
+
+@router.patch("/{project_id}/objectives")
+def update_project_objectives(
+    project_id: str,
+    payload: ObjectivesUpdatePayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update the list of completed objective indices for a project."""
+    project = _get_project(db, project_id)
+    _require_project_access(db, project, current_user)
+
+    project.completed_objectives = sorted(set(payload.completed_indices))
+    db.commit()
+    db.refresh(project)
+    return {"completed_indices": project.completed_objectives}
+
+
+@router.get("/{project_id}/objectives")
+def get_project_objectives(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get the list of completed objective indices for a project."""
+    project = _get_project(db, project_id)
+    _require_project_access(db, project, current_user)
+    return {"completed_indices": project.completed_objectives or []}
 
 
 # ========== DISCUSSION SETTINGS ==========

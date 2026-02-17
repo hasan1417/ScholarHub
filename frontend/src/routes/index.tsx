@@ -9,7 +9,7 @@ import EditDetailsShowcase from '../pages/EditDetailsShowcase'
 import Pricing from '../pages/Pricing'
 import { authRoutes } from './authRoutes'
 import { referenceRoutes } from './referenceRoutes'
-import { discoveryRoutes } from './discoveryRoutes'
+// Global discovery route removed - discovery is now only accessible within project context
 import { profileRoutes } from './profileRoutes'
 import { projectRoutes } from './projectRoutes'
 import PaperRedirect from '../pages/projects/PaperRedirect'
@@ -62,7 +62,7 @@ export const appRouteConfig: RouteObject[] = [
         element: <Pricing />,
       },
       ...referenceRoutes,
-      ...discoveryRoutes,
+      // discoveryRoutes removed - discovery only within project context
       ...profileRoutes,
       {
         path: '*',

@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { EditorAdapterHandle, EditorAdapterProps } from './EditorAdapter'
+import { useToast } from '../../../hooks/useToast'
 
 declare global {
   interface Window {
@@ -11,6 +12,7 @@ const OOAdapter = forwardRef<EditorAdapterHandle, EditorAdapterProps>(function O
   { paperId, paperTitle, className, onDirtyChange, readOnly = false, collaborationStatus: _collaborationStatus, theme = 'light' },
   ref
 ) {
+  const { toast } = useToast()
   const containerRef = useRef<HTMLDivElement>(null)
   const editorIdRef = useRef<string>('oo-editor-' + Math.random().toString(36).slice(2))
   const docEditorRef = useRef<any>(null)
@@ -245,11 +247,11 @@ const OOAdapter = forwardRef<EditorAdapterHandle, EditorAdapterProps>(function O
     },
     async insertText(text: string) {
       if (readOnly) return
-      try { await sendBridge('insertText', { text }) } catch (e){ alert('Insert failed (bridge): '+ (e as any)?.message) }
+      try { await sendBridge('insertText', { text }) } catch (e){ toast.error('Insert failed (bridge): '+ (e as any)?.message) }
     },
     async replaceSelection(text: string) {
       if (readOnly) return
-      try { await sendBridge('replaceSelection', { text }) } catch (e){ alert('Replace selection failed (bridge): '+ (e as any)?.message) }
+      try { await sendBridge('replaceSelection', { text }) } catch (e){ toast.error('Replace selection failed (bridge): '+ (e as any)?.message) }
     },
     async setContent(_html: string, _options?: { overwriteRealtime?: boolean }) {
       // Not supported; OnlyOffice requires server-side document replace. No-op silently.
@@ -279,7 +281,7 @@ const OOAdapter = forwardRef<EditorAdapterHandle, EditorAdapterProps>(function O
     },
     async insertBibliography(heading: string, items: string[]) {
       if (readOnly) return
-      try { await sendBridge('insertBibliography', { heading, items }) } catch (e){ alert('Insert bibliography failed (bridge): '+ (e as any)?.message) }
+      try { await sendBridge('insertBibliography', { heading, items }) } catch (e){ toast.error('Insert bibliography failed (bridge): '+ (e as any)?.message) }
     },
     focus() {
       try { containerRef.current?.querySelector('iframe')?.focus() } catch {}

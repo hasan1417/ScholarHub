@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { FileText, BookOpen, Clock, Download, TrendingUp, Copy, Eye, Edit, Save } from 'lucide-react'
 import { usePapers } from '../../contexts/PapersContext'
+import { useToast } from '../../hooks/useToast'
 import { buildApiUrl } from '../../services/api'
 
 interface LiteratureReviewSection {
@@ -37,6 +38,7 @@ const LiteratureReviewGenerator: React.FC<LiteratureReviewGeneratorProps> = ({
   onSave
 }) => {
   const { papers } = usePapers()
+  const { toast } = useToast()
   const [selectedPapers, setSelectedPapers] = useState<string[]>(selectedPaperIds)
   const [reviewTopic, setReviewTopic] = useState('')
   const [reviewType, setReviewType] = useState<'systematic' | 'narrative' | 'scoping'>('systematic')
@@ -66,12 +68,12 @@ const LiteratureReviewGenerator: React.FC<LiteratureReviewGeneratorProps> = ({
 
   const handleGenerateReview = async () => {
     if (selectedPapers.length < 2) {
-      alert('Please select at least 2 papers for literature review generation')
+      toast.warning('Please select at least 2 papers for literature review generation')
       return
     }
 
     if (!reviewTopic.trim()) {
-      alert('Please enter a review topic')
+      toast.warning('Please enter a review topic')
       return
     }
 
@@ -102,7 +104,7 @@ const LiteratureReviewGenerator: React.FC<LiteratureReviewGeneratorProps> = ({
       
     } catch (error) {
       console.error('Error generating literature review:', error)
-      alert('Literature review generation failed. Please try again.')
+      toast.error('Literature review generation failed. Please try again.')
     } finally {
       setIsGenerating(false)
     }
@@ -110,7 +112,7 @@ const LiteratureReviewGenerator: React.FC<LiteratureReviewGeneratorProps> = ({
 
   const handleCopyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
-    alert('Content copied to clipboard!')
+    toast.success('Content copied to clipboard!')
   }
 
   const handleSaveReview = () => {

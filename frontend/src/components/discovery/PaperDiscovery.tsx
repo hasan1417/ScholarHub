@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react'
 import { Search, Star, ExternalLink, Plus, BookOpen, Calendar, Users, TrendingUp, CheckCircle, Clock, ArrowUpDown } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
+import { useToast } from '../../hooks/useToast'
 import { researchPapersAPI, referencesAPI, buildApiUrl } from '../../services/api'
 
 interface DiscoveredPaper {
@@ -31,10 +32,11 @@ interface PaperDiscoveryProps {
 const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, paperId: paperIdProp, forcePaperMode }) => {
   const STORAGE_KEY = 'paperDiscovery:manual:v1'
   const { isAuthenticated } = useAuth()
-  const [toast, setToast] = useState<{ type: 'success' | 'info' | 'error'; message: string } | null>(null)
-  const showToast = (message: string, type: 'success' | 'info' | 'error' = 'info', ms = 3500) => {
-    setToast({ type, message })
-    window.setTimeout(() => setToast(null), ms)
+  const { toast } = useToast()
+  const showToast = (message: string, type: 'success' | 'info' | 'error' = 'info', _ms = 3500) => {
+    if (type === 'success') toast.success(message)
+    else if (type === 'error') toast.error(message)
+    else toast.info(message)
   }
   const [query, setQuery] = useState('')
   const [researchTopic, setResearchTopic] = useState('')
@@ -361,7 +363,7 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
       // Suppress noise for user-initiated aborts
       if ((error as any)?.name === 'AbortError') return
       console.error('Error searching papers:', error)
-      alert(error instanceof Error ? error.message : 'Search failed. Please try again.')
+      toast.error(error instanceof Error ? error.message : 'Search failed. Please try again.')
     } finally {
       if (append) setIsLoadingMore(false)
       if (!append && searchId === currentSearchIdRef.current) setIsSearching(false)
@@ -370,10 +372,10 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
 
   const handleSearch = async () => {
     if (!canSearch()) {
-      if (!isAuthenticated) alert('Please login to search for papers.')
-      else if (mode === 'query') alert('Please enter at least 3 characters for your search query.')
-      else if (paperModeSource === 'current') alert('Open discovery from a paper to use current paper context.')
-      else alert('Please paste at least 10 characters for paper context.')
+      if (!isAuthenticated) toast.warning('Please login to search for papers.')
+      else if (mode === 'query') toast.warning('Please enter at least 3 characters for your search query.')
+      else if (paperModeSource === 'current') toast.warning('Open discovery from a paper to use current paper context.')
+      else toast.warning('Please paste at least 10 characters for paper context.')
       return
     }
     setHasSearched(true)
@@ -455,11 +457,11 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
           is_open_access: (paper as any).is_open_access || false,
           pdf_url: (paper as any).pdf_url || undefined
         })
-        alert('Reference added to this paper.')
+        toast.success('Reference added to this paper.')
         if (onAddPaper) onAddPaper(paper)
       } catch (e) {
         console.error('Failed to add reference', e)
-        alert('Failed to add reference.')
+        toast.error('Failed to add reference.')
       }
       return
     }
@@ -1090,7 +1092,7 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
                         onClick={() => {
                           setUploadStatus(null)
                           if (selectedTargetPapers.size !== 1) {
-                            alert('Select exactly one paper to upload a PDF to its knowledge base.')
+                            toast.warning('Select exactly one paper to upload a PDF to its knowledge base.')
                             return
                           }
                           fileInputRef.current?.click()
@@ -1133,13 +1135,13 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
                     for (const pid of refs) {
                       await referencesAPI.create({ ...payloadBase, paper_id: pid })
                     }
-                    alert(`Attached to ${refs.length} paper(s) and saved in My References.`)
+                    toast.success(`Attached to ${refs.length} paper(s) and saved in My References.`)
                     setShowSelectPaper(false)
                     setSelectedTargetPapers(new Set())
                     setAttachCandidate(null)
                   } catch (e) {
                     console.error('Failed to attach references', e)
-                    alert('Failed to attach references.')
+                    toast.error('Failed to attach references.')
                   }
                 }}
               >
@@ -1249,7 +1251,7 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
           if (!file || !attachCandidate) return
           const selected = Array.from(selectedTargetPapers)
           if (selected.length !== 1) {
-            alert('Please select exactly one target paper.')
+            toast.warning('Please select exactly one target paper.')
             return
           }
           const paperIdTarget = selected[0]
@@ -1464,19 +1466,6 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
       )}
 
 
-      {toast && (
-        <div
-          className={`fixed bottom-6 right-6 z-50 rounded shadow-lg px-4 py-3 text-sm ${
-            toast.type === 'success'
-              ? 'bg-green-600 text-white'
-              : toast.type === 'error'
-              ? 'bg-red-600 text-white'
-              : 'bg-gray-900 text-white'
-          }`}
-        >
-          {toast.message}
-        </div>
-      )}
     </div>
   )
 }

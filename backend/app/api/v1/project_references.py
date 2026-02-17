@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, UploadFile, File as FastAPIFile, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -26,7 +27,7 @@ from app.services.project_reference_service import ProjectReferenceSuggestionSer
 from app.services.project_discovery_service import ProjectDiscoveryManager
 from app.services.activity_feed import record_project_activity, preview_text
 from app.services.embedding_worker import queue_library_paper_embedding_sync
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 router = APIRouter()
@@ -46,27 +47,7 @@ class AttachReferencePayload(BaseModel):
     paper_id: UUID
 
 
-def _is_valid_uuid(val: str) -> bool:
-    """Check if a string is a valid UUID."""
-    try:
-        UUID(str(val))
-        return True
-    except (ValueError, AttributeError):
-        return False
-
-
-def _parse_short_id(url_id: str) -> Optional[str]:
-    """Extract short_id from a URL identifier (slug-shortid or just shortid)."""
-    if not url_id or _is_valid_uuid(url_id):
-        return None
-    if len(url_id) == 8 and url_id.isalnum():
-        return url_id
-    last_hyphen = url_id.rfind('-')
-    if last_hyphen > 0:
-        potential_short_id = url_id[last_hyphen + 1:]
-        if len(potential_short_id) == 8 and potential_short_id.isalnum():
-            return potential_short_id
-    return None
+from app.utils.id_parsing import is_valid_uuid as _is_valid_uuid, parse_short_id as _parse_short_id
 
 
 def _coerce_document_status(value) -> DocumentStatus | None:
@@ -170,6 +151,92 @@ def _serialize_project_reference(pr: ProjectReference) -> ProjectReferenceRespon
         } if ref else None,
         papers=related_papers,
     )
+
+
+class SuggestCitationsPayload(BaseModel):
+    text: str = Field(..., min_length=1, max_length=10000)
+    limit: int = Field(default=3, ge=1, le=10)
+
+
+@router.post("/projects/{project_id}/references/suggest-citations")
+async def suggest_citations(
+    project_id: str,
+    payload: SuggestCitationsPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Suggest citations from the project library based on semantic similarity to the given text."""
+    project = get_project_or_404(db, project_id)
+    ensure_project_member(db, project, current_user)
+
+    from app.models.paper_embedding import PaperEmbedding
+    from app.services.embedding_service import get_embedding_service
+    from sqlalchemy import text as sa_text
+
+    # Embed the query text
+    try:
+        embedding_service = get_embedding_service()
+        query_embedding = await embedding_service.embed(payload.text)
+    except Exception as e:
+        logger.error("Citation suggestion embedding failed: %s", e)
+        return {"suggestions": []}
+
+    embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
+
+    sql = sa_text("""
+        SELECT
+            pr.id as project_reference_id,
+            r.id as reference_id,
+            r.title,
+            r.authors,
+            r.year,
+            1 - (pe.embedding <=> :query_embedding) as similarity
+        FROM paper_embeddings pe
+        JOIN project_references pr ON pe.project_reference_id = pr.id
+        JOIN "references" r ON pr.reference_id = r.id
+        WHERE pr.project_id = :project_id
+            AND pr.status = 'approved'
+            AND 1 - (pe.embedding <=> :query_embedding) > 0.15
+        ORDER BY pe.embedding <=> :query_embedding
+        LIMIT :limit
+    """)
+
+    try:
+        result = db.execute(
+            sql,
+            {
+                "query_embedding": embedding_str,
+                "project_id": str(project.id),
+                "limit": payload.limit,
+            },
+        )
+        rows = result.fetchall()
+    except Exception as e:
+        logger.error("Citation suggestion vector query failed: %s", e)
+        return {"suggestions": []}
+
+    # Disambiguate citation keys across results
+    class _RefProxy:
+        def __init__(self, rid, authors, year):
+            self.id = rid
+            self.authors = authors
+            self.year = year
+
+    proxies = [_RefProxy(row.reference_id, row.authors or [], row.year) for row in rows]
+    key_map = _disambiguate_cite_keys(proxies)
+
+    suggestions = []
+    for row in rows:
+        suggestions.append({
+            "reference_id": str(row.reference_id),
+            "title": row.title,
+            "authors": row.authors or [],
+            "year": row.year,
+            "citation_key": key_map.get(row.reference_id, _generate_cite_key(row.authors or [], row.year)),
+            "similarity": round(float(row.similarity), 4),
+        })
+
+    return {"suggestions": suggestions}
 
 
 @router.get("/projects/{project_id}/references/suggestions")
@@ -688,6 +755,263 @@ def delete_project_reference(
     db.commit()
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ──────────────────────────────────────────────────────────────
+# BibTeX import / export
+# ──────────────────────────────────────────────────────────────
+
+def _parse_bibtex(raw: str) -> list[dict]:
+    """Minimal BibTeX parser. Returns a list of dicts with extracted fields."""
+    entries: list[dict] = []
+    # Match @type{key, ... } blocks
+    pattern = re.compile(r"@(\w+)\s*\{([^,]*),", re.IGNORECASE)
+    positions = [(m.start(), m.group(1), m.group(2).strip()) for m in pattern.finditer(raw)]
+
+    for idx, (start, entry_type, cite_key) in enumerate(positions):
+        # Find the body between this entry's opening brace and its closing brace
+        brace_start = raw.index("{", start)
+        depth = 0
+        end = brace_start
+        for i in range(brace_start, len(raw)):
+            if raw[i] == "{":
+                depth += 1
+            elif raw[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        body = raw[brace_start + 1 : end]
+        # Remove the cite_key prefix (everything up to and including first comma)
+        first_comma = body.find(",")
+        if first_comma >= 0:
+            body = body[first_comma + 1 :]
+
+        # Extract field = {value} or field = "value" pairs
+        fields: dict[str, str] = {}
+        field_re = re.compile(r"(\w+)\s*=\s*[{\"](.+?)[}\"]", re.DOTALL)
+        for fm in field_re.finditer(body):
+            fields[fm.group(1).lower().strip()] = fm.group(2).strip()
+
+        # Build entry dict
+        title = fields.get("title", "").strip()
+        if not title:
+            continue  # skip entries without a title
+
+        authors_raw = fields.get("author", "")
+        authors = [a.strip() for a in authors_raw.split(" and ")] if authors_raw else []
+
+        year_str = fields.get("year", "")
+        year = None
+        if year_str:
+            try:
+                year = int(re.sub(r"\D", "", year_str)[:4])
+            except (ValueError, IndexError):
+                pass
+
+        journal = fields.get("journal") or fields.get("booktitle") or None
+        doi = fields.get("doi") or None
+        abstract = fields.get("abstract") or None
+
+        entries.append({
+            "title": title,
+            "authors": authors,
+            "year": year,
+            "journal": journal,
+            "doi": doi,
+            "abstract": abstract,
+            "entry_type": entry_type.lower(),
+            "cite_key": cite_key,
+        })
+
+    return entries
+
+
+def _generate_cite_key(authors: list[str] | None, year: int | None) -> str:
+    """Generate a citation key from first author lastname + year."""
+    lastname = "unknown"
+    if authors and len(authors) > 0:
+        first = authors[0]
+        if "," in first:
+            lastname = first.split(",")[0].strip()
+        else:
+            parts = first.strip().split()
+            lastname = parts[-1] if parts else "unknown"
+    lastname = re.sub(r"[^a-zA-Z]", "", lastname).lower() or "unknown"
+    yr = str(year) if year else "XXXX"
+    return f"{lastname}{yr}"
+
+
+def _disambiguate_cite_keys(refs: list) -> dict:
+    """Generate unique cite keys for a list of references, appending a/b/c on collision."""
+    keys: dict = {}  # ref -> key
+    used: dict = {}  # base_key -> count
+    for ref in refs:
+        authors = ref.authors or []
+        base = _generate_cite_key(authors, ref.year)
+        count = used.get(base, 0)
+        used[base] = count + 1
+        if count == 0:
+            keys[ref.id] = base
+        else:
+            suffix = chr(ord("a") + count)
+            keys[ref.id] = f"{base}{suffix}"
+    # Go back and add 'a' suffix to the first occurrence if there were collisions
+    for ref in refs:
+        authors = ref.authors or []
+        base = _generate_cite_key(authors, ref.year)
+        if used[base] > 1 and keys[ref.id] == base:
+            keys[ref.id] = f"{base}a"
+    return keys
+
+
+def _reference_to_bibtex(ref: Reference, cite_key: str | None = None, entry_type: str = "article") -> str:
+    """Convert a Reference model instance to a BibTeX entry string."""
+    authors = ref.authors or []
+    if not cite_key:
+        cite_key = _generate_cite_key(authors, ref.year)
+    lines = [f"@{entry_type}{{{cite_key},"]
+    if ref.title:
+        lines.append(f"  title = {{{ref.title}}},")
+    if authors:
+        lines.append(f"  author = {{{' and '.join(authors)}}},")
+    if ref.year:
+        lines.append(f"  year = {{{ref.year}}},")
+    if ref.journal:
+        lines.append(f"  journal = {{{ref.journal}}},")
+    if ref.doi:
+        lines.append(f"  doi = {{{ref.doi}}},")
+    if ref.abstract:
+        lines.append(f"  abstract = {{{ref.abstract}}},")
+    if ref.url:
+        lines.append(f"  url = {{{ref.url}}},")
+    lines.append("}")
+    return "\n".join(lines)
+
+
+@router.post("/projects/{project_id}/references/import-bibtex")
+def import_bibtex(
+    project_id: str,
+    file: UploadFile = FastAPIFile(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Import references from a .bib file into the project library."""
+    _guard_feature()
+    project = get_project_or_404(db, project_id)
+    ensure_project_member(db, project, current_user, roles=[ProjectRole.ADMIN, ProjectRole.EDITOR])
+
+    try:
+        raw = file.file.read().decode("utf-8", errors="replace")
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unable to read uploaded file")
+
+    entries = _parse_bibtex(raw)
+    if not entries:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No valid BibTeX entries found in file")
+
+    imported = 0
+    skipped = 0
+    errors: list[str] = []
+
+    # Accumulate valid entries first, then bulk insert to avoid transaction issues
+    valid_refs: list[dict] = []
+
+    for entry in entries:
+        # Check for duplicate by DOI within the project
+        if entry.get("doi"):
+            existing = (
+                db.query(ProjectReference)
+                .join(Reference, Reference.id == ProjectReference.reference_id)
+                .filter(
+                    ProjectReference.project_id == project.id,
+                    Reference.doi == entry["doi"],
+                )
+                .first()
+            )
+            if existing:
+                skipped += 1
+                continue
+
+        valid_refs.append(entry)
+
+    # Insert all valid entries in a single transaction
+    from datetime import datetime
+    for entry in valid_refs:
+        try:
+            ref = Reference(
+                owner_id=current_user.id,
+                title=entry["title"],
+                authors=entry.get("authors") or None,
+                year=entry.get("year"),
+                journal=entry.get("journal"),
+                doi=entry.get("doi"),
+                abstract=entry.get("abstract"),
+                source="bibtex",
+            )
+            db.add(ref)
+            db.flush()
+
+            pr = ProjectReference(
+                project_id=project.id,
+                reference_id=ref.id,
+                status=ProjectReferenceStatus.APPROVED,
+                confidence=1.0,
+                decided_by=current_user.id,
+            )
+            pr.decided_at = datetime.utcnow()
+            db.add(pr)
+            db.flush()
+
+            imported += 1
+        except Exception as exc:
+            logger.warning("BibTeX import error for entry '%s': %s", entry.get("title", "?"), exc)
+            errors.append(f"Failed to import: {entry.get('title', 'unknown')}")
+
+    if imported > 0:
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise HTTPException(status_code=500, detail="Failed to save imported references")
+
+    return {"imported": imported, "skipped": skipped, "errors": errors}
+
+
+@router.get("/projects/{project_id}/references/export-bibtex")
+def export_bibtex(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Export all approved project references as a .bib file."""
+    _guard_feature()
+    project = get_project_or_404(db, project_id)
+    ensure_project_member(db, project, current_user)
+
+    project_refs = (
+        db.query(ProjectReference)
+        .filter(
+            ProjectReference.project_id == project.id,
+            ProjectReference.status == ProjectReferenceStatus.APPROVED,
+        )
+        .all()
+    )
+
+    all_refs = [pr.reference for pr in project_refs if pr.reference]
+    key_map = _disambiguate_cite_keys(all_refs)
+
+    bib_entries: list[str] = []
+    for ref in all_refs:
+        bib_entries.append(_reference_to_bibtex(ref, cite_key=key_map.get(ref.id)))
+
+    bibtex_str = "\n\n".join(bib_entries) + "\n" if bib_entries else "% No references to export\n"
+
+    return Response(
+        content=bibtex_str,
+        media_type="text/plain",
+        headers={"Content-Disposition": "attachment; filename=references.bib"},
+    )
 
 
 @router.get("/projects/{project_id}/papers/{paper_id}/references")

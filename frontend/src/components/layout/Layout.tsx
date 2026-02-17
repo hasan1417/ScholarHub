@@ -4,17 +4,21 @@ import { FolderKanban, UserCircle, Settings as SettingsIcon, Sun, Moon, ChevronR
 import { useAuth } from '../../contexts/AuthContext'
 import SettingsModal from '../settings/SettingsModal'
 import { useThemePreference } from '../../hooks/useThemePreference'
+import { useToast } from '../../hooks/useToast'
 import { Logo } from '../brand/Logo'
 import { UpgradeModal, SubscriptionSection } from '../subscription'
 import { subscriptionAPI, authAPI } from '../../services/api'
+import CommandPalette from '../ui/CommandPalette'
 
 const Layout = () => {
   const { user, logout } = useAuth()
+  const { toast } = useToast()
   const navigate = useNavigate()
   const location = useLocation()
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isFreeTier, setIsFreeTier] = useState(false)
   const [tierLoaded, setTierLoaded] = useState(false)
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
 
   const { theme, setTheme } = useThemePreference()
 
@@ -22,6 +26,18 @@ const Layout = () => {
   const [verificationBannerDismissed, setVerificationBannerDismissed] = useState(false)
   const [resendingVerification, setResendingVerification] = useState(false)
   const [verificationResent, setVerificationResent] = useState(false)
+
+  // Cmd+K / Ctrl+K to open command palette
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setIsCommandPaletteOpen((prev) => !prev)
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   // Check subscription tier
   useEffect(() => {
@@ -57,7 +73,7 @@ const Layout = () => {
       setVerificationResent(true)
       setTimeout(() => setVerificationResent(false), 5000)
     } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Failed to resend verification email')
+      toast.error(err?.response?.data?.detail || 'Failed to resend verification email')
     } finally {
       setResendingVerification(false)
     }
@@ -249,6 +265,12 @@ const Layout = () => {
 
       {/* Global upgrade modal - listens for limit-exceeded events */}
       <UpgradeModal />
+
+      {/* Command Palette (Cmd+K / Ctrl+K) */}
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+      />
     </div>
   )
 }

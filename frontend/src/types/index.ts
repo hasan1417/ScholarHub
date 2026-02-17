@@ -126,6 +126,15 @@ export interface ProjectReferenceSuggestion {
   }>
 }
 
+export interface CitationSuggestion {
+  reference_id: string
+  title: string
+  authors: string[]
+  year: number | null
+  citation_key: string
+  similarity: number
+}
+
 export interface PaperReferenceAttachment {
   paper_reference_id: string
   project_reference_id?: string | null

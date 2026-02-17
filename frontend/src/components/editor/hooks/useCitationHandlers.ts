@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import { researchPapersAPI } from '../../../services/api'
+import { useToast } from '../../../hooks/useToast'
 import { makeBibKey } from '../utils/bibKey'
 
 interface UseCitationHandlersOptions {
@@ -12,6 +13,7 @@ interface UseCitationHandlersOptions {
 export function useCitationHandlers({
   paperId, readOnly, insertSnippet, insertAtDocumentEnd,
 }: UseCitationHandlersOptions) {
+  const { toast } = useToast()
   const [citationDialogOpen, setCitationDialogOpen] = useState(false)
   const [citationAnchor, setCitationAnchor] = useState<HTMLElement | null>(null)
 
@@ -63,7 +65,7 @@ export function useCitationHandlers({
       const message = Array.isArray(detail)
         ? detail.map((d: any) => `${d.loc?.join('.') || 'unknown'}: ${d.msg}`).join(', ')
         : (detail || error.message || 'Upload failed')
-      alert(`Failed to upload bibliography file. ${message}`)
+      toast.error(`Failed to upload bibliography file. ${message}`)
     }
   }, [paperId, insertAtDocumentEnd])
 

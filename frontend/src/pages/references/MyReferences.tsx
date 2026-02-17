@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { referencesAPI, researchPapersAPI, usersAPI } from '../../services/api'
 import { Link } from 'react-router-dom'
 import ZoteroImportModal from '../../components/references/ZoteroImportModal'
+import { useToast } from '../../hooks/useToast'
 
 interface RefItem {
   id: string
@@ -21,6 +22,7 @@ interface RefItem {
 }
 
 const MyReferences: React.FC = () => {
+  const { toast } = useToast()
   const [items, setItems] = useState<RefItem[]>([])
   const [total, setTotal] = useState(0)
   const [q, setQ] = useState('')
@@ -104,7 +106,7 @@ const MyReferences: React.FC = () => {
       await referencesAPI.uploadPdf(ref.id, file)
       await load()
     } catch (e) {
-      alert('Failed to upload PDF')
+      toast.error('Failed to upload PDF')
     } finally {
       setUploadingId(null)
     }
@@ -129,7 +131,7 @@ const MyReferences: React.FC = () => {
       setAttachId(null)
       await load()
     } catch (e) {
-      alert('Failed to attach to paper')
+      toast.error('Failed to attach to paper')
     }
   }
 
@@ -167,7 +169,7 @@ const MyReferences: React.FC = () => {
               if (zoteroConfigured) {
                 setShowZoteroModal(true)
               } else {
-                alert('Connect your Zotero account first in Settings > Integrations.')
+                toast.warning('Connect your Zotero account first in Settings > Integrations.')
               }
             }}
             className="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700"
@@ -199,7 +201,7 @@ const MyReferences: React.FC = () => {
                             try {
                               const token = localStorage.getItem('access_token')
                               if (!token) {
-                                alert('Please login again to download the PDF')
+                                toast.warning('Please login again to download the PDF')
                                 return
                               }
                               const resp = await fetch(ref.pdf_url!, { headers: { Authorization: `Bearer ${token}` } })
@@ -210,7 +212,7 @@ const MyReferences: React.FC = () => {
                               // Optional: revoke after some time
                               setTimeout(() => URL.revokeObjectURL(url), 30_000)
                             } catch (e) {
-                              alert('Failed to open PDF')
+                              toast.error('Failed to open PDF')
                             }
                           }}>PDF</button>
                         ) : (
@@ -378,7 +380,7 @@ const MyReferences: React.FC = () => {
                     setShowAdd(false); setNewPdf(null); setNewRef({ title: '', authors: [], authorsText: '', year: undefined, doi: '', url: '', source: 'manual', journal: '', abstract: '', is_open_access: false, pdf_url: '' })
                     await load()
                   } catch (e) {
-                    alert('Failed to create reference')
+                    toast.error('Failed to create reference')
                   } finally {
                     setSavingNew(false)
                   }

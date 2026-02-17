@@ -21,6 +21,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { ProjectCreateInput, ProjectSummary } from '../../types'
 import ProjectFormModal from '../../components/projects/ProjectFormModal'
 import { getProjectUrlId } from '../../utils/urlId'
+import { useToast } from '../../hooks/useToast'
 
 const PINNED_STORAGE_KEY = 'scholarhub_pinned_projects'
 
@@ -55,6 +56,7 @@ type FilterTab = 'all' | 'my' | 'shared'
 type SortOption = 'updated' | 'created' | 'title'
 
 const ProjectsHome = () => {
+  const { toast } = useToast()
   const [searchTerm, setSearchTerm] = useState('')
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
   const [filterTab, setFilterTab] = useState<FilterTab>('all')
@@ -155,7 +157,7 @@ const ProjectsHome = () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] })
     },
     onError: () => {
-      alert('Failed to accept invitation. Please try again.')
+      toast.error('Failed to accept invitation. Please try again.')
     },
   })
 
@@ -167,7 +169,7 @@ const ProjectsHome = () => {
       queryClient.invalidateQueries({ queryKey: ['project-invitations'] })
     },
     onError: () => {
-      alert('Failed to decline invitation. Please try again.')
+      toast.error('Failed to decline invitation. Please try again.')
     },
   })
 

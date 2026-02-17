@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { X, Loader2, Sparkles, Type, FileText, Lightbulb, Book } from 'lucide-react'
+import { useToast } from '../../hooks/useToast'
 
 interface AiTextToolsPopoverProps {
   isOpen: boolean
@@ -19,6 +20,7 @@ const AiTextToolsPopover: React.FC<AiTextToolsPopoverProps> = ({
   selectedText,
   onReplaceText,
 }) => {
+  const { toast } = useToast()
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
   const [result, setResult] = useState<string>('')
@@ -82,7 +84,7 @@ const AiTextToolsPopover: React.FC<AiTextToolsPopoverProps> = ({
 
   const handleAction = async (action: AiAction) => {
     if (!selectedText.trim()) {
-      alert('Please select some text first')
+      toast.warning('Please select some text first')
       return
     }
 
@@ -115,7 +117,7 @@ const AiTextToolsPopover: React.FC<AiTextToolsPopoverProps> = ({
       setResult(data.result || '')
     } catch (error) {
       console.error('AI action failed:', error)
-      alert('Failed to process text. Please try again.')
+      toast.error('Failed to process text. Please try again.')
     } finally {
       setIsProcessing(false)
     }

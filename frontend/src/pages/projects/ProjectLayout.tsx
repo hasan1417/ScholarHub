@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { NavLink, Outlet, useNavigate, useOutletContext, useParams, useLocation } from 'react-router-dom'
-import { ArrowLeft, Calendar, Users, Trash2, Home, MessageSquare, FileEdit, Search, Video, BookOpen, FileText, Settings, Sparkles } from 'lucide-react'
+import { ArrowLeft, Calendar, Users, Trash2, Home, MessageSquare, FileEdit, Search, Video, BookOpen, FileText, Settings } from 'lucide-react'
 import { projectDiscoveryAPI, projectsAPI } from '../../services/api'
 import { ProjectCreateInput, ProjectDetail } from '../../types'
 import ProjectFormModal from '../../components/projects/ProjectFormModal'
@@ -11,6 +11,7 @@ import ProjectSettingsModal from '../../components/projects/ProjectSettingsModal
 import { getProjectUrlId } from '../../utils/urlId'
 import TabDropdown from '../../components/projects/TabDropdown'
 import { getNavigationMode } from '../../config/navigation'
+import { useToast } from '../../hooks/useToast'
 
 type ProjectOutletContext = {
   project: ProjectDetail
@@ -85,11 +86,10 @@ const NEW_TAB_GROUPS = {
       tooltip: 'View and edit research papers'
     },
     {
-      label: 'Scholar AI',
+      label: 'Discussion',
       path: 'discussion',
-      icon: Sparkles,
+      icon: MessageSquare,
       tooltip: 'AI-powered research assistant',
-      animate: true,
     },
     {
       label: 'Library',
@@ -102,6 +102,7 @@ const NEW_TAB_GROUPS = {
 }
 
 const ProjectLayout = () => {
+  const { toast } = useToast()
   const { projectId, paperId } = useParams<{ projectId: string; paperId?: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -119,7 +120,7 @@ const ProjectLayout = () => {
       navigate('/projects')
     },
     onError: () => {
-      alert('Failed to delete project. Please try again.')
+      toast.error('Failed to delete project. Please try again.')
     },
   })
   const { user } = useAuth()
@@ -351,7 +352,7 @@ const ProjectLayout = () => {
         <nav className="mt-6 sm:mt-8 flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium overflow-x-auto pb-1">
           {getNavigationMode() === 'new' ? (
             // NEW NAVIGATION: 4 simple tabs
-            NEW_TAB_GROUPS.main.map(({ label, path, icon: Icon, tooltip, badge, animate }) => (
+            NEW_TAB_GROUPS.main.map(({ label, path, icon: Icon, tooltip, badge }) => (
               <div key={label} className="relative flex-shrink-0">
                 <NavLink
                   to={`/projects/${getProjectUrlId(project)}/${path}`}
@@ -360,10 +361,10 @@ const ProjectLayout = () => {
                   className={({ isActive }) =>
                     `inline-flex items-center gap-1 sm:gap-1.5 rounded-full px-2.5 py-1 sm:px-3 sm:py-1.5 transition-colors whitespace-nowrap ${
                       isActive ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-700'
-                    }${animate ? ' group' : ''}`
+                    }`
                   }
                 >
-                  {Icon && <Icon className={`h-3.5 w-3.5 sm:h-4 sm:w-4${animate ? ' transition-all duration-300 group-hover:scale-110 group-hover:drop-shadow-[0_0_6px_rgba(99,102,241,0.6)]' : ''}`} />}
+                  {Icon && <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />}
                   <span className="hidden xs:inline sm:inline">{label}</span>
                 </NavLink>
                 {badge === 'discovery' && hasLibraryNotifications && (

@@ -3,8 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import { usePapers } from '../../contexts/PapersContext'
 import CreatePaperModal from '../../components/projects/CreatePaperModal'
 import { referencesAPI } from '../../services/api'
+import { useToast } from '../../hooks/useToast'
 
 const ResearchPapers: React.FC = () => {
+  const { toast } = useToast()
   const navigate = useNavigate()
   const { papers, isLoading, deletePaper, updatePaper, createPaper } = usePapers()
   const [searchTerm, setSearchTerm] = useState('')
@@ -55,7 +57,7 @@ const ResearchPapers: React.FC = () => {
         await deletePaper(paperId)
       } catch (error) {
         console.error('Error deleting paper:', error)
-        alert('Error deleting paper. Please try again.')
+        toast.error('Error deleting paper. Please try again.')
       }
     }
   }

@@ -33,6 +33,8 @@ ORDERED_TOOL_NAMES: List[str] = [
     "analyze_across_papers",
     "compare_papers",
     "suggest_research_gaps",
+    "recommend_methodology",
+    "refine_research_question",
     "generate_section_from_discussion",
     "generate_abstract",
 ]

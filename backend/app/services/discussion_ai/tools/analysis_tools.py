@@ -111,6 +111,54 @@ COMPARE_PAPERS_SCHEMA = {
     },
 }
 
+RECOMMEND_METHODOLOGY_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "recommend_methodology",
+        "description": "Recommend research methodologies based on the user's research question and methods used in their library papers. Analyzes methodology sections from ingested papers to suggest ranked approaches with citations.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "research_question": {
+                    "type": "string",
+                    "description": "The research question to recommend methodologies for.",
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["focused", "library", "channel"],
+                    "description": "Which papers to analyze: 'focused' (currently focused papers), 'library' (project library), 'channel' (papers added via this channel).",
+                    "default": "library",
+                },
+            },
+            "required": ["research_question"],
+        },
+    },
+}
+
+REFINE_RESEARCH_QUESTION_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "refine_research_question",
+        "description": "Refine a rough research idea into 3-5 specific, actionable research questions. Uses PICO (Population, Intervention, Comparison, Outcome) or SPIDER (Sample, Phenomenon of Interest, Design, Evaluation, Research type) frameworks. Analyzes library papers to identify feasible directions.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "rough_idea": {
+                    "type": "string",
+                    "description": "The rough research idea or topic to refine into specific questions.",
+                },
+                "framework": {
+                    "type": "string",
+                    "enum": ["PICO", "SPIDER", "general"],
+                    "description": "Framework for structuring research questions: PICO (Population, Intervention, Comparison, Outcome), SPIDER (Sample, Phenomenon of Interest, Design, Evaluation, Research type), or general.",
+                    "default": "general",
+                },
+            },
+            "required": ["rough_idea"],
+        },
+    },
+}
+
 SUGGEST_RESEARCH_GAPS_SCHEMA = {
     "type": "function",
     "function": {
@@ -143,6 +191,14 @@ def _handle_suggest_research_gaps(orchestrator: Any, ctx: Dict[str, Any], args: 
     return orchestrator._tool_suggest_research_gaps(ctx, **args)
 
 
+def _handle_recommend_methodology(orchestrator: Any, ctx: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
+    return orchestrator._tool_recommend_methodology(ctx, **args)
+
+
+def _handle_refine_research_question(orchestrator: Any, ctx: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
+    return orchestrator._tool_refine_research_question(ctx, **args)
+
+
 TOOL_SPECS: List[ToolSpec] = [
     ToolSpec(
         name="trigger_search_ui",
@@ -168,6 +224,16 @@ TOOL_SPECS: List[ToolSpec] = [
         name="suggest_research_gaps",
         schema=SUGGEST_RESEARCH_GAPS_SCHEMA,
         handler=_handle_suggest_research_gaps,
+    ),
+    ToolSpec(
+        name="recommend_methodology",
+        schema=RECOMMEND_METHODOLOGY_SCHEMA,
+        handler=_handle_recommend_methodology,
+    ),
+    ToolSpec(
+        name="refine_research_question",
+        schema=REFINE_RESEARCH_QUESTION_SCHEMA,
+        handler=_handle_refine_research_question,
     ),
 ]
 

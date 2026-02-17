@@ -22,6 +22,7 @@ import { OutlinePanel } from './components/OutlinePanel'
 import { FileSelector } from './components/FileSelector'
 import { SymbolPalette } from './components/SymbolPalette'
 import { TrackChangesPanel } from './components/TrackChangesPanel'
+import CitationSuggestions from './components/CitationSuggestions'
 import { useDocumentOutline } from './hooks/useDocumentOutline'
 import { useSyncTeX } from './hooks/useSyncTeX'
 import { useTrackChanges } from './hooks/useTrackChanges'
@@ -310,6 +311,56 @@ function LaTeXEditorImpl(
     updateWordCount()
   }, [compileStatus]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Citation suggestions: extract paragraph text around cursor
+  const [cursorParagraph, setCursorParagraph] = useState('')
+  const paragraphTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Update paragraph text when the value changes (piggyback on onChange)
+  useEffect(() => {
+    if (!projectId) return
+    if (paragraphTimerRef.current) clearTimeout(paragraphTimerRef.current)
+    paragraphTimerRef.current = setTimeout(() => {
+      const view = viewRef.current
+      if (!view) return
+      try {
+        const pos = view.state.selection.main.head
+        const doc = view.state.doc
+        // Find the paragraph: walk backwards/forwards from cursor to find blank lines
+        const curLine = doc.lineAt(pos)
+        let startLine = curLine.number
+        let endLine = curLine.number
+        // Walk backwards to find paragraph start
+        while (startLine > 1) {
+          const prev = doc.line(startLine - 1)
+          if (prev.text.trim() === '') break
+          startLine--
+        }
+        // Walk forwards to find paragraph end
+        while (endLine < doc.lines) {
+          const next = doc.line(endLine + 1)
+          if (next.text.trim() === '') break
+          endLine++
+        }
+        const paragraphText = doc.sliceString(doc.line(startLine).from, doc.line(endLine).to)
+        // Only update if substantially different to avoid re-renders
+        setCursorParagraph(prev => {
+          if (prev === paragraphText) return prev
+          return paragraphText
+        })
+      } catch {}
+    }, 500)
+  }, [value, projectId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Handle citation insertion from suggestions
+  const handleSuggestedCitationInsert = useCallback((citationKey: string) => {
+    const view = viewRef.current
+    if (!view) return
+    const sel = view.state.selection.main
+    const cite = `\\cite{${citationKey}}`
+    view.dispatch({ changes: { from: sel.from, to: sel.to, insert: cite } })
+    view.focus()
+  }, [viewRef])
+
   // Symbol palette: insert symbol at cursor
   const handleInsertSymbol = useCallback((latex: string) => {
     const view = viewRef.current
@@ -503,6 +554,15 @@ function LaTeXEditorImpl(
             {!editorReady && (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-white/80 text-xs text-slate-500 dark:bg-slate-950/70 dark:text-slate-300">
                 Initializing editor…
+              </div>
+            )}
+            {projectId && !readOnly && (
+              <div className="absolute right-0 bottom-0 left-0 z-10">
+                <CitationSuggestions
+                  projectId={projectId}
+                  currentText={cursorParagraph}
+                  onInsertCitation={handleSuggestedCitationInsert}
+                />
               </div>
             )}
           </div>

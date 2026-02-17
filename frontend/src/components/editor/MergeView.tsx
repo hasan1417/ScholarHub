@@ -6,6 +6,7 @@ import { EditorView } from '@codemirror/view'
 import { StreamLanguage } from '@codemirror/language'
 import { stex } from '@codemirror/legacy-modes/mode/stex'
 import { GitMerge, GitPullRequest, AlertTriangle } from 'lucide-react'
+import { useToast } from '../../hooks/useToast'
 
 interface MergeViewProps {
   paperId: string
@@ -31,6 +32,7 @@ function createReadOnlyView(parent: HTMLElement, doc: string): EditorView {
 }
 
 const MergeView: React.FC<MergeViewProps> = ({ paperId, onMerged }) => {
+  const { toast } = useToast()
   const [branches, setBranches] = useState<Branch[]>([])
   const [sourceBranchId, setSourceBranchId] = useState<string>('')
   const [targetBranchId, setTargetBranchId] = useState<string>('')
@@ -152,7 +154,7 @@ const MergeView: React.FC<MergeViewProps> = ({ paperId, onMerged }) => {
               const src = branches.find(b => b.id === sourceBranchId)
               const tgt = branches.find(b => b.id === targetBranchId)
               await branchService.createMergeRequest(sourceBranchId, targetBranchId, `Merge ${src?.name} into ${tgt?.name}`, 'Proposed merge of changes')
-              alert('Merge Request created')
+              toast.success('Merge Request created')
             } catch (e) { console.error(e) }
           }}
         >

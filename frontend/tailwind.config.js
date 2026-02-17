@@ -37,9 +37,14 @@ export default {
           '0%': { transform: 'translateX(-100%)' },
           '50%, 100%': { transform: 'translateX(100%)' },
         },
+        'toast-in': {
+          '0%': { opacity: '0', transform: 'translateY(8px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
       },
       animation: {
         gleam: 'gleam 3s ease-in-out infinite',
+        'toast-in': 'toast-in 0.2s ease-out',
       },
     },
   },

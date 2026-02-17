@@ -1,7 +1,9 @@
 import React, { useState } from 'react'
 import { ArrowLeft, Eye, Edit, MoreHorizontal, FileText, BookOpen, Clock } from 'lucide-react'
+import { useToast } from '../hooks/useToast'
 
 const DesignShowcase: React.FC = () => {
+  const { toast } = useToast()
   const [selectedOption, setSelectedOption] = useState<number | null>(null)
 
   // Mock data
@@ -288,7 +290,7 @@ const DesignShowcase: React.FC = () => {
             <span>Option {selectedOption} selected</span>
             <button
               className="px-3 py-1 bg-white text-indigo-600 rounded-full text-sm font-semibold hover:bg-indigo-50"
-              onClick={() => alert(`You selected Option ${selectedOption}. Let me know and I'll implement it!`)}
+              onClick={() => toast.info(`You selected Option ${selectedOption}. Let me know and I'll implement it!`)}
             >
               Apply
             </button>
