@@ -43,95 +43,39 @@ import { useAuth } from '../../contexts/AuthContext'
 import {
   projectDiscussionAPI,
   projectsAPI,
-  buildApiUrl,
-  refreshAuthToken,
   researchPapersAPI,
   projectReferencesAPI,
   projectMeetingsAPI,
 } from '../../services/api'
-import discussionWebsocket from '../../services/discussionWebsocket'
 import {
   DiscussionMessage,
   DiscussionThread as DiscussionThreadType,
   DiscussionChannelSummary,
   DiscussionChannelResourceCreate,
-  DiscussionAssistantResponse,
-  DiscussionAssistantSuggestedAction,
   ChannelScopeConfig,
-  ResearchPaper,
-  ProjectReferenceSuggestion,
-  MeetingSummary,
 } from '../../types'
 import MessageInput from '../../components/discussion/MessageInput'
 import DiscussionThread from '../../components/discussion/DiscussionThread'
 import DiscussionChannelSidebar from '../../components/discussion/DiscussionChannelSidebar'
 import ChannelResourcePanel from '../../components/discussion/ChannelResourcePanel'
 import ChannelArtifactsPanel from '../../components/discussion/ChannelArtifactsPanel'
-import { DiscoveredPaper, IngestionStatus } from '../../components/discussion/DiscoveredPaperCard'
-import { DiscoveryQueuePanel, PaperIngestionState, IngestionStatesMap } from '../../components/discussion/DiscoveryQueuePanel'
+import { DiscoveredPaper } from '../../components/discussion/DiscoveredPaperCard'
+import { DiscoveryQueuePanel } from '../../components/discussion/DiscoveryQueuePanel'
 import { getProjectUrlId } from '../../utils/urlId'
 import { modelSupportsReasoning, useOpenRouterModels } from '../../components/discussion/ModelSelector'
 import { useOnboarding } from '../../contexts/OnboardingContext'
 import { useToast } from '../../hooks/useToast'
-
-// Types
-type AssistantExchange = {
-  id: string
-  channelId: string
-  question: string
-  response: DiscussionAssistantResponse
-  createdAt: Date
-  completedAt?: Date
-  appliedActions: string[]
-  status: 'pending' | 'streaming' | 'complete'
-  displayMessage: string
-  statusMessage?: string
-  isWaitingForTools?: boolean // True when tokens paused but result not yet received
-  author?: { id?: string; name?: { display?: string; first?: string; last?: string } | string }
-  fromHistory?: boolean
-  model?: string
-}
-
-type ConversationItem =
-  | { kind: 'thread'; timestamp: number; thread: DiscussionThreadType }
-  | { kind: 'assistant'; timestamp: number; exchange: AssistantExchange }
-
-// Utility functions
-const stripActionsBlock = (value: string): string =>
-  value
-    .replace(/<actions>[\s\S]*?<\/actions>/gi, '')
-    .replace(/<actions>[\s\S]*$/gi, '')
-    .trimEnd()
-
-const buildCitationLookup = (citations: DiscussionAssistantResponse['citations']) => {
-  const lookup = new Map<string, string>()
-  citations.forEach((citation) => {
-    if (!citation) return
-    const key = `${citation.origin}:${citation.origin_id}`.toLowerCase()
-    const label = typeof citation.label === 'string' ? citation.label.trim() : ''
-    if (label) {
-      lookup.set(key, label)
-    }
-  })
-  return lookup
-}
-
-const formatAssistantMessage = (message: string, lookup: Map<string, string>): string => {
-  if (!message) return ''
-  const replaced = message.replace(/\[(resource|message):([^\]]+)\]/gi, (_, origin, identifier) => {
-    const key = `${origin}:${identifier}`.toLowerCase()
-    const label = lookup.get(key)
-    return label ? `**${label}**` : ''
-  })
-  return stripActionsBlock(replaced).replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim()
-}
-
-const createAssistantEntryId = (): string => {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
-  }
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
-}
+import ResourceScopePicker from '../../components/projects/ResourceScopePicker'
+import ChannelSettingsModal from '../../components/projects/ChannelSettingsModal'
+import {
+  useAssistantChat,
+  buildCitationLookup,
+  formatAssistantMessage,
+  type AssistantExchange,
+  type ConversationItem,
+} from '../../hooks/useAssistantChat'
+import { useDiscoveryQueue } from '../../hooks/useDiscoveryQueue'
+import { useSuggestedActions } from '../../hooks/useSuggestedActions'
 
 const ASSISTANT_SCOPE_OPTIONS = [
   { id: 'transcripts', label: 'Transcripts' },
@@ -147,11 +91,6 @@ const ProjectDiscussion = () => {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const typingTimers = useRef<Record<string, number>>({})
-  const streamingFlags = useRef<Record<string, boolean>>({})
-  const historyChannelRef = useRef<string | null>(null)
-  const assistantAbortController = useRef<AbortController | null>(null)
-  const STORAGE_PREFIX = `assistantHistory:${project.id}`
   const { models: openrouterModels, warning: openrouterWarning } = useOpenRouterModels(project.id)
   const { state: onboardingState, markScholarAISeen } = useOnboarding()
   const [showWelcome, setShowWelcome] = useState(!onboardingState.hasSeenScholarAI)
@@ -163,7 +102,7 @@ const ProjectDiscussion = () => {
     }
   })
 
-  // Proactive AI insights -- only fetch high-priority count for banner
+  // Proactive AI insights
   const insightsQuery = useQuery({
     queryKey: ['project', project.id, 'insights'],
     queryFn: async () => {
@@ -177,15 +116,7 @@ const ProjectDiscussion = () => {
     (i: { priority: string }) => i.priority === 'high',
   ).length
 
-  const buildStorageKey = useCallback(
-    (channelId: string | null) => {
-      if (!channelId) return null
-      return `${STORAGE_PREFIX}:${channelId}`
-    },
-    [STORAGE_PREFIX]
-  )
-
-  // Fetch project discussion settings (model is now a project-level setting)
+  // Discussion settings
   const discussionSettingsQuery = useQuery({
     queryKey: ['project-discussion-settings', project.id],
     queryFn: async () => {
@@ -195,7 +126,6 @@ const ProjectDiscussion = () => {
     staleTime: 30000,
   })
 
-  // Get model from project settings (read-only for non-owners)
   const selectedModel =
     openrouterModels.find((model) => model.id === discussionSettingsQuery.data?.model)?.id ||
     openrouterModels[0]?.id
@@ -214,13 +144,6 @@ const ProjectDiscussion = () => {
       ? 'AI commands require an API key. The project owner has a key but has not enabled sharing. Add your own key or ask them to enable sharing.'
       : 'AI commands require an API key. Add your OpenRouter key or ask the project owner to enable key sharing.'
 
-  // Turn off reasoning when model doesn't support it
-  useEffect(() => {
-    if (!modelSupportsReasoning(selectedModel, openrouterModels)) {
-      setAssistantReasoning(false)
-    }
-  }, [selectedModel, openrouterModels])
-
   // Core state
   const [replyingTo, setReplyingTo] = useState<{ id: string; userName: string } | null>(null)
   const [editingMessage, setEditingMessage] = useState<{ id: string; content: string } | null>(null)
@@ -233,8 +156,21 @@ const ProjectDiscussion = () => {
   const [isChannelSettingsOpen, setIsChannelSettingsOpen] = useState(false)
   const [settingsChannel, setSettingsChannel] = useState<DiscussionChannelSummary | null>(null)
   const [assistantReasoning, setAssistantReasoning] = useState(false)
-  const [assistantHistory, setAssistantHistory] = useState<AssistantExchange[]>([])
   const [assistantScope, setAssistantScope] = useState<string[]>(['transcripts', 'papers', 'references'])
+
+  const [openDialog, setOpenDialog] = useState<'resources' | 'artifacts' | 'discoveries' | null>(null)
+  const [channelMenuOpen, setChannelMenuOpen] = useState(false)
+  const [aiContextExpanded, setAiContextExpanded] = useState(false)
+  const channelMenuRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
+  const [showArchivedChannels, setShowArchivedChannels] = useState(false)
+
+  // Turn off reasoning when model doesn't support it
+  useEffect(() => {
+    if (!modelSupportsReasoning(selectedModel, openrouterModels)) {
+      setAssistantReasoning(false)
+    }
+  }, [selectedModel, openrouterModels])
 
   const toggleAssistantScope = useCallback((value: string) => {
     setAssistantScope((prev) => {
@@ -246,7 +182,6 @@ const ProjectDiscussion = () => {
     })
   }, [])
 
-  // Toggle resource in newChannelScope for create channel modal
   const toggleNewChannelScopeResource = useCallback((type: 'paper' | 'reference' | 'meeting', id: string) => {
     setNewChannelScope((prev) => {
       const keyMap = { paper: 'paper_ids', reference: 'reference_ids', meeting: 'meeting_ids' } as const
@@ -268,13 +203,83 @@ const ProjectDiscussion = () => {
     })
   }, [])
 
-  const [openDialog, setOpenDialog] = useState<'resources' | 'artifacts' | 'discoveries' | null>(null)
-  const [channelMenuOpen, setChannelMenuOpen] = useState(false)
-  const [aiContextExpanded, setAiContextExpanded] = useState(false)
-  const channelMenuRef = useRef<HTMLDivElement>(null)
-  const messagesContainerRef = useRef<HTMLDivElement>(null)
+  // Viewer display name
+  const viewerDisplayName = useMemo(() => {
+    if (!user) return 'You'
+    const parts = [user.first_name, user.last_name].filter(Boolean).join(' ').trim()
+    if (parts) return parts
+    return user.email || 'You'
+  }, [user?.first_name, user?.last_name, user?.email])
 
-  // Auto-scroll to bottom when new messages arrive
+  // Get current model info
+  const currentModelInfo = useMemo(
+    () => openrouterModels.find((m) => m.id === selectedModel) || openrouterModels[0],
+    [selectedModel, openrouterModels]
+  )
+
+  // ========== EXTRACTED HOOKS ==========
+
+  const {
+    assistantHistory,
+    assistantMutation,
+    sendAssistantMessage,
+    cancelAssistantRequest,
+    markActionApplied,
+  } = useAssistantChat({
+    projectId: project.id,
+    activeChannelId,
+    selectedModel,
+    userId: user?.id,
+    viewerDisplayName,
+  })
+
+  const {
+    referenceSearchResults,
+    setReferenceSearchResults,
+    discoveryQueue,
+    setDiscoveryQueue,
+    discoveryQueueByChannel,
+    dismissedInCurrentSearch,
+    ingestionSummary,
+    currentIngestionStates,
+    setIngestionStatesByChannel,
+    ingestionUnverifiedChannels,
+    setIngestionUnverifiedChannels,
+    handleIngestionStateChange,
+    handleDismissPaper,
+    handleDismissNotification,
+    resetDismissedPapers,
+    dismissedNotificationChannels,
+    setDismissedNotificationChannels,
+    searchReferencesMutation,
+  } = useDiscoveryQueue({
+    projectId: project.id,
+    activeChannelId,
+  })
+
+  const {
+    paperCreationDialog,
+    setPaperCreationDialog,
+    paperFormData,
+    setPaperFormData,
+    keywordInput,
+    setKeywordInput,
+    paperActionMutation,
+    handleAddKeyword,
+    handleRemoveKeyword,
+    handleToggleObjective,
+    handlePaperCreationSubmit,
+    handleSuggestedAction,
+    navigateToPaper,
+  } = useSuggestedActions({
+    projectId: project.id,
+    project,
+    activeChannelId,
+    markActionApplied,
+  })
+
+  // ========== AUTO SCROLL ==========
+
   const scrollToBottom = useCallback(() => {
     if (messagesContainerRef.current) {
       messagesContainerRef.current.scrollTo({
@@ -284,67 +289,10 @@ const ProjectDiscussion = () => {
     }
   }, [])
 
-  // Scroll to bottom when assistant history changes or channel switches
   useEffect(() => {
-    // Small delay to ensure content is rendered
     const timer = setTimeout(scrollToBottom, 100)
     return () => clearTimeout(timer)
   }, [assistantHistory.length, activeChannelId, scrollToBottom])
-
-  // Paper creation dialog state
-  const [paperCreationDialog, setPaperCreationDialog] = useState<{
-    open: boolean
-    exchangeId: string
-    actionIndex: number
-    suggestedTitle: string
-    suggestedType: string
-    suggestedMode: string
-    suggestedAbstract: string
-    suggestedKeywords: string[]
-  } | null>(null)
-
-  // Reference search results state - stored per channel
-  const [searchResultsByChannel, setSearchResultsByChannel] = useState<
-    Record<
-      string,
-      {
-        exchangeId: string
-        papers: DiscoveredPaper[]
-        query: string
-        isSearching: boolean
-        searchId?: string  // Track search_id for correlation with library_update
-      }
-    >
-  >({})
-
-  // Ingestion state - managed here, passed to DiscoveryQueuePanel
-  const [ingestionStatesByChannel, setIngestionStatesByChannel] = useState<
-    Record<string, IngestionStatesMap>
-  >({})
-  // Channels whose ingestion states came from history replay and haven't been verified by polling yet
-  const [ingestionUnverifiedChannels, setIngestionUnverifiedChannels] = useState<Set<string>>(new Set())
-
-  // Get current channel's ingestion states
-  const currentIngestionStates = useMemo(() => {
-    if (!activeChannelId) return {}
-    return ingestionStatesByChannel[activeChannelId] || {}
-  }, [activeChannelId, ingestionStatesByChannel])
-
-  // Callback for DiscoveryQueuePanel to update ingestion state
-  const handleIngestionStateChange = useCallback((paperId: string, state: Partial<PaperIngestionState>) => {
-    if (!activeChannelId) return
-    setIngestionStatesByChannel((prev) => {
-      const channelStates = prev[activeChannelId] || {}
-      const existingState = channelStates[paperId] || { referenceId: '', status: 'pending' as IngestionStatus, isAdding: false }
-      return {
-        ...prev,
-        [activeChannelId]: {
-          ...channelStates,
-          [paperId]: { ...existingState, ...state },
-        },
-      }
-    })
-  }, [activeChannelId])
 
   // Track channel switch to prevent notification flash
   const [isChannelSwitching, setIsChannelSwitching] = useState(false)
@@ -363,304 +311,6 @@ const ProjectDiscussion = () => {
       return () => clearTimeout(timer)
     }
   }, [isChannelSwitching])
-
-  // Dismissed paper IDs - persisted to localStorage
-  const dismissedPapersKey = project?.id ? `scholarhub_dismissed_papers_${project.id}` : null
-  const [dismissedPaperIds, setDismissedPaperIds] = useState<Set<string>>(() => {
-    if (!dismissedPapersKey) return new Set()
-    try {
-      const stored = localStorage.getItem(dismissedPapersKey)
-      if (stored) return new Set(JSON.parse(stored))
-    } catch {
-      // Ignore
-    }
-    return new Set()
-  })
-
-  useEffect(() => {
-    if (!dismissedPapersKey) return
-    try {
-      localStorage.setItem(dismissedPapersKey, JSON.stringify([...dismissedPaperIds]))
-    } catch {
-      // Ignore
-    }
-  }, [dismissedPaperIds, dismissedPapersKey])
-
-  const resetDismissedPapers = useCallback(() => {
-    setDismissedPaperIds(new Set())
-    if (dismissedPapersKey) {
-      localStorage.removeItem(dismissedPapersKey)
-    }
-  }, [dismissedPapersKey])
-
-  // Get current channel's search results (filtering out dismissed)
-  const referenceSearchResults = useMemo(() => {
-    if (!activeChannelId) return null
-    const raw = searchResultsByChannel[activeChannelId]
-    if (!raw) return null
-    return {
-      ...raw,
-      papers: raw.papers.filter((p) => !dismissedPaperIds.has(p.id)),
-    }
-  }, [activeChannelId, searchResultsByChannel, dismissedPaperIds])
-
-  const setReferenceSearchResults = useCallback(
-    (
-      value: {
-        exchangeId: string
-        channelId: string
-        papers: DiscoveredPaper[]
-        query: string
-        isSearching: boolean
-        searchId?: string  // Track search_id for correlation with library_update
-      } | null
-    ) => {
-      if (!value) {
-        if (activeChannelId) {
-          setSearchResultsByChannel((prev) => {
-            const next = { ...prev }
-            delete next[activeChannelId]
-            return next
-          })
-        }
-        return
-      }
-      setSearchResultsByChannel((prev) => ({
-        ...prev,
-        [value.channelId]: {
-          exchangeId: value.exchangeId,
-          papers: value.papers,
-          query: value.query,
-          isSearching: value.isSearching,
-          searchId: value.searchId,
-        },
-      }))
-    },
-    [activeChannelId]
-  )
-
-  // Discovery queue - stored per channel
-  const [discoveryQueueByChannel, setDiscoveryQueueByChannel] = useState<
-    Record<
-      string,
-      {
-        papers: DiscoveredPaper[]
-        query: string
-        isSearching: boolean
-        notification: string | null
-      }
-    >
-  >({})
-
-  // Track dismissed notification channels
-  const dismissedNotificationsKey = project?.id ? `scholarhub_dismissed_notifications_${project.id}` : null
-  const [dismissedNotificationChannels, setDismissedNotificationChannels] = useState<Set<string>>(() => {
-    if (!dismissedNotificationsKey) return new Set()
-    try {
-      const stored = localStorage.getItem(dismissedNotificationsKey)
-      if (stored) return new Set(JSON.parse(stored))
-    } catch {
-      // Ignore
-    }
-    return new Set()
-  })
-
-  useEffect(() => {
-    if (!dismissedNotificationsKey) return
-    try {
-      localStorage.setItem(dismissedNotificationsKey, JSON.stringify([...dismissedNotificationChannels]))
-    } catch {
-      // Ignore
-    }
-  }, [dismissedNotificationChannels, dismissedNotificationsKey])
-
-  // Get current channel's discovery queue
-  const discoveryQueue = useMemo(() => {
-    if (!activeChannelId) {
-      return { papers: [], query: '', isSearching: false, notification: null }
-    }
-    const raw = discoveryQueueByChannel[activeChannelId] || {
-      papers: [],
-      query: '',
-      isSearching: false,
-      notification: null,
-    }
-    return {
-      ...raw,
-      papers: raw.papers.filter((p) => !dismissedPaperIds.has(p.id)),
-    }
-  }, [activeChannelId, discoveryQueueByChannel, dismissedPaperIds])
-
-  // Count dismissed papers only for the current search (not all dismissed papers ever)
-  const dismissedInCurrentSearch = useMemo(() => {
-    if (!activeChannelId) return 0
-    const raw = discoveryQueueByChannel[activeChannelId]
-    if (!raw?.papers) return 0
-    return raw.papers.filter((p) => dismissedPaperIds.has(p.id)).length
-  }, [activeChannelId, discoveryQueueByChannel, dismissedPaperIds])
-
-  // Ingestion summary for notification bar - derived from unified ingestion state
-  const ingestionSummary = useMemo(() => {
-    // Suppress banner while history-replayed states are being verified by polling
-    if (activeChannelId && ingestionUnverifiedChannels.has(activeChannelId)) return null
-
-    const states = Object.values(currentIngestionStates)
-    if (states.length === 0) return null
-
-    const totalAdded = states.filter((s) => s.referenceId || s.isAdding).length
-    if (totalAdded === 0) return null
-
-    const successCount = states.filter((s) => s.status === 'success').length
-    const failedCount = states.filter((s) => s.status === 'failed').length
-    const noPdfCount = states.filter((s) => s.status === 'no_pdf').length
-    const pendingCount = states.filter(
-      (s) => s.status === 'pending' || s.status === 'uploading' || s.isAdding
-    ).length
-    const needsAttention = failedCount + noPdfCount
-
-    return {
-      totalAdded,
-      successCount,
-      failedCount,
-      noPdfCount,
-      pendingCount,
-      needsAttention,
-      isAllSuccess: successCount === totalAdded && totalAdded > 0,
-      isProcessing: pendingCount > 0,
-    }
-  }, [currentIngestionStates, activeChannelId, ingestionUnverifiedChannels])
-
-  // Poll backend for fresh ingestion statuses for non-success references
-  const pendingReferenceIds = useMemo(() => {
-    return Object.values(currentIngestionStates)
-      .filter((s) => s.referenceId && s.status !== 'success')
-      .map((s) => s.referenceId)
-  }, [currentIngestionStates])
-
-  // If channel is unverified but there's nothing to poll, verify immediately
-  useEffect(() => {
-    if (activeChannelId && ingestionUnverifiedChannels.has(activeChannelId) && pendingReferenceIds.length === 0) {
-      setIngestionUnverifiedChannels((prev) => {
-        const next = new Set(prev)
-        next.delete(activeChannelId)
-        return next
-      })
-    }
-  }, [activeChannelId, ingestionUnverifiedChannels, pendingReferenceIds.length])
-
-  const ingestionPollQuery = useQuery({
-    queryKey: ['ingestion-status', project.id, ...pendingReferenceIds],
-    queryFn: async () => {
-      const res = await projectReferencesAPI.getIngestionStatus(project.id, pendingReferenceIds)
-      return res.data
-    },
-    enabled: pendingReferenceIds.length > 0 && !!activeChannelId && !dismissedNotificationChannels.has(activeChannelId),
-    refetchInterval: 10_000,
-    staleTime: 5_000,
-  })
-
-  useEffect(() => {
-    const freshStatuses = ingestionPollQuery.data?.statuses
-    if (!freshStatuses || !activeChannelId) return
-
-    setIngestionStatesByChannel((prev) => {
-      const channelStates = { ...(prev[activeChannelId] || {}) }
-      let changed = false
-      for (const [paperId, state] of Object.entries(channelStates)) {
-        const freshStatus = freshStatuses[state.referenceId]
-        if (freshStatus && freshStatus !== state.status) {
-          channelStates[paperId] = {
-            ...state,
-            status: freshStatus as IngestionStatus,
-            isAdding: freshStatus === 'pending',
-          }
-          changed = true
-        }
-      }
-      return changed ? { ...prev, [activeChannelId]: channelStates } : prev
-    })
-
-    // Polling returned - channel states are now verified
-    setIngestionUnverifiedChannels((prev) => {
-      if (!prev.has(activeChannelId)) return prev
-      const next = new Set(prev)
-      next.delete(activeChannelId)
-      return next
-    })
-  }, [ingestionPollQuery.data, activeChannelId])
-
-  const setDiscoveryQueue = useCallback(
-    (
-      value: React.SetStateAction<{
-        papers: DiscoveredPaper[]
-        query: string
-        isSearching: boolean
-        notification: string | null
-      }>
-    ) => {
-      if (!activeChannelId) return
-      setDiscoveryQueueByChannel((prev) => {
-        const currentQueue = prev[activeChannelId] || {
-          papers: [],
-          query: '',
-          isSearching: false,
-          notification: null,
-        }
-        const newQueue = typeof value === 'function' ? value(currentQueue) : value
-        return { ...prev, [activeChannelId]: newQueue }
-      })
-    },
-    [activeChannelId]
-  )
-
-  const handleDismissPaper = useCallback(
-    (paperId: string) => {
-      if (!activeChannelId) return
-      setDismissedPaperIds((prev) => new Set([...prev, paperId]))
-      setSearchResultsByChannel((prev) => {
-        const current = prev[activeChannelId]
-        if (!current) return prev
-        return {
-          ...prev,
-          [activeChannelId]: {
-            ...current,
-            papers: current.papers.filter((p) => p.id !== paperId),
-          },
-        }
-      })
-      setDiscoveryQueueByChannel((prev) => {
-        const current = prev[activeChannelId]
-        if (!current) return prev
-        return {
-          ...prev,
-          [activeChannelId]: {
-            ...current,
-            papers: current.papers.filter((p) => p.id !== paperId),
-          },
-        }
-      })
-    },
-    [activeChannelId]
-  )
-
-  // Paper form state
-  const [paperFormData, setPaperFormData] = useState({
-    title: '',
-    paperType: 'research',
-    authoringMode: 'latex',
-    abstract: '',
-    keywords: [] as string[],
-    objectives: [] as string[],
-  })
-  const [keywordInput, setKeywordInput] = useState('')
-
-  // Viewer display name
-  const viewerDisplayName = useMemo(() => {
-    if (!user) return 'You'
-    const parts = [user.first_name, user.last_name].filter(Boolean).join(' ').trim()
-    if (parts) return parts
-    return user.email || 'You'
-  }, [user?.first_name, user?.last_name, user?.email])
 
   const resolveAuthorLabel = useCallback(
     (author?: AssistantExchange['author']) => {
@@ -681,17 +331,13 @@ const ProjectDiscussion = () => {
     [user?.id, viewerDisplayName]
   )
 
-  // Get current model info
-  const currentModelInfo = useMemo(
-    () => openrouterModels.find((m) => m.id === selectedModel) || openrouterModels[0],
-    [selectedModel, openrouterModels]
-  )
-
-  const [showArchivedChannels, setShowArchivedChannels] = useState(false)
+  // Project objectives for paper creation
+  const projectObjectives = useMemo(() => {
+    return (project as { objectives?: string[] }).objectives ?? []
+  }, [project])
 
   // ========== QUERIES ==========
 
-  // Channels query
   const channelsQuery = useQuery({
     queryKey: ['projectDiscussionChannels', project.id],
     queryFn: async () => {
@@ -706,7 +352,6 @@ const ProjectDiscussion = () => {
     return showArchivedChannels ? all : all.filter((c) => !c.is_archived)
   }, [channelsQuery.data, showArchivedChannels])
 
-  // Auto-select first channel or default
   useEffect(() => {
     if (!activeChannelId && channels.length > 0) {
       const defaultChannel = channels.find((c) => c.is_default)
@@ -714,7 +359,6 @@ const ProjectDiscussion = () => {
     }
   }, [channels, activeChannelId])
 
-  // Messages query
   const {
     data: threadsData,
     isLoading,
@@ -738,7 +382,6 @@ const ProjectDiscussion = () => {
     )
   }, [threadsData])
 
-  // Artifacts query
   const artifactsQuery = useQuery({
     queryKey: ['channel-artifacts', project.id, activeChannelId],
     queryFn: async () => {
@@ -751,52 +394,6 @@ const ProjectDiscussion = () => {
 
   const artifactsCount = artifactsQuery.data?.length ?? 0
 
-  // Assistant history query (fetch from server to restore processing state)
-  const assistantHistoryQuery = useQuery({
-    queryKey: ['assistant-history', project.id, activeChannelId],
-    queryFn: async () => {
-      if (!activeChannelId) return []
-      const response = await projectDiscussionAPI.listAssistantHistory(project.id, activeChannelId)
-      return response.data
-    },
-    enabled: Boolean(activeChannelId),
-    placeholderData: [], // Return empty immediately when channel changes
-    staleTime: 0, // Always consider data stale
-    refetchOnMount: 'always', // Always refetch when component mounts or channel changes
-  })
-
-  // Transform server history to AssistantExchange format, handling processing status
-  const serverAssistantHistory = useMemo<AssistantExchange[]>(() => {
-    if (!assistantHistoryQuery.data || !activeChannelId) return []
-
-    return assistantHistoryQuery.data.map((item) => {
-      const createdAt = item.created_at ? new Date(item.created_at) : new Date()
-      const response = item.response
-      const lookup = buildCitationLookup(response.citations)
-
-      // Handle processing status from server - this restores loading state after refresh/channel switch
-      const isProcessing = item.status === 'processing'
-      const isFailed = item.status === 'failed'
-
-      return {
-        id: item.id,
-        channelId: activeChannelId,
-        question: item.question,
-        response,
-        createdAt,
-        completedAt: isProcessing ? undefined : createdAt,
-        appliedActions: [],
-        status: isProcessing ? 'streaming' : 'complete',
-        statusMessage: isProcessing ? (item.status_message || 'Thinking') : (isFailed ? (item.status_message || 'Processing failed') : undefined),
-        displayMessage: isProcessing ? '' : formatAssistantMessage(response.message, lookup),
-        author: item.author ?? undefined,
-        fromHistory: true,
-        isWaitingForTools: isProcessing, // Show loading indicator for processing exchanges
-      }
-    })
-  }, [assistantHistoryQuery.data, activeChannelId])
-
-  // Resources query (for channel scope)
   const resourcesQuery = useQuery({
     queryKey: ['channel-resources', project.id, activeChannelId],
     queryFn: async () => {
@@ -807,7 +404,6 @@ const ProjectDiscussion = () => {
     enabled: Boolean(activeChannelId),
   })
 
-  // Available resources for scope picker
   const availablePapersQuery = useQuery({
     queryKey: ['papers', project.id],
     queryFn: async () => {
@@ -838,14 +434,8 @@ const ProjectDiscussion = () => {
     enabled: isCreateChannelModalOpen || isChannelSettingsOpen,
   })
 
-  // Project objectives for paper creation
-  const projectObjectives = useMemo(() => {
-    return (project as { objectives?: string[] }).objectives ?? []
-  }, [project])
-
   // ========== MUTATIONS ==========
 
-  // Channel mutations
   const createChannelMutation = useMutation({
     mutationFn: async (data: { name: string; description?: string; scope?: ChannelScopeConfig | null }) => {
       const response = await projectDiscussionAPI.createChannel(project.id, data)
@@ -910,7 +500,6 @@ const ProjectDiscussion = () => {
     },
   })
 
-  // Message mutations
   const createMessageMutation = useMutation({
     mutationFn: async (content: string) => {
       const response = await projectDiscussionAPI.createMessage(project.id, {
@@ -990,7 +579,6 @@ const ProjectDiscussion = () => {
     },
   })
 
-  // Resource mutations
   const createResourceMutation = useMutation({
     mutationFn: async (payload: DiscussionChannelResourceCreate) => {
       if (!activeChannelId) throw new Error('No channel selected')
@@ -1020,603 +608,167 @@ const ProjectDiscussion = () => {
     },
   })
 
-  // Paper action mutation
-  const paperActionMutation = useMutation({
-    mutationFn: async ({
-      actionType,
-      payload,
-    }: {
-      actionType: string
-      payload: Record<string, unknown>
-    }) => {
-      const response = await projectDiscussionAPI.executePaperAction(project.id, actionType, payload)
-      return response.data
-    },
-    onSuccess: (data) => {
-      if (data.paper_id) {
-        queryClient.invalidateQueries({ queryKey: ['papers', project.id] })
-        queryClient.invalidateQueries({ queryKey: ['paper', data.paper_id] })
+  // ========== ACTION PROCESSING ==========
+
+  useEffect(() => {
+    const latestSearchIdByChannel: Record<string, string> = {}
+
+    for (const exchange of assistantHistory) {
+      if (exchange.status !== 'complete') continue
+      if (!exchange.response?.suggested_actions) continue
+      const channelId = exchange.channelId || activeChannelId
+      if (!channelId) continue
+
+      for (const action of exchange.response.suggested_actions) {
+        if (action.action_type === 'search_results') {
+          const payload = action.payload as { search_id?: string } | undefined
+          if (payload?.search_id) {
+            latestSearchIdByChannel[channelId] = payload.search_id
+          }
+        }
       }
-    },
-    onError: (error) => {
-      console.error('Paper action failed:', error)
-      toast.error('Failed to perform paper action. Please try again.')
-    },
-  })
-
-  // Search references mutation
-  const searchReferencesMutation = useMutation({
-    mutationFn: async ({
-      query,
-      exchangeId,
-      openAccessOnly,
-      maxResults,
-    }: {
-      query: string
-      exchangeId: string
-      openAccessOnly: boolean
-      maxResults: number
-    }) => {
-      setReferenceSearchResults({
-        exchangeId,
-        channelId: activeChannelId || '',
-        papers: [],
-        query,
-        isSearching: true,
-      })
-      // Clear dismissed state for fresh search
-      if (activeChannelId) {
-        setDismissedNotificationChannels((prev) => {
-          const next = new Set(prev)
-          next.delete(activeChannelId)
-          return next
-        })
-      }
-      setDiscoveryQueue({
-        papers: [],
-        query,
-        isSearching: true,
-        notification: `Searching for "${query}"...`,
-      })
-
-      const response = await projectDiscussionAPI.searchReferences(project.id, query, { openAccessOnly, maxResults })
-      return { papers: response.data.papers, exchangeId, query }
-    },
-    onSuccess: ({ papers, exchangeId, query }) => {
-      setReferenceSearchResults({
-        exchangeId,
-        channelId: activeChannelId || '',
-        papers,
-        query,
-        isSearching: false,
-      })
-      setDiscoveryQueue({
-        papers,
-        query,
-        isSearching: false,
-        notification: `Found ${papers.length} paper${papers.length !== 1 ? 's' : ''}`,
-      })
-    },
-    onError: (error) => {
-      console.error('Reference search failed:', error)
-      setDiscoveryQueue((prev) => ({
-        papers: prev?.papers ?? [],
-        query: prev?.query ?? '',
-        isSearching: false,
-        notification: 'Search failed. Please try again.',
-      }))
-    },
-  })
-
-  // ========== HELPER FUNCTIONS ==========
-
-  const markActionApplied = useCallback((exchangeId: string, actionKey: string) => {
-    setAssistantHistory((prev) =>
-      prev.map((entry) => {
-        if (entry.id !== exchangeId) return entry
-        if (entry.appliedActions.includes(actionKey)) return entry
-        return { ...entry, appliedActions: [...entry.appliedActions, actionKey] }
-      })
-    )
-  }, [])
-
-  // Handle dismiss notification bar only (keeps papers in queue)
-  const handleDismissNotification = useCallback(() => {
-    if (!activeChannelId) return
-    // Only mark channel notification as dismissed, don't remove papers from queue
-    setDismissedNotificationChannels((prev) => new Set([...prev, activeChannelId]))
-  }, [activeChannelId])
-
-  const cancelAssistantRequest = useCallback(() => {
-    if (assistantAbortController.current) {
-      assistantAbortController.current.abort()
-      assistantAbortController.current = null
     }
-    // Mark any pending entries as complete with error
-    setAssistantHistory((prev) =>
-      prev.map((entry) => {
-        if (entry.status !== 'complete') {
-          return {
-            ...entry,
-            status: 'complete' as const,
-            displayMessage: entry.displayMessage || '(Request cancelled)',
-            completedAt: new Date(),
-          }
-        }
-        return entry
-      })
-    )
-  }, [])
 
-  // ========== OPENROUTER ASSISTANT MUTATION ==========
+    for (const exchange of assistantHistory) {
+      if (exchange.status !== 'complete') continue
+      if (!exchange.response?.suggested_actions) continue
 
-  const assistantMutation = useMutation({
-    mutationFn: async ({
-      id,
-      question,
-      reasoning,
-      scope,
-      recentSearchResults,
-      recentSearchId,
-      conversationHistory,
-    }: {
-      id: string
-      question: string
-      reasoning: boolean
-      scope: string[]
-      recentSearchResults?: Array<{
-        title: string
-        authors?: string
-        year?: number
-        source?: string
-        abstract?: string
-        doi?: string
-        url?: string
-        pdf_url?: string
-        is_open_access?: boolean
-      }>
-      recentSearchId?: string  // Track search_id for library_update correlation
-      conversationHistory?: Array<{ role: string; content: string }>
-    }) => {
-      if (!activeChannelId) throw new Error('No channel selected')
+      for (let i = 0; i < exchange.response.suggested_actions.length; i++) {
+        const action = exchange.response.suggested_actions[i]
+        const actionKey = `${exchange.id}:${i}`
+        if (exchange.appliedActions.includes(actionKey)) continue
 
-      // Create placeholder entry
-      const entry: AssistantExchange = {
-        id,
-        channelId: activeChannelId,
-        question,
-        response: {
-          message: '',
-          citations: [],
-          reasoning_used: reasoning,
-          model: selectedModel,
-          usage: undefined,
-          suggested_actions: [],
-        },
-        createdAt: new Date(),
-        appliedActions: [],
-        status: 'pending',
-        displayMessage: '',
-        model: selectedModel,
-        author: { id: user?.id, name: { display: viewerDisplayName } },
-      }
+        if (action.action_type === 'search_results') {
+          const payload = action.payload as { query?: string; papers?: DiscoveredPaper[]; total_found?: number; search_id?: string } | undefined
+          const papers = payload?.papers || []
+          const query = payload?.query || ''
+          const searchId = payload?.search_id
 
-      setAssistantHistory((prev) => [...prev, entry])
+          if (!activeChannelId) continue
+          if (exchange.channelId && exchange.channelId !== activeChannelId) continue
 
-      // Build request body
-      const body = JSON.stringify({
-        question,
-        reasoning,
-        scope,
-        conversation_history: conversationHistory,
-        recent_search_results: recentSearchResults?.map((paper) => ({
-          title: paper.title,
-          authors: paper.authors || '',
-          year: paper.year,
-          source: paper.source,
-          abstract: paper.abstract,
-          doi: paper.doi,
-          url: paper.url,
-          pdf_url: paper.pdf_url,
-          is_open_access: paper.is_open_access,
-        })),
-        recent_search_id: recentSearchId,  // For library_update correlation
-      })
+          markActionApplied(exchange.id, actionKey)
 
-      // OpenRouter endpoint with streaming (model is determined by project settings)
-      const url = buildApiUrl(
-        `/projects/${project.id}/discussion/channels/${activeChannelId}/assistant?stream=true`
-      )
-
-      const controller = new AbortController()
-      assistantAbortController.current = controller
-
-      // Get fresh token
-      let token = localStorage.getItem('access_token')
-      if (!token) {
-        const refreshed = await refreshAuthToken()
-        token = refreshed || localStorage.getItem('access_token')
-      }
-
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body,
-        signal: controller.signal,
-      })
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(`Request failed: ${response.status} ${errorText}`)
-      }
-
-      if (!response.body) {
-        throw new Error('No response body')
-      }
-
-      // Stream processing
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      let accumulatedContent = ''
-      let finalResult: DiscussionAssistantResponse | null = null
-
-      streamingFlags.current[id] = true
-      setAssistantHistory((prev) =>
-        prev.map((e) => (e.id === id ? { ...e, status: 'streaming' } : e))
-      )
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-
-          buffer += decoder.decode(value, { stream: true })
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
-
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue
-            const jsonStr = line.slice(6).trim()
-            if (!jsonStr || jsonStr === '[DONE]') continue
-
-            try {
-              const event = JSON.parse(jsonStr)
-
-              if (event.type === 'token') {
-                const isFirstToken = accumulatedContent === ''
-                accumulatedContent += event.content || ''
-
-                if (isFirstToken) {
-                  // Update immediately on first token to hide spinner and clear tool waiting state
-                  setAssistantHistory((prev) =>
-                    prev.map((e) =>
-                      e.id === id
-                        ? { ...e, displayMessage: stripActionsBlock(accumulatedContent), isWaitingForTools: false }
-                        : e
-                    )
-                  )
-                } else {
-                  // Throttle subsequent UI updates
-                  if (typingTimers.current[id]) {
-                    clearTimeout(typingTimers.current[id])
-                  }
-                  typingTimers.current[id] = window.setTimeout(() => {
-                    setAssistantHistory((prev) =>
-                      prev.map((e) =>
-                        e.id === id
-                          ? { ...e, displayMessage: stripActionsBlock(accumulatedContent) }
-                          : e
-                      )
-                    )
-                  }, 30)
-                }
-              } else if (event.type === 'content_reset') {
-                // Model started streaming then decided to call tools —
-                // clear the partial text so tool status replaces it cleanly.
-                if (typingTimers.current[id]) {
-                  clearTimeout(typingTimers.current[id])
-                  delete typingTimers.current[id]
-                }
-                accumulatedContent = ''
-                setAssistantHistory((prev) =>
-                  prev.map((e) =>
-                    e.id === id ? { ...e, displayMessage: '' } : e
-                  )
-                )
-              } else if (event.type === 'status') {
-                // Tool is being executed - set status message and flag
-                setAssistantHistory((prev) =>
-                  prev.map((e) =>
-                    e.id === id ? { ...e, statusMessage: event.message, isWaitingForTools: true } : e
-                  )
-                )
-              } else if (event.type === 'result') {
-                finalResult = event.payload
-              } else if (event.type === 'error') {
-                throw new Error(event.message || 'Stream error')
-              }
-            } catch (parseError) {
-              console.warn('Failed to parse SSE event:', parseError)
+          if (papers.length > 0) {
+            if (!exchange.fromHistory) {
+              setDismissedNotificationChannels((prev) => {
+                const next = new Set(prev)
+                next.delete(activeChannelId)
+                return next
+              })
+              setIngestionStatesByChannel((prev) => {
+                const next = { ...prev }
+                delete next[activeChannelId]
+                return next
+              })
             }
-          }
-        }
-      } finally {
-        streamingFlags.current[id] = false
-        if (typingTimers.current[id]) {
-          clearTimeout(typingTimers.current[id])
-          delete typingTimers.current[id]
-        }
-      }
 
-      if (!finalResult) {
-        finalResult = {
-          message: accumulatedContent,
-          citations: [],
-          reasoning_used: reasoning,
-          model: selectedModel,
-          usage: undefined,
-          suggested_actions: [],
-        }
-      }
-
-      return { id, result: finalResult }
-    },
-    onSuccess: ({ id, result }) => {
-      if (!result) return
-      setAssistantHistory((prev) =>
-        prev.map((entry) => {
-          if (entry.id !== id) return entry
-          const citationLookup = buildCitationLookup(result.citations ?? [])
-          const formattedMessage = formatAssistantMessage(result.message ?? '', citationLookup)
-          return {
-            ...entry,
-            response: result,
-            status: 'complete' as const,
-            completedAt: new Date(),
-            displayMessage: formattedMessage,
-            isWaitingForTools: false,
-            statusMessage: undefined,
-          }
-        })
-      )
-      assistantAbortController.current = null
-    },
-    onError: (error, variables) => {
-      // Check if this was a user-initiated cancel (AbortError)
-      const isAbort = error.name === 'AbortError' || error.message?.includes('abort')
-      if (isAbort) {
-        // User cancelled - cancelAssistantRequest already handled the state update
-        console.log('Request cancelled by user')
-        assistantAbortController.current = null
-        return
-      }
-
-      console.error('OpenRouter assistant error:', error)
-      setAssistantHistory((prev) =>
-        prev.map((entry) => {
-          if (entry.id !== variables.id) return entry
-          return {
-            ...entry,
-            status: 'complete' as const,
-            completedAt: new Date(),
-            displayMessage: `Error: ${error.message || 'Request failed'}`,
-            response: {
-              ...entry.response,
-              message: `Error: ${error.message || 'Request failed'}`,
-            },
-          }
-        })
-      )
-      assistantAbortController.current = null
-    },
-  })
-
-  // ========== LOAD ASSISTANT HISTORY ==========
-
-  // Clear history when channel changes
-  useEffect(() => {
-    setAssistantHistory([])
-    historyChannelRef.current = activeChannelId
-  }, [activeChannelId])
-
-  // Merge server history with local unsynced entries
-  useEffect(() => {
-    if (!activeChannelId) return
-
-    // Merge server data with local unsynced entries (entries created during streaming)
-    setAssistantHistory((prev) => {
-      const idsFromServer = new Set(serverAssistantHistory.map((entry) => entry.id))
-
-      // Keep local entries that don't exist on server yet (currently streaming)
-      // but filter out any that have been completed on server
-      const localOnlyEntries = prev.filter((entry) => {
-        // If this entry exists on server, use server version instead
-        if (idsFromServer.has(entry.id)) return false
-        // Keep local streaming/pending entries
-        if (entry.status === 'streaming' || entry.status === 'pending') return true
-        return false
-      })
-
-      // Combine server history with local-only entries
-      const merged = [...serverAssistantHistory, ...localOnlyEntries]
-
-      // Sort by creation time
-      return merged.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
-    })
-  }, [serverAssistantHistory, activeChannelId])
-
-  // Save assistant history to localStorage
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const channelId = historyChannelRef.current
-    if (!channelId) return
-
-    const storageKey = buildStorageKey(channelId)
-    if (!storageKey) return
-
-    const payload = assistantHistory.map((entry) => ({
-      ...entry,
-      createdAt: entry.createdAt.toISOString(),
-      completedAt: entry.completedAt ? entry.completedAt.toISOString() : null,
-    }))
-
-    try {
-      window.localStorage.setItem(storageKey, JSON.stringify(payload))
-    } catch (error) {
-      console.error('Failed to persist assistant history', error)
-    }
-  }, [assistantHistory, buildStorageKey])
-
-  // ========== WEBSOCKET SETUP ==========
-
-  // Connect to WebSocket for real-time updates
-  useEffect(() => {
-    if (!project.id || !activeChannelId) return
-
-    const token = localStorage.getItem('access_token') || ''
-    discussionWebsocket.connect(project.id, activeChannelId, token)
-  }, [project.id, activeChannelId])
-
-  // Handle discussion events from WebSocket (messages + assistant events)
-  const handleDiscussionEvent = useCallback(
-    (payload: any) => {
-      if (!payload || payload.project_id !== project.id) return
-      if (!activeChannelId || payload.channel_id !== activeChannelId) return
-
-      // Handle real-time message events (new messages from other users)
-      if (payload.event === 'message_created' || payload.event === 'message_updated') {
-        queryClient.invalidateQueries({ queryKey: ['projectDiscussion', project.id, activeChannelId] })
-        return
-      }
-
-      if (payload.event === 'message_deleted') {
-        const messageId = payload.message_id
-        if (messageId) {
-          queryClient.setQueryData<DiscussionThreadType[] | undefined>(
-            ['projectDiscussion', project.id, activeChannelId],
-            (threads) => {
-              if (!threads) return threads
-              return threads.filter((t) => t.message.id !== messageId)
-            }
-          )
-        }
-        return
-      }
-
-      // Handle assistant processing started (restores state after channel switch/refresh)
-      if (payload.event === 'assistant_processing') {
-        const exchange = payload.exchange
-        if (!exchange) return
-
-        // Skip if from same user who already has local streaming entry
-        if (exchange.author?.id && user?.id && exchange.author.id === user.id) {
-          setAssistantHistory((prev) => {
-            if (prev.some((entry) => entry.status === 'streaming' || entry.status === 'pending')) return prev
-            if (prev.some((entry) => entry.id === exchange.id)) return prev
-            const entry: AssistantExchange = {
-              id: exchange.id,
+            setReferenceSearchResults({
+              exchangeId: exchange.id,
               channelId: activeChannelId,
-              question: exchange.question || '',
-              response: { message: '', citations: [], reasoning_used: false, model: '', usage: undefined, suggested_actions: [] },
-              createdAt: exchange.created_at ? new Date(exchange.created_at) : new Date(),
-              appliedActions: [],
-              status: 'streaming',
-              statusMessage: exchange.status_message || 'Thinking',
-              displayMessage: '',
-              author: exchange.author,
-              fromHistory: true,
-              isWaitingForTools: true,
-            }
-            return [...prev, entry]
-          })
+              papers: papers,
+              query: query,
+              isSearching: false,
+              searchId: searchId,
+            })
+            setDiscoveryQueue({
+              papers: papers,
+              query: query,
+              isSearching: false,
+              notification: `Found ${papers.length} papers`,
+            })
+          }
+          continue
         }
-        return
-      }
 
-      // Handle assistant status updates (live progress)
-      if (payload.event === 'assistant_status') {
-        const exchangeId = payload.exchange_id
-        const statusMessage = payload.status_message
-        if (!exchangeId || !statusMessage) return
+        if (action.action_type === 'library_update') {
+          const payload = action.payload as { search_id?: string; updates?: { index: number; reference_id: string; ingestion_status: string }[] } | undefined
+          const updates = payload?.updates || []
+          const searchId = payload?.search_id
 
-        // Update local state immediately
-        setAssistantHistory((prev) =>
-          prev.map((entry) =>
-            entry.id === exchangeId && entry.status === 'streaming'
-              ? { ...entry, statusMessage, isWaitingForTools: true }
-              : entry
-          )
-        )
+          if (!activeChannelId) continue
+          if (exchange.channelId && exchange.channelId !== activeChannelId) continue
 
-        // Also update the query cache so server data stays in sync
-        queryClient.setQueryData<typeof assistantHistoryQuery.data>(
-          ['assistant-history', project.id, activeChannelId],
-          (old) => {
-            if (!old) return old
-            return old.map((item) =>
-              item.id === exchangeId
-                ? { ...item, status_message: statusMessage }
-                : item
-            )
+          const latestSearchId = latestSearchIdByChannel[activeChannelId]
+          if (searchId && latestSearchId && searchId !== latestSearchId) {
+            markActionApplied(exchange.id, actionKey)
+            continue
           }
-        )
-        return
-      }
 
-      // Handle assistant reply completed
-      if (payload.event === 'assistant_reply') {
-        const exchange = payload.exchange
-        if (!exchange) return
-        const exchangeId: string = exchange.id
+          if (exchange.fromHistory && dismissedNotificationChannels.has(activeChannelId)) continue
 
-        // Update existing processing entry
-        setAssistantHistory((prev) => {
-          const existingIndex = prev.findIndex((entry) => entry.id === exchangeId)
-          if (existingIndex >= 0) {
-            const response: DiscussionAssistantResponse = exchange.response || {
-              message: '',
-              citations: [],
-              reasoning_used: false,
-              model: '',
-              usage: undefined,
-              suggested_actions: [],
-            }
-            const lookup = buildCitationLookup(response.citations || [])
-            const formatted = formatAssistantMessage(response.message || '', lookup)
-            const updated = [...prev]
-            updated[existingIndex] = {
-              ...updated[existingIndex],
-              response,
-              status: 'complete',
-              statusMessage: undefined,
-              displayMessage: formatted,
-              completedAt: new Date(),
-              isWaitingForTools: false,
-            }
-            return updated
+          if (!exchange.fromHistory && dismissedNotificationChannels.has(activeChannelId)) {
+            setDismissedNotificationChannels((prev) => {
+              const next = new Set(prev)
+              next.delete(activeChannelId)
+              return next
+            })
           }
-          return prev
-        })
-        // Refresh the query to get latest data
-        queryClient.invalidateQueries({ queryKey: ['assistant-history', project.id, activeChannelId] })
-      }
-    },
-    [project.id, activeChannelId, user?.id, queryClient]
-  )
 
-  // Subscribe to WebSocket discussion events
-  useEffect(() => {
-    discussionWebsocket.on('discussion_event', handleDiscussionEvent)
-    return () => {
-      discussionWebsocket.off('discussion_event', handleDiscussionEvent)
+          markActionApplied(exchange.id, actionKey)
+
+          if (updates.length > 0) {
+            let queuePapers: DiscoveredPaper[] = []
+
+            if (searchId) {
+              for (const hist of assistantHistory) {
+                if (hist.status !== 'complete' || !hist.response?.suggested_actions) continue
+                for (const act of hist.response.suggested_actions) {
+                  if (act.action_type === 'search_results') {
+                    const srPayload = act.payload as { search_id?: string; papers?: DiscoveredPaper[] } | undefined
+                    if (srPayload?.search_id === searchId && srPayload?.papers) {
+                      queuePapers = srPayload.papers
+                      break
+                    }
+                  }
+                }
+                if (queuePapers.length > 0) break
+              }
+            }
+
+            if (queuePapers.length === 0) {
+              queuePapers = discoveryQueueByChannel[activeChannelId]?.papers || []
+            }
+
+            setIngestionStatesByChannel((prev) => {
+              const channelStates = { ...(prev[activeChannelId] || {}) }
+              for (const u of updates) {
+                const paper = queuePapers[u.index]
+                if (paper) {
+                  channelStates[paper.id] = {
+                    referenceId: u.reference_id,
+                    status: u.ingestion_status as any,
+                    isAdding: u.ingestion_status === 'pending',
+                  }
+                }
+              }
+              return { ...prev, [activeChannelId]: channelStates }
+            })
+
+            if (exchange.fromHistory) {
+              setIngestionUnverifiedChannels((prev) => {
+                if (prev.has(activeChannelId)) return prev
+                const next = new Set(prev)
+                next.add(activeChannelId)
+                return next
+              })
+            } else {
+              setIngestionUnverifiedChannels((prev) => {
+                if (!prev.has(activeChannelId)) return prev
+                const next = new Set(prev)
+                next.delete(activeChannelId)
+                return next
+              })
+            }
+          }
+          continue
+        }
+      }
     }
-  }, [handleDiscussionEvent])
+  }, [assistantHistory, markActionApplied, activeChannelId, setReferenceSearchResults, setDiscoveryQueue, dismissedNotificationChannels])
 
-  // Close channel menu on click outside
+  // ========== CLOSE CHANNEL MENU ON CLICK OUTSIDE ==========
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (channelMenuRef.current && !channelMenuRef.current.contains(event.target as Node)) {
@@ -1627,7 +779,6 @@ const ProjectDiscussion = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [assistantHistory, orderedThreads])
@@ -1656,191 +807,12 @@ const ProjectDiscussion = () => {
     return items.sort((a, b) => a.timestamp - b.timestamp)
   }, [orderedThreads, assistantHistory])
 
-  // ========== ACTION PROCESSING ==========
-
-  // Process search_results and library_update actions
-  useEffect(() => {
-    // Track latest search_id per channel within this loop
-    // This ensures we only show ingestion states for the LATEST search
-    const latestSearchIdByChannel: Record<string, string> = {}
-
-    // First pass: Find the latest search_id for each channel
-    for (const exchange of assistantHistory) {
-      if (exchange.status !== 'complete') continue
-      if (!exchange.response?.suggested_actions) continue
-      const channelId = exchange.channelId || activeChannelId
-      if (!channelId) continue
-
-      for (const action of exchange.response.suggested_actions) {
-        if (action.action_type === 'search_results') {
-          const payload = action.payload as { search_id?: string } | undefined
-          if (payload?.search_id) {
-            latestSearchIdByChannel[channelId] = payload.search_id
-          }
-        }
-      }
-    }
-
-    // Second pass: Process actions
-    for (const exchange of assistantHistory) {
-      if (exchange.status !== 'complete') continue
-      if (!exchange.response?.suggested_actions) continue
-
-      for (let i = 0; i < exchange.response.suggested_actions.length; i++) {
-        const action = exchange.response.suggested_actions[i]
-        const actionKey = `${exchange.id}:${i}`
-        if (exchange.appliedActions.includes(actionKey)) continue
-
-        // Handle search_results action
-        if (action.action_type === 'search_results') {
-          const payload = action.payload as { query?: string; papers?: DiscoveredPaper[]; total_found?: number; search_id?: string } | undefined
-          const papers = payload?.papers || []
-          const query = payload?.query || ''
-          const searchId = payload?.search_id
-
-          if (!activeChannelId) continue
-          if (exchange.channelId && exchange.channelId !== activeChannelId) continue
-
-          markActionApplied(exchange.id, actionKey)
-
-          if (papers.length > 0) {
-            // Clear dismissed state for this channel - new search should show results
-            if (!exchange.fromHistory) {
-              setDismissedNotificationChannels((prev) => {
-                const next = new Set(prev)
-                next.delete(activeChannelId)
-                return next
-              })
-              // Clear previous ingestion states so new search notification takes priority
-              setIngestionStatesByChannel((prev) => {
-                const next = { ...prev }
-                delete next[activeChannelId]
-                return next
-              })
-            }
-
-            setReferenceSearchResults({
-              exchangeId: exchange.id,
-              channelId: activeChannelId,
-              papers: papers,
-              query: query,
-              isSearching: false,
-              searchId: searchId,
-            })
-            setDiscoveryQueue({
-              papers: papers,
-              query: query,
-              isSearching: false,
-              notification: `Found ${papers.length} papers`,
-            })
-          }
-          continue
-        }
-
-        // Handle library_update action
-        if (action.action_type === 'library_update') {
-          const payload = action.payload as { search_id?: string; updates?: { index: number; reference_id: string; ingestion_status: string }[] } | undefined
-          const updates = payload?.updates || []
-          const searchId = payload?.search_id
-
-          if (!activeChannelId) continue
-          if (exchange.channelId && exchange.channelId !== activeChannelId) continue
-
-          // SKIP if this library_update is for an OLD search (not the latest)
-          // This prevents stale ingestion notifications from previous searches
-          const latestSearchId = latestSearchIdByChannel[activeChannelId]
-          if (searchId && latestSearchId && searchId !== latestSearchId) {
-            markActionApplied(exchange.id, actionKey)
-            continue  // Skip this library_update - it's from an old search
-          }
-
-          // For history entries, skip if user dismissed notifications
-          if (exchange.fromHistory && dismissedNotificationChannels.has(activeChannelId)) continue
-
-          // Fresh library_update - clear dismissed state
-          if (!exchange.fromHistory && dismissedNotificationChannels.has(activeChannelId)) {
-            setDismissedNotificationChannels((prev) => {
-              const next = new Set(prev)
-              next.delete(activeChannelId)
-              return next
-            })
-          }
-
-          markActionApplied(exchange.id, actionKey)
-
-          // Convert AI updates to ingestion state keyed by paper ID
-          // Find papers from matching search_results action (using search_id), not from React state
-          // This ensures it works on page refresh when state hasn't been updated yet
-          if (updates.length > 0) {
-            let queuePapers: DiscoveredPaper[] = []
-
-            // First try to find papers from history using search_id
-            if (searchId) {
-              for (const hist of assistantHistory) {
-                if (hist.status !== 'complete' || !hist.response?.suggested_actions) continue
-                for (const act of hist.response.suggested_actions) {
-                  if (act.action_type === 'search_results') {
-                    const srPayload = act.payload as { search_id?: string; papers?: DiscoveredPaper[] } | undefined
-                    if (srPayload?.search_id === searchId && srPayload?.papers) {
-                      queuePapers = srPayload.papers
-                      break
-                    }
-                  }
-                }
-                if (queuePapers.length > 0) break
-              }
-            }
-
-            // Fallback to React state if history lookup failed
-            if (queuePapers.length === 0) {
-              queuePapers = discoveryQueueByChannel[activeChannelId]?.papers || []
-            }
-
-            setIngestionStatesByChannel((prev) => {
-              const channelStates = { ...(prev[activeChannelId] || {}) }
-              for (const u of updates) {
-                const paper = queuePapers[u.index]
-                if (paper) {
-                  channelStates[paper.id] = {
-                    referenceId: u.reference_id,
-                    status: u.ingestion_status as IngestionStatus,
-                    isAdding: u.ingestion_status === 'pending',
-                  }
-                }
-              }
-              return { ...prev, [activeChannelId]: channelStates }
-            })
-
-            // History-replayed states may be stale - mark for verification by polling
-            if (exchange.fromHistory) {
-              setIngestionUnverifiedChannels((prev) => {
-                if (prev.has(activeChannelId)) return prev
-                const next = new Set(prev)
-                next.add(activeChannelId)
-                return next
-              })
-            } else {
-              setIngestionUnverifiedChannels((prev) => {
-                if (!prev.has(activeChannelId)) return prev
-                const next = new Set(prev)
-                next.delete(activeChannelId)
-                return next
-              })
-            }
-          }
-          continue
-        }
-      }
-    }
-  }, [assistantHistory, markActionApplied, activeChannelId, setReferenceSearchResults, setDiscoveryQueue, dismissedNotificationChannels])
-
   // ========== EVENT HANDLERS ==========
 
   const handleSendMessage = (content: string) => {
     const trimmed = content.trim()
     if (!trimmed) return
 
-    // Slash commands trigger the assistant
     if (trimmed.startsWith('/')) {
       if (!activeChannelId) {
         toast.warning('Select a channel before asking Scholar AI.')
@@ -1879,9 +851,6 @@ const ProjectDiscussion = () => {
         return
       }
 
-      const entryId = createAssistantEntryId()
-
-      // Build search results context
       const papersToSend =
         (referenceSearchResults?.papers?.length ?? 0) > 0
           ? referenceSearchResults?.papers ?? []
@@ -1899,30 +868,16 @@ const ProjectDiscussion = () => {
         is_open_access: p.is_open_access,
       }))
 
-      // Build conversation history
-      const conversationHistory: Array<{ role: string; content: string }> = []
-      for (const exchange of assistantHistory) {
-        if (exchange.question) {
-          conversationHistory.push({ role: 'user', content: exchange.question })
-        }
-        if (exchange.response?.message) {
-          conversationHistory.push({ role: 'assistant', content: exchange.response.message })
-        }
-      }
-
-      assistantMutation.mutate({
-        id: entryId,
+      sendAssistantMessage({
         question,
         reasoning,
         scope: assistantScope,
         recentSearchResults,
-        recentSearchId: referenceSearchResults?.searchId,  // For library_update correlation
-        conversationHistory,
+        recentSearchId: referenceSearchResults?.searchId,
       })
       return
     }
 
-    // Regular message
     if (!activeChannelId && !editingMessage) {
       toast.warning('Select a channel before sending messages.')
       return
@@ -1997,149 +952,6 @@ const ProjectDiscussion = () => {
     setIsMobileSidebarOpen(false)
   }
 
-  // Paper form handlers
-  const handleAddKeyword = () => {
-    const kw = keywordInput.trim()
-    if (kw && !paperFormData.keywords.includes(kw)) {
-      setPaperFormData((prev) => ({ ...prev, keywords: [...prev.keywords, kw] }))
-    }
-    setKeywordInput('')
-  }
-
-  const handleRemoveKeyword = (keyword: string) => {
-    setPaperFormData((prev) => ({
-      ...prev,
-      keywords: prev.keywords.filter((k) => k !== keyword),
-    }))
-  }
-
-  const handleToggleObjective = (objective: string) => {
-    setPaperFormData((prev) => {
-      if (prev.objectives.includes(objective)) {
-        return { ...prev, objectives: prev.objectives.filter((o) => o !== objective) }
-      }
-      return { ...prev, objectives: [...prev.objectives, objective] }
-    })
-  }
-
-  const handlePaperCreationSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!paperFormData.title.trim()) {
-      toast.warning('Paper title is required.')
-      return
-    }
-    if (!paperCreationDialog) return
-
-    paperActionMutation.mutate(
-      {
-        actionType: 'create_paper',
-        payload: {
-          title: paperFormData.title.trim(),
-          paper_type: paperFormData.paperType,
-          authoring_mode: paperFormData.authoringMode,
-          abstract: paperFormData.abstract.trim() || undefined,
-          keywords: paperFormData.keywords.length > 0 ? paperFormData.keywords : undefined,
-          objectives: paperFormData.objectives.length > 0 ? paperFormData.objectives : undefined,
-        },
-      },
-      {
-        onSuccess: (data) => {
-          if (data.paper_id && paperCreationDialog) {
-            markActionApplied(paperCreationDialog.exchangeId, `${paperCreationDialog.exchangeId}:${paperCreationDialog.actionIndex}`)
-          }
-          setPaperCreationDialog(null)
-          setPaperFormData({
-            title: '',
-            paperType: 'research',
-            authoringMode: 'latex',
-            abstract: '',
-            keywords: [],
-            objectives: [],
-          })
-        },
-      }
-    )
-  }
-
-  const handleSuggestedAction = (
-    exchange: AssistantExchange,
-    action: DiscussionAssistantSuggestedAction,
-    index: number
-  ) => {
-    if (!activeChannelId) {
-      toast.warning('Select a channel before accepting assistant suggestions.')
-      return
-    }
-
-    const actionKey = `${exchange.id}:${index}`
-    if (exchange.appliedActions.includes(actionKey)) return
-
-    if (action.action_type === 'create_paper') {
-      const title = String(action.payload?.title || '').trim()
-      const paperType = String(action.payload?.paper_type || 'research').trim()
-      const authoringMode = String(action.payload?.authoring_mode || 'latex').trim()
-      const abstract = String(action.payload?.abstract || '').trim()
-      const suggestedKeywords = Array.isArray(action.payload?.keywords) ? action.payload.keywords : []
-
-      setPaperCreationDialog({
-        open: true,
-        exchangeId: exchange.id,
-        actionIndex: index,
-        suggestedTitle: title,
-        suggestedType: paperType,
-        suggestedMode: authoringMode,
-        suggestedAbstract: abstract,
-        suggestedKeywords: suggestedKeywords,
-      })
-      setPaperFormData({
-        title: title,
-        paperType: paperType,
-        authoringMode: authoringMode,
-        abstract: abstract,
-        keywords: suggestedKeywords,
-        objectives: [],
-      })
-      return
-    }
-
-    if (action.action_type === 'artifact_created') {
-      const title = String(action.payload?.title || 'download').trim()
-      const filename = String(action.payload?.filename || `${title}.md`).trim()
-      const contentBase64 = String(action.payload?.content_base64 || '')
-      const mimeType = String(action.payload?.mime_type || 'text/plain')
-
-      if (!contentBase64) {
-        toast.warning('The artifact is missing content.')
-        return
-      }
-
-      try {
-        const binaryString = atob(contentBase64)
-        const bytes = new Uint8Array(binaryString.length)
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i)
-        }
-        const blob = new Blob([bytes], { type: mimeType })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = filename
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        URL.revokeObjectURL(url)
-        markActionApplied(exchange.id, actionKey)
-        queryClient.invalidateQueries({ queryKey: ['channel-artifacts', project.id, activeChannelId] })
-      } catch (e) {
-        console.error('Failed to decode artifact:', e)
-        toast.error('Failed to download artifact.')
-      }
-      return
-    }
-
-    toast.info('This assistant suggestion type is not yet supported.')
-  }
-
   // ========== DERIVED STATE ==========
 
   const activeChannel = channels.find((channel) => channel.id === activeChannelId) ?? null
@@ -2199,7 +1011,6 @@ const ProjectDiscussion = () => {
               : askedLabel
             const displayedMessage = exchange.displayMessage || formattedMessage
             const showTyping = !displayedMessage && exchange.status !== 'complete'
-            // Show tool execution indicator when we have content but tools are being executed
             const isExecutingTools = displayedMessage && exchange.isWaitingForTools && exchange.status !== 'complete'
             const authorLabel = resolveAuthorLabel(exchange.author)
             const avatarText = authorLabel.trim().charAt(0).toUpperCase() || 'U'
@@ -2279,7 +1090,6 @@ const ProjectDiscussion = () => {
                             </ReactMarkdown>
                           </div>
                         )}
-                        {/* Tool execution indicator - shown when processing tools after initial message */}
                         {isExecutingTools && (
                           <div className="mt-3 flex items-center gap-2 text-sm text-indigo-600 dark:text-indigo-400">
                             <Loader2 className="h-4 w-4 animate-spin" />
@@ -2326,7 +1136,7 @@ const ProjectDiscussion = () => {
                               return (
                                 <button
                                   key={idx}
-                                  onClick={() => navigate(`/projects/${getProjectUrlId(project)}/papers/${urlId}`)}
+                                  onClick={() => navigateToPaper(urlId)}
                                   className="inline-flex items-center gap-1.5 sm:gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm font-medium text-emerald-700 hover:bg-emerald-100 dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20 transition-colors"
                                 >
                                   <FileText className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-600 dark:text-emerald-400" />
@@ -2515,7 +1325,6 @@ const ProjectDiscussion = () => {
           {/* Header */}
           <div className="flex items-center justify-between border-b border-gray-200 px-2 py-2 sm:px-3 sm:py-3 md:p-4 dark:border-slate-700">
             <div className="flex items-center gap-2 min-w-0 flex-1">
-              {/* Mobile menu button */}
               <button
                 type="button"
                 onClick={() => setIsMobileSidebarOpen(true)}
@@ -2544,7 +1353,6 @@ const ProjectDiscussion = () => {
             </div>
             {/* Model badge and channel menu */}
             <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
-              {/* Model badge - configured in Project Settings */}
               <div
                 className="hidden sm:flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-xs text-gray-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300"
                 title="AI model - configure in Project Settings"
@@ -3323,451 +2131,6 @@ const ProjectDiscussion = () => {
         document.body
       )}
     </>
-  )
-}
-
-// Resource scope picker for channel settings
-const ResourceScopePicker = ({
-  scope,
-  papers,
-  references,
-  meetings,
-  onToggle,
-  isLoading,
-}: {
-  scope: ChannelScopeConfig
-  papers: ResearchPaper[]
-  references: ProjectReferenceSuggestion[]
-  meetings: MeetingSummary[]
-  onToggle: (type: 'paper' | 'reference' | 'meeting', id: string) => void
-  isLoading: boolean
-}) => {
-  const [expandedSections, setExpandedSections] = useState<string[]>(['papers', 'references', 'meetings'])
-
-  const toggleSection = (section: string) => {
-    setExpandedSections((prev) =>
-      prev.includes(section) ? prev.filter((s) => s !== section) : [...prev, section]
-    )
-  }
-
-  const selectedPaperIds = new Set(scope.paper_ids || [])
-  const selectedReferenceIds = new Set(scope.reference_ids || [])
-  const selectedMeetingIds = new Set(scope.meeting_ids || [])
-
-  const totalSelected = selectedPaperIds.size + selectedReferenceIds.size + selectedMeetingIds.size
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center p-4">
-        <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
-        <span className="ml-2 text-sm text-gray-500">Loading resources...</span>
-      </div>
-    )
-  }
-
-  return (
-    <div className="divide-y divide-gray-100 dark:divide-slate-700">
-      {totalSelected > 0 && (
-        <div className="bg-indigo-50 px-3 py-2 text-xs text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
-          {totalSelected} resource{totalSelected !== 1 ? 's' : ''} selected
-        </div>
-      )}
-
-      {/* Papers Section */}
-      {papers.length > 0 && (
-        <div>
-          <button
-            type="button"
-            onClick={() => toggleSection('papers')}
-            className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-slate-800"
-          >
-            <div className="flex items-center gap-2">
-              <FileText className="h-4 w-4 text-blue-500" />
-              <span className="text-sm font-medium text-gray-700 dark:text-slate-200">Papers</span>
-              {selectedPaperIds.size > 0 && (
-                <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-xs text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">
-                  {selectedPaperIds.size}
-                </span>
-              )}
-            </div>
-            <ChevronDown className={`h-4 w-4 text-gray-400 transition ${expandedSections.includes('papers') ? 'rotate-180' : ''}`} />
-          </button>
-          {expandedSections.includes('papers') && (
-            <div className="space-y-1 px-3 pb-2">
-              {papers.map((paper) => (
-                <label
-                  key={paper.id}
-                  className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-slate-800"
-                >
-                  <div className={`flex h-4 w-4 items-center justify-center rounded border ${
-                    selectedPaperIds.has(paper.id)
-                      ? 'border-indigo-500 bg-indigo-500'
-                      : 'border-gray-300 dark:border-slate-600'
-                  }`}>
-                    {selectedPaperIds.has(paper.id) && <Check className="h-3 w-3 text-white" />}
-                  </div>
-                  <input
-                    type="checkbox"
-                    className="sr-only"
-                    checked={selectedPaperIds.has(paper.id)}
-                    onChange={() => onToggle('paper', paper.id)}
-                  />
-                  <span className="text-sm text-gray-700 dark:text-slate-300 truncate">{paper.title || 'Untitled Paper'}</span>
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* References Section */}
-      {references.length > 0 && (
-        <div>
-          <button
-            type="button"
-            onClick={() => toggleSection('references')}
-            className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-slate-800"
-          >
-            <div className="flex items-center gap-2">
-              <BookOpen className="h-4 w-4 text-emerald-500" />
-              <span className="text-sm font-medium text-gray-700 dark:text-slate-200">References</span>
-              {selectedReferenceIds.size > 0 && (
-                <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-xs text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">
-                  {selectedReferenceIds.size}
-                </span>
-              )}
-            </div>
-            <ChevronDown className={`h-4 w-4 text-gray-400 transition ${expandedSections.includes('references') ? 'rotate-180' : ''}`} />
-          </button>
-          {expandedSections.includes('references') && (
-            <div className="space-y-1 px-3 pb-2">
-              {references.map((ref) => (
-                <label
-                  key={ref.reference_id}
-                  className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-slate-800"
-                >
-                  <div className={`flex h-4 w-4 items-center justify-center rounded border ${
-                    selectedReferenceIds.has(ref.reference_id)
-                      ? 'border-indigo-500 bg-indigo-500'
-                      : 'border-gray-300 dark:border-slate-600'
-                  }`}>
-                    {selectedReferenceIds.has(ref.reference_id) && <Check className="h-3 w-3 text-white" />}
-                  </div>
-                  <input
-                    type="checkbox"
-                    className="sr-only"
-                    checked={selectedReferenceIds.has(ref.reference_id)}
-                    onChange={() => onToggle('reference', ref.reference_id)}
-                  />
-                  <span className="text-sm text-gray-700 dark:text-slate-300 truncate">{ref.reference?.title || 'Untitled Reference'}</span>
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Meetings Section */}
-      {meetings.length > 0 && (
-        <div>
-          <button
-            type="button"
-            onClick={() => toggleSection('meetings')}
-            className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-slate-800"
-          >
-            <div className="flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-purple-500" />
-              <span className="text-sm font-medium text-gray-700 dark:text-slate-200">Meetings</span>
-              {selectedMeetingIds.size > 0 && (
-                <span className="rounded-full bg-purple-100 px-1.5 py-0.5 text-xs text-purple-700 dark:bg-purple-500/20 dark:text-purple-300">
-                  {selectedMeetingIds.size}
-                </span>
-              )}
-            </div>
-            <ChevronDown className={`h-4 w-4 text-gray-400 transition ${expandedSections.includes('meetings') ? 'rotate-180' : ''}`} />
-          </button>
-          {expandedSections.includes('meetings') && (
-            <div className="space-y-1 px-3 pb-2">
-              {meetings.map((meeting) => (
-                <label
-                  key={meeting.id}
-                  className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-slate-800"
-                >
-                  <div className={`flex h-4 w-4 items-center justify-center rounded border ${
-                    selectedMeetingIds.has(meeting.id)
-                      ? 'border-indigo-500 bg-indigo-500'
-                      : 'border-gray-300 dark:border-slate-600'
-                  }`}>
-                    {selectedMeetingIds.has(meeting.id) && <Check className="h-3 w-3 text-white" />}
-                  </div>
-                  <input
-                    type="checkbox"
-                    className="sr-only"
-                    checked={selectedMeetingIds.has(meeting.id)}
-                    onChange={() => onToggle('meeting', meeting.id)}
-                  />
-                  <span className="text-sm text-gray-700 dark:text-slate-300 truncate">{meeting.summary || `Meeting ${meeting.id.slice(0, 8)}`}</span>
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {papers.length === 0 && references.length === 0 && meetings.length === 0 && (
-        <div className="px-3 py-4 text-center text-sm text-gray-500 dark:text-slate-400">
-          No resources available in this project yet.
-        </div>
-      )}
-    </div>
-  )
-}
-
-// Channel settings modal component
-const ChannelSettingsModal = ({
-  channel,
-  onClose,
-  onSave,
-  onDelete,
-  isSaving,
-  isDeleting,
-  papers,
-  references,
-  meetings,
-  isLoadingResources,
-}: {
-  channel: DiscussionChannelSummary
-  onClose: () => void
-  onSave: (payload: { name?: string; description?: string | null; scope?: ChannelScopeConfig | null }) => void
-  onDelete: () => void
-  isSaving: boolean
-  isDeleting: boolean
-  papers: ResearchPaper[]
-  references: ProjectReferenceSuggestion[]
-  meetings: MeetingSummary[]
-  isLoadingResources: boolean
-}) => {
-  const { toast } = useToast()
-  const [confirmDelete, setConfirmDelete] = useState(false)
-  const [deleteConfirmText, setDeleteConfirmText] = useState('')
-  const [name, setName] = useState(channel.name)
-  const [description, setDescription] = useState(channel.description || '')
-  const [scope, setScope] = useState<ChannelScopeConfig | null>(channel.scope ?? null)
-
-  const toggleScopeResource = (type: 'paper' | 'reference' | 'meeting', id: string) => {
-    setScope((prev) => {
-      const keyMap = { paper: 'paper_ids', reference: 'reference_ids', meeting: 'meeting_ids' } as const
-      const key = keyMap[type]
-
-      if (prev === null) {
-        return { [key]: [id] } as ChannelScopeConfig
-      }
-
-      const currentIds = prev[key] || []
-      if (currentIds.includes(id)) {
-        const filtered = currentIds.filter((existingId) => existingId !== id)
-        const newScope = { ...prev, [key]: filtered.length > 0 ? filtered : null }
-        const hasAny = newScope.paper_ids?.length || newScope.reference_ids?.length || newScope.meeting_ids?.length
-        return hasAny ? newScope : null
-      }
-
-      return { ...prev, [key]: [...currentIds, id] }
-    })
-  }
-
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!name.trim()) {
-      toast.warning('Channel name is required.')
-      return
-    }
-
-    const payload: { name?: string; description?: string | null; scope?: ChannelScopeConfig | null } = {}
-    if (name.trim() !== channel.name) {
-      payload.name = name.trim()
-    }
-    if (description.trim() !== (channel.description || '')) {
-      payload.description = description.trim() || null
-    }
-    const currentScope = channel.scope ?? null
-    const newScope = scope
-    if (JSON.stringify(currentScope) !== JSON.stringify(newScope)) {
-      payload.scope = newScope === null ? { paper_ids: null, reference_ids: null, meeting_ids: null } : newScope
-    }
-
-    if (Object.keys(payload).length === 0) {
-      onClose()
-      return
-    }
-
-    onSave(payload)
-  }
-
-  return (
-    <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-gray-900/40 backdrop-blur-sm dark:bg-black/70">
-      <div className="w-full sm:max-w-md max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white p-4 sm:p-6 shadow-xl transition-colors dark:bg-slate-900/90">
-        <h3 className="text-base font-semibold text-gray-900 dark:text-slate-100">Channel Settings</h3>
-        <p className="mt-1 text-xs sm:text-sm text-gray-500 dark:text-slate-400">
-          Update channel configuration and AI scope
-        </p>
-        <form className="mt-3 sm:mt-4 space-y-3 sm:space-y-4" onSubmit={handleSubmit}>
-          <div>
-            <label
-              htmlFor="settings-channel-name"
-              className="text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-slate-300"
-            >
-              Channel name
-            </label>
-            <input
-              id="settings-channel-name"
-              type="text"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
-              placeholder="e.g. Brainstorming"
-              maxLength={255}
-              required
-            />
-          </div>
-
-          <div>
-            <label
-              htmlFor="settings-channel-description"
-              className="text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-slate-300"
-            >
-              Description <span className="text-gray-400 dark:text-slate-500">(optional)</span>
-            </label>
-            <textarea
-              id="settings-channel-description"
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
-              rows={3}
-              maxLength={2000}
-              placeholder="Describe the focus of this channel"
-            />
-          </div>
-
-          <div>
-            <label className="text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-slate-300">
-              AI Context Scope
-            </label>
-            <p className="mt-0.5 text-xs text-gray-500 dark:text-slate-400">
-              Choose which resources the AI can access in this channel
-            </p>
-            <div className="mt-2 space-y-2">
-              <button
-                type="button"
-                onClick={() => setScope(null)}
-                className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
-                  scope === null
-                    ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-500/20 dark:text-indigo-100'
-                    : 'border-gray-200 text-gray-600 hover:border-gray-300 dark:border-slate-600 dark:text-slate-300 dark:hover:border-slate-500'
-                }`}
-              >
-                <span className="font-medium">Project-wide</span>
-                <span className="ml-1 text-xs opacity-70">(all papers, references, transcripts)</span>
-              </button>
-
-              {scope !== null && (
-                <div className="mt-3 max-h-64 overflow-y-auto rounded-lg border border-gray-200 dark:border-slate-700">
-                  <ResourceScopePicker
-                    scope={scope}
-                    papers={papers}
-                    references={references}
-                    meetings={meetings}
-                    onToggle={toggleScopeResource}
-                    isLoading={isLoadingResources}
-                  />
-                </div>
-              )}
-
-              {scope === null && (
-                <button
-                  type="button"
-                  onClick={() => setScope({})}
-                  className="text-xs text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"
-                >
-                  Or select specific resources...
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Delete confirmation */}
-          {confirmDelete && (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-500/30 dark:bg-red-500/10">
-              <p className="text-sm text-red-700 dark:text-red-300">
-                This will permanently delete the channel and all its messages and artifacts.
-              </p>
-              <p className="mt-2 text-xs text-red-600 dark:text-red-400">
-                Type <strong>{channel.name}</strong> to confirm:
-              </p>
-              <input
-                type="text"
-                value={deleteConfirmText}
-                onChange={(e) => setDeleteConfirmText(e.target.value)}
-                className="mt-2 w-full rounded-md border border-red-300 px-2 py-1.5 text-sm focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500 dark:border-red-500/50 dark:bg-slate-900/60 dark:text-slate-100"
-                placeholder={channel.name}
-              />
-              <div className="mt-3 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setConfirmDelete(false)
-                    setDeleteConfirmText('')
-                  }}
-                  className="flex-1 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={onDelete}
-                  disabled={deleteConfirmText !== channel.name || isDeleting}
-                  className="flex-1 inline-flex items-center justify-center gap-1 rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300 dark:disabled:bg-red-500/40"
-                >
-                  {isDeleting && <Loader2 className="h-3 w-3 animate-spin" />}
-                  Delete channel
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className="flex justify-between gap-2 pt-2">
-            {!channel.is_default && !confirmDelete && (
-              <button
-                type="button"
-                onClick={() => setConfirmDelete(true)}
-                className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-500/40 dark:text-red-400 dark:hover:bg-red-500/10"
-                disabled={isSaving || isDeleting}
-              >
-                Delete
-              </button>
-            )}
-            {(channel.is_default || confirmDelete) && <div />}
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
-                disabled={isSaving || isDeleting}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isSaving || isDeleting || confirmDelete}
-                className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300 dark:disabled:bg-indigo-500/40"
-              >
-                {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
-                Save changes
-              </button>
-            </div>
-          </div>
-        </form>
-      </div>
-    </div>
   )
 }
 

@@ -127,9 +127,11 @@ if settings.PROJECT_NOTIFICATIONS_ENABLED:
 
     app.include_router(project_notifications.router, prefix="/api/v1", tags=["project notifications"])
 if settings.PROJECTS_API_ENABLED:
-    from app.api.v1 import project_discussion  # noqa: F401
+    from app.api.v1 import project_discussion, discussion_actions, discussion_artifacts  # noqa: F401
 
     app.include_router(project_discussion.router, prefix="/api/v1", tags=["project discussion"])
+    app.include_router(discussion_actions.router, prefix="/api/v1", tags=["project discussion"])
+    app.include_router(discussion_artifacts.router, prefix="/api/v1", tags=["project discussion"])
 if settings.TRANSCRIBER_ENABLED:
     from app.api.v1 import transcription  # noqa: F401
 

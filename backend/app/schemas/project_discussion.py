@@ -296,3 +296,105 @@ class DiscussionAssistantExchangeResponse(BaseModel):
 
 
 DiscussionAssistantExchangeResponse.model_rebuild(_types_namespace=globals())
+
+
+class OpenRouterModelInfo(BaseModel):
+    id: str
+    name: str
+    provider: str
+    supports_reasoning: bool = False
+
+
+class OpenRouterModelListResponse(BaseModel):
+    models: List[OpenRouterModelInfo]
+    source: str
+    warning: Optional[str] = None
+    key_source: Optional[str] = None
+
+
+class PaperActionRequest(BaseModel):
+    action_type: str  # "create_paper" or "edit_paper"
+    payload: Dict[str, Any]
+
+
+class PaperActionResponse(BaseModel):
+    success: bool
+    paper_id: Optional[str] = None
+    reference_id: Optional[str] = None
+    message: str
+    ingestion_status: Optional[str] = None  # 'success', 'failed', 'no_pdf', 'pending'
+
+
+class SearchReferencesRequest(BaseModel):
+    query: str
+    sources: Optional[List[str]] = None
+    max_results: int = 10
+    open_access_only: bool = False  # If true, only return papers with PDF available
+
+
+class DiscoveredPaperResponse(BaseModel):
+    id: str
+    title: str
+    authors: List[str]
+    year: Optional[int] = None
+    abstract: Optional[str] = None
+    doi: Optional[str] = None
+    url: Optional[str] = None
+    source: str
+    relevance_score: Optional[float] = None
+    pdf_url: Optional[str] = None
+    is_open_access: bool = False
+    journal: Optional[str] = None
+
+
+class SearchReferencesResponse(BaseModel):
+    papers: List[DiscoveredPaperResponse]
+    total_found: int
+    query: str
+
+
+class TopicQuery(BaseModel):
+    """A single topic query for batch search."""
+    topic: str  # Display name for grouping (e.g., "Mixture of Experts")
+    query: str  # Actual search query (e.g., "mixture of experts 2025")
+    max_results: int = 5
+
+
+class BatchSearchRequest(BaseModel):
+    """Request for batch search across multiple topics."""
+    queries: List[TopicQuery]
+    open_access_only: bool = False
+
+
+class TopicResult(BaseModel):
+    """Results for a single topic in batch search."""
+    topic: str
+    query: str
+    papers: List[DiscoveredPaperResponse]
+    count: int
+
+
+class BatchSearchResponse(BaseModel):
+    """Response for batch search across multiple topics."""
+    results: List[TopicResult]
+    total_found: int
+
+
+class DiscussionArtifactResponse(BaseModel):
+    id: str
+    title: str
+    filename: str
+    format: str
+    artifact_type: str
+    mime_type: str
+    file_size: Optional[str] = None
+    created_at: datetime
+    created_by: Optional[str] = None
+
+
+class DiscussionArtifactDownloadResponse(BaseModel):
+    id: str
+    title: str
+    filename: str
+    content_base64: str
+    mime_type: str
