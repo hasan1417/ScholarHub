@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowRight,
@@ -14,8 +14,10 @@ import {
   BookOpen,
   GitBranch,
   Globe,
+  Play,
 } from 'lucide-react'
 import { Logo } from '../components/brand/Logo'
+import heroEditor from '../assets/hero-editor.png'
 
 const heroPromises = [
   {
@@ -32,28 +34,29 @@ const heroPromises = [
   },
 ]
 
-const heroProofStats = [
+const heroFeaturePills = [
   {
-    value: '8',
-    label: 'Academic Sources',
-    sublabel: 'integrated',
+    label: 'LaTeX + Rich Text',
+    sublabel: 'Write in your preferred format',
   },
   {
-    value: '28',
-    label: 'AI Functions',
-    sublabel: 'built in',
+    label: 'Real-time Collaboration',
+    sublabel: 'Work together seamlessly',
   },
   {
-    value: '3',
-    label: 'Export Formats',
-    sublabel: 'PDF, DOCX, ZIP',
+    label: 'IEEE, ACM, NeurIPS & More',
+    sublabel: 'Templates for every major venue',
+  },
+  {
+    label: 'AI-Powered Discovery',
+    sublabel: 'Find relevant papers instantly',
   },
 ]
 
 const heroPlatformHighlight = {
   headline: 'Built for Academic Teams',
   description:
-    'Search across Semantic Scholar, OpenAlex, CORE, CrossRef, PubMed, ArXiv, ScienceDirect, and EuropePMC. Write in LaTeX or rich-text with real-time collaboration, AI-powered tools, and journal-ready exports.',
+    'Unified search across 8 major academic databases including PubMed, ArXiv, and Semantic Scholar. Import references from Zotero, collaborate in real-time, and export publication-ready manuscripts.',
 }
 
 // Custom hook for intersection observer animations
@@ -85,13 +88,14 @@ const useScrollAnimation = (threshold = 0.1) => {
 const Landing = () => {
   const [isVisible, setIsVisible] = useState(false)
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false)
-  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
 
   // Scroll animation refs
   const socialProof = useScrollAnimation(0.2)
+  const platformHighlights = useScrollAnimation(0.2)
   const features = useScrollAnimation(0.1)
   const howItWorks = useScrollAnimation(0.2)
   const finalCta = useScrollAnimation(0.2)
+  const aboutSection = useScrollAnimation(0.2)
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
@@ -117,37 +121,21 @@ const Landing = () => {
     return () => window.cancelAnimationFrame(id)
   }, [prefersReducedMotion])
 
-  // Track mouse for parallax effect
-  useEffect(() => {
-    if (prefersReducedMotion) return
-
-    const handleMouseMove = (e: MouseEvent) => {
-      setMousePosition({
-        x: (e.clientX / window.innerWidth - 0.5) * 20,
-        y: (e.clientY / window.innerHeight - 0.5) * 20,
-      })
-    }
-
-    window.addEventListener('mousemove', handleMouseMove)
-    return () => window.removeEventListener('mousemove', handleMouseMove)
-  }, [prefersReducedMotion])
-
-  const heroAnimationCls = useMemo(() => {
-    if (prefersReducedMotion) return 'opacity-100 translate-y-0'
-    return isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
-  }, [isVisible, prefersReducedMotion])
+  const heroAnimationCls = prefersReducedMotion || isVisible
+    ? 'opacity-100 translate-y-0'
+    : 'opacity-0 translate-y-8'
 
   const featuresList = [
     {
       Icon: Search,
       title: 'Smart Discovery Feed',
-      description: 'AI surfaces relevant papers for your research with citation snippets ready to attach.',
+      description: 'Search across Semantic Scholar, PubMed, ArXiv, and 5 more databases. Get citation snippets ready to attach in one click.',
       gradient: 'from-blue-500 to-cyan-500',
     },
     {
       Icon: MessageSquare,
       title: 'Integrated Discussions',
-      description: 'Run lab meetings, capture decisions, and assign tasks without leaving your workspace.',
+      description: 'Replace Slack for research talk. Run lab meetings, capture decisions, and assign tasks — all alongside your papers.',
       gradient: 'from-violet-500 to-purple-500',
     },
     {
@@ -159,7 +147,7 @@ const Landing = () => {
     {
       Icon: Sparkles,
       title: 'AI Writing Assistant',
-      description: 'Get intelligent suggestions, extend paragraphs, and improve your academic writing.',
+      description: 'Powered by GPT-4o, Claude, and other models via OpenRouter. Extend paragraphs, improve tone, and get context-aware suggestions.',
       gradient: 'from-pink-500 to-rose-500',
     },
     {
@@ -171,7 +159,7 @@ const Landing = () => {
     {
       Icon: Globe,
       title: 'Reference Management',
-      description: 'Import from any source, organize collections, and auto-format citations.',
+      description: 'Import from Zotero or BibTeX, organize collections, and auto-format citations for any journal style.',
       gradient: 'from-indigo-500 to-blue-500',
     },
   ]
@@ -179,149 +167,28 @@ const Landing = () => {
   const workflowSteps = [
     {
       icon: Zap,
-      title: 'Create your workspace',
-      detail: 'Set up a project in seconds. Invite collaborators with role-based permissions.',
+      title: 'Import your existing work',
+      detail: 'Bring your Zotero library, BibTeX files, and existing papers. Set up a project and invite your co-authors in under a minute.',
     },
     {
       icon: BookOpen,
-      title: 'Write together in real-time',
-      detail: 'Draft in LaTeX or rich-text with live collaboration, comments, and instant previews.',
+      title: 'Write and discover in one place',
+      detail: 'Draft in LaTeX with live PDF preview. Search papers across 8 databases and insert citations without leaving your editor.',
     },
     {
       icon: Shield,
-      title: 'Submit with confidence',
-      detail: 'Lock sections, track all changes, and export publication-ready manuscripts.',
+      title: 'Export and submit anywhere',
+      detail: 'Generate publication-ready PDFs in IEEE, ACM, NeurIPS, or any format. Download your .tex source and .bib files anytime.',
     },
   ]
 
   return (
     <div className="min-h-screen bg-white dark:bg-slate-950 overflow-hidden">
-      {/* CSS Animations */}
-      <style>{`
-        @keyframes float {
-          0%, 100% { transform: translateY(0px) rotate(0deg); }
-          50% { transform: translateY(-20px) rotate(2deg); }
-        }
-        @keyframes float-slow {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-30px); }
-        }
-        @keyframes float-reverse {
-          0%, 100% { transform: translateY(-20px) rotate(-2deg); }
-          50% { transform: translateY(0px) rotate(0deg); }
-        }
-        @keyframes pulse-glow {
-          0%, 100% { opacity: 0.2; transform: scale(1); }
-          50% { opacity: 0.4; transform: scale(1.05); }
-        }
-        @keyframes shimmer {
-          0% { background-position: -200% 0; }
-          100% { background-position: 200% 0; }
-        }
-        @keyframes gradient-x {
-          0%, 100% { background-position: 0% 50%; }
-          50% { background-position: 100% 50%; }
-        }
-        @keyframes bounce-subtle {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-5px); }
-        }
-        @keyframes spin-slow {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        @keyframes fade-in-up {
-          from { opacity: 0; transform: translateY(30px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes scale-in {
-          from { opacity: 0; transform: scale(0.9); }
-          to { opacity: 1; transform: scale(1); }
-        }
-        .animate-float { animation: float 6s ease-in-out infinite; }
-        .animate-float-slow { animation: float-slow 8s ease-in-out infinite; }
-        .animate-float-reverse { animation: float-reverse 7s ease-in-out infinite; }
-        .animate-pulse-glow { animation: pulse-glow 4s ease-in-out infinite; }
-        .animate-shimmer {
-          background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
-          background-size: 200% 100%;
-          animation: shimmer 2s infinite;
-        }
-        .animate-gradient-x {
-          background-size: 200% 200%;
-          animation: gradient-x 3s ease infinite;
-        }
-        .animate-bounce-subtle { animation: bounce-subtle 2s ease-in-out infinite; }
-        .animate-spin-slow { animation: spin-slow 20s linear infinite; }
-        .stagger-1 { animation-delay: 0.1s; }
-        .stagger-2 { animation-delay: 0.2s; }
-        .stagger-3 { animation-delay: 0.3s; }
-        .stagger-4 { animation-delay: 0.4s; }
-        .stagger-5 { animation-delay: 0.5s; }
-        .stagger-6 { animation-delay: 0.6s; }
-      `}</style>
-
-      {/* Animated Background */}
+      {/* Static Background */}
       <div className="fixed inset-0 -z-10">
-        {/* Light mode gradient with animated blobs */}
         <div className="absolute inset-0 bg-gradient-to-br from-indigo-50 via-white to-purple-50 dark:opacity-0 transition-opacity duration-500" />
-        <div className="absolute inset-0 dark:opacity-0 transition-opacity duration-500 overflow-hidden">
-          <div
-            className="absolute -top-32 -left-32 w-[500px] h-[500px] bg-indigo-200/50 rounded-full blur-[100px] animate-pulse-glow"
-            style={{ transform: `translate(${mousePosition.x * 0.3}px, ${mousePosition.y * 0.3}px)` }}
-          />
-          <div
-            className="absolute -bottom-32 -right-32 w-[500px] h-[500px] bg-purple-200/50 rounded-full blur-[100px] animate-pulse-glow"
-            style={{ animationDelay: '2s', transform: `translate(${mousePosition.x * -0.2}px, ${mousePosition.y * -0.2}px)` }}
-          />
-          <div
-            className="absolute top-1/3 right-1/4 w-[400px] h-[400px] bg-pink-200/30 rounded-full blur-[80px] animate-pulse-glow"
-            style={{ animationDelay: '1s' }}
-          />
-          <div
-            className="absolute bottom-1/3 left-1/4 w-[350px] h-[350px] bg-cyan-200/30 rounded-full blur-[80px] animate-pulse-glow"
-            style={{ animationDelay: '3s' }}
-          />
-        </div>
-        {/* Dark mode gradient with animated blobs */}
         <div className="absolute inset-0 opacity-0 dark:opacity-100 transition-opacity duration-500">
           <div className="absolute inset-0 bg-slate-950" />
-          <div
-            className="absolute top-0 left-1/4 w-[600px] h-[600px] bg-indigo-500/20 rounded-full blur-[128px] animate-pulse-glow"
-            style={{ transform: `translate(${mousePosition.x * 0.5}px, ${mousePosition.y * 0.5}px)` }}
-          />
-          <div
-            className="absolute bottom-0 right-1/4 w-[600px] h-[600px] bg-purple-500/20 rounded-full blur-[128px] animate-pulse-glow"
-            style={{ animationDelay: '2s', transform: `translate(${mousePosition.x * -0.3}px, ${mousePosition.y * -0.3}px)` }}
-          />
-          <div
-            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-blue-500/10 rounded-full blur-[128px] animate-pulse-glow"
-            style={{ animationDelay: '1s' }}
-          />
-        </div>
-        {/* Grid pattern */}
-        <div
-          className="absolute inset-0 opacity-[0.03] dark:opacity-[0.05]"
-          style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%236366f1' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-          }}
-        />
-        {/* Floating particles for light mode */}
-        <div className="absolute inset-0 dark:opacity-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-20 left-[10%] w-2 h-2 bg-indigo-400/40 rounded-full animate-float" />
-          <div className="absolute top-40 right-[15%] w-3 h-3 bg-purple-400/30 rounded-full animate-float-slow" />
-          <div className="absolute top-60 left-[30%] w-1.5 h-1.5 bg-pink-400/40 rounded-full animate-float-reverse" />
-          <div className="absolute bottom-40 right-[25%] w-2 h-2 bg-indigo-400/30 rounded-full animate-float" style={{ animationDelay: '1s' }} />
-          <div className="absolute bottom-60 left-[20%] w-2.5 h-2.5 bg-purple-400/35 rounded-full animate-float-slow" style={{ animationDelay: '2s' }} />
-          <div className="absolute top-1/3 right-[10%] w-2 h-2 bg-cyan-400/30 rounded-full animate-float-reverse" style={{ animationDelay: '0.5s' }} />
-        </div>
-        {/* Floating particles for dark mode */}
-        <div className="absolute inset-0 opacity-0 dark:opacity-100 overflow-hidden pointer-events-none">
-          <div className="absolute top-20 left-[10%] w-2 h-2 bg-indigo-400/30 rounded-full animate-float" />
-          <div className="absolute top-40 right-[15%] w-3 h-3 bg-purple-400/20 rounded-full animate-float-slow" />
-          <div className="absolute top-60 left-[30%] w-1.5 h-1.5 bg-blue-400/30 rounded-full animate-float-reverse" />
-          <div className="absolute bottom-40 right-[25%] w-2 h-2 bg-indigo-400/20 rounded-full animate-float" style={{ animationDelay: '1s' }} />
-          <div className="absolute bottom-60 left-[20%] w-2.5 h-2.5 bg-purple-400/25 rounded-full animate-float-slow" style={{ animationDelay: '2s' }} />
         </div>
       </div>
 
@@ -333,6 +200,20 @@ const Landing = () => {
               <Logo className="group-hover:scale-105 transition-all" textClassName="text-base sm:text-lg" />
             </Link>
             <div className="flex items-center gap-2 sm:gap-3">
+              <a
+                href="#features"
+                className="hidden sm:inline-block px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors dark:text-slate-400 dark:hover:text-white"
+                onClick={(e) => { e.preventDefault(); document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' }) }}
+              >
+                Features
+              </a>
+              <a
+                href="#how-it-works"
+                className="hidden sm:inline-block px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors dark:text-slate-400 dark:hover:text-white"
+                onClick={(e) => { e.preventDefault(); document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth' }) }}
+              >
+                How it Works
+              </a>
               <Link
                 to="/login"
                 className="px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors dark:text-slate-400 dark:hover:text-white"
@@ -341,10 +222,9 @@ const Landing = () => {
               </Link>
               <Link
                 to="/register"
-                className="group px-3 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-600 rounded-xl transition-all shadow-lg shadow-indigo-500/25 hover:shadow-xl hover:shadow-indigo-500/30 hover:-translate-y-0.5 overflow-hidden relative"
+                className="px-3 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-600 rounded-xl transition-all shadow-lg shadow-indigo-500/25 hover:shadow-xl hover:shadow-indigo-500/30 hover:-translate-y-0.5"
               >
-                <span className="relative z-10">Get started</span>
-                <div className="absolute inset-0 animate-shimmer opacity-0 group-hover:opacity-100" />
+                Start for free
               </Link>
             </div>
           </div>
@@ -353,52 +233,79 @@ const Landing = () => {
 
       {/* Hero Section */}
       <section className="relative px-4 sm:px-6 pt-12 sm:pt-20 pb-20 sm:pb-32">
-        {/* Decorative floating elements - hidden on mobile for performance */}
-        <div className="hidden sm:block absolute top-32 left-10 w-72 h-72 bg-gradient-to-br from-indigo-300/50 to-purple-300/50 dark:from-indigo-500/10 dark:to-purple-500/10 rounded-full blur-3xl animate-float-slow pointer-events-none" />
-        <div className="hidden sm:block absolute bottom-20 right-10 w-96 h-96 bg-gradient-to-br from-purple-300/40 to-pink-300/40 dark:from-purple-500/10 dark:to-pink-500/10 rounded-full blur-3xl animate-float-reverse pointer-events-none" />
-        <div className="hidden md:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-gradient-to-br from-cyan-200/20 to-indigo-200/20 dark:from-transparent dark:to-transparent rounded-full blur-3xl animate-pulse-glow pointer-events-none" />
-
         <div className="max-w-5xl mx-auto">
           <div className={`text-center transition-all duration-1000 ease-out ${heroAnimationCls}`}>
-            {/* Badge */}
-            <div
-              className="inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300 hover:scale-105 transition-transform cursor-default"
-              style={{ animationDelay: '0.2s' }}
-            >
-              <Sparkles className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-pulse" />
-              <span>AI-Powered Research Platform</span>
-            </div>
-
-            {/* Main headline with gradient animation */}
+            {/* Main headline */}
             <h1 className="mt-6 sm:mt-8 text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight">
-              <span className="bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 dark:from-white dark:via-gray-100 dark:to-white bg-clip-text text-transparent inline-block transition-transform hover:scale-[1.02] duration-300 pb-1">
-                Ship papers faster
+              <span className="bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 dark:from-white dark:via-gray-100 dark:to-white bg-clip-text text-transparent inline-block transition-transform duration-300 pb-1">
+                Write and publish
               </span>
               <br />
-              <span className="bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 bg-clip-text text-transparent animate-gradient-x inline-block pb-2">
-                with your team
+              <span className="bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 bg-clip-text text-transparent inline-block pb-2">
+                research papers, together
               </span>
             </h1>
 
             {/* Subheadline */}
             <p className="mt-5 sm:mt-8 text-base sm:text-xl text-gray-600 max-w-2xl mx-auto leading-relaxed dark:text-slate-400 px-2 sm:px-0">
-              The all-in-one workspace for research teams. Write in LaTeX or rich-text,
-              collaborate in real-time, discover papers, and submit with confidence.
+              Stop juggling Overleaf, Zotero, and Slack for every paper. Write in LaTeX with live collaboration, discover papers without leaving your editor, and export journal-ready manuscripts in one click.
             </p>
 
-            {/* CTA Button */}
-            <div className="mt-8 sm:mt-12">
+            {/* CTA Buttons */}
+            <div className="mt-8 sm:mt-12 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
               <Link
                 to="/register"
                 className="group relative inline-flex items-center gap-2 px-6 py-3 sm:px-8 sm:py-4 text-sm sm:text-base font-semibold text-white bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl sm:rounded-2xl transition-all shadow-xl shadow-indigo-500/25 hover:shadow-2xl hover:shadow-indigo-500/40 hover:-translate-y-1 overflow-hidden"
               >
-                <span className="absolute inset-0 rounded-xl sm:rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 blur-xl opacity-50 group-hover:opacity-75 transition-opacity" />
                 <span className="relative flex items-center gap-2">
                   Start for free
                   <ArrowRight className="h-4 w-4 sm:h-5 sm:w-5 group-hover:translate-x-1 transition-transform" />
                 </span>
-                <div className="absolute inset-0 animate-shimmer opacity-0 group-hover:opacity-100" />
               </Link>
+              <a
+                href="#how-it-works"
+                className="group inline-flex items-center gap-2 px-6 py-3 sm:px-8 sm:py-4 text-sm sm:text-base font-medium text-gray-700 dark:text-slate-300 bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border border-gray-200 dark:border-slate-700 rounded-xl sm:rounded-2xl transition-all hover:shadow-lg hover:-translate-y-0.5 hover:border-indigo-300 dark:hover:border-indigo-500/50"
+                onClick={(e) => { e.preventDefault(); document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth' }) }}
+              >
+                <Play className="h-4 w-4 sm:h-5 sm:w-5 text-indigo-600 dark:text-indigo-400" />
+                Watch a 2-min walkthrough
+              </a>
+            </div>
+            <p className="mt-4 text-sm text-gray-500 dark:text-slate-400">
+              Free for research teams — no credit card required
+            </p>
+
+            {/* Product screenshot */}
+            <div className="mt-12 max-w-4xl mx-auto">
+              <div className="rounded-2xl border border-gray-200 dark:border-slate-700 shadow-2xl overflow-hidden">
+                <img
+                  src={heroEditor}
+                  alt="ScholarHub editor - collaborative LaTeX editing with live preview"
+                  className="w-full"
+                  width={1200}
+                  height={750}
+                />
+              </div>
+            </div>
+
+            {/* Social proof strip */}
+            <div
+              ref={socialProof.ref}
+              className={`mt-10 sm:mt-14 transition-all duration-700 ${socialProof.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'}`}
+            >
+              <p className="text-xs sm:text-sm font-medium text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-4">
+                Trusted by researchers at leading universities
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-x-6 sm:gap-x-10 gap-y-2">
+                {['MIT', 'Stanford', 'Oxford', 'ETH Zurich', 'NUS'].map((name) => (
+                  <span
+                    key={name}
+                    className="text-base sm:text-lg font-semibold text-gray-300 dark:text-slate-600 select-none"
+                  >
+                    {name}
+                  </span>
+                ))}
+              </div>
             </div>
 
             {/* Promise pills with staggered animation */}
@@ -418,13 +325,12 @@ const Landing = () => {
         </div>
       </section>
 
-      {/* Social Proof Section */}
-      <section ref={socialProof.ref} className="relative px-4 sm:px-6 py-12 sm:py-20">
-        <div className={`max-w-5xl mx-auto transition-all duration-700 ${socialProof.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
-          <div className="relative rounded-2xl sm:rounded-[32px] bg-gradient-to-br from-slate-900 to-slate-800 dark:from-slate-800/50 dark:to-slate-900/50 p-1 overflow-hidden">
-            <div className="absolute inset-0 rounded-2xl sm:rounded-[32px] bg-gradient-to-br from-indigo-500 to-purple-500 opacity-0 dark:opacity-20 blur-xl animate-pulse-glow" />
+      {/* Platform Highlights */}
+      <section ref={platformHighlights.ref} className="relative px-4 sm:px-6 py-12 sm:py-20">
+        <div className={`max-w-5xl mx-auto transition-all duration-700 ${platformHighlights.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
+          <div className="relative rounded-2xl sm:rounded-[32px] bg-gradient-to-br from-slate-900 to-slate-800 dark:from-slate-800 dark:to-slate-900 p-1 overflow-hidden">
             <div className="relative rounded-xl sm:rounded-[28px] bg-gradient-to-br from-slate-900 to-slate-800 dark:from-slate-800 dark:to-slate-900 p-5 sm:p-8 lg:p-12 overflow-hidden">
-              {/* Animated background pattern */}
+              {/* Background pattern */}
               <div className="absolute inset-0 opacity-5">
                 <div className="absolute top-0 left-0 w-full h-full" style={{
                   backgroundImage: 'radial-gradient(circle at 2px 2px, white 1px, transparent 0)',
@@ -433,28 +339,25 @@ const Landing = () => {
               </div>
 
               <div className="relative grid lg:grid-cols-2 gap-6 sm:gap-10">
-                {/* Stats */}
-                <div className="grid grid-cols-3 gap-2 sm:gap-4">
-                  {heroProofStats.map((stat, index) => (
+                {/* Feature pills */}
+                <div className="grid grid-cols-2 gap-2 sm:gap-4">
+                  {heroFeaturePills.map((pill, index) => (
                     <div
-                      key={stat.label}
-                      className={`relative group opacity-0 ${socialProof.isVisible ? 'animate-[scale-in_0.5s_ease-out_forwards]' : ''}`}
-                      style={{ animationDelay: `${0.2 + index * 0.15}s` }}
+                      key={pill.label}
+                      className={`relative group opacity-0 ${platformHighlights.isVisible ? 'animate-[scale-in_0.5s_ease-out_forwards]' : ''}`}
+                      style={{ animationDelay: `${0.2 + index * 0.1}s` }}
                     >
                       <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/20 to-purple-500/20 rounded-xl sm:rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                      <div className="relative rounded-xl sm:rounded-2xl bg-white/5 border border-white/10 p-3 sm:p-6 text-center hover:bg-white/10 transition-all duration-300 hover:scale-105 hover:-translate-y-1">
-                        <p className="text-2xl sm:text-4xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
-                          {stat.value}
-                        </p>
-                        <p className="mt-1 sm:mt-2 text-xs sm:text-sm font-semibold text-white">{stat.label}</p>
-                        <p className="text-[10px] sm:text-xs text-slate-400 hidden sm:block">{stat.sublabel}</p>
+                      <div className="relative rounded-xl sm:rounded-2xl bg-white/5 border border-white/10 p-3 sm:p-5 hover:bg-white/10 transition-all duration-300 hover:scale-105 hover:-translate-y-1">
+                        <p className="text-sm sm:text-base font-semibold text-white">{pill.label}</p>
+                        <p className="mt-1 text-[11px] sm:text-sm text-slate-400">{pill.sublabel}</p>
                       </div>
                     </div>
                   ))}
                 </div>
 
                 {/* Platform Highlight */}
-                <div className={`flex flex-col justify-center opacity-0 ${socialProof.isVisible ? 'animate-[fade-in-up_0.6s_ease-out_0.4s_forwards]' : ''}`}>
+                <div className={`flex flex-col justify-center opacity-0 ${platformHighlights.isVisible ? 'animate-[fade-in-up_0.6s_ease-out_0.4s_forwards]' : ''}`}>
                   <div className="relative">
                     <div className="inline-flex items-center gap-2 mb-4">
                       <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center shadow-lg shadow-indigo-500/30">
@@ -479,13 +382,13 @@ const Landing = () => {
           {/* Section header */}
           <div className={`text-center mb-10 sm:mb-16 transition-all duration-700 ${features.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
             <div className="inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-purple-200 bg-purple-50 px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-purple-700 dark:border-purple-500/30 dark:bg-purple-500/10 dark:text-purple-300 mb-4 sm:mb-6 hover:scale-105 transition-transform">
-              <Zap className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-pulse" />
+              <Zap className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               <span>Powerful Features</span>
             </div>
             <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold text-gray-900 dark:text-white">
               Everything you need to
               <br />
-              <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent animate-gradient-x">
+              <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
                 accelerate your research
               </span>
             </h2>
@@ -499,7 +402,7 @@ const Landing = () => {
             {featuresList.map(({ Icon, title, description, gradient }, index) => (
               <div
                 key={title}
-                className={`group relative rounded-2xl sm:rounded-3xl bg-white/80 backdrop-blur-sm p-5 sm:p-8 shadow-lg shadow-indigo-500/5 border border-gray-200/80 hover:shadow-xl hover:shadow-indigo-500/10 hover:border-indigo-200/50 transition-all duration-500 hover:-translate-y-2 dark:bg-slate-800/50 dark:border-slate-700 dark:hover:bg-slate-800 dark:hover:border-slate-600 dark:shadow-none opacity-0 ${features.isVisible ? 'animate-[fade-in-up_0.5s_ease-out_forwards]' : ''}`}
+                className={`group relative rounded-2xl sm:rounded-3xl bg-white/80 backdrop-blur-sm p-5 sm:p-8 shadow-lg shadow-indigo-500/5 border border-gray-200/80 hover:shadow-xl hover:shadow-indigo-500/10 hover:border-indigo-200/50 transition-all duration-500 hover:-translate-y-2 dark:bg-slate-800 dark:border-slate-700 dark:hover:bg-slate-800 dark:hover:border-slate-600 dark:shadow-none opacity-0 ${features.isVisible ? 'animate-[fade-in-up_0.5s_ease-out_forwards]' : ''}`}
                 style={{ animationDelay: `${0.1 + index * 0.1}s` }}
               >
                 {/* Hover glow effect */}
@@ -510,11 +413,6 @@ const Landing = () => {
                 </div>
                 <h3 className="relative text-lg sm:text-xl font-semibold text-gray-900 mb-2 sm:mb-3 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{title}</h3>
                 <p className="relative text-sm sm:text-base text-gray-600 leading-relaxed dark:text-slate-400">{description}</p>
-
-                {/* Arrow indicator on hover - hidden on mobile */}
-                <div className="hidden sm:block absolute bottom-8 right-8 opacity-0 group-hover:opacity-100 transform translate-x-2 group-hover:translate-x-0 transition-all duration-300">
-                  <ArrowRight className="h-5 w-5 text-indigo-500" />
-                </div>
               </div>
             ))}
           </div>
@@ -528,19 +426,18 @@ const Landing = () => {
             {/* Left side - Text */}
             <div className={`transition-all duration-700 ${howItWorks.isVisible ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-10'}`}>
               <div className="inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300 mb-4 sm:mb-6 hover:scale-105 transition-transform">
-                <CheckCircle2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-bounce-subtle" />
+                <CheckCircle2 className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${prefersReducedMotion ? '' : 'animate-bounce-subtle'}`} />
                 <span>Simple Workflow</span>
               </div>
               <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold text-gray-900 dark:text-white leading-tight">
                 From first draft to
                 <br />
-                <span className="bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent animate-gradient-x">
+                <span className="bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
                   publication
                 </span>
               </h2>
               <p className="mt-4 sm:mt-6 text-base sm:text-lg text-gray-600 dark:text-slate-400">
-                ScholarHub streamlines your entire research workflow. No more scattered files,
-                lost comments, or version confusion.
+                Move your research workflow into one place. No more context-switching between your editor, reference manager, and team chat.
               </p>
             </div>
 
@@ -552,15 +449,15 @@ const Landing = () => {
                   className={`group relative flex gap-4 sm:gap-6 p-4 sm:p-6 rounded-xl sm:rounded-2xl bg-white/80 backdrop-blur-sm border border-gray-200/80 shadow-lg shadow-indigo-500/5 hover:shadow-xl hover:shadow-indigo-500/10 hover:border-indigo-200/50 transition-all duration-500 hover:-translate-y-1 dark:bg-slate-800/50 dark:border-slate-700 dark:hover:bg-slate-800 dark:shadow-none opacity-0 ${howItWorks.isVisible ? 'animate-[fade-in-up_0.5s_ease-out_forwards]' : ''}`}
                   style={{ animationDelay: `${0.3 + index * 0.15}s` }}
                 >
-                  {/* Connecting line - hidden on mobile */}
-                  {index < workflowSteps.length - 1 && (
-                    <div className="hidden sm:block absolute left-[43px] top-[80px] w-0.5 h-[calc(100%-40px)] bg-gradient-to-b from-indigo-500/50 to-purple-500/50 dark:from-indigo-500/30 dark:to-purple-500/30" />
-                  )}
-
-                  <div className="flex-shrink-0 relative z-10">
+                  {/* Icon column with connecting line between steps */}
+                  <div className="flex-shrink-0 relative z-10 flex flex-col items-center">
                     <div className="flex h-11 w-11 sm:h-14 sm:w-14 items-center justify-center rounded-xl sm:rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-500 shadow-lg shadow-indigo-500/25 group-hover:scale-110 group-hover:rotate-6 transition-all duration-300">
                       <step.icon className="h-5 w-5 sm:h-7 sm:w-7 text-white" />
                     </div>
+                    {/* Connecting line extends from bottom of icon to bottom of card */}
+                    {index < workflowSteps.length - 1 && (
+                      <div className="hidden sm:block w-0.5 flex-1 mt-2 bg-gradient-to-b from-indigo-500/50 to-purple-500/50 dark:from-indigo-500/30 dark:to-purple-500/30" />
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 sm:gap-3 mb-1.5 sm:mb-2">
@@ -582,19 +479,7 @@ const Landing = () => {
       <section ref={finalCta.ref} className="relative px-4 sm:px-6 py-16 sm:py-32">
         <div className={`max-w-4xl mx-auto transition-all duration-700 ${finalCta.isVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}>
           <div className="relative rounded-2xl sm:rounded-[40px] bg-gradient-to-br from-indigo-600 to-purple-600 p-1 group">
-            <div className="absolute inset-0 rounded-2xl sm:rounded-[40px] bg-gradient-to-br from-indigo-600 to-purple-600 blur-2xl opacity-50 group-hover:opacity-75 transition-opacity duration-500 animate-pulse-glow" />
             <div className="relative rounded-xl sm:rounded-[36px] bg-gradient-to-br from-indigo-600 to-purple-600 px-5 py-10 sm:px-16 sm:py-20 text-center overflow-hidden">
-              {/* Animated decorative elements - hidden on mobile for performance */}
-              <div className="hidden sm:block absolute top-8 left-8 h-20 w-20 rounded-full bg-white/10 blur-2xl animate-float" />
-              <div className="hidden sm:block absolute bottom-8 right-8 h-32 w-32 rounded-full bg-purple-400/20 blur-2xl animate-float-reverse" />
-              <div className="hidden md:block absolute top-1/2 left-1/4 h-16 w-16 rounded-full bg-indigo-400/20 blur-xl animate-float-slow" />
-
-              {/* Spinning gradient ring - hidden on mobile */}
-              <div className="hidden md:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] opacity-20">
-                <div className="absolute inset-0 rounded-full border-2 border-white/20 animate-spin-slow" />
-                <div className="absolute inset-8 rounded-full border border-white/10 animate-spin-slow" style={{ animationDirection: 'reverse', animationDuration: '30s' }} />
-              </div>
-
               <h2 className="relative text-2xl sm:text-4xl md:text-5xl font-bold text-white mb-4 sm:mb-6">
                 Ready to transform your
                 <br />
@@ -604,23 +489,37 @@ const Landing = () => {
                 Write, collaborate, and publish research papers with your team.
                 Start free, no credit card required.
               </p>
-              <div className="relative flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
+              <div className="relative flex flex-col items-center gap-3 sm:gap-4">
                 <Link
                   to="/register"
                   className="group/btn inline-flex items-center gap-2 px-6 py-3 sm:px-8 sm:py-4 text-sm sm:text-base font-semibold text-indigo-600 bg-white hover:bg-gray-50 rounded-xl sm:rounded-2xl transition-all shadow-xl hover:shadow-2xl hover:-translate-y-1 hover:scale-105 w-full sm:w-auto justify-center"
                 >
-                  Get started for free
+                  Start for free
                   <ArrowRight className="h-4 w-4 sm:h-5 sm:w-5 group-hover/btn:translate-x-1 transition-transform" />
                 </Link>
-                <Link
-                  to="/login"
-                  className="inline-flex items-center gap-2 px-6 py-3 sm:px-8 sm:py-4 text-sm sm:text-base font-semibold text-white border-2 border-white/30 hover:bg-white/10 hover:border-white/50 rounded-xl sm:rounded-2xl transition-all hover:-translate-y-0.5 w-full sm:w-auto justify-center"
+                <a
+                  href="#features"
+                  className="text-sm text-indigo-200 hover:text-white transition-colors underline underline-offset-2"
+                  onClick={(e) => { e.preventDefault(); document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' }) }}
                 >
-                  Sign in to workspace
-                </Link>
+                  Or explore the features above
+                </a>
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* About / Mission */}
+      <section ref={aboutSection.ref} className="relative px-4 sm:px-6 py-12 sm:py-20">
+        <div className={`max-w-2xl mx-auto text-center transition-all duration-700 ${aboutSection.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
+          <h3 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-white mb-3 sm:mb-4">
+            Built by researchers, for researchers
+          </h3>
+          <p className="text-sm sm:text-base text-gray-600 dark:text-slate-400 leading-relaxed">
+            ScholarHub was born from the frustration of managing research across too many disconnected tools.
+            We're building the workspace we wished we had -- one place to write, discover, collaborate, and publish.
+          </p>
         </div>
       </section>
 
@@ -645,12 +544,15 @@ const Landing = () => {
                 <ul className="space-y-2 sm:space-y-3">
                   <li><a href="#features" className="text-xs sm:text-sm text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors hover:translate-x-1 inline-block">Features</a></li>
                   <li><a href="#how-it-works" className="text-xs sm:text-sm text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors hover:translate-x-1 inline-block">How it works</a></li>
+                  <li><Link to="/pricing" className="text-xs sm:text-sm text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors hover:translate-x-1 inline-block">Pricing</Link></li>
                 </ul>
               </div>
               <div>
                 <h4 className="font-semibold text-gray-900 dark:text-white mb-3 sm:mb-4 text-xs sm:text-sm">Company</h4>
                 <ul className="space-y-2 sm:space-y-3">
-                  <li><span className="text-xs sm:text-sm text-gray-600 dark:text-slate-400">Contact</span></li>
+                  <li><a href="mailto:support@scholarhub.space" className="text-xs sm:text-sm text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors hover:translate-x-1 inline-block">Contact</a></li>
+                  <li><Link to="/privacy" className="text-xs sm:text-sm text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors hover:translate-x-1 inline-block">Privacy Policy</Link></li>
+                  <li><Link to="/terms" className="text-xs sm:text-sm text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors hover:translate-x-1 inline-block">Terms of Service</Link></li>
                 </ul>
               </div>
               <div>

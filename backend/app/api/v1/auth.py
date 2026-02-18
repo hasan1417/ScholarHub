@@ -213,7 +213,7 @@ async def login(request: Request, login_data: UserLogin, response: Response, db:
         user = db.query(User).filter(User.email == login_data.email).first()
     except SQLAlchemyError:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    if not user or not verify_password(login_data.password, user.password_hash):
+    if not user or not user.password_hash or not verify_password(login_data.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",

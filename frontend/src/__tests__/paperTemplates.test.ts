@@ -13,7 +13,6 @@ describe('PAPER_TEMPLATES', () => {
       expect(template.label).toBeTruthy()
       expect(template.description).toBeTruthy()
       expect(template.sections.length).toBeGreaterThan(0)
-      expect(template.richTemplate).toBeTruthy()
       expect(template.latexTemplate).toBeTruthy()
     }
   })

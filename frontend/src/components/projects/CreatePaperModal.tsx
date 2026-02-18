@@ -28,8 +28,6 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
     is_public: false,
     references: ''
   })
-  const [authoringMode, setAuthoringMode] = useState<'rich' | 'latex'>('rich')
-  
   const [errors, setErrors] = useState<Partial<ResearchPaperCreate>>({})
   const [myRefs, setMyRefs] = useState<Array<{ id: string; title: string; authors?: string[]; year?: number }>>([])
   const [selectedRefIds, setSelectedRefIds] = useState<Set<string>>(new Set())
@@ -103,14 +101,9 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
           if (arr.length > 0) (payload as any).keywords = arr
           else delete (payload as any).keywords
         }
-        // Seed template content based on paper type selection
-        if (authoringMode === 'latex') {
-          ;(payload as any).content_json = { authoring_mode: 'latex', latex_source: selectedTemplateDefinition.latexTemplate }
-          payload.content = undefined
-        } else {
-          payload.content = selectedTemplateDefinition.richTemplate
-          ;(payload as any).content_json = { authoring_mode: 'rich' }
-        }
+        // Always use LaTeX mode
+        ;(payload as any).content_json = { authoring_mode: 'latex', latex_source: selectedTemplateDefinition.latexTemplate }
+        payload.content = undefined
         await onSubmit(payload, Array.from(selectedRefIds))
         // Reset form on successful submission
         setFormData({
@@ -121,7 +114,6 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
           is_public: false,
           references: ''
         })
-        setAuthoringMode('rich')
         setSelectedRefIds(new Set())
         setErrors({})
         onClose()
@@ -195,7 +187,7 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
           {/* Paper Type */}
           <div>
             <p className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Paper Type & Template *</p>
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3 grid-cols-2">
               {PAPER_TEMPLATES.map((template) => {
                 const isSelected = template.id === selectedTemplateDefinition.id
                 return (
@@ -247,24 +239,6 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
             <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
               {formData.abstract?.length || 0}/2000 characters
             </p>
-          </div>
-
-          {/* Authoring Mode */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
-              Authoring Mode (required)
-            </label>
-            <div className="flex items-center gap-4">
-              <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-slate-300">
-                <input type="radio" name="authoring_mode" checked={authoringMode==='rich'} onChange={() => setAuthoringMode('rich')} className="text-blue-600" />
-                Rich Text
-              </label>
-              <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-slate-300">
-                <input type="radio" name="authoring_mode" checked={authoringMode==='latex'} onChange={() => setAuthoringMode('latex')} className="text-blue-600" />
-                LaTeX
-              </label>
-            </div>
-            <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">Papers are locked to one mode. No auto‑conversion between modes.</p>
           </div>
 
           {/* References selection via picker */}

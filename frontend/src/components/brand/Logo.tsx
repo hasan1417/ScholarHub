@@ -1,3 +1,5 @@
+import { useId } from 'react'
+
 interface LogoIconProps {
   className?: string
   variant?: 'gradient' | 'white' | 'dark'
@@ -5,7 +7,8 @@ interface LogoIconProps {
 }
 
 export const LogoIcon = ({ className = 'h-6 w-6', variant = 'gradient', animate = true }: LogoIconProps) => {
-  const gradientId = `logo-grad-${Math.random().toString(36).substr(2, 9)}`
+  const id = useId()
+  const gradientId = `logo-grad-${id}`
 
   const getColor = () => {
     switch (variant) {

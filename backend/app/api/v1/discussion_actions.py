@@ -76,7 +76,7 @@ def _handle_create_paper(
 
     title = str(payload.get("title", "Untitled Paper")).strip()
     paper_type = str(payload.get("paper_type", "research")).strip()
-    authoring_mode = str(payload.get("authoring_mode", "rich")).strip()  # Default to rich for AI content
+    authoring_mode = str(payload.get("authoring_mode", "latex")).strip()  # Default to latex
     abstract = payload.get("abstract")
     objectives = payload.get("objectives", [])
     keywords = payload.get("keywords", [])
@@ -93,13 +93,13 @@ def _handle_create_paper(
     keywords = [str(kw).strip() for kw in keywords if kw]
 
     # Validate paper_type
-    valid_types = {"research", "review", "case_study"}
+    valid_types = {t["id"] for t in PAPER_TEMPLATES}
     if paper_type not in valid_types:
         paper_type = "research"
 
     # Validate authoring_mode
     if authoring_mode not in {"latex", "rich"}:
-        authoring_mode = "rich"
+        authoring_mode = "latex"
 
     content = None
     content_json: Dict[str, Any] = {}

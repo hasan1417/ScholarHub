@@ -7,6 +7,8 @@ import OverviewShowcase from '../pages/OverviewShowcase'
 import DesignShowcase from '../pages/DesignShowcase'
 import EditDetailsShowcase from '../pages/EditDetailsShowcase'
 import Pricing from '../pages/Pricing'
+import PrivacyPolicy from '../pages/PrivacyPolicy'
+import TermsOfService from '../pages/TermsOfService'
 import { authRoutes } from './authRoutes'
 import { referenceRoutes } from './referenceRoutes'
 // Global discovery route removed - discovery is now only accessible within project context
@@ -27,6 +29,14 @@ export const appRouteConfig: RouteObject[] = [
         element: <Landing />,
       },
     ],
+  },
+  {
+    path: 'privacy',
+    element: <PrivacyPolicy />,
+  },
+  {
+    path: 'terms',
+    element: <TermsOfService />,
   },
   ...authRoutes,
   {

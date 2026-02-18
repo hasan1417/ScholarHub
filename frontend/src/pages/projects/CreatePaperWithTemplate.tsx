@@ -3,22 +3,35 @@ import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { researchPapersAPI } from '../../services/api'
 import {
-  AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle,
-  ChevronDown, ChevronUp, FileText, X, Target, Code, Type
+  ArrowLeft, ArrowRight, Check, CheckCircle,
+  ChevronDown, ChevronUp, FileText, X, Target, Eye, Pencil
 } from 'lucide-react'
 import { useProjectContext } from './ProjectLayout'
 import { hasDuplicatePaperTitle } from '../../utils/papers'
 import { parseObjectives } from '../../utils/objectives'
-import { PAPER_TEMPLATES } from '../../constants/paperTemplates'
+import { PAPER_TEMPLATES, VENUE_FORMATS, VenueFormat, PaperTemplateDefinition } from '../../constants/paperTemplates'
 import { getProjectUrlId, getPaperUrlId } from '../../utils/urlId'
 
-type Step = 'title' | 'editor' | 'review'
+type Step = 'title' | 'customize' | 'review'
 
 const STEPS: { id: Step; label: string; description: string }[] = [
   { id: 'title', label: 'Title & Type', description: 'Name your paper and choose a template' },
-  { id: 'editor', label: 'Editor Mode', description: 'Choose how you want to write' },
+  { id: 'customize', label: 'Customize Template', description: 'Adjust sections and venue format' },
   { id: 'review', label: 'Review & Create', description: 'Confirm settings and create' },
 ]
+
+function assembleLatex(venue: VenueFormat, sections: string[], templateDef: PaperTemplateDefinition, title: string = 'Untitled Paper', author: string = 'Author Name'): string {
+  const cmd = templateDef.id === 'thesis' ? '\\chapter' : '\\section'
+  const sectionContent = sections
+    .map((s) => `${cmd}{${s}}\n% TODO: Add content here.\n`)
+    .join('\n')
+
+  const preamble = venue.preamble
+    .replace(/%TITLE%/g, title || 'Untitled Paper')
+    .replace(/%AUTHOR%/g, author || 'Author Name')
+
+  return `${preamble}\n\n${sectionContent}\n\\end{document}\n`
+}
 
 const CreatePaperWithTemplate: React.FC = () => {
   const navigate = useNavigate()
@@ -33,13 +46,19 @@ const CreatePaperWithTemplate: React.FC = () => {
   const [paperTitle, setPaperTitle] = useState('')
   const [keywordTags, setKeywordTags] = useState<string[]>([])
   const [keywordInput, setKeywordInput] = useState('')
-  const [authoringMode, setAuthoringMode] = useState<'rich' | 'latex'>('rich')
   const [objectives, setObjectives] = useState<string[]>(() => parseObjectives(project.scope))
   const [selectedObjectives, setSelectedObjectives] = useState<string[]>(() => {
     const parsed = parseObjectives(project.scope)
     return parsed.length ? [parsed[0]] : []
   })
   const [showSections, setShowSections] = useState(false)
+
+  // Customize step state
+  const [selectedVenueId, setSelectedVenueId] = useState('generic')
+  const [enabledSections, setEnabledSections] = useState<string[]>([])
+  const [customLatex, setCustomLatex] = useState('')
+  const [showRawEditor, setShowRawEditor] = useState(false)
+  const [hasManualEdits, setHasManualEdits] = useState(false)
 
   // UI state
   const [isCreating, setIsCreating] = useState(false)
@@ -88,28 +107,46 @@ const CreatePaperWithTemplate: React.FC = () => {
   }, [project.scope])
 
   const { data: existingProjectPapers } = useQuery({
-    queryKey: ['project-papers', projectId],
+    queryKey: ['project-papers', project.id],
     queryFn: async () => {
-      if (!projectId) return []
-      const response = await researchPapersAPI.getPapers({ projectId, limit: 500 })
+      if (!project.id) return []
+      const response = await researchPapersAPI.getPapers({ projectId: project.id, limit: 500 })
       return response.data.papers ?? []
     },
-    enabled: Boolean(projectId),
+    enabled: Boolean(project.id),
   })
 
   const duplicateTitle = useMemo(() => {
-    if (!projectId) return false
+    if (!project.id) return false
     if (!paperTitle) return false
     const existing = (existingProjectPapers ?? []).map((paper) => ({
       title: paper.title,
       projectId: paper.project_id ?? null,
     }))
-    return hasDuplicatePaperTitle(existing, paperTitle, projectId)
-  }, [existingProjectPapers, paperTitle, projectId])
+    return hasDuplicatePaperTitle(existing, paperTitle, project.id)
+  }, [existingProjectPapers, paperTitle, project.id])
 
   const selectedTemplateDefinition = useMemo(() => {
     return PAPER_TEMPLATES.find((template) => template.id === selectedTypeId) ?? PAPER_TEMPLATES[0]
   }, [selectedTypeId])
+
+  const selectedVenue = useMemo(() => {
+    return VENUE_FORMATS.find((v) => v.id === selectedVenueId) ?? VENUE_FORMATS[0]
+  }, [selectedVenueId])
+
+  // Reset enabled sections when template changes
+  useEffect(() => {
+    setEnabledSections([...selectedTemplateDefinition.sections])
+    setHasManualEdits(false)
+    setShowRawEditor(false)
+  }, [selectedTemplateDefinition])
+
+  // Reassemble LaTeX when venue or sections change (unless user made manual edits)
+  useEffect(() => {
+    if (!hasManualEdits) {
+      setCustomLatex(assembleLatex(selectedVenue, enabledSections, selectedTemplateDefinition, paperTitle.trim()))
+    }
+  }, [selectedVenue, enabledSections, selectedTemplateDefinition, hasManualEdits, paperTitle])
 
   // Step navigation
   const currentStepIndex = STEPS.findIndex((s) => s.id === currentStep)
@@ -123,16 +160,36 @@ const CreatePaperWithTemplate: React.FC = () => {
         setErrorMessage(duplicateTitle ? 'A paper with this title already exists.' : 'Please enter a paper title.')
         return
       }
-      setCurrentStep('editor')
-    } else if (currentStep === 'editor') {
+      setCurrentStep('customize')
+    } else if (currentStep === 'customize') {
       setCurrentStep('review')
     }
   }
 
   const goToPrevStep = () => {
     setErrorMessage(null)
-    if (currentStep === 'editor') setCurrentStep('title')
-    else if (currentStep === 'review') setCurrentStep('editor')
+    if (currentStep === 'customize') setCurrentStep('title')
+    else if (currentStep === 'review') setCurrentStep('customize')
+  }
+
+  const toggleSection = (section: string) => {
+    setEnabledSections((prev) => {
+      if (prev.includes(section)) {
+        return prev.filter((s) => s !== section)
+      }
+      return [...prev, section]
+    })
+    setHasManualEdits(false) // Toggling sections should regenerate LaTeX
+  }
+
+  const handleVenueChange = (venueId: string) => {
+    setSelectedVenueId(venueId)
+    setHasManualEdits(false) // Changing venue should regenerate LaTeX
+  }
+
+  const handleRawLatexChange = (value: string) => {
+    setCustomLatex(value)
+    setHasManualEdits(true)
   }
 
   const handleCreatePaper = async () => {
@@ -140,6 +197,8 @@ const CreatePaperWithTemplate: React.FC = () => {
     setErrorMessage(null)
     try {
       const templateDefinition = selectedTemplateDefinition
+      const finalLatexSource = customLatex || assembleLatex(selectedVenue, enabledSections, templateDefinition, paperTitle.trim())
+
       const paperData: any = {
         title: paperTitle.trim(),
         paper_type: templateDefinition.id,
@@ -150,15 +209,10 @@ const CreatePaperWithTemplate: React.FC = () => {
         objectives: selectedObjectives,
       }
 
-      if (authoringMode === 'latex') {
-        paperData.content_json = { authoring_mode: 'latex', latex_source: templateDefinition.latexTemplate }
-      } else {
-        paperData.content = templateDefinition.richTemplate
-        paperData.content_json = { authoring_mode: 'rich' }
-      }
+      paperData.content_json = { authoring_mode: 'latex', latex_source: finalLatexSource }
 
-      if (projectId) {
-        paperData.project_id = projectId
+      if (project.id) {
+        paperData.project_id = project.id
       }
 
       const response = await researchPapersAPI.createPaper(paperData)
@@ -321,7 +375,7 @@ const CreatePaperWithTemplate: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-3">
                     Paper Template <span className="text-red-500">*</span>
                   </label>
-                  <div className="grid gap-3 md:grid-cols-3">
+                  <div className="grid gap-3 grid-cols-2">
                     {PAPER_TEMPLATES.map((template) => {
                       const isSelected = template.id === selectedTemplateDefinition.id
                       return (
@@ -412,91 +466,125 @@ const CreatePaperWithTemplate: React.FC = () => {
               </div>
             )}
 
-            {/* Step 2: Editor Mode */}
-            {currentStep === 'editor' && (
+            {/* Step 2: Customize Template */}
+            {currentStep === 'customize' && (
               <div className="space-y-6">
-                <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50">
-                  <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200">Important: This choice is permanent</h3>
-                    <p className="text-xs text-amber-700 dark:text-amber-300/80 mt-1">
-                      Papers cannot be converted between editor modes after creation. Choose the mode that best fits your workflow.
-                    </p>
+                {/* Venue / Format */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-3">
+                    Venue / Format
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {VENUE_FORMATS.map((venue) => {
+                      const isSelected = venue.id === selectedVenueId
+                      return (
+                        <button
+                          key={venue.id}
+                          type="button"
+                          onClick={() => handleVenueChange(venue.id)}
+                          className={`px-4 py-2 rounded-full text-sm font-medium transition-all border ${
+                            isSelected
+                              ? 'border-indigo-500 bg-indigo-500 text-white shadow-sm'
+                              : 'border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:border-indigo-300 dark:hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20'
+                          }`}
+                          title={venue.description}
+                        >
+                          {venue.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-slate-400 mt-2">
+                    {selectedVenue.description}
+                  </p>
+                </div>
+
+                {/* Section Toggles */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-3">
+                    Sections
+                  </label>
+                  <div className="space-y-2">
+                    {selectedTemplateDefinition.sections.map((section) => {
+                      const isEnabled = enabledSections.includes(section)
+                      return (
+                        <label
+                          key={section}
+                          className={`flex items-center gap-3 px-4 py-2.5 rounded-lg border cursor-pointer transition-all ${
+                            isEnabled
+                              ? 'border-indigo-200 dark:border-indigo-700 bg-indigo-50/50 dark:bg-indigo-900/10'
+                              : 'border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/30 opacity-60'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isEnabled}
+                            onChange={() => toggleSection(section)}
+                            className="h-4 w-4 rounded border-gray-300 dark:border-slate-500 text-indigo-600 focus:ring-indigo-500"
+                          />
+                          <span className={`text-sm font-medium ${
+                            isEnabled ? 'text-gray-900 dark:text-slate-100' : 'text-gray-500 dark:text-slate-400'
+                          }`}>
+                            {section}
+                          </span>
+                        </label>
+                      )
+                    })}
                   </div>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2">
-                  {/* Rich Text Option */}
-                  <button
-                    type="button"
-                    onClick={() => setAuthoringMode('rich')}
-                    className={`relative rounded-xl border-2 p-6 text-left transition-all ${
-                      authoringMode === 'rich'
-                        ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 ring-1 ring-indigo-500'
-                        : 'border-gray-200 dark:border-slate-600 hover:border-indigo-300 dark:hover:border-indigo-500 hover:bg-gray-50 dark:hover:bg-slate-700/50'
-                    }`}
-                  >
-                    {authoringMode === 'rich' && (
-                      <span className="absolute top-4 right-4 flex h-6 w-6 items-center justify-center rounded-full bg-indigo-500 text-white">
-                        <Check className="h-4 w-4" />
-                      </span>
-                    )}
-                    <div className={`flex h-12 w-12 items-center justify-center rounded-xl mb-4 ${
-                      authoringMode === 'rich' ? 'bg-indigo-100 dark:bg-indigo-800/50' : 'bg-gray-100 dark:bg-slate-700'
-                    }`}>
-                      <Type className={`h-6 w-6 ${authoringMode === 'rich' ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-500 dark:text-slate-400'}`} />
-                    </div>
-                    <h3 className={`text-lg font-semibold ${authoringMode === 'rich' ? 'text-indigo-900 dark:text-indigo-200' : 'text-gray-900 dark:text-slate-100'}`}>
-                      Rich Text Editor
-                    </h3>
-                    <p className={`mt-2 text-sm ${authoringMode === 'rich' ? 'text-indigo-700 dark:text-indigo-300' : 'text-gray-500 dark:text-slate-400'}`}>
-                      Visual editing with formatting toolbar. Great for collaborative writing and quick drafts.
-                    </p>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <span className="inline-flex items-center rounded-full bg-white dark:bg-slate-700 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-600">
-                        Easy formatting
-                      </span>
-                      <span className="inline-flex items-center rounded-full bg-white dark:bg-slate-700 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-600">
-                        Real-time collab
-                      </span>
-                    </div>
-                  </button>
+                {/* LaTeX Preview */}
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
+                      LaTeX Preview
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowRawEditor(!showRawEditor)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${
+                        showRawEditor
+                          ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300'
+                          : 'border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-600 dark:text-slate-300 hover:border-indigo-300 dark:hover:border-indigo-500'
+                      }`}
+                    >
+                      {showRawEditor ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
+                      {showRawEditor ? 'Preview Mode' : 'Edit Raw LaTeX'}
+                    </button>
+                  </div>
 
-                  {/* LaTeX Option */}
-                  <button
-                    type="button"
-                    onClick={() => setAuthoringMode('latex')}
-                    className={`relative rounded-xl border-2 p-6 text-left transition-all ${
-                      authoringMode === 'latex'
-                        ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 ring-1 ring-indigo-500'
-                        : 'border-gray-200 dark:border-slate-600 hover:border-indigo-300 dark:hover:border-indigo-500 hover:bg-gray-50 dark:hover:bg-slate-700/50'
-                    }`}
-                  >
-                    {authoringMode === 'latex' && (
-                      <span className="absolute top-4 right-4 flex h-6 w-6 items-center justify-center rounded-full bg-indigo-500 text-white">
-                        <Check className="h-4 w-4" />
-                      </span>
-                    )}
-                    <div className={`flex h-12 w-12 items-center justify-center rounded-xl mb-4 ${
-                      authoringMode === 'latex' ? 'bg-indigo-100 dark:bg-indigo-800/50' : 'bg-gray-100 dark:bg-slate-700'
-                    }`}>
-                      <Code className={`h-6 w-6 ${authoringMode === 'latex' ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-500 dark:text-slate-400'}`} />
+                  {showRawEditor ? (
+                    <textarea
+                      value={customLatex}
+                      onChange={(e) => handleRawLatexChange(e.target.value)}
+                      className="w-full h-80 px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-slate-600 bg-gray-900 text-green-400 font-mono text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-y"
+                      spellCheck={false}
+                    />
+                  ) : (
+                    <div className="rounded-xl border border-gray-200 dark:border-slate-600 bg-gray-900 p-4 overflow-auto max-h-80">
+                      <pre className="text-sm text-green-400 font-mono whitespace-pre-wrap leading-relaxed">
+                        {customLatex}
+                      </pre>
                     </div>
-                    <h3 className={`text-lg font-semibold ${authoringMode === 'latex' ? 'text-indigo-900 dark:text-indigo-200' : 'text-gray-900 dark:text-slate-100'}`}>
-                      LaTeX Editor
-                    </h3>
-                    <p className={`mt-2 text-sm ${authoringMode === 'latex' ? 'text-indigo-700 dark:text-indigo-300' : 'text-gray-500 dark:text-slate-400'}`}>
-                      Full LaTeX support with live preview. Ideal for academic papers with complex equations.
-                    </p>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <span className="inline-flex items-center rounded-full bg-white dark:bg-slate-700 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-600">
-                        Math equations
-                      </span>
-                      <span className="inline-flex items-center rounded-full bg-white dark:bg-slate-700 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-600">
-                        Full control
-                      </span>
+                  )}
+
+                  {hasManualEdits && (
+                    <div className="mt-2 flex items-center justify-between">
+                      <p className="text-xs text-amber-600 dark:text-amber-400">
+                        You have manual edits. Changing venue or sections will overwrite them.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHasManualEdits(false)
+                          setCustomLatex(assembleLatex(selectedVenue, enabledSections, selectedTemplateDefinition, paperTitle.trim()))
+                        }}
+                        className="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+                      >
+                        Reset to auto-generated
+                      </button>
                     </div>
-                  </button>
+                  )}
                 </div>
               </div>
             )}
@@ -515,12 +603,27 @@ const CreatePaperWithTemplate: React.FC = () => {
                     <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-slate-100">{selectedTemplateDefinition.label}</p>
                   </div>
                   <div className="rounded-xl border border-gray-200 dark:border-slate-700 p-4 bg-gray-50 dark:bg-slate-800/50">
-                    <p className="text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wide">Editor</p>
+                    <p className="text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wide">Format</p>
                     <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-slate-100">
-                      {authoringMode === 'rich' ? 'Rich Text' : 'LaTeX'}
+                      LaTeX ({selectedVenue.label})
                     </p>
                   </div>
                 </div>
+
+                {/* Enabled Sections */}
+                {enabledSections.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-medium text-gray-500 dark:text-slate-400">Sections:</span>
+                    {enabledSections.map((section) => (
+                      <span
+                        key={section}
+                        className="inline-flex items-center rounded-full bg-gray-100 dark:bg-slate-700 px-2.5 py-1 text-xs font-medium text-gray-700 dark:text-slate-300 border border-gray-200 dark:border-slate-600"
+                      >
+                        {section}
+                      </span>
+                    ))}
+                  </div>
+                )}
 
                 {/* Keywords */}
                 {keywordTags.length > 0 && (

@@ -1,6 +1,6 @@
 """Paper templates for AI-generated paper creation and conference formats."""
 
-from typing import TypedDict, List, Optional
+from typing import TypedDict, List
 
 
 class PaperTemplate(TypedDict):
@@ -838,6 +838,227 @@ Describe the setting and events chronologically.
 Interpret the decisions and outcomes.
 \section{Lessons Learned}
 List actionable insights and recommendations.
+\end{document}""",
+    },
+    {
+        "id": "thesis",
+        "label": "Thesis / Dissertation",
+        "description": "Full-length thesis with chapters for graduate work.",
+        "sections": ["Abstract", "Introduction", "Literature Review", "Methodology", "Results", "Discussion", "Conclusion", "References"],
+        "richTemplate": """# Abstract\nSummarize the research objectives, methods, and findings.\n\n# Introduction\nIntroduce the research topic and state the problem.\n\n# Literature Review\nSurvey existing work and identify gaps.\n\n# Methodology\nDescribe the research design and procedures.\n\n# Results\nPresent the findings.\n\n# Discussion\nInterpret results and relate to prior work.\n\n# Conclusion\nSummarize contributions and future directions.\n\n# References""",
+        "latexTemplate": r"""\documentclass[12pt]{report}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage[margin=1in]{geometry}
+
+\title{Thesis Title}
+\author{Author Name}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+
+\chapter{Abstract}
+% TODO: Add content here.
+
+\chapter{Introduction}
+% TODO: Add content here.
+
+\chapter{Literature Review}
+% TODO: Add content here.
+
+\chapter{Methodology}
+% TODO: Add content here.
+
+\chapter{Results}
+% TODO: Add content here.
+
+\chapter{Discussion}
+% TODO: Add content here.
+
+\chapter{Conclusion}
+% TODO: Add content here.
+
+\bibliographystyle{plain}
+\bibliography{references}
+\end{document}""",
+    },
+    {
+        "id": "technical_report",
+        "label": "Technical Report",
+        "description": "Detailed technical documentation of methods and results.",
+        "sections": ["Abstract", "Introduction", "Background", "Technical Approach", "Implementation", "Evaluation", "Conclusion"],
+        "richTemplate": """# Abstract\nBrief summary of the report.\n\n# Introduction\nState the purpose and scope.\n\n# Background\nProvide context and prior work.\n\n# Technical Approach\nDescribe the methodology in detail.\n\n# Implementation\nExplain the implementation specifics.\n\n# Evaluation\nPresent experiments, benchmarks, or analysis.\n\n# Conclusion\nSummarize findings and next steps.""",
+        "latexTemplate": r"""\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage[margin=1in]{geometry}
+
+\title{Technical Report Title}
+\author{Author Name}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Abstract}
+% TODO: Add content here.
+
+\section{Introduction}
+% TODO: Add content here.
+
+\section{Background}
+% TODO: Add content here.
+
+\section{Technical Approach}
+% TODO: Add content here.
+
+\section{Implementation}
+% TODO: Add content here.
+
+\section{Evaluation}
+% TODO: Add content here.
+
+\section{Conclusion}
+% TODO: Add content here.
+
+\bibliographystyle{plain}
+\bibliography{references}
+\end{document}""",
+    },
+    {
+        "id": "proposal",
+        "label": "Research Proposal",
+        "description": "Structured proposal for funding or project approval.",
+        "sections": ["Abstract", "Introduction", "Problem Statement", "Objectives", "Literature Review", "Methodology", "Timeline", "Expected Outcomes", "Budget", "References"],
+        "richTemplate": """# Abstract\nSummarize the proposed research.\n\n# Introduction\nIntroduce the research area and motivation.\n\n# Problem Statement\nDefine the problem to be addressed.\n\n# Objectives\nList specific aims and goals.\n\n# Literature Review\nReview relevant prior work.\n\n# Methodology\nDescribe the planned approach.\n\n# Timeline\nOutline milestones and schedule.\n\n# Expected Outcomes\nDescribe anticipated results and impact.\n\n# Budget\nItemize resource requirements.\n\n# References""",
+        "latexTemplate": r"""\documentclass[12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage[margin=1in]{geometry}
+
+\title{Research Proposal Title}
+\author{Author Name}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Abstract}
+% TODO: Add content here.
+
+\section{Introduction}
+% TODO: Add content here.
+
+\section{Problem Statement}
+% TODO: Add content here.
+
+\section{Objectives}
+% TODO: Add content here.
+
+\section{Literature Review}
+% TODO: Add content here.
+
+\section{Methodology}
+% TODO: Add content here.
+
+\section{Timeline}
+% TODO: Add content here.
+
+\section{Expected Outcomes}
+% TODO: Add content here.
+
+\section{Budget}
+% TODO: Add content here.
+
+\bibliographystyle{plain}
+\bibliography{references}
+\end{document}""",
+    },
+    {
+        "id": "survey",
+        "label": "Survey / SoK Paper",
+        "description": "Systematization of knowledge across a research area.",
+        "sections": ["Abstract", "Introduction", "Scope & Methodology", "Taxonomy", "Analysis of Approaches", "Open Problems", "Conclusion"],
+        "richTemplate": """# Abstract\nSummarize the scope and findings of the survey.\n\n# Introduction\nMotivate the survey and state research questions.\n\n# Scope & Methodology\nDefine inclusion criteria and search strategy.\n\n# Taxonomy\nPresent the classification framework.\n\n# Analysis of Approaches\nCompare and contrast existing methods.\n\n# Open Problems\nIdentify unresolved challenges and gaps.\n\n# Conclusion\nSummarize insights and future directions.""",
+        "latexTemplate": r"""\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage[margin=1in]{geometry}
+
+\title{Survey Title}
+\author{Author Name}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Abstract}
+% TODO: Add content here.
+
+\section{Introduction}
+% TODO: Add content here.
+
+\section{Scope \& Methodology}
+% TODO: Add content here.
+
+\section{Taxonomy}
+% TODO: Add content here.
+
+\section{Analysis of Approaches}
+% TODO: Add content here.
+
+\section{Open Problems}
+% TODO: Add content here.
+
+\section{Conclusion}
+% TODO: Add content here.
+
+\bibliographystyle{plain}
+\bibliography{references}
+\end{document}""",
+    },
+    {
+        "id": "short_paper",
+        "label": "Short Paper / Extended Abstract",
+        "description": "Compact format for workshops or preliminary results.",
+        "sections": ["Abstract", "Introduction", "Approach", "Results", "Conclusion"],
+        "richTemplate": """# Abstract\nBriefly state the contribution.\n\n# Introduction\nMotivate the work concisely.\n\n# Approach\nDescribe the method or system.\n\n# Results\nPresent key findings.\n\n# Conclusion\nSummarize and outline future work.""",
+        "latexTemplate": r"""\documentclass[10pt,twocolumn]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage[margin=0.75in]{geometry}
+
+\title{Short Paper Title}
+\author{Author Name}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Abstract}
+% TODO: Add content here.
+
+\section{Introduction}
+% TODO: Add content here.
+
+\section{Approach}
+% TODO: Add content here.
+
+\section{Results}
+% TODO: Add content here.
+
+\section{Conclusion}
+% TODO: Add content here.
+
+\bibliographystyle{plain}
+\bibliography{references}
 \end{document}""",
     },
 ]

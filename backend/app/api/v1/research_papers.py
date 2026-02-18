@@ -160,8 +160,7 @@ async def create_research_paper(
             # Viewers cannot create papers - require ADMIN or EDITOR role
             if project_member.role not in (ProjectRole.ADMIN, ProjectRole.EDITOR):
                 raise HTTPException(status_code=403, detail="Insufficient permissions to create papers")
-        if not objectives:
-            raise HTTPException(status_code=400, detail="Please select or create at least one project objective for this paper.")
+        # Objectives are optional — users can add them later via paper settings
 
         # Check subscription limit for papers per project
         allowed, current, limit = SubscriptionService.check_resource_limit(
