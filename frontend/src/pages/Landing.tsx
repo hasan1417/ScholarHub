@@ -134,7 +134,7 @@ const Landing = () => {
     {
       Icon: PenTool,
       title: 'AI Editor Copilot',
-      description: 'Context-aware writing help powered by GPT-4o, Claude, and more. Extend paragraphs, improve academic tone, fix grammar, and get inline suggestions as you write.',
+      description: 'Context-aware writing help built into the editor. Extend paragraphs, improve academic tone, fix grammar, and get inline suggestions as you write.',
       gradient: 'from-pink-500 to-rose-500',
     },
     {
