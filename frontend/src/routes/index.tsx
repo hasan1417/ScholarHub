@@ -31,6 +31,10 @@ export const appRouteConfig: RouteObject[] = [
     ],
   },
   {
+    path: 'pricing',
+    element: <Pricing />,
+  },
+  {
     path: 'privacy',
     element: <PrivacyPolicy />,
   },
@@ -66,10 +70,6 @@ export const appRouteConfig: RouteObject[] = [
       {
         path: 'edit-details-showcase',
         element: <EditDetailsShowcase />,
-      },
-      {
-        path: 'pricing',
-        element: <Pricing />,
       },
       ...referenceRoutes,
       // discoveryRoutes removed - discovery only within project context

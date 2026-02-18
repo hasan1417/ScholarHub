@@ -102,14 +102,14 @@ def change_user_tier(
     """
     Change a user's subscription tier.
 
-    Note: This is an admin-only endpoint in production.
-    For now, users can only change their own tier (for testing).
+    SECURITY: In production this should be admin-only or gated behind a
+    payment verification step (e.g. Stripe webhook).  Currently users can
+    change their *own* tier for testing purposes, but cannot change other
+    users' tiers.  Before going live with paid tiers, add an ``is_superuser``
+    / admin-role guard and remove self-service access.
     """
-    # In production, add admin check here
-    # For testing, allow users to change their own tier
     if request.user_id != current_user.id:
-        # TODO: Add admin role check
-        # For now, only allow self-changes
+        # TODO: Replace with admin role check when admin roles are added
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only change your own subscription tier"

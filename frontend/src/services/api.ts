@@ -982,7 +982,7 @@ export const projectDiscussionAPI = {
 export const openRouterAgentAPI = {
   listModels: (includeMeta: boolean = true) =>
     api.get<OpenRouterModel[] | OpenRouterModelsResponse>(
-      '/agent-openrouter/models',
+      '/agent-or/models',
       { params: { include_meta: includeMeta } }
     ),
 }
@@ -1479,19 +1479,9 @@ export const referencesAPI = {
   ,
 }
 
-// Conversion API
-export const conversionAPI = {
-  convertRichToLatex: (paperId: string, model?: string, strategy: 'strict' | 'ai' = 'strict') =>
-    api.post<{ new_paper_id: string; title: string; mode: string; report: any }>(
-      '/convert/rich-to-latex',
-      { paper_id: paperId, target: 'latex', model: model || undefined, create_copy: true, strategy }
-    ),
-  convertLatexToRich: (paperId: string, model?: string, strategy: 'strict' | 'ai' = 'strict') =>
-    api.post<{ new_paper_id: string; title: string; mode: string; report: any }>(
-      '/convert/latex-to-rich',
-      { paper_id: paperId, target: 'rich', model: model || undefined, create_copy: true, strategy }
-    )
-}
+// Conversion API - STUB: /convert/rich-to-latex and /convert/latex-to-rich
+// endpoints do not exist in the backend yet. These are placeholders.
+export const conversionAPI = {} as Record<string, never>
 
 // Snapshots API - Document history feature
 export interface Snapshot {

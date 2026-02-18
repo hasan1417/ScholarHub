@@ -402,8 +402,6 @@ async def update_research_paper(
     ):
         raise _duplicate_title_error(target_project_id)
 
-    if target_project_id and not (update_data.get("objectives") or paper.objectives):
-        raise HTTPException(status_code=400, detail="Project papers must reference at least one objective.")
     for field, value in update_data.items():
         setattr(paper, field, value)
 
@@ -540,17 +538,6 @@ async def update_paper_content(
                 )
             except Exception:
                 logger.exception("Failed to log incoming latex payload for paper %s", paper_id)
-            # Optionally prevent authoring_mode changes after creation (Phase 0 flag; default off)
-            try:
-                if settings.COLLAB_LOCK_AUTHORING_MODE:
-                    if isinstance(existing, dict) and isinstance(incoming, dict):
-                        old_mode = existing.get('authoring_mode')
-                        new_mode = incoming.get('authoring_mode')
-                        if old_mode and new_mode and str(old_mode) != str(new_mode):
-                            raise HTTPException(status_code=400, detail="authoring_mode cannot be changed once set")
-            except Exception:
-                # Best-effort guard; do not block if settings or compare fails
-                pass
             if isinstance(existing, dict) and isinstance(incoming, dict):
                 if 'authoring_mode' in existing and 'authoring_mode' not in incoming:
                     incoming['authoring_mode'] = existing['authoring_mode']

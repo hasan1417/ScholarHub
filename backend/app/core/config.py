@@ -77,7 +77,6 @@ class Settings(BaseSettings):
     OPENROUTER_FALLBACK_MODELS_PATH: Optional[str] = None
     # Model for Rich→LaTeX conversion (optional override)
     OPENAI_CONVERSION_MODEL: Optional[str] = None
-    OPENAI_PLANNER_MODEL: Optional[str] = "gpt-5.2"
     USE_OPENAI_TRANSCRIBE: bool = True
     # gpt-4o-transcribe has best accuracy for speech recognition
     OPENAI_TRANSCRIBE_MODEL: str = "gpt-4o-transcribe"
@@ -86,15 +85,9 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     ENVIRONMENT: str = "development"
     
-    # Chat Features
-    CHAT_ASSISTANT_SLASH_ENABLED: bool = False
-    
     # Alternative access (for demonstration only - disable in production)
     ENABLE_ALTERNATIVE_ACCESS: bool = False
-    
-    # Enhanced paper access settings
-    ENABLE_UNIVERSITY_SSO_DETECTION: bool = True
-    ENABLE_PDF_REDIRECT_SEARCH: bool = True
+
     PAPER_ACCESS_TIMEOUT: int = 30  # seconds
 
     # Project-first flighting
@@ -144,9 +137,8 @@ class Settings(BaseSettings):
     # Public base URL (reserved for future webhooks/integrations)
     PUBLIC_BASE_URL: Optional[str] = None
 
-    # Deprecated: OnlyOffice integration (kept to avoid env validation errors)
+    # OnlyOffice integration
     ONLYOFFICE_DOCSERVER_URL: Optional[str] = None
-    ONLYOFFICE_JWT_SECRET: Optional[str] = None
     BACKEND_PUBLIC_URL: Optional[str] = None
 
     # Metrics / Telemetry

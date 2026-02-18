@@ -41,9 +41,11 @@ const PaperRedirect = () => {
     )
   }
 
-  if (isError || !data) {
-    navigate('/projects', { replace: true })
-  }
+  useEffect(() => {
+    if (isError) {
+      navigate('/projects', { replace: true })
+    }
+  }, [isError, navigate])
 
   return null
 }

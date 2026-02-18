@@ -743,7 +743,7 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
             status_str = 'cached'
             if settings.ENABLE_METRICS:
                 try:
-                    print(f"[metrics] compile {{'buildId': '{build_id}', 'payload_size': {payload_size}, 'engine': '{engine}', 'status': '{status_str}', 'elapsed': {round(time.time()-t0,2)}, 'errorCount': 0 }}")
+                    logger.info("[metrics] compile buildId=%s payload_size=%d engine=%s status=%s elapsed=%.2f errorCount=0", build_id, payload_size, engine, status_str, round(time.time()-t0, 2))
                 except Exception:
                     pass
             return
@@ -879,7 +879,7 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
             if settings.ENABLE_METRICS:
                 try:
                     total = round(time.time()-t0, 2)
-                    print(f"[metrics] compile {{'buildId': '{build_id}', 'payload_size': {payload_size}, 'engine': '{engine}', 'status': '{status_str}', 'elapsed': {total}, 'exit_code': {exit_code}, 'errorCount': {error_count} }}")
+                    logger.info("[metrics] compile buildId=%s payload_size=%d engine=%s status=%s elapsed=%.2f exit_code=%s errorCount=%d", build_id, payload_size, engine, status_str, total, exit_code, error_count)
                 except Exception:
                     pass
 

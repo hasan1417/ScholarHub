@@ -4,11 +4,6 @@ import re
 from typing import List, Dict, Any, Optional
 
 import openai
-from dotenv import load_dotenv
-from pathlib import Path
-
-env_path = Path(__file__).parent.parent.parent.parent / ".env"
-load_dotenv(env_path, override=True)
 
 logger = logging.getLogger(__name__)
 

@@ -179,17 +179,15 @@ async def upload_document(
             await document_service.process_document(db, document, file_content, tag_names)
         except Exception as e:
             # Log error but don't fail the upload
-            print(f"Error processing document {document.id}: {e}")
-        
+            logger.error("Error processing document %s: %s", document.id, e)
+
         return document
-        
+
     except HTTPException:
         # Re-raise HTTP exceptions (like 409 for duplicates) without modification
         raise
     except Exception as e:
-        import traceback
-        print(f"Error uploading document: {str(e)}")
-        print(f"Traceback: {traceback.format_exc()}")
+        logger.error("Error uploading document: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Error uploading document. Please try again.")
 
 @router.post("/create", response_model=DocumentResponse)

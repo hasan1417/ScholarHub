@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useCallback, KeyboardEvent } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { researchPapersAPI } from '../../services/api'
 import {
   ArrowLeft, ArrowRight, Check, CheckCircle,
@@ -20,6 +20,14 @@ const STEPS: { id: Step; label: string; description: string }[] = [
   { id: 'review', label: 'Review & Create', description: 'Confirm settings and create' },
 ]
 
+function escapeLatex(text: string): string {
+  return text
+    .replace(/\\/g, '\\textbackslash{}')
+    .replace(/([&%$#_{}])/g, '\\$1')
+    .replace(/~/g, '\\textasciitilde{}')
+    .replace(/\^/g, '\\textasciicircum{}')
+}
+
 function assembleLatex(venue: VenueFormat, sections: string[], templateDef: PaperTemplateDefinition, title: string = 'Untitled Paper', author: string = 'Author Name'): string {
   const cmd = templateDef.id === 'thesis' ? '\\chapter' : '\\section'
   const sectionContent = sections
@@ -27,14 +35,15 @@ function assembleLatex(venue: VenueFormat, sections: string[], templateDef: Pape
     .join('\n')
 
   const preamble = venue.preamble
-    .replace(/%TITLE%/g, title || 'Untitled Paper')
-    .replace(/%AUTHOR%/g, author || 'Author Name')
+    .replace(/%TITLE%/g, escapeLatex(title || 'Untitled Paper'))
+    .replace(/%AUTHOR%/g, escapeLatex(author || 'Author Name'))
 
   return `${preamble}\n\n${sectionContent}\n\\end{document}\n`
 }
 
 const CreatePaperWithTemplate: React.FC = () => {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const { projectId } = useParams<{ projectId?: string }>()
   const { project, currentRole } = useProjectContext()
 
@@ -218,6 +227,7 @@ const CreatePaperWithTemplate: React.FC = () => {
       const response = await researchPapersAPI.createPaper(paperData)
       const newPaper = response.data
       setCreatedPaper(newPaper)
+      queryClient.invalidateQueries({ queryKey: ['project-papers', project.id] })
 
       setTimeout(() => {
         const targetProjectUrlId = getProjectUrlId(project) || projectId || newPaper.project_id

@@ -119,14 +119,14 @@ const Pricing = () => {
       return
     }
     // TODO: Integrate with Tap Payments
-    window.open('mailto:support@scholarhub.app?subject=Upgrade%20to%20Pro', '_blank')
+    window.open('mailto:support@scholarhub.space?subject=Upgrade%20to%20Pro', '_blank')
   }
 
   const handleGetStarted = () => {
     if (!user) {
       navigate('/register')
     } else {
-      navigate('/dashboard')
+      navigate('/projects')
     }
   }
 

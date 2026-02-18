@@ -24,7 +24,7 @@ const MessageBubble = ({
   const [showActions, setShowActions] = useState(false)
   const isAuthor = message.user_id === currentUserId
   const canEdit = isAuthor && !message.is_deleted
-  const canDelete = isAuthor || true // TODO: Check if user is admin
+  const canDelete = isAuthor
 
   const displayName = message.user.name || message.user.email.split('@')[0]
   const timeAgo = formatDistanceToNow(new Date(message.created_at), { addSuffix: true })

@@ -13,7 +13,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.post("/metrics")
-async def post_metrics(request: Request):
+async def post_metrics(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
     if not settings.ENABLE_METRICS:
         return {"ok": True}
     try:

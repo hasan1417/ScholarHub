@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, HTTPException, Response, Request, Depends
 from datetime import datetime, timedelta
 from typing import Optional
@@ -9,7 +11,7 @@ import io
 from docx import Document
 from typing import Any, Dict
 from sqlalchemy.orm import Session
-from app.api.deps import get_db
+from app.api.deps import get_db, get_current_user
 from app.models.research_paper import ResearchPaper
 from app.models.branch import Branch, Commit
 from app.models.user import User
@@ -25,6 +27,8 @@ import shutil
 import subprocess
 import json as _json
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 try:
     import mammoth as _mammoth  # type: ignore
@@ -50,20 +54,20 @@ def _prune_tokens() -> None:
 def create_sample_docx() -> bytes:
     """Create a sample DOCX document for OnlyOffice testing"""
     doc = Document()
-    
+
     # Add title
     title = doc.add_heading('ScholarHub Document Prototype', 0)
-    
+
     # Add some sample content
     doc.add_heading('Introduction', level=1)
     intro = doc.add_paragraph(
         'This is a sample document created for testing OnlyOffice Document Server integration with ScholarHub. '
         'OnlyOffice provides a collaborative document editing experience similar to Microsoft Office.'
     )
-    
+
     doc.add_heading('Features to Test', level=1)
     doc.add_paragraph('Please test the following features:', style='List Bullet')
-    
+
     features = [
         'Text formatting (bold, italic, underline)',
         'Headings and paragraph styles',
@@ -73,10 +77,10 @@ def create_sample_docx() -> bytes:
         'Auto-save functionality',
         'Document export capabilities'
     ]
-    
+
     for feature in features:
         p = doc.add_paragraph(feature, style='List Bullet')
-    
+
     doc.add_heading('Comparison Notes', level=1)
     comparison_text = doc.add_paragraph(
         'Use this section to note differences between OnlyOffice and TipTap:\n\n'
@@ -86,11 +90,11 @@ def create_sample_docx() -> bytes:
         '• Integration Complexity: \n'
         '• Collaboration Features: \n'
     )
-    
+
     doc.add_page_break()
     doc.add_heading('Additional Testing Space', level=1)
     doc.add_paragraph('Use this page for additional testing and notes.')
-    
+
     # Save to bytes
     doc_buffer = io.BytesIO()
     doc.save(doc_buffer)
@@ -170,14 +174,14 @@ def _html_to_docx_best_effort(html: str) -> bytes:
         bio = io.BytesIO()
         doc.save(bio)
         bio.seek(0)
-        print('[OO document] HTML->DOCX using simple fallback (python-docx). Formatting may be limited.')
+        logger.debug("HTML->DOCX using simple fallback (python-docx). Formatting may be limited.")
         return bio.read()
     except Exception:
         return b''
 
 def _html_to_docx_via_onlyoffice_url(html: str) -> Optional[bytes]:
     """Convert HTML to DOCX using OnlyOffice ConvertService with URL method.
-    
+
     Uses the sample-document endpoint with HTML content.
     Returns DOCX bytes on success, or None if conversion fails.
     """
@@ -185,12 +189,11 @@ def _html_to_docx_via_onlyoffice_url(html: str) -> Optional[bytes]:
         # SIMPLIFIED APPROACH: OnlyOffice ConvertService appears to have issues
         # with URL access. For now, we'll disable it and rely on our excellent
         # Pandoc converter which is working perfectly.
-        print(f"[OO convert] OnlyOffice ConvertService disabled due to URL access issues (error -4)")
-        print(f"[OO convert] Using Pandoc converter instead (excellent formatting preservation)")
+        logger.debug("OnlyOffice ConvertService disabled due to URL access issues (error -4), using Pandoc instead")
         return None
-        
+
     except Exception as e:
-        print(f"[OO convert] OnlyOffice ConvertService error: {e}")
+        logger.error("OnlyOffice ConvertService error: %s", e)
         return None
 
 @router.get("/sample-document")
@@ -200,12 +203,12 @@ async def get_sample_document(paperId: Optional[str] = None):
         # Build a sample document. Do NOT inject the paperId as visible content.
         # The plugin can still auto-detect the paperId from the filename or key.
         content = create_sample_docx()
-        
+
         # Create a temporary file to serve
         with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_file:
             tmp_file.write(content)
             tmp_file_path = tmp_file.name
-        
+
         fname = f"scholarhub_sample.docx"
         if paperId:
             # Use a name the plugin can parse to auto-fill Paper ID
@@ -220,39 +223,38 @@ async def get_sample_document(paperId: Optional[str] = None):
         raise HTTPException(status_code=500, detail="Failed to create document. Please try again.")
 
 @router.get("/document")
-async def get_document_for_paper(paperId: str, db: Session = Depends(get_db)):
+async def get_document_for_paper(paperId: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Serve a DOCX for OnlyOffice. Prioritizes saved DOCX artifacts for formatting preservation."""
     paper = db.query(ResearchPaper).filter(ResearchPaper.id == paperId).first()
     if not paper:
         raise HTTPException(status_code=404, detail="Research paper not found")
-    
+
     try:
         # DOCX-first strategy: If we have a saved OnlyOffice DOCX artifact, serve it directly
         # This preserves all formatting from previous OnlyOffice sessions
         docx_rel = None
         try:
             cj = paper.content_json or {}
-            print(f"[OO document] Paper content_json: {cj}")
+            logger.debug("Paper content_json: %s", cj)
             if isinstance(cj, dict):
                 docx_rel = cj.get('oo_docx_path')
                 authoring_mode = cj.get('authoring_mode', 'rich')
-                print(f"[OO document] Found oo_docx_path: {docx_rel}")
+                logger.debug("Found oo_docx_path: %s", docx_rel)
         except Exception as e:
-            print(f"[OO document] Error reading content_json: {e}")
+            logger.error("Error reading content_json: %s", e)
             authoring_mode = 'rich'
-            
+
         # Also check if DOCX file exists directly (fallback)
         if not docx_rel:
             direct_docx_path = Path(__file__).resolve().parent.parent.parent.parent / f"uploads/onlyoffice/{paperId}.docx"
             if direct_docx_path.exists():
-                print(f"[OO document] Found DOCX artifact via direct path: {direct_docx_path}")
+                logger.debug("Found DOCX artifact via direct path: %s", direct_docx_path)
                 docx_rel = f"uploads/onlyoffice/{paperId}.docx"
-            
+
         if docx_rel:
             path = Path(__file__).resolve().parent.parent.parent.parent / docx_rel
             if path.exists():
-                print(f"[OO document] ✅ SERVING PRESERVED DOCX ARTIFACT: {path}")
-                print(f"[OO document] File size: {path.stat().st_size} bytes")
+                logger.info("Serving preserved DOCX artifact: %s (%d bytes)", path, path.stat().st_size)
                 return FileResponse(
                     path=str(path),
                     media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -260,31 +262,31 @@ async def get_document_for_paper(paperId: str, db: Session = Depends(get_db)):
                     headers={"Cache-Control": "no-cache"}
                 )
             else:
-                print(f"[OO document] ❌ DOCX path in content_json doesn't exist: {path}")
+                logger.warning("DOCX path in content_json doesn't exist: %s", path)
         else:
-            print(f"[OO document] ❌ No DOCX artifact path found in content_json")
-        
+            logger.debug("No DOCX artifact path found in content_json")
+
         # If no DOCX artifact exists, convert from HTML using best available method
         html = (paper.content or '').strip()
         data = None
-        
+
         # Priority 1: OnlyOffice ConvertService (with URL method - fixed!)
         if html:
             data = _html_to_docx_via_onlyoffice_url(html)
             if data:
-                print('[OO document] HTML→DOCX using OnlyOffice ConvertService (URL method - formatting preserved).')
-        
+                logger.info("HTML->DOCX using OnlyOffice ConvertService (URL method)")
+
         # Priority 2: Local converters (Pandoc > python-docx)
         if not data and html:
             data = _html_to_docx_best_effort(html)
             if data:
-                print('[OO document] HTML→DOCX using local converters (limited formatting).')
-        
+                logger.debug("HTML->DOCX using local converters")
+
         # Priority 3: Sample document if no content
         if not data:
             data = create_sample_docx()
-            print('[OO document] Using sample DOCX (no content available).')
-        
+            logger.debug("Using sample DOCX (no content available)")
+
         # Save the generated DOCX as an artifact for future use
         if data and paperId:
             try:
@@ -299,15 +301,15 @@ async def get_document_for_paper(paperId: str, db: Session = Depends(get_db)):
                 # This avoids flipping LaTeX papers to rich due to a stray open
                 paper.content_json = cj
                 db.commit()
-                print(f"[OO document] Saved DOCX artifact for future use: {docx_rel_path}")
+                logger.info("Saved DOCX artifact for future use: %s", docx_rel_path)
             except Exception as e:
-                print(f"[OO document] Failed to save DOCX artifact: {e}")
-        
+                logger.error("Failed to save DOCX artifact: %s", e)
+
         # Serve the DOCX
         with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_file:
             tmp_file.write(data)
             tmp_path = tmp_file.name
-        
+
         fname = f"Paper {paperId}.docx"
         return FileResponse(
             path=tmp_path,
@@ -348,9 +350,9 @@ def _docx_to_html_best_effort(data: bytes) -> str:
                 src.write_bytes(data)
                 # Enhanced pandoc command with CSS and font preservation
                 cmd = [
-                    'pandoc', str(src), 
-                    '-f', 'docx', 
-                    '-t', 'html', 
+                    'pandoc', str(src),
+                    '-f', 'docx',
+                    '-t', 'html',
                     '--standalone',  # Include CSS in output
                     '--wrap=preserve',  # Preserve line breaks
                     '--extract-media', str(td),  # Extract images
@@ -364,10 +366,10 @@ def _docx_to_html_best_effort(data: bytes) -> str:
                         # Remove the unwanted title "in" from Pandoc output
                         html = html.replace('<title>in</title>', '<title></title>')
                         html = html.replace('<title>in.docx</title>', '<title></title>')
-                        print(f"[OO convert] Using Pandoc for DOCX→HTML conversion with CSS preservation ({len(html)} chars)")
+                        logger.debug("Using Pandoc for DOCX->HTML conversion with CSS preservation (%d chars)", len(html))
                         return html
     except Exception as e:
-        print(f"[OO convert] Pandoc conversion failed: {e}")
+        logger.warning("Pandoc conversion failed: %s", e)
 
     # Try 2: Mammoth (enhanced) - Better semantic preservation
     if _mammoth is not None:
@@ -382,13 +384,13 @@ def _docx_to_html_best_effort(data: bytes) -> str:
                 r[style-name='Emphasis'] => em
                 u => u
             """
-            
+
             # Custom transform to preserve more formatting
             def transform_document(document):
                 # This is a placeholder for custom document transformation
                 # Mammoth doesn't handle inline styles well, so we focus on structure
                 return document
-            
+
             convert_options = {
                 'style_map': style_map,
                 'include_default_style_map': True,
@@ -396,15 +398,15 @@ def _docx_to_html_best_effort(data: bytes) -> str:
                 'transform_document': transform_document,
                 'ignore_empty_paragraphs': False
             }
-            
+
             result = _mammoth.convert_to_html(io.BytesIO(data), **convert_options)
             html = (result.value or '').strip()
-            
+
             if html and len(html) > 20:
-                print(f"[OO convert] Using Mammoth for DOCX→HTML conversion (semantic) ({len(html)} chars)")
+                logger.debug("Using Mammoth for DOCX->HTML conversion (semantic) (%d chars)", len(html))
                 return html
         except Exception as e:
-            print(f"[OO convert] Mammoth conversion failed: {e}")
+            logger.warning("Mammoth conversion failed: %s", e)
 
 
     # 2) Fallback: simple python-docx paragraph dump
@@ -440,18 +442,18 @@ def _save_docx_for_paper(paper_id: str, data: bytes) -> str:
     fname = f"{paper_id}.docx"
     path = base / fname
     path.write_bytes(data)
-    print(f"[OO artifact] Saved DOCX to {path}")
+    logger.debug("Saved DOCX artifact to %s", path)
     # return relative path under uploads for portability
     return str(Path('uploads') / 'onlyoffice' / fname)
 
 
 def _docx_to_html_via_onlyoffice(docx_url: str) -> str:
-    """Use OnlyOffice ConvertService to convert DOCX→HTML preserving visual formatting.
+    """Use OnlyOffice ConvertService to convert DOCX->HTML preserving visual formatting.
 
     Returns HTML string, or empty string on failure.
     """
     try:
-        convert_endpoint = 'http://localhost:8080/ConvertService.ashx'
+        convert_endpoint = f'{settings.ONLYOFFICE_DOCSERVER_URL or "http://localhost:8080"}/ConvertService.ashx'
         payload = {
             'async': False,
             'filetype': 'docx',
@@ -469,9 +471,9 @@ def _docx_to_html_via_onlyoffice(docx_url: str) -> str:
         try:
             data = r.json()
         except Exception:
-            # Some builds respond with XML on error — log a preview
+            # Some builds respond with XML on error -- log a preview
             preview = (r.text or '')[:200]
-            print(f"[OO convert] Non-JSON response ({r.status_code}): {preview}")
+            logger.warning("Non-JSON response (%s): %s", r.status_code, preview)
             return ""
         file_url = data.get('fileUrl') or data.get('fileurl')
         if not file_url:
@@ -496,7 +498,7 @@ def _docx_to_html_via_onlyoffice(docx_url: str) -> str:
                             return content.decode('latin-1', errors='ignore').strip()
         return ""
     except Exception as e:
-        print(f"[OO convert] DOCX→HTML via OnlyOffice failed: {e}")
+        logger.error("DOCX->HTML via OnlyOffice failed: %s", e)
         return ""
 
 def _docx_to_html_via_onlyoffice_upload(docx_bytes: bytes) -> str:
@@ -505,7 +507,7 @@ def _docx_to_html_via_onlyoffice_upload(docx_bytes: bytes) -> str:
     This avoids URL fetch issues inside Document Server and can preserve visual formatting.
     """
     try:
-        convert_endpoint = 'http://localhost:8080/ConvertService.ashx'
+        convert_endpoint = f'{settings.ONLYOFFICE_DOCSERVER_URL or "http://localhost:8080"}/ConvertService.ashx'
         payload = {
             'async': False,
             'filetype': 'docx',
@@ -520,7 +522,7 @@ def _docx_to_html_via_onlyoffice_upload(docx_bytes: bytes) -> str:
         try:
             data = resp.json()
         except Exception:
-            print(f"[OO convert] Upload Non-JSON response ({resp.status_code}): {(resp.text or '')[:200]}")
+            logger.warning("Upload Non-JSON response (%s): %s", resp.status_code, (resp.text or '')[:200])
             return ""
         file_url = data.get('fileUrl') or data.get('fileurl')
         if not file_url:
@@ -545,7 +547,7 @@ def _docx_to_html_via_onlyoffice_upload(docx_bytes: bytes) -> str:
                             return content.decode('latin-1', errors='ignore').strip()
         return ""
     except Exception as e:
-        print(f"[OO convert] DOCX→HTML via OnlyOffice upload failed: {e}")
+        logger.error("DOCX->HTML via OnlyOffice upload failed: %s", e)
         return ""
 
 
@@ -565,7 +567,7 @@ def _summarize_changes(previous_html: str, new_html: str) -> list[dict[str, Any]
         from bs4 import BeautifulSoup
         def _text_excerpt(html: str, n: int = 160) -> str:
             text = BeautifulSoup(html or '', 'html.parser').get_text(separator=' ', strip=True)
-            return (text[:n] + ('…' if len(text) > n else '')) if text else ''
+            return (text[:n] + ('...' if len(text) > n else '')) if text else ''
         return [{
             'type': 'update',
             'section': 'Document',
@@ -586,8 +588,8 @@ def _summarize_changes(previous_html: str, new_html: str) -> list[dict[str, Any]
 async def onlyoffice_callback(payload: Dict[str, Any], db: Session = Depends(get_db)):
     """Handle OnlyOffice document server callbacks for saving documents"""
     try:
-        print(f"OnlyOffice callback received: {json.dumps(payload, indent=2)}")
-        
+        logger.info("OnlyOffice callback received: %s", json.dumps(payload, indent=2))
+
         # OnlyOffice callback status meanings:
         # 0 - no document with key identifier could be found
         # 1 - document is being edited
@@ -596,17 +598,17 @@ async def onlyoffice_callback(payload: Dict[str, Any], db: Session = Depends(get
         # 4 - document is closed with no changes
         # 6 - document is being edited, but the current document state is saved
         # 7 - error has occurred while force saving the document
-        
+
         status = payload.get('status', 0)
-        
+
         if status in (2, 6):
             # 2: ready for saving, 6: state saved; process content
             document_url = payload.get('url')
             document_key = payload.get('key')
-            print(f"OnlyOffice save: status={status} key={document_key} url={document_url}")
+            logger.info("OnlyOffice save: status=%s key=%s url=%s", status, document_key, document_url)
             paper_id = _extract_paper_id_from_key(document_key)
             if not paper_id:
-                print("Cannot extract paper_id from key; skipping DB update")
+                logger.warning("Cannot extract paper_id from key; skipping DB update")
             elif document_url:
                 try:
                     # Prefer local Pandoc/Mammoth conversion for reliability and speed; DS convert as last resort
@@ -621,7 +623,7 @@ async def onlyoffice_callback(payload: Dict[str, Any], db: Session = Depends(get
                     except Exception as qerr:
                         try: db.rollback()
                         except Exception: pass
-                        print(f"DB query failed in callback: {qerr}")
+                        logger.error("DB query failed in callback: %s", qerr)
                         paper = None
                     if paper:
                         try:
@@ -632,29 +634,29 @@ async def onlyoffice_callback(payload: Dict[str, Any], db: Session = Depends(get
                             cj['oo_last_save'] = datetime.utcnow().isoformat() + 'Z'
                             # Preserve existing authoring_mode; do not force switch
                             paper.content_json = cj
-                            
+
                             # Convert DOCX to HTML using the best available method
                             # Priority: OnlyOffice ConvertService > Mammoth > Pandoc > python-docx
                             html = ""
-                            
+
                             # Skip OnlyOffice ConvertService (currently failing with error -7)
                             # TODO: Fix ConvertService configuration for file upload method
-                            print(f"[OO callback] Skipping OnlyOffice ConvertService (error -7), using local converters")
-                            
+                            logger.debug("Skipping OnlyOffice ConvertService (error -7), using local converters")
+
                             # Use enhanced local converters (Pandoc first for better formatting)
                             if not html:
                                 html = _docx_to_html_best_effort(data)
-                                print(f"[OO callback] ✅ FORMATTING FIX: Used enhanced Pandoc converter for DOCX→HTML conversion")
-                            
+                                logger.debug("Used enhanced Pandoc converter for DOCX->HTML conversion")
+
                             if html:
                                 paper.content = html
-                            
+
                             db.commit()
-                            print(f"Updated paper {paper_id} content_json with OO docx path: {docx_rel_path}")
+                            logger.info("Updated paper %s content_json with OO docx path: %s", paper_id, docx_rel_path)
                         except Exception as cerr:
                             try: db.rollback()
                             except Exception: pass
-                            print(f"DB update failed in callback: {cerr}")
+                            logger.error("DB update failed in callback: %s", cerr)
                     # Broadcast to active sessions with current HTML view (if any)
                     if paper:
                         # Diagnostics: log lengths and hashes to detect potential overwrites
@@ -665,7 +667,7 @@ async def onlyoffice_callback(payload: Dict[str, Any], db: Session = Depends(get
                             new_len = len(paper.content or '')
                             prev_hash = _hash.sha256(prev.encode('utf-8', errors='ignore')).hexdigest()[:12]
                             new_hash = _hash.sha256((paper.content or '').encode('utf-8', errors='ignore')).hexdigest()[:12]
-                            print(f"[OO callback] paper={paper_id} prev_len={prev_len} prev_hash={prev_hash} new_len={new_len} new_hash={new_hash}")
+                            logger.debug("paper=%s prev_len=%d prev_hash=%s new_len=%d new_hash=%s", paper_id, prev_len, prev_hash, new_len, new_hash)
                             # Record last-save info for frontend debugging
                             try:
                                 _LAST_SAVE[str(paper_id)] = {
@@ -721,7 +723,7 @@ async def onlyoffice_callback(payload: Dict[str, Any], db: Session = Depends(get
                                 main_branch.last_commit_message = autosave_commit.message
                                 db.commit()
                             except Exception as ce:
-                                print(f"Commit creation failed: {ce}")
+                                logger.error("Commit creation failed: %s", ce)
                             # Broadcast to active collaboration sessions for this paper
                             try:
                                 sessions = db.query(CollaborationSession).filter(CollaborationSession.paper_id == paper_id, CollaborationSession.is_active == True).all()
@@ -729,23 +731,23 @@ async def onlyoffice_callback(payload: Dict[str, Any], db: Session = Depends(get
                                 for s in sessions:
                                     await connection_manager.broadcast_to_session(str(s.id), {"type": "document_changed", "content": html})
                             except Exception as be:
-                                print(f"Broadcast error: {be}")
+                                logger.error("Broadcast error: %s", be)
                 except Exception as de:
-                    print(f"Download/convert failed: {de}")
-            
+                    logger.error("Download/convert failed: %s", de)
+
         elif status == 1:
-            print("Document is being edited")
+            logger.debug("Document is being edited")
         elif status == 4:
-            print("Document closed with no changes")
+            logger.debug("Document closed with no changes")
         else:
-            print(f"Other status received: {status}")
-        
+            logger.debug("Other callback status received: %s", status)
+
         # OnlyOffice expects a specific response format
         # Status codes: 0 - no errors, 1 - document key error, etc.
         return {"error": 0}
-        
+
     except Exception as e:
-        print(f"OnlyOffice callback error: {str(e)}")
+        logger.error("OnlyOffice callback error: %s", e)
         return {"error": 1}
 
 @router.get("/last-save")
@@ -797,7 +799,7 @@ async def list_plugins():
                         "install_url": f"/onlyoffice/plugins/{plugin_dir.name}/config.json"
                     })
                 except Exception as e:
-                    print(f"Error reading plugin config {config_file}: {e}")
+                    logger.warning("Error reading plugin config %s: %s", config_file, e)
 
     return {"plugins": plugins}
 
@@ -817,11 +819,11 @@ async def get_plugin_config(plugin_id: str, request: Request):
             break
     if config_file is None:
         raise HTTPException(status_code=404, detail="Plugin not found")
-    
+
     try:
         with open(config_file, 'r') as f:
             config = json.load(f)
-        
+
         # Update URLs to be absolute using the request base URL
         # Infer which static subdir we matched
         subdir = "onlyoffice-plugins" if "onlyoffice-plugins" in str(config_file) else "plugins"
@@ -844,18 +846,18 @@ async def get_install_plugin_script():
 
 (function() {
     const pluginUrl = 'http://192.168.100.121:8000/onlyoffice/plugins/scholarhub-assistant/config.json';
-    
+
     if (typeof window.Asc !== 'undefined' && window.Asc.plugin) {
         console.log('Installing ScholarHub Assistant plugin...');
-        
+
         // Method 1: Try direct installation
         try {
             window.Asc.plugin.loadPlugin(pluginUrl, function(result) {
                 if (result) {
-                    console.log('✅ ScholarHub Assistant plugin installed successfully!');
+                    console.log('ScholarHub Assistant plugin installed successfully!');
                     alert('ScholarHub Assistant plugin installed! Look for it in the Plugins menu.');
                 } else {
-                    console.log('❌ Plugin installation failed');
+                    console.log('Plugin installation failed');
                     installViaConsole();
                 }
             });
@@ -867,10 +869,10 @@ async def get_install_plugin_script():
         console.log('OnlyOffice plugin API not found. Make sure you are on an OnlyOffice document page.');
         alert('Please run this script on an OnlyOffice document page with a document open.');
     }
-    
+
     function installViaConsole() {
         console.log('Alternative installation method...');
-        
+
         // Add plugin to the list if possible
         if (window.Asc && window.Asc.plugin && window.Asc.plugin.manager) {
             try {
@@ -879,9 +881,9 @@ async def get_install_plugin_script():
                     guid: "asc.{8515F8A6-2B7B-4B31-A78B-9C4F17C6B357}",
                     name: "ScholarHub Assistant"
                 };
-                
+
                 window.Asc.plugin.manager.addPlugin(pluginConfig);
-                console.log('✅ Plugin added to manager');
+                console.log('Plugin added to manager');
             } catch (e) {
                 console.log('Manager installation also failed:', e);
                 manualInstallInstructions();
@@ -890,7 +892,7 @@ async def get_install_plugin_script():
             manualInstallInstructions();
         }
     }
-    
+
     function manualInstallInstructions() {
         const instructions = `
 Manual Plugin Installation Instructions:
@@ -905,13 +907,13 @@ If that doesn't work:
 - The plugin files are available at: http://192.168.100.121:8000/static/onlyoffice-plugins/scholarhub-assistant/
 - You may need to set up plugin development mode in OnlyOffice
         `;
-        
+
         console.log(instructions);
         alert('Plugin installation requires manual steps. Check the browser console for instructions.');
     }
 })();
 """
-    
+
     return Response(
         content=script,
         media_type="application/javascript",
@@ -949,8 +951,9 @@ async def bridge_references(paperId: str, db: Session = Depends(get_db)):
         }
     payload = { 'references': [to_dict(r) for r in refs], 'total': len(refs) }
     # Add explicit CORS header for DocServer origin to avoid browser CORS blocks
+    oo_origin = settings.ONLYOFFICE_DOCSERVER_URL or 'http://localhost:8080'
     return JSONResponse(content=payload, headers={
-        'Access-Control-Allow-Origin': 'http://localhost:8080',
+        'Access-Control-Allow-Origin': oo_origin,
         'Vary': 'Origin'
     })
 
@@ -982,7 +985,7 @@ async def register_token(request: Request):
     return {"ok": True}
 
 @router.get("/token")
-async def fetch_token(paperId: Optional[str] = None, key: Optional[str] = None):
+async def fetch_token(paperId: Optional[str] = None, key: Optional[str] = None, current_user: User = Depends(get_current_user)):
     """Return a registered token for the given paperId or key, if not expired."""
     if not paperId and not key:
         raise HTTPException(status_code=400, detail="paperId or key required")

@@ -176,14 +176,14 @@ const UpgradeModal = ({ limitError: controlledError, onClose }: UpgradeModalProp
             className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-primary-500 to-primary-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-primary-500/25 transition-all hover:from-primary-600 hover:to-primary-700 hover:shadow-xl hover:shadow-primary-500/30"
             onClick={() => {
               // TODO: Integrate with Stripe checkout
-              window.open('mailto:support@scholarhub.app?subject=Upgrade%20to%20Pro', '_blank')
+              window.open('mailto:support@scholarhub.space?subject=Upgrade%20to%20Pro', '_blank')
             }}
           >
             <Sparkles className="h-4 w-4" />
             Upgrade to Pro
           </button>
           <p className="mt-3 text-center text-xs text-gray-500 dark:text-slate-400">
-            Contact us to upgrade. Stripe integration coming soon.
+            Contact us to upgrade your plan.
           </p>
         </div>
       </div>

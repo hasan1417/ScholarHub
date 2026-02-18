@@ -163,7 +163,7 @@ const MyReferences: React.FC = () => {
             className="flex-1 border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           <button onClick={load} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Search</button>
-          <Link to="/discovery" className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Discover</Link>
+          <Link to="/projects" className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Discover</Link>
           <button
             onClick={() => {
               if (zoteroConfigured) {
