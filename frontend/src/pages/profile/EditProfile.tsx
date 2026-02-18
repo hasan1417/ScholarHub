@@ -756,15 +756,40 @@ const EditProfile = () => {
                   <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-600 hover:underline dark:text-indigo-400">
                     Get a key
                   </a>
-                  <button
-                    type="button"
-                    onClick={handleSaveOpenRouterKey}
-                    disabled={savingApiKey}
-                    className="inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-medium py-1.5 px-3 rounded-lg text-xs transition-colors"
-                  >
-                    {savingApiKey ? <Loader2 className="h-3 w-3 animate-spin" /> : apiKeySaved ? <Check className="h-3 w-3" /> : null}
-                    {savingApiKey ? 'Validating...' : apiKeySaved ? 'Saved' : 'Save'}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {openRouterKeyConfigured && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setSavingApiKey(true)
+                          try {
+                            await usersAPI.setOpenRouterKey(null)
+                            setOpenRouterKeyConfigured(false)
+                            setOpenRouterKeyMasked(null)
+                            setOpenRouterKey('')
+                          } catch (err: any) {
+                            setError(err?.response?.data?.detail || 'Failed to remove key')
+                            setTimeout(() => setError(''), 3000)
+                          } finally {
+                            setSavingApiKey(false)
+                          }
+                        }}
+                        disabled={savingApiKey}
+                        className="inline-flex items-center gap-1 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white font-medium py-1.5 px-3 rounded-lg text-xs transition-colors"
+                      >
+                        Remove
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleSaveOpenRouterKey}
+                      disabled={savingApiKey}
+                      className="inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-medium py-1.5 px-3 rounded-lg text-xs transition-colors"
+                    >
+                      {savingApiKey ? <Loader2 className="h-3 w-3 animate-spin" /> : apiKeySaved ? <Check className="h-3 w-3" /> : null}
+                      {savingApiKey ? 'Validating...' : apiKeySaved ? 'Saved' : 'Save'}
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -801,15 +826,41 @@ const EditProfile = () => {
                   <a href="https://www.zotero.org/settings/keys" target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-600 hover:underline dark:text-indigo-400">
                     Get API key & user ID
                   </a>
-                  <button
-                    type="button"
-                    onClick={handleSaveZoteroKey}
-                    disabled={savingZotero || (!zoteroApiKey && !zoteroUserId)}
-                    className="inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-medium py-1.5 px-3 rounded-lg text-xs transition-colors"
-                  >
-                    {savingZotero ? <Loader2 className="h-3 w-3 animate-spin" /> : zoteroSaved ? <Check className="h-3 w-3" /> : null}
-                    {savingZotero ? 'Validating...' : zoteroSaved ? 'Saved' : 'Save'}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {zoteroConfigured && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setSavingZotero(true)
+                          try {
+                            await usersAPI.setZoteroKey(null, null)
+                            setZoteroConfigured(false)
+                            setZoteroMaskedKey(null)
+                            setZoteroApiKey('')
+                            setZoteroUserId('')
+                          } catch (err: any) {
+                            setError(err?.response?.data?.detail || 'Failed to remove Zotero credentials')
+                            setTimeout(() => setError(''), 3000)
+                          } finally {
+                            setSavingZotero(false)
+                          }
+                        }}
+                        disabled={savingZotero}
+                        className="inline-flex items-center gap-1 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white font-medium py-1.5 px-3 rounded-lg text-xs transition-colors"
+                      >
+                        Remove
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleSaveZoteroKey}
+                      disabled={savingZotero || (!zoteroApiKey && !zoteroUserId)}
+                      className="inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-medium py-1.5 px-3 rounded-lg text-xs transition-colors"
+                    >
+                      {savingZotero ? <Loader2 className="h-3 w-3 animate-spin" /> : zoteroSaved ? <Check className="h-3 w-3" /> : null}
+                      {savingZotero ? 'Validating...' : zoteroSaved ? 'Saved' : 'Save'}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
