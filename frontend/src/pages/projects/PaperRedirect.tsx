@@ -24,14 +24,21 @@ const PaperRedirect = () => {
   })
 
   useEffect(() => {
-    if (!data) return
-    const projectId = data.project_id
-    const basePath = projectId ? `/projects/${projectId}/papers/${data.id}` : '/projects'
-    const suffix = location.pathname.replace(`/papers/${data.id}`, '')
-    const mappedSuffix = legacySegmentMap[suffix] ?? suffix
-    const target = `${basePath}${mappedSuffix || ''}${location.search || ''}`
-    navigate(target, { replace: true })
+    if (data) {
+      const projectId = data.project_id
+      const basePath = projectId ? `/projects/${projectId}/papers/${data.id}` : '/projects'
+      const suffix = location.pathname.replace(`/papers/${data.id}`, '')
+      const mappedSuffix = legacySegmentMap[suffix] ?? suffix
+      const target = `${basePath}${mappedSuffix || ''}${location.search || ''}`
+      navigate(target, { replace: true })
+    }
   }, [data, location.pathname, location.search, navigate])
+
+  useEffect(() => {
+    if (isError) {
+      navigate('/projects', { replace: true })
+    }
+  }, [isError, navigate])
 
   if (isLoading) {
     return (
@@ -40,12 +47,6 @@ const PaperRedirect = () => {
       </div>
     )
   }
-
-  useEffect(() => {
-    if (isError) {
-      navigate('/projects', { replace: true })
-    }
-  }, [isError, navigate])
 
   return null
 }

@@ -147,7 +147,7 @@ const Pricing = () => {
           <div className="flex items-center gap-3">
             {user ? (
               <button
-                onClick={() => navigate('/dashboard')}
+                onClick={() => navigate('/projects')}
                 className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"
               >
                 Dashboard
