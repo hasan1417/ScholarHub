@@ -286,6 +286,143 @@
       border-color: var(--indigo-500);
     }
 
+    /* PDF status */
+    .pdf-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      margin-top: 8px;
+    }
+
+    .pdf-status.detected {
+      background: #f0fdf4;
+      color: #166534;
+    }
+
+    .pdf-status.not-detected {
+      background: #fffbeb;
+      color: #92400e;
+    }
+
+    .pdf-status svg {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+    }
+
+    .pdf-status .pdf-upload-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: auto;
+    }
+
+    .pdf-status .pdf-upload-label {
+      font-size: 11px;
+      color: var(--indigo-600);
+      cursor: pointer;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .pdf-status .pdf-upload-label:hover {
+      text-decoration: underline;
+    }
+
+    .pdf-status .pdf-file-name {
+      font-size: 11px;
+      color: var(--slate-500);
+      max-width: 100px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* Custom dropdown */
+    .dropdown {
+      position: relative;
+      margin-top: 8px;
+    }
+
+    .dropdown-trigger {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      padding: 7px 10px;
+      border: 1px solid var(--slate-300);
+      border-radius: 6px;
+      background: white;
+      font-size: 13px;
+      color: var(--slate-800);
+      cursor: pointer;
+      outline: none;
+      transition: border-color 0.15s;
+      text-align: left;
+    }
+
+    .dropdown-trigger:focus,
+    .dropdown-trigger.open {
+      border-color: var(--indigo-500);
+      box-shadow: 0 0 0 2px var(--indigo-100);
+    }
+
+    .dropdown-trigger-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+
+    .dropdown-trigger svg {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+      color: var(--slate-400);
+      transition: transform 0.15s;
+    }
+
+    .dropdown-trigger.open svg {
+      transform: rotate(180deg);
+    }
+
+    .dropdown-options {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      max-height: 180px;
+      overflow-y: auto;
+      background: white;
+      border: 1px solid var(--slate-200);
+      border-radius: 6px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      z-index: 10;
+    }
+
+    .dropdown-option {
+      padding: 7px 10px;
+      font-size: 13px;
+      color: var(--slate-700);
+      cursor: pointer;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .dropdown-option:hover {
+      background: var(--indigo-50);
+    }
+
+    .dropdown-option.selected {
+      background: var(--indigo-50);
+      color: var(--indigo-600);
+      font-weight: 500;
+    }
+
     .hidden {
       display: none !important;
     }
@@ -360,6 +497,15 @@
           <span id="paperSource"></span>
         </div>
       </div>
+      <div id="pdfStatus" class="pdf-status hidden"></div>
+      <div class="dropdown" id="projectDropdown">
+        <button type="button" class="dropdown-trigger" id="dropdownTrigger" aria-haspopup="listbox">
+          <span class="dropdown-trigger-text" id="dropdownText">Select a project...</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="dropdown-options hidden" id="dropdownOptions" role="listbox"></div>
+      </div>
+      <input type="file" id="pdfUpload" accept=".pdf" class="hidden">
       <button class="btn btn-primary" id="saveBtn" style="margin-top:10px">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
         Save to Library

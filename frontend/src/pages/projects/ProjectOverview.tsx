@@ -35,6 +35,19 @@ const OverviewDashboard = () => {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
+  // AI settings (for insights toggle)
+  const aiSettingsQuery = useQuery({
+    queryKey: ['project-ai-settings', projectId],
+    queryFn: async () => {
+      if (!projectId) return null
+      const response = await projectsAPI.getDiscussionSettings(projectId)
+      return response.data
+    },
+    enabled: Boolean(projectId),
+    staleTime: 30_000,
+  })
+  const insightsEnabled = aiSettingsQuery.data?.insights_enabled ?? true
+
   // Objectives completion state (persisted to backend)
   const objectivesQuery = useQuery({
     queryKey: ['project', projectId, 'objectives'],
@@ -493,7 +506,7 @@ const OverviewDashboard = () => {
   return (
     <div className="space-y-6">
       {/* AI Insights */}
-      {projectId && <InsightsPanel projectId={projectId} />}
+      {projectId && insightsEnabled && <InsightsPanel projectId={projectId} />}
 
       <div className="grid gap-6 lg:grid-cols-[1.2fr,1fr] items-start">
         <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800">

@@ -9,7 +9,7 @@ from uuid import UUID
 
 import httpx
 import redis
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, UploadFile, File as FastAPIFile, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, Response, UploadFile, File as FastAPIFile, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -302,6 +302,76 @@ async def get_citation_graph(
             pass
 
     return result
+
+
+class QuickAddPayload(BaseModel):
+    reference_id: UUID
+
+
+@router.post("/projects/{project_id}/references/quick-add", status_code=status.HTTP_201_CREATED)
+def quick_add_reference(
+    project_id: str,
+    payload: QuickAddPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Add an existing reference to a project library (used by the browser extension)."""
+    project = get_project_or_404(db, project_id)
+    ensure_project_member(db, project, current_user, roles=[ProjectRole.ADMIN, ProjectRole.EDITOR])
+
+    reference = db.query(Reference).filter(Reference.id == payload.reference_id).first()
+    if not reference:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reference not found")
+
+    # Return existing link if already in project
+    existing = (
+        db.query(ProjectReference)
+        .filter(
+            ProjectReference.project_id == project.id,
+            ProjectReference.reference_id == payload.reference_id,
+        )
+        .first()
+    )
+    if existing:
+        return _serialize_project_reference(existing)
+
+    from datetime import datetime
+
+    pr = ProjectReference(
+        project_id=project.id,
+        reference_id=payload.reference_id,
+        status=ProjectReferenceStatus.APPROVED,
+        confidence=None,
+        decided_by=current_user.id,
+    )
+    pr.decided_at = datetime.utcnow()
+    db.add(pr)
+    db.flush()
+
+    # Queue embedding job
+    try:
+        queue_library_paper_embedding_sync(pr.id, pr.project_id, db)
+    except Exception as e:
+        logger.warning("Failed to queue embedding job for quick-add: %s", e)
+
+    record_project_activity(
+        db=db,
+        project=project,
+        actor=current_user,
+        event_type="project-reference.approved",
+        payload={
+            "category": "project-reference",
+            "action": "quick-add",
+            "project_reference_id": str(pr.id),
+            "reference_id": str(pr.reference_id),
+            "reference_title": preview_text(reference.title, 160),
+            "status": "approved",
+        },
+    )
+
+    db.commit()
+    db.refresh(pr)
+    return _serialize_project_reference(pr)
 
 
 class AttachReferencePayload(BaseModel):
@@ -1153,6 +1223,7 @@ def _reference_to_bibtex(ref: Reference, cite_key: str | None = None, entry_type
 @router.post("/projects/{project_id}/references/import-bibtex")
 def import_bibtex(
     project_id: str,
+    background_tasks: BackgroundTasks,
     file: UploadFile = FastAPIFile(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -1198,6 +1269,7 @@ def import_bibtex(
 
     # Insert all valid entries in a single transaction
     from datetime import datetime
+    created_ref_ids: list[str] = []
     for entry in valid_refs:
         try:
             ref = Reference(
@@ -1212,6 +1284,7 @@ def import_bibtex(
             )
             db.add(ref)
             db.flush()
+            created_ref_ids.append(str(ref.id))
 
             pr = ProjectReference(
                 project_id=project.id,
@@ -1235,6 +1308,11 @@ def import_bibtex(
         except Exception:
             db.rollback()
             raise HTTPException(status_code=500, detail="Failed to save imported references")
+
+        # Enrich imported references (fill missing metadata + attempt PDF ingestion)
+        from app.services.reference_enrichment_service import enrich_and_ingest_reference
+        for ref_id in created_ref_ids:
+            background_tasks.add_task(enrich_and_ingest_reference, ref_id)
 
     return {"imported": imported, "skipped": skipped, "errors": errors}
 

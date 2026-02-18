@@ -481,11 +481,12 @@ export const projectsAPI = {
       viewer_has_api_key: boolean
       server_key_available: boolean
       use_owner_key_for_team: boolean
+      insights_enabled: boolean
     }>(`/projects/${projectId}/discussion-settings`),
 
   updateDiscussionSettings: (
     projectId: string,
-    settings: { enabled?: boolean; model?: string; use_owner_key_for_team?: boolean }
+    settings: { enabled?: boolean; model?: string; use_owner_key_for_team?: boolean; insights_enabled?: boolean }
   ) =>
     api.patch<{
       enabled: boolean
@@ -494,6 +495,7 @@ export const projectsAPI = {
       viewer_has_api_key: boolean
       server_key_available: boolean
       use_owner_key_for_team: boolean
+      insights_enabled: boolean
     }>(`/projects/${projectId}/discussion-settings`, settings),
 
   // Objectives

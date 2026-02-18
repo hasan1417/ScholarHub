@@ -913,15 +913,17 @@ def get_project_insights(
 class DiscussionSettingsResponse(BaseModel):
     enabled: bool
     model: str
-    owner_has_api_key: bool  # Whether project owner has configured their API key
-    viewer_has_api_key: bool  # Whether current user has configured their API key
-    server_key_available: bool  # Whether server key can be used for this user
-    use_owner_key_for_team: bool  # Whether owner key is shared with team members
+    owner_has_api_key: bool
+    viewer_has_api_key: bool
+    server_key_available: bool
+    use_owner_key_for_team: bool
+    insights_enabled: bool
 
 class DiscussionSettingsUpdate(BaseModel):
     enabled: Optional[bool] = None
     model: Optional[str] = None
     use_owner_key_for_team: Optional[bool] = None
+    insights_enabled: Optional[bool] = None
 
 
 @router.get("/{project_id}/discussion-settings", response_model=DiscussionSettingsResponse)
@@ -962,6 +964,7 @@ def get_project_discussion_settings(
         viewer_has_api_key=viewer_has_api_key,
         server_key_available=server_key_available,
         use_owner_key_for_team=use_owner_key_for_team,
+        insights_enabled=discussion_settings.get("insights_enabled", True),
     )
 
 
@@ -991,6 +994,8 @@ def update_project_discussion_settings(
         discussion_settings["model"] = update.model
     if update.use_owner_key_for_team is not None:
         discussion_settings["use_owner_key_for_team"] = update.use_owner_key_for_team
+    if update.insights_enabled is not None:
+        discussion_settings["insights_enabled"] = update.insights_enabled
 
     # Save
     project.discussion_settings = discussion_settings
@@ -1013,4 +1018,5 @@ def update_project_discussion_settings(
         viewer_has_api_key=viewer_has_api_key,
         server_key_available=server_key_available,
         use_owner_key_for_team=use_owner_key_for_team,
+        insights_enabled=discussion_settings.get("insights_enabled", True),
     )

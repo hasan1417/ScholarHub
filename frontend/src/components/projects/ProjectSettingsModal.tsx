@@ -51,13 +51,14 @@ export default function ProjectSettingsModal({ project, isOpen, onClose }: Proje
   const viewerHasApiKey = settings?.viewer_has_api_key ?? false
   const serverKeyAvailable = settings?.server_key_available ?? false
   const useOwnerKeyForTeam = settings?.use_owner_key_for_team ?? false
+  const insightsEnabled = settings?.insights_enabled ?? true
   const isOwner = user?.id === project.created_by
   const ownerKeyAvailableForViewer = isOwner ? ownerHasApiKey : ownerHasApiKey && useOwnerKeyForTeam
   const hasAnyApiKey = settingsLoaded && (viewerHasApiKey || serverKeyAvailable || ownerKeyAvailableForViewer)
 
   // Update settings mutation
   const updateSettingsMutation = useMutation({
-    mutationFn: async (updates: { model?: string; use_owner_key_for_team?: boolean }) => {
+    mutationFn: async (updates: { model?: string; use_owner_key_for_team?: boolean; insights_enabled?: boolean }) => {
       const response = await projectsAPI.updateDiscussionSettings(project.id, updates)
       return response.data
     },
@@ -172,6 +173,36 @@ export default function ProjectSettingsModal({ project, isOpen, onClose }: Proje
                     Add your OpenRouter API key first to enable sharing.
                   </p>
                 )}
+              </div>
+            )}
+
+            {/* AI Insights Toggle */}
+            {isOwner && settingsLoaded && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-200">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-medium">AI Insights</p>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      Show proactive research suggestions on the project overview.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={updateSettingsMutation.isPending}
+                    onClick={() =>
+                      updateSettingsMutation.mutate({ insights_enabled: !insightsEnabled })
+                    }
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition ${
+                      insightsEnabled ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-600'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${
+                        insightsEnabled ? 'translate-x-5' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
               </div>
             )}
 

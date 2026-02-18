@@ -154,9 +154,9 @@ async def list_my_references(
 @router.post("/", response_model=ReferenceResponse, status_code=status.HTTP_201_CREATED)
 async def create_reference(
     payload: ReferenceCreateRequest,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-    background_tasks: BackgroundTasks = None,
 ):
     # Check subscription limit for total references
     allowed, current, limit = SubscriptionService.check_resource_limit(
@@ -213,6 +213,10 @@ async def create_reference(
                     dup.paper_id = payload.paper_id; updated = True
                 if updated:
                     db.commit(); db.refresh(dup)
+                # Enrich duplicate if it's still missing metadata
+                from app.services.reference_enrichment_service import enrich_and_ingest_reference, _needs_enrichment
+                if _needs_enrichment(dup):
+                    background_tasks.add_task(enrich_and_ingest_reference, str(dup.id))
                 return dup
         except Exception:
             # Non-fatal; proceed with creation
@@ -237,15 +241,10 @@ async def create_reference(
         db.commit()
         db.refresh(ref)
 
-        # If the reference has a PDF URL, enqueue background ingestion using existing system
-        try:
-            if (payload.pdf_url or ref.pdf_url):
-                if background_tasks is not None:
-                    from app.api.v1.research_papers import analyze_reference_task
-                    background_tasks.add_task(analyze_reference_task, str(ref.id))
-        except Exception:
-            # best-effort
-            pass
+        # Enrich metadata (authors, year, abstract, PDF URL) via CrossRef/Unpaywall/S2
+        # and auto-ingest PDF if found — runs as a background task
+        from app.services.reference_enrichment_service import enrich_and_ingest_reference
+        background_tasks.add_task(enrich_and_ingest_reference, str(ref.id))
 
         return ref
     except (ProgrammingError, OperationalError) as e:
@@ -282,9 +281,12 @@ async def upload_reference_pdf(
     db: Session = Depends(get_db),
 ):
     ref = _ensure_reference_permissions(db, reference_id, current_user, allow_project_roles=True)
-    if file.content_type != "application/pdf":
-        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
     content = await file.read()
+    # Accept application/pdf and application/octet-stream (common for publisher CDNs).
+    # Validate actual content via PDF magic bytes (%PDF-) for safety.
+    allowed_types = {"application/pdf", "application/octet-stream"}
+    if file.content_type not in allowed_types or not content[:5].startswith(b"%PDF-"):
+        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
     ds = DocumentService()
     file_path = await ds.save_uploaded_file(content, file.filename)
     document = Document(

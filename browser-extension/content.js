@@ -45,6 +45,10 @@
       }
     }
 
+    if (detectedPaper && !detectedPaper.pdfUrl) {
+      detectedPaper.pdfUrl = getMeta('citation_pdf_url') || scanForPdfLink() || null;
+    }
+
     if (detectedPaper && detectedPaper.title) {
       // Only show the badge if the user is authenticated
       chrome.storage.local.get(['accessToken'], (result) => {
@@ -92,7 +96,10 @@
     const linkEl = resultEl.querySelector('.gs_rt a');
     const url = linkEl ? linkEl.href : null;
 
-    return { title, authors, year, journal, url, doi: null, abstract: null, source: 'Google Scholar' };
+    const pdfLink = resultEl.querySelector('.gs_or_ggsm a, .gs_ggsd a');
+    const pdfUrl = pdfLink ? pdfLink.href : null;
+
+    return { title, authors, year, journal, url, doi: null, abstract: null, pdfUrl, source: 'Google Scholar' };
   }
 
   function extractPubMed() {
@@ -132,7 +139,9 @@
       journal = journalEl.getAttribute('title') || journalEl.textContent.trim();
     }
 
-    return { title, authors, year, doi, url: location.href, abstract, journal, source: 'PubMed' };
+    const pdfUrl = getMeta('citation_pdf_url') || null;
+
+    return { title, authors, year, doi, url: location.href, abstract, journal, pdfUrl, source: 'PubMed' };
   }
 
   function extractArXiv() {
@@ -186,6 +195,8 @@
       if (doiMatch) doi = doiMatch[0];
     }
 
+    const pdfUrl = arxivId ? `https://arxiv.org/pdf/${arxivId}.pdf` : null;
+
     return {
       title,
       authors,
@@ -194,6 +205,7 @@
       url: location.href,
       abstract,
       journal: arxivId ? `arXiv:${arxivId}` : 'arXiv',
+      pdfUrl,
       source: 'arXiv',
     };
   }
@@ -259,7 +271,9 @@
     else if (host.includes('wiley.com')) source = 'Wiley';
     else if (host.includes('sciencedirect.com')) source = 'ScienceDirect';
 
-    return { title, authors, year, doi, url: location.href, abstract, journal, source };
+    const pdfUrl = getMeta('citation_pdf_url') || null;
+
+    return { title, authors, year, doi, url: location.href, abstract, journal, pdfUrl, source };
   }
 
   // ── Floating badge ──
@@ -410,7 +424,103 @@
     return str.replace(/\s+/g, ' ').trim();
   }
 
+  /**
+   * Last-resort heuristic: scan the page for a link that likely points to the paper's PDF.
+   * Only called when citation_pdf_url and site-specific extractors found nothing.
+   */
+  function scanForPdfLink() {
+    const EXCLUDED_URL = /\/(terms|privacy|policy|license|cookie|consent|guide|instructions|template|submission)\b/i;
+    const PAYWALL = /[?&/](login|signin|authenticate|sso|cas|gateway|redirect|returnUrl|ticket)[=&/]/i;
+    const EXCLUDED_CONTAINER = 'footer, nav, [role="navigation"], [role="contentinfo"]';
+    const EXCLUDED_CLASS_ID = /(sidebar|cookie|footer|\bnav\b|menu|banner|\bad\b)/i;
+    const NON_PRIMARY_TEXT = /\b(supplementar|appendix|supporting\s+info|reviewer|editorial|table\s+of\s+contents|errat)/i;
+    const MAIN_CONTENT = 'main, article, [role="main"]';
+    const MAIN_CONTENT_CLASS = /(content|paper|abstract|article|detail)/i;
+
+    function isInMainContent(el) {
+      if (el.closest(MAIN_CONTENT)) return true;
+      let ancestor = el.parentElement;
+      for (let i = 0; i < 6 && ancestor && ancestor !== document.body; i++) {
+        if (MAIN_CONTENT_CLASS.test(ancestor.id || '') || MAIN_CONTENT_CLASS.test(ancestor.className || '')) return true;
+        ancestor = ancestor.parentElement;
+      }
+      return false;
+    }
+
+    const links = document.querySelectorAll('a[href]');
+    let best = null;
+    let bestInMain = false;
+
+    for (const link of links) {
+      const href = link.href;
+      if (!href || href.startsWith('javascript:') || href.startsWith('#')) continue;
+
+      // Check if URL looks like a PDF
+      let isPdfUrl = false;
+      try {
+        const url = new URL(href);
+        const path = url.pathname.toLowerCase();
+        isPdfUrl = path.endsWith('.pdf') || /\/pdf\//.test(path) ||
+          /[?&](format|type)=pdf/i.test(url.search);
+      } catch { continue; }
+
+      // If URL doesn't look like PDF, check link text
+      if (!isPdfUrl) {
+        const text = (link.textContent || '').trim();
+        const label = link.getAttribute('aria-label') || link.getAttribute('title') || '';
+        if (!/\bpdf\b/i.test(text + ' ' + label)) continue;
+      }
+
+      // Exclusion filters
+      try {
+        const url = new URL(href);
+        if (EXCLUDED_URL.test(url.pathname)) continue;
+        if (PAYWALL.test(href)) continue;
+      } catch { continue; }
+
+      if (link.closest(EXCLUDED_CONTAINER)) continue;
+
+      // Check ancestor classes/IDs
+      let excluded = false;
+      let ancestor = link.parentElement;
+      for (let i = 0; i < 6 && ancestor && ancestor !== document.body; i++) {
+        if (EXCLUDED_CLASS_ID.test(ancestor.id || '') || EXCLUDED_CLASS_ID.test(ancestor.className || '')) {
+          excluded = true;
+          break;
+        }
+        ancestor = ancestor.parentElement;
+      }
+      if (excluded) continue;
+
+      if (NON_PRIMARY_TEXT.test((link.textContent || '').trim())) continue;
+
+      const inMain = isInMainContent(link);
+      if (!best || (inMain && !bestInMain)) {
+        best = href;
+        bestInMain = inMain;
+        if (inMain) break;
+      }
+    }
+
+    return best;
+  }
+
   // ── Run detection ──
 
   detectPaper();
+
+  // SPA publishers (IEEE, ACM, Wiley, ScienceDirect) render meta tags after initial
+  // page load via JS frameworks. Re-run detection after a delay so we pick them up.
+  const SPA_HOSTS = ['ieee.org', 'acm.org', 'wiley.com', 'sciencedirect.com'];
+  const host = location.hostname;
+  if (SPA_HOSTS.some((h) => host.includes(h))) {
+    setTimeout(() => {
+      const before = detectedPaper;
+      detectPaper();
+      // If we found more data on retry, notify popup if it's open
+      if (detectedPaper && (!before || !before.authors || before.authors.length === 0) && detectedPaper.authors && detectedPaper.authors.length > 0) {
+        showBadge();
+      }
+    }, 2500);
+  }
 })();

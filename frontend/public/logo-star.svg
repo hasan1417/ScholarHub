@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <defs>
+    <linearGradient id="logo-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#a855f7" />
+    </linearGradient>
+  </defs>
+  <!-- North point -->
+  <path d="M24 2L29 20L24 24L19 20Z" fill="url(#logo-grad)" />
+  <!-- East point -->
+  <path d="M46 24L28 29L24 24L28 19Z" fill="url(#logo-grad)" fill-opacity="0.75" />
+  <!-- South point -->
+  <path d="M24 46L19 28L24 24L29 28Z" fill="url(#logo-grad)" fill-opacity="0.5" />
+  <!-- West point -->
+  <path d="M2 24L20 19L24 24L20 29Z" fill="url(#logo-grad)" fill-opacity="0.35" />
+  <!-- Center -->
+  <circle cx="24" cy="24" r="4" fill="url(#logo-grad)" />
+</svg>
