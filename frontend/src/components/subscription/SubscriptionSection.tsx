@@ -168,7 +168,7 @@ const SubscriptionSection = () => {
 
         {/* BYOK option */}
         <button
-          onClick={() => navigate('/settings')}
+          onClick={() => navigate('/profile')}
           className="w-full group flex items-center justify-between gap-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 p-4 text-white shadow-lg shadow-emerald-500/25 transition-all hover:from-emerald-600 hover:to-teal-700 hover:shadow-xl"
         >
           <div className="flex items-center gap-3">
