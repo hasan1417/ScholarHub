@@ -13,7 +13,8 @@ import {
   Search,
   ArrowRight,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Key
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { subscriptionAPI } from '../services/api'
@@ -195,7 +196,7 @@ const Pricing = () => {
               <div className="h-10 w-10 animate-spin rounded-full border-2 border-primary-500 border-t-transparent" />
             </div>
           ) : (
-            <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+            <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
               {/* Free Tier */}
               <div className="relative rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-8 shadow-sm">
                 {currentTier === 'free' && (
@@ -277,6 +278,70 @@ const Pricing = () => {
                   ))}
                 </ul>
               </div>
+
+              {/* BYOK Tier */}
+              <div className="relative rounded-2xl border-2 border-emerald-500 bg-white dark:bg-slate-800 p-8 shadow-xl shadow-emerald-500/10">
+                <div className="absolute -top-3 left-6 px-3 py-1 bg-gradient-to-r from-emerald-400 to-teal-500 text-white text-xs font-medium rounded-full flex items-center gap-1">
+                  <Key className="h-3 w-3" />
+                  Unlimited AI
+                </div>
+                {currentTier === 'byok' && (
+                  <div className="absolute -top-3 right-6 px-3 py-1 bg-green-500 text-white text-xs font-medium rounded-full">
+                    Current Plan
+                  </div>
+                )}
+                <div className="mb-6">
+                  <h3 className="text-xl font-semibold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
+                    BYOK
+                    <Key className="h-5 w-5 text-emerald-500" />
+                  </h3>
+                  <p className="text-slate-500 dark:text-slate-400 text-sm">Bring Your Own API Key</p>
+                </div>
+                <div className="mb-6">
+                  <span className="text-4xl font-bold text-slate-900 dark:text-white">$0</span>
+                  <span className="text-slate-500 dark:text-slate-400"> + your API costs</span>
+                </div>
+                <button
+                  onClick={() => navigate('/profile')}
+                  disabled={currentTier === 'byok'}
+                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-medium hover:from-emerald-600 hover:to-teal-700 transition-all shadow-lg shadow-emerald-500/25 hover:shadow-xl hover:shadow-emerald-500/30 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {currentTier === 'byok' ? (
+                    'Current Plan'
+                  ) : (
+                    <>
+                      Add Your API Key
+                      <ArrowRight className="h-4 w-4" />
+                    </>
+                  )}
+                </button>
+                <ul className="mt-8 space-y-4">
+                  <li className="flex items-start gap-3">
+                    <Check className="h-5 w-5 text-emerald-500 flex-shrink-0 mt-0.5" />
+                    <span className="text-sm text-slate-600 dark:text-slate-300">
+                      <strong className="text-emerald-600 dark:text-emerald-400">Unlimited</strong> AI discussion calls
+                    </span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <Check className="h-5 w-5 text-emerald-500 flex-shrink-0 mt-0.5" />
+                    <span className="text-sm text-slate-600 dark:text-slate-300">
+                      <strong className="text-emerald-600 dark:text-emerald-400">All models</strong> via OpenRouter
+                    </span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <Check className="h-5 w-5 text-emerald-500 flex-shrink-0 mt-0.5" />
+                    <span className="text-sm text-slate-600 dark:text-slate-300">
+                      Same limits as <strong className="text-emerald-600 dark:text-emerald-400">Free</strong> for projects & refs
+                    </span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <Check className="h-5 w-5 text-emerald-500 flex-shrink-0 mt-0.5" />
+                    <span className="text-sm text-slate-600 dark:text-slate-300">
+                      <strong className="text-emerald-600 dark:text-emerald-400">You control</strong> your API spend
+                    </span>
+                  </li>
+                </ul>
+              </div>
             </div>
           )}
         </div>
@@ -299,6 +364,11 @@ const Pricing = () => {
                       Pro <Crown className="h-3 w-3 text-amber-500" />
                     </span>
                   </th>
+                  <th className="text-center py-4 px-4 text-sm font-medium text-slate-500 dark:text-slate-400">
+                    <span className="inline-flex items-center gap-1">
+                      BYOK <Key className="h-3 w-3 text-emerald-500" />
+                    </span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -319,6 +389,13 @@ const Pricing = () => {
                     <td className="text-center py-4 px-4 text-sm font-medium text-primary-600 dark:text-primary-400">
                       {feature.pro}{feature.unit}
                     </td>
+                    <td className="text-center py-4 px-4 text-sm text-slate-600 dark:text-slate-300">
+                      {feature.name === 'AI Discussion Calls' ? (
+                        <strong className="text-emerald-600 dark:text-emerald-400">Unlimited</strong>
+                      ) : (
+                        <>{feature.free}{feature.unit}</>
+                      )}
+                    </td>
                   </tr>
                 ))}
                 <tr className="bg-white dark:bg-slate-800">
@@ -337,6 +414,9 @@ const Pricing = () => {
                   <td className="text-center py-4 px-4">
                     <Check className="h-5 w-5 text-primary-500 mx-auto" />
                   </td>
+                  <td className="text-center py-4 px-4">
+                    <X className="h-5 w-5 text-slate-300 dark:text-slate-600 mx-auto" />
+                  </td>
                 </tr>
                 <tr>
                   <td className="py-4 px-4">
@@ -353,6 +433,9 @@ const Pricing = () => {
                   </td>
                   <td className="text-center py-4 px-4">
                     <Check className="h-5 w-5 text-primary-500 mx-auto" />
+                  </td>
+                  <td className="text-center py-4 px-4">
+                    <X className="h-5 w-5 text-slate-300 dark:text-slate-600 mx-auto" />
                   </td>
                 </tr>
               </tbody>
