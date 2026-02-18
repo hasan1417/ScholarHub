@@ -4,9 +4,7 @@ import {
   ArrowRight,
   Search,
   MessageSquare,
-  ClipboardCheck,
   CheckCircle2,
-  Users,
   FileText,
   Sparkles,
   Zap,
@@ -14,7 +12,8 @@ import {
   BookOpen,
   GitBranch,
   Globe,
-  Play,
+  Bot,
+  PenTool,
 } from 'lucide-react'
 import { Logo } from '../components/brand/Logo'
 import heroEditor from '../assets/hero-editor.png'
@@ -25,12 +24,12 @@ const heroPromises = [
     text: 'Live LaTeX and rich-text drafting with real-time collaboration',
   },
   {
-    icon: Users,
-    text: 'Role-based access, section locks, and full revision history',
+    icon: Sparkles,
+    text: 'AI research assistant and editor copilot built into every project',
   },
   {
     icon: FileText,
-    text: 'Journal-ready exports in minutes with AI-powered assistance',
+    text: 'Journal-ready exports for IEEE, ACM, NeurIPS, and more',
   },
 ]
 
@@ -127,33 +126,33 @@ const Landing = () => {
 
   const featuresList = [
     {
+      Icon: Bot,
+      title: 'AI Research Assistant',
+      description: 'Chat with an AI that knows your project. It searches papers, analyzes your library, summarizes findings, and answers questions — right inside your discussion channels.',
+      gradient: 'from-violet-500 to-purple-500',
+    },
+    {
+      Icon: PenTool,
+      title: 'AI Editor Copilot',
+      description: 'Context-aware writing help powered by GPT-4o, Claude, and more. Extend paragraphs, improve academic tone, fix grammar, and get inline suggestions as you write.',
+      gradient: 'from-pink-500 to-rose-500',
+    },
+    {
       Icon: Search,
-      title: 'Smart Discovery Feed',
+      title: 'Smart Paper Discovery',
       description: 'Search across Semantic Scholar, PubMed, ArXiv, and 5 more databases. Get citation snippets ready to attach in one click.',
       gradient: 'from-blue-500 to-cyan-500',
     },
     {
       Icon: MessageSquare,
-      title: 'Integrated Discussions',
-      description: 'Replace Slack for research talk. Run lab meetings, capture decisions, and assign tasks — all alongside your papers.',
-      gradient: 'from-violet-500 to-purple-500',
-    },
-    {
-      Icon: ClipboardCheck,
-      title: 'Paper Status Dashboard',
-      description: 'Track milestones, reviewer ownership, and section locks at a glance.',
+      title: 'Team Discussions',
+      description: 'Built-in channels for research talk. Run lab meetings, capture decisions, and assign tasks — all alongside your papers.',
       gradient: 'from-amber-500 to-orange-500',
     },
     {
-      Icon: Sparkles,
-      title: 'AI Writing Assistant',
-      description: 'Powered by GPT-4o, Claude, and other models via OpenRouter. Extend paragraphs, improve tone, and get context-aware suggestions.',
-      gradient: 'from-pink-500 to-rose-500',
-    },
-    {
       Icon: GitBranch,
-      title: 'Version Control',
-      description: 'Full revision history with the ability to compare and restore previous versions.',
+      title: 'Real-time Collaboration',
+      description: 'Write together in LaTeX or rich text with live cursors, section locks, role-based access, and full revision history.',
       gradient: 'from-emerald-500 to-teal-500',
     },
     {
@@ -172,8 +171,8 @@ const Landing = () => {
     },
     {
       icon: BookOpen,
-      title: 'Write and discover in one place',
-      detail: 'Draft in LaTeX with live PDF preview. Search papers across 8 databases and insert citations without leaving your editor.',
+      title: 'Write with AI by your side',
+      detail: 'Draft in LaTeX with an AI copilot that helps you write, an AI assistant that answers research questions, and paper discovery across 8 databases — all in one editor.',
     },
     {
       icon: Shield,
@@ -248,7 +247,7 @@ const Landing = () => {
 
             {/* Subheadline */}
             <p className="mt-5 sm:mt-8 text-base sm:text-xl text-gray-600 max-w-2xl mx-auto leading-relaxed dark:text-slate-400 px-2 sm:px-0">
-              Stop juggling Overleaf, Zotero, and Slack for every paper. Write in LaTeX with live collaboration, discover papers without leaving your editor, and export journal-ready manuscripts in one click.
+              Stop juggling Overleaf, Zotero, and Slack for every paper. Write in LaTeX with AI-powered assistance, discover papers across 8 databases, and export journal-ready manuscripts in one click.
             </p>
 
             {/* CTA Buttons */}
@@ -263,12 +262,11 @@ const Landing = () => {
                 </span>
               </Link>
               <a
-                href="#how-it-works"
+                href="#features"
                 className="group inline-flex items-center gap-2 px-6 py-3 sm:px-8 sm:py-4 text-sm sm:text-base font-medium text-gray-700 dark:text-slate-300 bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border border-gray-200 dark:border-slate-700 rounded-xl sm:rounded-2xl transition-all hover:shadow-lg hover:-translate-y-0.5 hover:border-indigo-300 dark:hover:border-indigo-500/50"
-                onClick={(e) => { e.preventDefault(); document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth' }) }}
+                onClick={(e) => { e.preventDefault(); document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' }) }}
               >
-                <Play className="h-4 w-4 sm:h-5 sm:w-5 text-indigo-600 dark:text-indigo-400" />
-                Watch a 2-min walkthrough
+                See what's inside
               </a>
             </div>
             <p className="mt-4 text-sm text-gray-500 dark:text-slate-400">
