@@ -17,6 +17,16 @@ import {
 } from 'lucide-react'
 import { Logo } from '../components/brand/Logo'
 import heroEditor from '../assets/hero-editor.png'
+import showcaseAI from '../assets/showcase-ai-assistant.png'
+import showcaseLibrary from '../assets/showcase-library.png'
+import showcaseOverview from '../assets/showcase-overview.png'
+
+const showcaseTabs = [
+  { label: 'LaTeX Editor', image: heroEditor, alt: 'ScholarHub LaTeX editor with live PDF preview and collaboration toolbar' },
+  { label: 'AI Assistant', image: showcaseAI, alt: 'AI research assistant answering questions and finding papers in a discussion channel' },
+  { label: 'Reference Library', image: showcaseLibrary, alt: 'Reference management with 183 papers, PDF analysis, Zotero import, and citation tools' },
+  { label: 'Project Dashboard', image: showcaseOverview, alt: 'Project overview with AI-powered insights and topic coverage analysis' },
+]
 
 const heroPromises = [
   {
@@ -87,6 +97,7 @@ const useScrollAnimation = (threshold = 0.1) => {
 const Landing = () => {
   const [isVisible, setIsVisible] = useState(false)
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false)
+  const [activeTab, setActiveTab] = useState(0)
 
   // Scroll animation refs
   const socialProof = useScrollAnimation(0.2)
@@ -273,15 +284,32 @@ const Landing = () => {
               Free for research teams — no credit card required
             </p>
 
-            {/* Product screenshot */}
+            {/* Tabbed Product Showcase */}
             <div className="mt-12 max-w-4xl mx-auto">
+              {/* Tab buttons */}
+              <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 mb-4">
+                {showcaseTabs.map((tab, index) => (
+                  <button
+                    key={tab.label}
+                    onClick={() => setActiveTab(index)}
+                    className={`px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium rounded-lg sm:rounded-xl transition-all ${
+                      activeTab === index
+                        ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg shadow-indigo-500/25'
+                        : 'text-gray-600 dark:text-slate-400 bg-white/80 dark:bg-slate-800/80 border border-gray-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-500/50 hover:text-gray-900 dark:hover:text-white'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+              {/* Screenshot */}
               <div className="rounded-2xl border border-gray-200 dark:border-slate-700 shadow-2xl overflow-hidden">
                 <img
-                  src={heroEditor}
-                  alt="ScholarHub editor - collaborative LaTeX editing with live preview"
+                  src={showcaseTabs[activeTab].image}
+                  alt={showcaseTabs[activeTab].alt}
                   className="w-full"
-                  width={1200}
-                  height={750}
+                  width={1440}
+                  height={900}
                 />
               </div>
             </div>
