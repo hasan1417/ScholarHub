@@ -176,17 +176,17 @@ const Landing = () => {
   ]
 
   return (
-    <div className="min-h-screen bg-white dark:bg-slate-950 overflow-hidden">
+    <div className="min-h-screen bg-white dark:bg-[#0f172a] overflow-hidden">
       {/* Static Background */}
       <div className="fixed inset-0 -z-10">
         <div className="absolute inset-0 bg-gradient-to-br from-indigo-50 via-white to-purple-50 dark:opacity-0 transition-opacity duration-500" />
         <div className="absolute inset-0 opacity-0 dark:opacity-100 transition-opacity duration-500">
-          <div className="absolute inset-0 bg-slate-950" />
+          <div className="absolute inset-0 bg-[#0f172a]" />
         </div>
       </div>
 
       {/* Navigation */}
-      <nav className="sticky top-0 z-50 border-b border-gray-200/50 bg-white/80 backdrop-blur-xl dark:border-slate-800/50 dark:bg-slate-950/80">
+      <nav className="sticky top-0 z-50 border-b border-gray-200/50 bg-white/80 backdrop-blur-xl dark:border-slate-700/50 dark:bg-[#0f172a]/80">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
           <div className="flex items-center justify-between">
             <Link to="/" className="group">
@@ -215,7 +215,7 @@ const Landing = () => {
               </Link>
               <Link
                 to="/register"
-                className="px-3 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-600 rounded-xl transition-all shadow-lg shadow-indigo-500/25 hover:shadow-xl hover:shadow-indigo-500/30 hover:-translate-y-0.5"
+                className="px-3 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-lg shadow-indigo-500/25 hover:shadow-xl hover:shadow-indigo-500/30 hover:-translate-y-0.5"
               >
                 Start for free
               </Link>
@@ -229,18 +229,18 @@ const Landing = () => {
         <div className="max-w-5xl mx-auto">
           <div className={`text-center transition-all duration-1000 ease-out ${heroAnimationCls}`}>
             {/* Main headline */}
-            <h1 className="mt-6 sm:mt-8 text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight">
+            <h1 className="font-serif mt-6 sm:mt-8 text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight">
               <span className="bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 dark:from-white dark:via-gray-100 dark:to-white bg-clip-text text-transparent inline-block transition-transform duration-300 pb-1">
                 Write and publish
               </span>
               <br />
-              <span className="bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 bg-clip-text text-transparent inline-block pb-2">
+              <span className="text-indigo-600 dark:text-indigo-400 inline-block pb-2">
                 research papers, together
               </span>
             </h1>
 
             {/* Subheadline */}
-            <p className="mt-5 sm:mt-8 text-base sm:text-xl text-gray-600 max-w-2xl mx-auto leading-relaxed dark:text-slate-400 px-2 sm:px-0">
+            <p className="mt-5 sm:mt-8 text-lg sm:text-xl text-gray-600 max-w-2xl mx-auto leading-relaxed dark:text-slate-300 px-2 sm:px-0">
               Stop juggling Overleaf, Zotero, and Slack for every paper. Write in LaTeX with AI-powered assistance, discover papers across 8 databases, and export journal-ready manuscripts in one click.
             </p>
 
@@ -248,7 +248,7 @@ const Landing = () => {
             <div className="mt-8 sm:mt-12 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
               <Link
                 to="/register"
-                className="group relative inline-flex items-center gap-2 px-6 py-3 sm:px-8 sm:py-4 text-sm sm:text-base font-semibold text-white bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl sm:rounded-2xl transition-all shadow-xl shadow-indigo-500/25 hover:shadow-2xl hover:shadow-indigo-500/40 hover:-translate-y-1"
+                className="group relative inline-flex items-center gap-2 px-6 py-3 sm:px-8 sm:py-4 text-sm sm:text-base font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl sm:rounded-2xl transition-all shadow-xl shadow-indigo-500/25 hover:shadow-2xl hover:shadow-indigo-500/40 hover:-translate-y-1"
               >
                 <span className="relative flex items-center gap-2">
                   Start for free
@@ -263,7 +263,7 @@ const Landing = () => {
                 See what's inside
               </a>
             </div>
-            <p className="mt-4 text-sm text-gray-500 dark:text-slate-400">
+            <p className="mt-4 text-sm text-gray-500 dark:text-slate-500">
               Free for research teams — no credit card required
             </p>
 
@@ -277,7 +277,7 @@ const Landing = () => {
                     onClick={() => setActiveTab(index)}
                     className={`px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium rounded-lg sm:rounded-xl transition-all ${
                       activeTab === index
-                        ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg shadow-indigo-500/25'
+                        ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/25'
                         : 'text-gray-600 dark:text-slate-400 bg-white/80 dark:bg-slate-800/80 border border-gray-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-500/50 hover:text-gray-900 dark:hover:text-white'
                     }`}
                   >
@@ -308,8 +308,8 @@ const Landing = () => {
       {/* Platform Highlights */}
       <section ref={platformHighlights.ref} className="relative px-4 sm:px-6 py-12 sm:py-20">
         <div className={`max-w-5xl mx-auto transition-all duration-700 ${platformHighlights.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
-          <div className="relative rounded-2xl sm:rounded-[32px] bg-gradient-to-br from-slate-900 to-slate-800 dark:from-slate-800 dark:to-slate-900 p-1 overflow-hidden">
-            <div className="relative rounded-xl sm:rounded-[28px] bg-gradient-to-br from-slate-900 to-slate-800 dark:from-slate-800 dark:to-slate-900 p-5 sm:p-8 lg:p-12 overflow-hidden">
+          <div className="relative rounded-2xl sm:rounded-[32px] bg-gradient-to-br from-slate-900 to-slate-800 dark:from-slate-800/90 dark:to-slate-700/90 dark:border dark:border-slate-600/50 p-1 overflow-hidden">
+            <div className="relative rounded-xl sm:rounded-[28px] bg-gradient-to-br from-slate-900 to-slate-800 dark:from-slate-800/90 dark:to-slate-700/90 p-5 sm:p-8 lg:p-12 overflow-hidden">
               {/* Background pattern */}
               <div className="absolute inset-0 opacity-5">
                 <div className="absolute top-0 left-0 w-full h-full" style={{
@@ -340,10 +340,10 @@ const Landing = () => {
                 <div className={`flex flex-col justify-center opacity-0 ${platformHighlights.isVisible ? 'animate-[fade-in-up_0.6s_ease-out_0.4s_forwards]' : ''}`}>
                   <div className="relative">
                     <div className="inline-flex items-center gap-2 mb-4">
-                      <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+                      <div className="h-10 w-10 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
                         <Globe className="h-5 w-5 text-white" />
                       </div>
-                      <h3 className="text-xl font-bold text-white">{heroPlatformHighlight.headline}</h3>
+                      <h3 className="font-serif text-xl font-bold text-white">{heroPlatformHighlight.headline}</h3>
                     </div>
                     <p className="text-lg text-slate-300 leading-relaxed">
                       {heroPlatformHighlight.description}
@@ -361,14 +361,14 @@ const Landing = () => {
         <div className="max-w-6xl mx-auto">
           {/* Section header */}
           <div className={`text-center mb-10 sm:mb-16 transition-all duration-700 ${features.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
-            <div className="inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-purple-200 bg-purple-50 px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-purple-700 dark:border-purple-500/30 dark:bg-purple-500/10 dark:text-purple-300 mb-4 sm:mb-6 hover:scale-105 transition-transform">
+            <div className="inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-purple-200 bg-purple-50 px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-purple-700 dark:border-purple-500/30 dark:bg-purple-500/10 dark:text-purple-300 mb-4 sm:mb-6">
               <Zap className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               <span>Powerful Features</span>
             </div>
-            <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold text-gray-900 dark:text-white">
+            <h2 className="font-serif text-2xl sm:text-4xl md:text-5xl font-bold text-gray-900 dark:text-white">
               Everything you need to
               <br />
-              <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+              <span className="text-indigo-600 dark:text-indigo-400">
                 accelerate your research
               </span>
             </h2>
@@ -382,16 +382,13 @@ const Landing = () => {
             {featuresList.map(({ Icon, title, description, gradient }, index) => (
               <div
                 key={title}
-                className={`group relative rounded-2xl sm:rounded-3xl bg-white/80 backdrop-blur-sm p-5 sm:p-8 shadow-lg shadow-indigo-500/5 border border-gray-200/80 hover:shadow-xl hover:shadow-indigo-500/10 hover:border-indigo-200/50 transition-all duration-500 hover:-translate-y-2 dark:bg-slate-800 dark:border-slate-700 dark:hover:bg-slate-800 dark:hover:border-slate-600 dark:shadow-none opacity-0 ${features.isVisible ? 'animate-[fade-in-up_0.5s_ease-out_forwards]' : ''}`}
+                className={`group relative rounded-2xl sm:rounded-3xl bg-white/80 backdrop-blur-sm p-5 sm:p-8 shadow-lg shadow-indigo-500/5 border border-gray-200/80 hover:shadow-xl hover:shadow-indigo-500/10 hover:border-indigo-200/50 transition-all duration-500 hover:-translate-y-2 dark:bg-slate-800/80 dark:border-slate-600/50 dark:hover:bg-slate-800 dark:hover:border-slate-500/60 dark:shadow-lg dark:shadow-black/20 opacity-0 ${features.isVisible ? 'animate-[fade-in-up_0.5s_ease-out_forwards]' : ''}`}
                 style={{ animationDelay: `${0.1 + index * 0.1}s` }}
               >
-                {/* Hover glow effect */}
-                <div className={`absolute inset-0 rounded-2xl sm:rounded-3xl bg-gradient-to-br ${gradient} opacity-0 group-hover:opacity-10 transition-opacity duration-500 blur-xl`} />
-
-                <div className={`relative inline-flex items-center justify-center w-11 h-11 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-gradient-to-br ${gradient} mb-4 sm:mb-6 shadow-lg group-hover:scale-110 group-hover:rotate-3 transition-all duration-300`}>
+                <div className={`relative inline-flex items-center justify-center w-11 h-11 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-gradient-to-br ${gradient} mb-4 sm:mb-6 shadow-lg group-hover:scale-105 transition-transform duration-300`}>
                   <Icon className="h-5 w-5 sm:h-7 sm:w-7 text-white" />
                 </div>
-                <h3 className="relative text-lg sm:text-xl font-semibold text-gray-900 mb-2 sm:mb-3 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{title}</h3>
+                <h3 className="font-serif relative text-lg sm:text-xl font-semibold text-gray-900 mb-2 sm:mb-3 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{title}</h3>
                 <p className="relative text-sm sm:text-base text-gray-600 leading-relaxed dark:text-slate-400">{description}</p>
               </div>
             ))}
@@ -405,14 +402,14 @@ const Landing = () => {
           <div className="grid lg:grid-cols-2 gap-10 lg:gap-16 items-center">
             {/* Left side - Text */}
             <div className={`transition-all duration-700 ${howItWorks.isVisible ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-10'}`}>
-              <div className="inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300 mb-4 sm:mb-6 hover:scale-105 transition-transform">
+              <div className="inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300 mb-4 sm:mb-6">
                 <CheckCircle2 className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${prefersReducedMotion ? '' : 'animate-bounce-subtle'}`} />
                 <span>Simple Workflow</span>
               </div>
-              <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold text-gray-900 dark:text-white leading-tight">
+              <h2 className="font-serif text-2xl sm:text-4xl md:text-5xl font-bold text-gray-900 dark:text-white leading-tight">
                 From first draft to
                 <br />
-                <span className="bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
+                <span className="text-emerald-600 dark:text-emerald-400">
                   publication
                 </span>
               </h2>
@@ -426,17 +423,17 @@ const Landing = () => {
               {workflowSteps.map((step, index) => (
                 <div
                   key={step.title}
-                  className={`group relative flex gap-4 sm:gap-6 p-4 sm:p-6 rounded-xl sm:rounded-2xl bg-white/80 backdrop-blur-sm border border-gray-200/80 shadow-lg shadow-indigo-500/5 hover:shadow-xl hover:shadow-indigo-500/10 hover:border-indigo-200/50 transition-all duration-500 hover:-translate-y-1 dark:bg-slate-800/50 dark:border-slate-700 dark:hover:bg-slate-800 dark:shadow-none opacity-0 ${howItWorks.isVisible ? 'animate-[fade-in-up_0.5s_ease-out_forwards]' : ''}`}
+                  className={`group relative flex gap-4 sm:gap-6 p-4 sm:p-6 rounded-xl sm:rounded-2xl bg-white/80 backdrop-blur-sm border border-gray-200/80 shadow-lg shadow-indigo-500/5 hover:shadow-xl hover:shadow-indigo-500/10 hover:border-indigo-200/50 transition-all duration-500 hover:-translate-y-1 dark:bg-slate-800/80 dark:border-slate-600/50 dark:hover:bg-slate-800 dark:shadow-lg dark:shadow-black/20 opacity-0 ${howItWorks.isVisible ? 'animate-[fade-in-up_0.5s_ease-out_forwards]' : ''}`}
                   style={{ animationDelay: `${0.3 + index * 0.15}s` }}
                 >
                   {/* Icon column with connecting line between steps */}
                   <div className="flex-shrink-0 relative z-10 flex flex-col items-center">
-                    <div className="flex h-11 w-11 sm:h-14 sm:w-14 items-center justify-center rounded-xl sm:rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-500 shadow-lg shadow-indigo-500/25 group-hover:scale-110 group-hover:rotate-6 transition-all duration-300">
+                    <div className="flex h-11 w-11 sm:h-14 sm:w-14 items-center justify-center rounded-xl sm:rounded-2xl bg-indigo-600 shadow-lg shadow-indigo-500/25 group-hover:scale-105 transition-transform duration-300">
                       <step.icon className="h-5 w-5 sm:h-7 sm:w-7 text-white" />
                     </div>
                     {/* Connecting line extends from bottom of icon to bottom of card */}
                     {index < workflowSteps.length - 1 && (
-                      <div className="hidden sm:block w-0.5 flex-1 mt-2 bg-gradient-to-b from-indigo-500/50 to-purple-500/50 dark:from-indigo-500/30 dark:to-purple-500/30" />
+                      <div className="hidden sm:block w-0.5 flex-1 mt-2 bg-indigo-500/40 dark:bg-indigo-500/30" />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -444,7 +441,7 @@ const Landing = () => {
                       <span className="inline-flex items-center justify-center h-5 w-5 sm:h-6 sm:w-6 rounded-full bg-indigo-100 text-[10px] sm:text-xs font-bold text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400 group-hover:scale-110 transition-transform">
                         {index + 1}
                       </span>
-                      <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white">{step.title}</h3>
+                      <h3 className="font-serif text-base sm:text-lg font-semibold text-gray-900 dark:text-white">{step.title}</h3>
                     </div>
                     <p className="text-sm sm:text-base text-gray-600 dark:text-slate-400">{step.detail}</p>
                   </div>
@@ -458,28 +455,28 @@ const Landing = () => {
       {/* Final CTA Section */}
       <section ref={finalCta.ref} className="relative px-4 sm:px-6 py-16 sm:py-32">
         <div className={`max-w-4xl mx-auto transition-all duration-700 ${finalCta.isVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}>
-          <div className="relative rounded-2xl sm:rounded-[40px] bg-gradient-to-br from-indigo-600 to-purple-600 p-1 group">
-            <div className="relative rounded-xl sm:rounded-[36px] bg-gradient-to-br from-indigo-600 to-purple-600 px-5 py-10 sm:px-16 sm:py-20 text-center overflow-hidden">
-              <h2 className="relative text-2xl sm:text-4xl md:text-5xl font-bold text-white mb-4 sm:mb-6">
+          <div className="relative rounded-2xl sm:rounded-[40px] bg-slate-900 p-1 group">
+            <div className="relative rounded-xl sm:rounded-[36px] bg-slate-900 px-5 py-10 sm:px-16 sm:py-20 text-center overflow-hidden">
+              <h2 className="font-serif relative text-2xl sm:text-4xl md:text-5xl font-bold text-white mb-4 sm:mb-6">
                 Ready to transform your
                 <br />
                 research workflow?
               </h2>
-              <p className="relative text-base sm:text-xl text-indigo-100 mb-8 sm:mb-10 max-w-2xl mx-auto px-2 sm:px-0">
+              <p className="relative text-base sm:text-xl text-slate-300 mb-8 sm:mb-10 max-w-2xl mx-auto px-2 sm:px-0">
                 Write, collaborate, and publish research papers with your team.
                 Start free, no credit card required.
               </p>
               <div className="relative flex flex-col items-center gap-3 sm:gap-4">
                 <Link
                   to="/register"
-                  className="group/btn inline-flex items-center gap-2 px-6 py-3 sm:px-8 sm:py-4 text-sm sm:text-base font-semibold text-indigo-600 bg-white hover:bg-gray-50 rounded-xl sm:rounded-2xl transition-all shadow-xl hover:shadow-2xl hover:-translate-y-1 w-full sm:w-auto justify-center"
+                  className="group/btn inline-flex items-center gap-2 px-6 py-3 sm:px-8 sm:py-4 text-sm sm:text-base font-semibold text-slate-900 bg-white hover:bg-gray-50 rounded-xl sm:rounded-2xl transition-all shadow-xl hover:shadow-2xl hover:-translate-y-1 w-full sm:w-auto justify-center"
                 >
                   Start for free
                   <ArrowRight className="h-4 w-4 sm:h-5 sm:w-5 group-hover/btn:translate-x-1 transition-transform" />
                 </Link>
                 <a
                   href="#features"
-                  className="text-sm text-indigo-200 hover:text-white transition-colors underline underline-offset-2"
+                  className="text-sm text-slate-400 hover:text-white transition-colors underline underline-offset-2"
                   onClick={(e) => { e.preventDefault(); document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' }) }}
                 >
                   Or explore the features above
@@ -493,7 +490,7 @@ const Landing = () => {
       {/* About / Mission */}
       <section ref={aboutSection.ref} className="relative px-4 sm:px-6 py-12 sm:py-20">
         <div className={`max-w-2xl mx-auto text-center transition-all duration-700 ${aboutSection.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
-          <h3 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-white mb-3 sm:mb-4">
+          <h3 className="font-serif text-lg sm:text-xl font-semibold text-gray-900 dark:text-white mb-3 sm:mb-4">
             Built by researchers, for researchers
           </h3>
           <p className="text-sm sm:text-base text-gray-600 dark:text-slate-400 leading-relaxed">
@@ -505,7 +502,7 @@ const Landing = () => {
       </section>
 
       {/* Footer */}
-      <footer className="relative border-t border-gray-200/80 dark:border-slate-800 bg-gradient-to-b from-gray-50 to-white dark:from-slate-900/50 dark:to-slate-950">
+      <footer className="relative border-t border-gray-200/80 dark:border-slate-700/50 bg-gradient-to-b from-gray-50 to-white dark:from-slate-900/50 dark:to-[#0f172a]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
           <div className="flex flex-col lg:flex-row items-start justify-between gap-8">
             {/* Brand */}
