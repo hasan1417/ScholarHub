@@ -7,7 +7,7 @@ import {
   FileText, BookOpen, Search, MessageSquare, Sparkles, X, Target, Home
 } from 'lucide-react'
 import ProjectTeamManager from '../../components/projects/ProjectTeamManager'
-import InsightsPanel from '../../components/projects/InsightsPanel'
+
 import { useProjectContext } from './ProjectLayout'
 import { projectNotificationsAPI, researchPapersAPI, projectReferencesAPI, projectsAPI } from '../../services/api'
 import { ProjectNotification } from '../../types'
@@ -34,19 +34,6 @@ const OverviewDashboard = () => {
   const projectId = project?.id
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-
-  // AI settings (for insights toggle)
-  const aiSettingsQuery = useQuery({
-    queryKey: ['project-ai-settings', projectId],
-    queryFn: async () => {
-      if (!projectId) return null
-      const response = await projectsAPI.getDiscussionSettings(projectId)
-      return response.data
-    },
-    enabled: Boolean(projectId),
-    staleTime: 30_000,
-  })
-  const insightsEnabled = aiSettingsQuery.data?.insights_enabled ?? true
 
   // Objectives completion state (persisted to backend)
   const objectivesQuery = useQuery({
@@ -505,9 +492,6 @@ const OverviewDashboard = () => {
 
   return (
     <div className="space-y-6">
-      {/* AI Insights */}
-      {projectId && insightsEnabled && <InsightsPanel projectId={projectId} />}
-
       <div className="grid gap-6 lg:grid-cols-[1.2fr,1fr] items-start">
         <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800">
           <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">Project context</h2>

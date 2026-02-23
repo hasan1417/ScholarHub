@@ -52,8 +52,12 @@ async def _run_tectonic(tex_dir: Path, tex_filename: str) -> int:
         print("[latex-warmup] Skipping warmup: tectonic not found in PATH")
         return 0
 
+    # -Z continue-on-errors: continue past recoverable errors such as the
+    # "dehypht-x-2022-03-16.pat: Bad \patterns" hyphenation-cache mismatch.
     process = await asyncio.create_subprocess_exec(
         exe,
+        "-Z",
+        "continue-on-errors",
         tex_filename,
         "--outdir",
         str(tex_dir),

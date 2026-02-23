@@ -60,7 +60,6 @@ import {
   DiscussionAssistantHistoryItem,
   OpenRouterModel,
   OpenRouterModelsResponse,
-  ProjectInsightsResponse,
 } from '../types'
 
 const deduceRuntimeOrigin = () => {
@@ -481,12 +480,11 @@ export const projectsAPI = {
       viewer_has_api_key: boolean
       server_key_available: boolean
       use_owner_key_for_team: boolean
-      insights_enabled: boolean
     }>(`/projects/${projectId}/discussion-settings`),
 
   updateDiscussionSettings: (
     projectId: string,
-    settings: { enabled?: boolean; model?: string; use_owner_key_for_team?: boolean; insights_enabled?: boolean }
+    settings: { enabled?: boolean; model?: string; use_owner_key_for_team?: boolean }
   ) =>
     api.patch<{
       enabled: boolean
@@ -495,7 +493,6 @@ export const projectsAPI = {
       viewer_has_api_key: boolean
       server_key_available: boolean
       use_owner_key_for_team: boolean
-      insights_enabled: boolean
     }>(`/projects/${projectId}/discussion-settings`, settings),
 
   // Objectives
@@ -507,9 +504,6 @@ export const projectsAPI = {
       completed_indices: completedIndices,
     }),
 
-  // Proactive AI Insights
-  getInsights: (projectId: string) =>
-    api.get<ProjectInsightsResponse>(`/projects/${projectId}/insights`),
 }
 
 export const projectReferencesAPI = {

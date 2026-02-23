@@ -967,7 +967,8 @@ class LibraryToolsMixin:
                 pdf_path = md_path.replace('.md', '.pdf')
 
                 result = subprocess.run(
-                    ['pandoc', md_path, '-o', pdf_path, '--pdf-engine=tectonic'],
+                    ['pandoc', md_path, '-o', pdf_path, '--pdf-engine=tectonic',
+                     '--pdf-engine-opt=-Z', '--pdf-engine-opt=continue-on-errors'],
                     capture_output=True,
                     text=True,
                     timeout=60

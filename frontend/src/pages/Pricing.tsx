@@ -92,8 +92,8 @@ const Pricing = () => {
 
   const faqs = [
     {
-      question: 'Can I cancel anytime?',
-      answer: 'Yes, you can cancel your Pro subscription at any time. You\'ll continue to have access until the end of your billing period.'
+      question: 'When will the Pro plan be available?',
+      answer: 'We\'re working on launching the Pro plan soon. Sign up for notifications and we\'ll let you know as soon as it\'s ready.'
     },
     {
       question: 'What happens when I hit my limit?',
@@ -104,8 +104,8 @@ const Pricing = () => {
       answer: 'Yes, AI calls and paper searches reset on the 1st of each month. Project and reference limits are total counts, not monthly.'
     },
     {
-      question: 'Can I get a refund?',
-      answer: 'We offer a 7-day money-back guarantee. If you\'re not satisfied, contact us within 7 days of your purchase for a full refund.'
+      question: 'Is the free plan really free?',
+      answer: 'Yes, the free plan is completely free with no credit card required. You can also use BYOK (Bring Your Own Key) to get unlimited AI calls at your own API cost.'
     },
     {
       question: 'Is my data secure?',
@@ -113,13 +113,14 @@ const Pricing = () => {
     },
   ]
 
+  const [showProInterest, setShowProInterest] = useState(false)
+
   const handleUpgrade = () => {
     if (!user) {
       navigate('/login?redirect=/pricing')
       return
     }
-    // TODO: Integrate with Tap Payments
-    window.open('mailto:support@scholarhub.space?subject=Upgrade%20to%20Pro', '_blank')
+    setShowProInterest(true)
   }
 
   const handleGetStarted = () => {
@@ -235,7 +236,7 @@ const Pricing = () => {
               <div className="relative rounded-2xl border-2 border-primary-500 bg-white dark:bg-slate-800 p-8 shadow-xl shadow-primary-500/10">
                 <div className="absolute -top-3 left-6 px-3 py-1 bg-gradient-to-r from-amber-400 to-orange-500 text-white text-xs font-medium rounded-full flex items-center gap-1">
                   <Crown className="h-3 w-3" />
-                  Most Popular
+                  Coming Soon
                 </div>
                 {currentTier === 'pro' && (
                   <div className="absolute -top-3 right-6 px-3 py-1 bg-green-500 text-white text-xs font-medium rounded-full">
@@ -262,7 +263,7 @@ const Pricing = () => {
                     'Current Plan'
                   ) : (
                     <>
-                      Upgrade to Pro
+                      Coming Soon — Notify Me
                       <ArrowRight className="h-4 w-4" />
                     </>
                   )}
@@ -485,7 +486,7 @@ const Pricing = () => {
             Ready to accelerate your research?
           </h2>
           <p className="text-primary-100 mb-8">
-            Join thousands of researchers using ScholarHub to discover, organize, and write better papers.
+            Start using ScholarHub to discover, organize, and write better papers.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <button
@@ -499,7 +500,7 @@ const Pricing = () => {
               className="px-6 py-3 bg-primary-700 text-white font-medium rounded-xl hover:bg-primary-800 transition-colors flex items-center justify-center gap-2"
             >
               <Crown className="h-4 w-4" />
-              Upgrade to Pro
+              Pro — Coming Soon
             </button>
           </div>
         </div>
@@ -511,6 +512,41 @@ const Pricing = () => {
           © {new Date().getFullYear()} ScholarHub. All rights reserved.
         </div>
       </footer>
+
+      {/* Pro Interest Modal */}
+      {showProInterest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 max-w-md mx-4 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="h-10 w-10 rounded-full bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center">
+                <Crown className="h-5 w-5 text-primary-500" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900 dark:text-white">Pro Plan — Coming Soon</h3>
+            </div>
+            <p className="text-slate-600 dark:text-slate-300 mb-6">
+              We are still building the Pro plan. In the meantime, you can use the free plan or bring your own API key for unlimited AI calls. We will notify you when Pro is available.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowProInterest(false)}
+                className="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => {
+                  setShowProInterest(false)
+                  navigate('/profile')
+                }}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-medium hover:from-emerald-600 hover:to-teal-700 transition-all flex items-center justify-center gap-2"
+              >
+                <Key className="h-4 w-4" />
+                Try BYOK Instead
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

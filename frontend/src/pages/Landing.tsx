@@ -5,8 +5,6 @@ import {
   Search,
   MessageSquare,
   CheckCircle2,
-  FileText,
-  Sparkles,
   Zap,
   Shield,
   BookOpen,
@@ -16,31 +14,16 @@ import {
   PenTool,
 } from 'lucide-react'
 import { Logo } from '../components/brand/Logo'
-import heroEditor from '../assets/hero-editor.png'
+import showcaseEditor from '../assets/showcase-editor.png'
 import showcaseAI from '../assets/showcase-ai-assistant.png'
 import showcaseLibrary from '../assets/showcase-library.png'
 import showcaseOverview from '../assets/showcase-overview.png'
 
 const showcaseTabs = [
-  { label: 'LaTeX Editor', image: heroEditor, alt: 'ScholarHub LaTeX editor with live PDF preview and collaboration toolbar' },
-  { label: 'AI Assistant', image: showcaseAI, alt: 'AI research assistant answering questions and finding papers in a discussion channel' },
-  { label: 'Reference Library', image: showcaseLibrary, alt: 'Reference management with 183 papers, PDF analysis, Zotero import, and citation tools' },
-  { label: 'Project Dashboard', image: showcaseOverview, alt: 'Project overview with AI-powered insights and topic coverage analysis' },
-]
-
-const heroPromises = [
-  {
-    icon: CheckCircle2,
-    text: 'Live LaTeX and rich-text drafting with real-time collaboration',
-  },
-  {
-    icon: Sparkles,
-    text: 'AI research assistant and editor copilot built into every project',
-  },
-  {
-    icon: FileText,
-    text: 'Journal-ready exports for IEEE, ACM, NeurIPS, and more',
-  },
+  { label: 'LaTeX Editor', image: showcaseEditor, alt: 'ScholarHub LaTeX editor showing a research paper with live PDF preview' },
+  { label: 'AI Assistant', image: showcaseAI, alt: 'AI research assistant comparing NAS approaches in a discussion channel' },
+  { label: 'Reference Library', image: showcaseLibrary, alt: 'Reference library with 15 academic papers, export, and Zotero import' },
+  { label: 'Project Dashboard', image: showcaseOverview, alt: 'Project overview with AI-powered topic coverage insights' },
 ]
 
 const heroFeaturePills = [
@@ -100,7 +83,7 @@ const Landing = () => {
   const [activeTab, setActiveTab] = useState(0)
 
   // Scroll animation refs
-  const socialProof = useScrollAnimation(0.2)
+
   const platformHighlights = useScrollAnimation(0.2)
   const features = useScrollAnimation(0.1)
   const howItWorks = useScrollAnimation(0.2)
@@ -163,7 +146,7 @@ const Landing = () => {
     {
       Icon: GitBranch,
       title: 'Real-time Collaboration',
-      description: 'Write together in LaTeX or rich text with live cursors, section locks, role-based access, and full revision history.',
+      description: 'Write together in LaTeX or rich text with live cursors, section locks, role-based access, and full revision history. LaTeX compiles in real time with the Tectonic engine, full package support, and a live PDF preview right in the editor.',
       gradient: 'from-emerald-500 to-teal-500',
     },
     {
@@ -265,7 +248,7 @@ const Landing = () => {
             <div className="mt-8 sm:mt-12 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
               <Link
                 to="/register"
-                className="group relative inline-flex items-center gap-2 px-6 py-3 sm:px-8 sm:py-4 text-sm sm:text-base font-semibold text-white bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl sm:rounded-2xl transition-all shadow-xl shadow-indigo-500/25 hover:shadow-2xl hover:shadow-indigo-500/40 hover:-translate-y-1 overflow-hidden"
+                className="group relative inline-flex items-center gap-2 px-6 py-3 sm:px-8 sm:py-4 text-sm sm:text-base font-semibold text-white bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl sm:rounded-2xl transition-all shadow-xl shadow-indigo-500/25 hover:shadow-2xl hover:shadow-indigo-500/40 hover:-translate-y-1"
               >
                 <span className="relative flex items-center gap-2">
                   Start for free
@@ -304,49 +287,20 @@ const Landing = () => {
               </div>
               {/* Screenshot */}
               <div className="rounded-2xl border border-gray-200 dark:border-slate-700 shadow-2xl overflow-hidden">
-                <img
-                  src={showcaseTabs[activeTab].image}
-                  alt={showcaseTabs[activeTab].alt}
-                  className="w-full"
-                  width={1440}
-                  height={900}
-                />
-              </div>
-            </div>
-
-            {/* Social proof strip */}
-            <div
-              ref={socialProof.ref}
-              className={`mt-10 sm:mt-14 transition-all duration-700 ${socialProof.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'}`}
-            >
-              <p className="text-xs sm:text-sm font-medium text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-4">
-                Trusted by researchers at leading universities
-              </p>
-              <div className="flex flex-wrap items-center justify-center gap-x-6 sm:gap-x-10 gap-y-2">
-                {['MIT', 'Stanford', 'Oxford', 'ETH Zurich', 'NUS'].map((name) => (
-                  <span
-                    key={name}
-                    className="text-base sm:text-lg font-semibold text-gray-300 dark:text-slate-600 select-none"
-                  >
-                    {name}
-                  </span>
+                {showcaseTabs.map((tab, index) => (
+                  <img
+                    key={tab.label}
+                    src={tab.image}
+                    alt={tab.alt}
+                    className={`w-full ${index === activeTab ? 'block' : 'hidden'}`}
+                    width={1440}
+                    height={900}
+                    loading={index === activeTab ? 'eager' : 'lazy'}
+                  />
                 ))}
               </div>
             </div>
 
-            {/* Promise pills with staggered animation */}
-            <div className="mt-10 sm:mt-16 flex flex-wrap items-center justify-center gap-2 sm:gap-3 px-2 sm:px-0">
-              {heroPromises.map(({ icon: Icon, text }, index) => (
-                <div
-                  key={text}
-                  className={`inline-flex items-center gap-1.5 sm:gap-2 rounded-full bg-white/90 backdrop-blur-sm px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm text-gray-700 shadow-md shadow-indigo-500/5 border border-gray-200/80 dark:bg-slate-800/50 dark:border-slate-700 dark:text-slate-300 dark:shadow-none hover:shadow-lg hover:shadow-indigo-500/10 hover:-translate-y-0.5 transition-all cursor-default opacity-0 ${isVisible ? 'animate-[fade-in-up_0.5s_ease-out_forwards]' : ''}`}
-                  style={{ animationDelay: `${0.5 + index * 0.15}s` }}
-                >
-                  <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-500 flex-shrink-0" />
-                  <span className="text-left">{text}</span>
-                </div>
-              ))}
-            </div>
           </div>
         </div>
       </section>
@@ -518,7 +472,7 @@ const Landing = () => {
               <div className="relative flex flex-col items-center gap-3 sm:gap-4">
                 <Link
                   to="/register"
-                  className="group/btn inline-flex items-center gap-2 px-6 py-3 sm:px-8 sm:py-4 text-sm sm:text-base font-semibold text-indigo-600 bg-white hover:bg-gray-50 rounded-xl sm:rounded-2xl transition-all shadow-xl hover:shadow-2xl hover:-translate-y-1 hover:scale-105 w-full sm:w-auto justify-center"
+                  className="group/btn inline-flex items-center gap-2 px-6 py-3 sm:px-8 sm:py-4 text-sm sm:text-base font-semibold text-indigo-600 bg-white hover:bg-gray-50 rounded-xl sm:rounded-2xl transition-all shadow-xl hover:shadow-2xl hover:-translate-y-1 w-full sm:w-auto justify-center"
                 >
                   Start for free
                   <ArrowRight className="h-4 w-4 sm:h-5 sm:w-5 group-hover/btn:translate-x-1 transition-transform" />
@@ -543,8 +497,9 @@ const Landing = () => {
             Built by researchers, for researchers
           </h3>
           <p className="text-sm sm:text-base text-gray-600 dark:text-slate-400 leading-relaxed">
-            ScholarHub was born from the frustration of managing research across too many disconnected tools.
-            We're building the workspace we wished we had -- one place to write, discover, collaborate, and publish.
+            ScholarHub started as a frustration project — juggling Overleaf, Zotero, Slack, and Semantic Scholar for every paper.
+            We built the tool we wished existed: one workspace where you can write LaTeX, manage references,
+            discuss with your team, and get AI assistance — without switching tabs.
           </p>
         </div>
       </section>

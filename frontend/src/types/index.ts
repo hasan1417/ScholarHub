@@ -91,21 +91,6 @@ export interface AIArtifact {
   updated_at?: string | null
 }
 
-// Proactive AI insights
-export interface ProactiveInsight {
-  type: string
-  title: string
-  message: string
-  priority: 'high' | 'medium' | 'low'
-  action_type: 'search' | 'navigate' | 'dismiss'
-  action_data: Record<string, unknown>
-}
-
-export interface ProjectInsightsResponse {
-  project_id: string
-  insights: ProactiveInsight[]
-}
-
 export interface ProjectReferenceSuggestion {
   id: string
   reference_id: string

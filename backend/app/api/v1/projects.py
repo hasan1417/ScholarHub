@@ -14,7 +14,7 @@ from app.api.deps import get_current_user, get_current_verified_user
 from app.database import get_db
 from app.models import Project, ProjectMember, ProjectRole, User, ResearchPaper, ProjectReference, PendingInvitation
 from app.services.activity_feed import record_project_activity, preview_text
-from app.services.proactive_ai import ProactiveAIService
+
 from app.services.subscription_service import SubscriptionService
 from app.services.email_service import send_project_invitation_email
 from app.core.config import settings
@@ -876,38 +876,6 @@ def get_project_objectives(
     return {"completed_indices": project.completed_objectives or []}
 
 
-# ========== PROACTIVE INSIGHTS ==========
-
-
-@router.get("/{project_id}/insights")
-def get_project_insights(
-    project_id: str,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Return deterministic proactive insights for a project."""
-    project = _get_project(db, project_id)
-    _require_project_access(db, project, current_user)
-
-    service = ProactiveAIService(db, project.id, current_user.id)
-    insights = service.generate_insights()
-
-    return {
-        "project_id": str(project.id),
-        "insights": [
-            {
-                "type": i.type,
-                "title": i.title,
-                "message": i.message,
-                "priority": i.priority,
-                "action_type": i.action_type,
-                "action_data": i.action_data,
-            }
-            for i in insights
-        ],
-    }
-
-
 # ========== DISCUSSION SETTINGS ==========
 
 class DiscussionSettingsResponse(BaseModel):
@@ -917,13 +885,11 @@ class DiscussionSettingsResponse(BaseModel):
     viewer_has_api_key: bool
     server_key_available: bool
     use_owner_key_for_team: bool
-    insights_enabled: bool
 
 class DiscussionSettingsUpdate(BaseModel):
     enabled: Optional[bool] = None
     model: Optional[str] = None
     use_owner_key_for_team: Optional[bool] = None
-    insights_enabled: Optional[bool] = None
 
 
 @router.get("/{project_id}/discussion-settings", response_model=DiscussionSettingsResponse)
@@ -964,7 +930,6 @@ def get_project_discussion_settings(
         viewer_has_api_key=viewer_has_api_key,
         server_key_available=server_key_available,
         use_owner_key_for_team=use_owner_key_for_team,
-        insights_enabled=discussion_settings.get("insights_enabled", True),
     )
 
 
@@ -994,9 +959,6 @@ def update_project_discussion_settings(
         discussion_settings["model"] = update.model
     if update.use_owner_key_for_team is not None:
         discussion_settings["use_owner_key_for_team"] = update.use_owner_key_for_team
-    if update.insights_enabled is not None:
-        discussion_settings["insights_enabled"] = update.insights_enabled
-
     # Save
     project.discussion_settings = discussion_settings
     db.commit()
@@ -1018,5 +980,4 @@ def update_project_discussion_settings(
         viewer_has_api_key=viewer_has_api_key,
         server_key_available=server_key_available,
         use_owner_key_for_team=use_owner_key_for_team,
-        insights_enabled=discussion_settings.get("insights_enabled", True),
     )

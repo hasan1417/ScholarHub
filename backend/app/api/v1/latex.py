@@ -223,8 +223,13 @@ async def _run_tectonic(out_dir: Path, tex_path: Path):
         raise FileNotFoundError("tectonic not found in PATH. Install via 'brew install tectonic' or see https://tectonic-typesetting.github.io/")
 
     # Use subprocess with streaming
+    # -Z continue-on-errors: continue past recoverable errors such as the
+    # "dehypht-x-2022-03-16.pat: Bad \patterns" hyphenation-cache mismatch
+    # that occurs when Tectonic's format cache is stale after container restarts.
     create = asyncio.create_subprocess_exec(
         exe,
+        "-Z",
+        "continue-on-errors",
         str(tex_path.name),
         "--outdir",
         str(out_dir),

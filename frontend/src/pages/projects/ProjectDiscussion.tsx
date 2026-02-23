@@ -94,28 +94,6 @@ const ProjectDiscussion = () => {
   const { models: openrouterModels, warning: openrouterWarning } = useOpenRouterModels(project.id)
   const { state: onboardingState, markScholarAISeen } = useOnboarding()
   const [showWelcome, setShowWelcome] = useState(!onboardingState.hasSeenScholarAI)
-  const [insightsBannerDismissed, setInsightsBannerDismissed] = useState(() => {
-    try {
-      return localStorage.getItem(`insights_banner_dismissed:${project.id}`) === 'true'
-    } catch {
-      return false
-    }
-  })
-
-  // Proactive AI insights
-  const insightsQuery = useQuery({
-    queryKey: ['project', project.id, 'insights'],
-    queryFn: async () => {
-      const response = await projectsAPI.getInsights(project.id)
-      return response.data.insights ?? []
-    },
-    staleTime: 5 * 60_000,
-    refetchOnWindowFocus: false,
-  })
-  const highPriorityCount = (insightsQuery.data ?? []).filter(
-    (i: { priority: string }) => i.priority === 'high',
-  ).length
-
   // Discussion settings
   const discussionSettingsQuery = useQuery({
     queryKey: ['project-discussion-settings', project.id],
@@ -1269,37 +1247,6 @@ const ProjectDiscussion = () => {
           </div>
         </div>
       </div>
-
-      {/* Proactive AI insights banner */}
-      {highPriorityCount > 0 && !insightsBannerDismissed && (
-        <div className="mx-1 mb-2 flex items-center justify-between rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 dark:border-indigo-500/30 dark:bg-indigo-500/10">
-          <div className="flex items-center gap-2 min-w-0">
-            <Sparkles className="h-4 w-4 flex-shrink-0 text-indigo-600 dark:text-indigo-400" />
-            <p className="text-xs text-indigo-700 dark:text-indigo-300 truncate">
-              AI noticed {highPriorityCount} potential improvement{highPriorityCount > 1 ? 's' : ''} for your project
-            </p>
-          </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <button
-              type="button"
-              onClick={() => navigate(`/projects/${getProjectUrlId(project)}/overview/dashboard`)}
-              className="text-xs font-medium text-indigo-700 hover:text-indigo-900 dark:text-indigo-300 dark:hover:text-indigo-100 underline underline-offset-2"
-            >
-              View insights
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setInsightsBannerDismissed(true)
-                try { localStorage.setItem(`insights_banner_dismissed:${project.id}`, 'true') } catch {}
-              }}
-              className="rounded p-0.5 text-indigo-400 hover:text-indigo-600 dark:text-indigo-500 dark:hover:text-indigo-300"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </div>
-      )}
 
       <div className="flex h-[calc(100vh-80px)] sm:h-[calc(100vh-90px)] md:h-[calc(100vh-100px)] min-h-[24rem] sm:min-h-[28rem] md:min-h-[36rem] w-full gap-2 md:gap-3 overflow-hidden">
         {/* Desktop sidebar */}
