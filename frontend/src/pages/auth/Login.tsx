@@ -65,7 +65,7 @@ const Login = () => {
         <div className="absolute inset-0 bg-gradient-to-br from-indigo-50 via-white to-purple-50 dark:opacity-0 transition-opacity duration-500" />
         {/* Dark mode gradient */}
         <div className="absolute inset-0 opacity-0 dark:opacity-100 transition-opacity duration-500">
-          <div className="absolute inset-0 bg-slate-950" />
+          <div className="absolute inset-0 bg-[#0f172a]" />
           <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-indigo-500/20 rounded-full blur-[128px]" />
           <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-purple-500/20 rounded-full blur-[128px]" />
         </div>

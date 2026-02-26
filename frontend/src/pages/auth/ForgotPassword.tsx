@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Mail, Loader2 } from 'lucide-react'
 import { authAPI } from '../../services/api'
+import { Logo } from '../../components/brand/Logo'
 
 const ForgotPassword = () => {
   const [email, setEmail] = useState('')
@@ -31,70 +32,125 @@ const ForgotPassword = () => {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50 px-4 py-10 sm:px-6 lg:px-8 sm:py-16">
-      <div className="max-w-md w-full space-y-6 sm:space-y-8">
-        <div className="bg-white/95 backdrop-blur rounded-2xl border border-gray-200/70 shadow-lg shadow-indigo-100/50 p-6 sm:p-8">
-          <div className="text-center">
-            <span className="text-3xl font-bold text-gray-900">ScholarHub</span>
-            <p className="mt-1 text-sm text-gray-500">Reset access to your research workspace</p>
-          </div>
+    <div className="min-h-screen flex items-center justify-center relative overflow-hidden">
+      {/* Animated Background */}
+      <div className="fixed inset-0 -z-10">
+        {/* Light mode gradient */}
+        <div className="absolute inset-0 bg-gradient-to-br from-indigo-50 via-white to-purple-50 dark:opacity-0 transition-opacity duration-500" />
+        {/* Dark mode gradient */}
+        <div className="absolute inset-0 opacity-0 dark:opacity-100 transition-opacity duration-500">
+          <div className="absolute inset-0 bg-[#0f172a]" />
+          <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-indigo-500/20 rounded-full blur-[128px]" />
+          <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-purple-500/20 rounded-full blur-[128px]" />
+        </div>
+        {/* Grid pattern */}
+        <div
+          className="absolute inset-0 opacity-[0.02] dark:opacity-[0.05]"
+          style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%239C92AC' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
+          }}
+        />
+      </div>
 
-          <h1 className="mt-6 text-center text-2xl font-semibold text-gray-900">Forgot password</h1>
-          <p className="mt-2 text-center text-sm text-gray-600">
-            Enter the email you use for ScholarHub and we&apos;ll send instructions to create a new password.
-          </p>
+      <div className="w-full max-w-md px-4 py-10 sm:px-6">
+        {/* Logo */}
+        <Link to="/" className="flex justify-center mb-8">
+          <Logo iconClassName="h-11 w-11" textClassName="text-2xl font-bold" />
+        </Link>
 
-          {statusMessage && (
-            <div className="mt-6 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-              {statusMessage}
-            </div>
-          )}
+        {/* Card */}
+        <div className="relative">
+          {/* Glow effect */}
+          <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-3xl blur-xl opacity-20 dark:opacity-30" />
 
-          {errorMessage && (
-            <div className="mt-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {errorMessage}
-            </div>
-          )}
-
-          <form className="mt-6 space-y-5" onSubmit={handleSubmit}>
-            <div>
-              <label htmlFor="reset-email" className="block text-sm font-medium text-gray-700">
-                Email address
-              </label>
-              <input
-                id="reset-email"
-                type="email"
-                required
-                autoComplete="email"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                placeholder="you@university.edu"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                disabled={isSubmitting}
-              />
+          <div className="relative bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl rounded-2xl border border-gray-200/50 dark:border-slate-700/50 shadow-2xl shadow-gray-200/50 dark:shadow-slate-900/50 p-8">
+            <div className="text-center mb-8">
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Forgot password</h1>
+              <p className="mt-2 text-gray-600 dark:text-slate-400">
+                Enter your email and we'll send instructions to reset your password.
+              </p>
             </div>
 
-            <button
-              type="submit"
-              className="w-full rounded-lg bg-indigo-600 py-3 text-sm font-medium text-white transition-colors duration-200 hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={isSubmitting || email.trim().length === 0}
-            >
-              {isSubmitting ? 'Sending reset link…' : 'Send reset link'}
-            </button>
-          </form>
+            {statusMessage && (
+              <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-800/50 dark:bg-emerald-500/10 dark:text-emerald-300">
+                {statusMessage}
+              </div>
+            )}
 
-          <div className="mt-6 text-center text-sm text-gray-600">
-            Remember your password?{' '}
-            <Link to="/login" className="font-medium text-indigo-600 hover:text-indigo-500">
-              Return to sign in
-            </Link>
+            {errorMessage && (
+              <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-500/10 dark:text-red-300">
+                {errorMessage}
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} noValidate className="space-y-5">
+              {/* Email */}
+              <div>
+                <label htmlFor="reset-email" className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
+                  Email address
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Mail className="h-5 w-5 text-gray-400 dark:text-slate-500" />
+                  </div>
+                  <input
+                    id="reset-email"
+                    type="email"
+                    required
+                    autoComplete="email"
+                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-slate-500 transition-all focus:outline-none focus:ring-2 focus:border-indigo-500 focus:ring-indigo-500/20"
+                    placeholder="you@university.edu"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    disabled={isSubmitting}
+                  />
+                </div>
+              </div>
+
+              {/* Submit Button */}
+              <button
+                type="submit"
+                disabled={isSubmitting || email.trim().length === 0}
+                className="relative w-full group"
+              >
+                <div className="absolute -inset-0.5 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-xl blur opacity-60 group-hover:opacity-100 transition duration-200" />
+                <div className="relative w-full py-3 px-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold rounded-xl transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      Sending reset link...
+                    </>
+                  ) : (
+                    'Send reset link'
+                  )}
+                </div>
+              </button>
+            </form>
+
+            {/* Divider */}
+            <div className="mt-8 flex items-center gap-4">
+              <div className="flex-1 h-px bg-gray-200 dark:bg-slate-700" />
+              <span className="text-sm text-gray-500 dark:text-slate-500">Remember your password?</span>
+              <div className="flex-1 h-px bg-gray-200 dark:bg-slate-700" />
+            </div>
+
+            {/* Sign In Link */}
+            <div className="mt-6">
+              <Link
+                to="/login"
+                className="w-full inline-flex items-center justify-center py-3 px-4 rounded-xl border-2 border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 font-semibold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
+              >
+                Back to sign in
+              </Link>
+            </div>
           </div>
         </div>
 
-        <div className="flex justify-center">
+        {/* Back Link */}
+        <div className="mt-8 flex justify-center">
           <Link
             to="/"
-            className="inline-flex items-center gap-2 rounded-full border border-transparent px-4 py-2 text-sm font-medium text-gray-600 transition hover:border-gray-300 hover:bg-white"
+            className="inline-flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />
             Back to home
