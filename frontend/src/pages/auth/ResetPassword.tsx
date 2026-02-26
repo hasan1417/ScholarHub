@@ -219,12 +219,9 @@ const ResetPassword = () => {
               {/* Submit Button */}
               <button
                 type="submit"
-                className="relative w-full group"
+                className="w-full py-3 px-4 text-white font-semibold bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-lg shadow-indigo-500/25 hover:shadow-xl hover:shadow-indigo-500/30 hover:-translate-y-0.5"
               >
-                <div className="absolute -inset-0.5 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-xl blur opacity-60 group-hover:opacity-100 transition duration-200" />
-                <div className="relative w-full py-3 px-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold rounded-xl transition-all">
-                  Reset Password
-                </div>
+                Reset Password
               </button>
             </form>
           </>
