@@ -23,7 +23,7 @@ const GoogleSignInButton = ({
       type="button"
       onClick={handleGoogleSignIn}
       disabled={disabled}
-      className={`w-full inline-flex items-center justify-center gap-3 py-3 px-4 rounded-xl border-2 border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-300 font-semibold hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${className}`}
+      className={`w-full inline-flex items-center justify-center gap-3 py-3 px-4 rounded-xl border-2 border-gray-200 dark:border-slate-600/50 bg-white dark:bg-slate-700/50 text-gray-700 dark:text-slate-300 font-semibold hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${className}`}
     >
       {/* Google Logo SVG */}
       <svg className="h-5 w-5" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
