@@ -164,7 +164,7 @@ class SemanticScholarSearcher(SearcherBase):
         try:
             headers = {'User-Agent': 'ScholarHub/1.0'}
             if self.api_key:
-                headers['Authorization'] = f'Bearer {self.api_key}'
+                headers['x-api-key'] = self.api_key
             
             params = {
                 "query": query,

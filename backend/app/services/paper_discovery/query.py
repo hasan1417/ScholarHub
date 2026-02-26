@@ -60,10 +60,13 @@ def extract_core_terms(query: str) -> Set[str]:
     query_clean = re.sub(r'[^a-zA-Z0-9\s]', ' ', query_without_quotes).lower()
     words = query_clean.split()
 
-    for word in words:
-        word = word.strip()
-        if len(word) > 2 and word not in _STOPWORDS:
-            core_terms.add(word)
+    meaningful = [w.strip() for w in words if len(w.strip()) > 2 and w.strip() not in _STOPWORDS]
+    for word in meaningful:
+        core_terms.add(word)
+
+    # Also add the full phrase (minus stopwords) so ranking can check co-occurrence
+    if len(meaningful) >= 2:
+        core_terms.add(' '.join(meaningful))
 
     logger.debug(f"[CoreTerms] query='{query}' → terms={core_terms}")
     return core_terms
@@ -88,14 +91,19 @@ _UNDERSTAND_SYSTEM = (
     "technique combinations, or domain-specific terms that should be kept together.\n\n"
     "Return ONLY compact single-line JSON, no markdown:\n"
     '{"interpreted_query":"...","search_terms":["...","..."]}\n\n'
-    "- interpreted_query: A clear description of what the user is actually looking for.\n"
-    "- search_terms: 1-2 alternative search phrasings that better capture the intent "
-    "(omit the original query). Empty array if the query is already clear.\n\n"
+    "- interpreted_query: A clear, specific description of what the user is actually looking for. "
+    "Disambiguate vague terms by inferring the most likely academic domain.\n"
+    "- search_terms: 1-3 alternative search phrasings that better capture the intent "
+    "(omit the original query). Include synonyms, related technical terms, and "
+    "domain-specific vocabulary. ALWAYS provide at least one alternative phrasing "
+    "that uses different terminology.\n\n"
     "Examples:\n"
     '- "Arabic character BERT" → {"interpreted_query":"CharacterBERT (a BERT variant using character-level CNN instead of WordPiece tokenization) applied to Arabic language","search_terms":["CharacterBERT Arabic","character-level BERT Arabic NLP"]}\n'
-    '- "graph neural network" → {"interpreted_query":"graph neural networks","search_terms":[]}\n'
-    '- "federated learning privacy" → {"interpreted_query":"privacy-preserving techniques in federated learning","search_terms":["federated learning differential privacy"]}\n'
-    '- "transformer attention" → {"interpreted_query":"attention mechanisms in transformer models","search_terms":[]}\n'
+    '- "graph neural network" → {"interpreted_query":"graph neural networks","search_terms":["GNN deep learning on graphs"]}\n'
+    '- "federated learning privacy" → {"interpreted_query":"privacy-preserving techniques in federated learning","search_terms":["federated learning differential privacy","secure aggregation distributed ML"]}\n'
+    '- "transformer attention" → {"interpreted_query":"attention mechanisms in transformer models","search_terms":["self-attention transformer architecture"]}\n'
+    '- "Arabic check processing" → {"interpreted_query":"automated processing and recognition of Arabic bank checks/cheques using computer vision or NLP","search_terms":["Arabic cheque recognition OCR","Arabic handwritten check amount recognition"]}\n'
+    '- "protein folding prediction" → {"interpreted_query":"computational prediction of protein 3D structure from amino acid sequence","search_terms":["protein structure prediction AlphaFold","ab initio protein folding deep learning"]}\n'
 )
 
 

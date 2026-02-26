@@ -618,7 +618,7 @@ export const projectDiscoveryAPI = {
     api.post<ProjectDiscoveryRunResponse>(
       `/projects/${projectId}/discovery/run`,
       payload,
-      { timeout: 120000 },
+      { timeout: 180000 },
     ),
   listResults: (
     projectId: string,

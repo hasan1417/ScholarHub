@@ -432,8 +432,9 @@ const ProjectDiscovery = () => {
     }
   }, [autoRefreshProfile, isViewer, project?.id, queryClient])
 
-  const extractErrorMessage = (detail: unknown): string => {
-    if (!detail) return 'Unable to save preferences right now.'
+  const extractErrorMessage = (detail: unknown, fallback?: string): string => {
+    const defaultMsg = fallback || 'Something went wrong. Please try again.'
+    if (!detail) return defaultMsg
     if (typeof detail === 'string') return detail
     if (Array.isArray(detail)) {
       const messages = detail
@@ -461,7 +462,7 @@ const ProjectDiscovery = () => {
         console.warn('Failed to serialize error detail', error)
       }
     }
-    return 'Unable to save preferences right now.'
+    return defaultMsg
   }
 
   useEffect(() => {
@@ -567,7 +568,7 @@ const ProjectDiscovery = () => {
     onError: (error: unknown) => {
       setActiveStatusMessage(null)
         const axiosError = error as { response?: { status?: number; data?: { detail?: unknown } } }
-      const message = extractErrorMessage(axiosError?.response?.data?.detail)
+      const message = extractErrorMessage(axiosError?.response?.data?.detail, 'Unable to save preferences right now.')
       setActiveErrorMessage(message)
     },
   })
@@ -770,7 +771,11 @@ const ProjectDiscovery = () => {
     onError: (error: unknown) => {
       setLastSourceStats(null)
       const axiosError = error as { response?: { status?: number; data?: { detail?: unknown } } }
-      const message = extractErrorMessage(axiosError?.response?.data?.detail)
+      const isTimeout = (error as { code?: string })?.code === 'ECONNABORTED'
+      const fallback = isTimeout
+        ? 'Search timed out — try fewer sources or a lower max results count.'
+        : 'Discovery search failed. Please try again.'
+      const message = extractErrorMessage(axiosError?.response?.data?.detail, fallback)
       setManualErrorMessage(message)
     },
   })

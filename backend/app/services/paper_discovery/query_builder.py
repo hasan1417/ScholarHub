@@ -73,11 +73,13 @@ def build_arxiv_query(query: str) -> str:
         logger.debug("[QueryBuilder] arXiv: '%s' → '%s' (quoted phrases)", query, result)
         return result
 
-    # Short phrase: search each word in title OR abstract with AND
+    # Short phrase: exact phrase match (primary) + individual words (fallback)
     if _is_short_phrase(query):
         words = _meaningful_words(query)
-        parts = [f'(ti:{w} OR abs:{w})' for w in words]
-        result = ' AND '.join(parts)
+        phrase = ' '.join(words)
+        phrase_part = f'(ti:"{phrase}" OR abs:"{phrase}")'
+        word_parts = ' AND '.join(f'(ti:{w} OR abs:{w})' for w in words)
+        result = f'{phrase_part} OR ({word_parts})'
         logger.debug("[QueryBuilder] arXiv: '%s' → '%s' (short phrase)", query, result)
         return result
 
@@ -115,10 +117,13 @@ def build_pubmed_query(query: str) -> str:
         logger.debug("[QueryBuilder] PubMed: '%s' → '%s' (quoted phrases)", query, result)
         return result
 
-    # Short phrase: AND each word in title/abstract
+    # Short phrase: exact phrase match (primary) + individual words (fallback)
     if _is_short_phrase(query):
         words = _meaningful_words(query)
-        result = ' AND '.join(f'{w}[tiab]' for w in words)
+        phrase = ' '.join(words)
+        phrase_part = f'"{phrase}"[tiab]'
+        word_part = ' AND '.join(f'{w}[tiab]' for w in words)
+        result = f'{phrase_part} OR ({word_part})'
         logger.debug("[QueryBuilder] PubMed: '%s' → '%s' (short phrase)", query, result)
         return result
 
@@ -190,9 +195,11 @@ def build_sciencedirect_query(query: str) -> str:
 
     if _is_short_phrase(query):
         words = _meaningful_words(query)
+        phrase = ' '.join(words)
+        phrase_part = f'TITLE("{phrase}") OR ABS("{phrase}")'
         title_part = ' AND '.join(f'TITLE({w})' for w in words)
         abs_part = ' AND '.join(f'ABS({w})' for w in words)
-        result = f'({title_part}) OR ({abs_part})'
+        result = f'({phrase_part}) OR ({title_part}) OR ({abs_part})'
         logger.debug("[QueryBuilder] ScienceDirect: '%s' → '%s' (short phrase)", query, result)
         return result
 

@@ -355,18 +355,45 @@ class SearchOrchestrator:
             )
 
         # Phase 3: Ranking (pass core_terms for boost + semantic context from query understanding)
+        # Use interpreted_query as the ranking query when available — it disambiguates
+        # vague queries (e.g. "Arabic check processing" → "Arabic bank cheque recognition")
+        ranking_query = query
         rank_kwargs: Dict[str, Any] = {
             "target_text": target_text,
             "target_keywords": target_keywords,
             "core_terms": core_terms or set(),
         }
-        if query_intent and query_intent.interpreted_query != query:
+        if query_intent and query_intent.interpreted_query and query_intent.interpreted_query != query:
+            ranking_query = query_intent.interpreted_query
             rank_kwargs["semantic_context"] = query_intent.interpreted_query
         ranked_papers = await self.ranker.rank(
             filtered_papers,
-            query,
+            ranking_query,
             **rank_kwargs,
         )
+
+        # Phase 3.1: Concept overlap gate — penalize papers matching too few query concepts
+        if core_terms and len(core_terms) >= 3:
+            for paper in ranked_papers:
+                text = f"{paper.title} {paper.abstract or ''}".lower()
+                hits = sum(1 for t in core_terms if t in text)
+                ratio = hits / len(core_terms)
+                if ratio < 0.3:
+                    paper.relevance_score *= max(0.1, ratio)
+            ranked_papers.sort(key=lambda p: p.relevance_score, reverse=True)
+
+        # Phase 3.2: Relevance floor — remove papers scored below threshold
+        MIN_RELEVANCE = 0.25
+        pre_floor_count = len(ranked_papers)
+        ranked_papers = [p for p in ranked_papers if p.relevance_score >= MIN_RELEVANCE]
+        if len(ranked_papers) < pre_floor_count:
+            logger.info(
+                "[Search] Relevance floor removed %d/%d papers below %.2f",
+                pre_floor_count - len(ranked_papers), pre_floor_count, MIN_RELEVANCE,
+            )
+        # Always return at least 5 results even if scores are low
+        if len(ranked_papers) < 5 and pre_floor_count >= 5:
+            ranked_papers = sorted(filtered_papers, key=lambda p: p.relevance_score, reverse=True)[:5]
 
         # Phase 3.5: Source-diversity reranking
         # Prevent any single source from dominating the final results
@@ -497,8 +524,8 @@ class PaperDiscoveryServiceFactory:
             config.ncbi_email = ncbi_email
 
         # Create HTTP session
-        timeout = aiohttp.ClientTimeout(total=30, connect=5)
-        connector = aiohttp.TCPConnector(limit=10, limit_per_host=3)
+        timeout = aiohttp.ClientTimeout(total=120, connect=10)
+        connector = aiohttp.TCPConnector(limit=50, limit_per_host=10)
         session = aiohttp.ClientSession(timeout=timeout, connector=connector)
         
         # Create searchers
@@ -594,8 +621,8 @@ class PaperDiscoveryService:
         # HTTP session management
         self._owns_session = owns_session if owns_session is not None else session is None
         if session is None:
-            timeout = aiohttp.ClientTimeout(total=30, connect=5)
-            connector = aiohttp.TCPConnector(limit=10, limit_per_host=3)
+            timeout = aiohttp.ClientTimeout(total=120, connect=10)
+            connector = aiohttp.TCPConnector(limit=50, limit_per_host=10)
             session = aiohttp.ClientSession(timeout=timeout, connector=connector)
             self._owns_session = True
         self.session = session

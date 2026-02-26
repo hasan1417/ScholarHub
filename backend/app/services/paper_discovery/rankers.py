@@ -156,21 +156,20 @@ class SimpleRanker(PaperRanker):
             query_ratio = hits / max(1, len(query_tokens)) if query_tokens else 0.0
             relevance = 0.6 * title_ratio + 0.4 * query_ratio if query_tokens else title_ratio
 
-            # Apply core term boosts (Phase 1.3)
+            # Apply core term boosts (Phase 1.3) — proportional to match ratio
             core_boost = 0.0
             if core_terms:
                 title_text = (paper.title or '').lower()
                 abstract_text = (paper.abstract or '').lower()
+                n_terms = len(core_terms)
 
-                for term in core_terms:
-                    if term in title_text or term in title_tokens:
-                        core_boost += weights.get('core_term_title_boost', 0.20)
-                        break
+                title_hits = sum(1 for t in core_terms if t in title_text)
+                abstract_hits = sum(1 for t in core_terms if t in abstract_text)
 
-                for term in core_terms:
-                    if term in abstract_text or term in abstract_tokens:
-                        core_boost += weights.get('core_term_abstract_boost', 0.10)
-                        break
+                if title_hits > 0:
+                    core_boost += weights.get('core_term_title_boost', 0.20) * (title_hits / n_terms)
+                if abstract_hits > 0:
+                    core_boost += weights.get('core_term_abstract_boost', 0.10) * (abstract_hits / n_terms)
 
             relevance_scores.append(max(0.0, relevance + core_boost))
 
@@ -298,13 +297,14 @@ class GptRanker(PaperRanker):
                 },
             )
 
-            # Build rich project context
+            # Build rich project context — interpreted query is the primary signal
             project_context_parts = []
-            if query:
-                project_context_parts.append(f"Research Query: {query}")
             semantic_context = kwargs.get("semantic_context")
             if semantic_context:
-                project_context_parts.append(f"Query Intent: {semantic_context}")
+                project_context_parts.append(f"Research Topic: {semantic_context}")
+                project_context_parts.append(f"Original Search Query: {query}")
+            elif query:
+                project_context_parts.append(f"Research Query: {query}")
             if target_text:
                 project_context_parts.append(f"Project Scope: {target_text[:500]}")
             if target_keywords:
@@ -316,15 +316,17 @@ class GptRanker(PaperRanker):
                 "You are an expert academic research assistant. Score each paper's relevance "
                 "to the research project (0.0 to 1.0).\n\n"
                 "Scoring guide:\n"
-                "- 0.9-1.0: Directly addresses the specific research question; matches the core intersection of all key concepts\n"
+                "- 0.9-1.0: Directly addresses the specific research question; matches the core intersection of ALL key concepts\n"
                 "- 0.7-0.8: Strongly related; covers most key concepts with relevant methodology\n"
                 "- 0.5-0.6: Moderately relevant; useful background or addresses a subset of the topic\n"
-                "- 0.3-0.4: Tangentially related; shares terminology but different focus\n"
+                "- 0.3-0.4: Tangentially related; shares some terminology but different focus\n"
                 "- 0.0-0.2: Not relevant; different domain or only superficial keyword overlap\n\n"
-                "Important:\n"
-                "- Carefully analyze the research query to identify ALL key concepts and their relationships.\n"
-                "- For multi-concept queries, papers addressing the full intersection score highest.\n"
-                "- Distinguish genuine topical relevance from superficial keyword matches.\n"
+                "CRITICAL rules — be strict:\n"
+                "- When a 'Research Topic' is provided, use it as your PRIMARY basis for scoring.\n"
+                "- A paper matching only ONE keyword from a multi-concept query scores 0.2 or below.\n"
+                "- Score based on the INTERSECTION of ALL key concepts, not any single keyword.\n"
+                "- Sharing only a language (e.g. 'Arabic') or broad field (e.g. 'NLP') is NOT relevance.\n"
+                "- Be harsh: most papers should score below 0.5. Reserve 0.7+ for genuinely on-topic work.\n"
                 "- Read the abstract — a paper's actual contribution may differ from its title.\n\n"
                 "Return ONLY a compact JSON array: [{\"id\":0,\"score\":0.8},...]"
             )

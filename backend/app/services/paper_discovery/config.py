@@ -9,11 +9,11 @@ class DiscoveryConfig:
     """Centralized configuration for discovery behaviour and limits."""
 
     max_concurrent_searches: int = 5
-    max_concurrent_enrichments: int = 5
-    max_concurrent_pdf_checks: int = 3
+    max_concurrent_enrichments: int = 10
+    max_concurrent_pdf_checks: int = 8
     search_timeout: float = 60.0
     pdf_check_timeout: float = 5.0
-    total_timeout: float = 30.0
+    total_timeout: float = 180.0
     cache_max_size: int = 1000
     cache_ttl_seconds: float = 3600.0
     simple_scoring: bool = True
