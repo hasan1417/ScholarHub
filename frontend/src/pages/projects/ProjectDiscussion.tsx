@@ -61,6 +61,7 @@ import ChannelResourcePanel from '../../components/discussion/ChannelResourcePan
 import ChannelArtifactsPanel from '../../components/discussion/ChannelArtifactsPanel'
 import { DiscoveredPaper } from '../../components/discussion/DiscoveredPaperCard'
 import { DiscoveryQueuePanel } from '../../components/discussion/DiscoveryQueuePanel'
+import { ReferenceSearchResults, LibraryUpdateItem } from '../../components/discussion/ReferenceSearchResults'
 import { getProjectUrlId } from '../../utils/urlId'
 import { modelSupportsReasoning, useOpenRouterModels } from '../../components/discussion/ModelSelector'
 import { useOnboarding } from '../../contexts/OnboardingContext'
@@ -137,6 +138,7 @@ const ProjectDiscussion = () => {
   const [assistantScope, setAssistantScope] = useState<string[]>(['transcripts', 'papers', 'references'])
 
   const [openDialog, setOpenDialog] = useState<'resources' | 'artifacts' | 'discoveries' | null>(null)
+  const [closedInlineResults, setClosedInlineResults] = useState<Set<string>>(new Set())
   const [channelMenuOpen, setChannelMenuOpen] = useState(false)
   const [aiContextExpanded, setAiContextExpanded] = useState(false)
   const channelMenuRef = useRef<HTMLDivElement>(null)
@@ -785,6 +787,32 @@ const ProjectDiscussion = () => {
     return items.sort((a, b) => a.timestamp - b.timestamp)
   }, [orderedThreads, assistantHistory])
 
+  // Build a lookup: searchId -> LibraryUpdateItem[] from all exchanges
+  const libraryUpdatesBySearchId = useMemo(() => {
+    const lookup: Record<string, LibraryUpdateItem[]> = {}
+    for (const exchange of assistantHistory) {
+      if (exchange.status !== 'complete' || !exchange.response?.suggested_actions) continue
+      for (const action of exchange.response.suggested_actions) {
+        if (action.action_type === 'library_update') {
+          const payload = action.payload as { search_id?: string; updates?: { index: number; reference_id: string; ingestion_status: string }[] } | undefined
+          const searchId = payload?.search_id
+          const updates = payload?.updates
+          if (searchId && updates?.length) {
+            if (!lookup[searchId]) lookup[searchId] = []
+            for (const u of updates) {
+              lookup[searchId].push({
+                index: u.index,
+                reference_id: u.reference_id,
+                ingestion_status: u.ingestion_status as LibraryUpdateItem['ingestion_status'],
+              })
+            }
+          }
+        }
+      }
+    }
+    return lookup
+  }, [assistantHistory])
+
   // ========== EVENT HANDLERS ==========
 
   const handleSendMessage = (content: string) => {
@@ -1178,6 +1206,37 @@ const ProjectDiscussion = () => {
                     </div>
                   </div>
                 </div>
+                {/* Inline paper search results */}
+                {!showTyping && (() => {
+                  const searchAction = exchange.response.suggested_actions?.find(
+                    a => a.action_type === 'search_results'
+                  )
+                  if (!searchAction) return null
+                  const payload = searchAction.payload as {
+                    query?: string
+                    papers?: DiscoveredPaper[]
+                    search_id?: string
+                  } | undefined
+                  const papers = payload?.papers || []
+                  const query = payload?.query || ''
+                  const searchId = payload?.search_id
+                  if (papers.length === 0 && exchange.status === 'complete') return null
+                  if (closedInlineResults.has(exchange.id)) return null
+                  const externalUpdates = searchId ? libraryUpdatesBySearchId[searchId] : undefined
+                  return (
+                    <div className="ml-8 sm:ml-11">
+                      <ReferenceSearchResults
+                        papers={papers}
+                        query={query}
+                        projectId={project.id}
+                        onClose={() => setClosedInlineResults(prev => new Set([...prev, exchange.id]))}
+                        isSearching={exchange.status !== 'complete'}
+                        externalUpdates={externalUpdates}
+                        onDismissPaper={handleDismissPaper}
+                      />
+                    </div>
+                  )
+                })()}
               </div>
             )
           }
