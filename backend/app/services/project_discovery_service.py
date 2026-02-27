@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 from urllib.parse import urlparse, parse_qs
 import time
-from typing import Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set
 from uuid import UUID
 
 from sqlalchemy import func
@@ -24,6 +26,7 @@ from app.models import (
     ProjectDiscoveryRunStatus,
     ProjectDiscoveryResultStatus,
     Reference,
+    ResearchPaper,
     User,
 )
 from app.schemas.project import ProjectDiscoveryPreferences, ProjectDiscoveryPreferencesUpdate
@@ -68,6 +71,204 @@ class ProjectDiscoveryOutcome:
     source_stats: Optional[List[SourceStats]] = None
 
 
+_AUTO_QUERY_SYSTEM = (
+    "You are an academic search query generator. "
+    "Given context about a research project, generate exactly ONE focused "
+    "search query targeting a specific facet or angle of the project.\n\n"
+    "Return ONLY compact single-line JSON, no markdown:\n"
+    '{"query":"your search query here"}\n\n'
+    "Guidelines:\n"
+    "- The query should be 4-8 words, suitable for academic search APIs\n"
+    "- Use precise technical terminology from the project context\n"
+    "- Pick ONE specific angle (methodology, application, theory, subfield)\n"
+    "- If reference titles reveal specific subfields, target one of them\n"
+    "- If promoted discoveries show user interests, lean into those\n"
+    "- Don't just repeat the project title — synthesize a better search angle\n"
+    "- IMPORTANT: If previous queries are listed, generate something DIFFERENT\n"
+    "Examples:\n"
+    '- Project "ML Healthcare" with cardiac refs → {"query":"deep learning ECG signal classification"}\n'
+    '- Project "NLP Arabic" with BERT refs → {"query":"Arabic language BERT pre-training"}\n'
+)
+
+
+def _build_auto_query_context(project: Project, db: Session) -> str:
+    """Gather project context for auto-query generation. Returns a text block."""
+    parts: List[str] = []
+    parts.append(f"Project title: {project.title}")
+    if project.idea:
+        parts.append(f"Research idea: {project.idea}")
+    if project.scope:
+        parts.append(f"Scope: {project.scope}")
+    if project.keywords:
+        parts.append(f"Keywords: {', '.join(project.keywords[:10])}")
+
+    ref_titles = (
+        db.query(Reference.title)
+        .join(ProjectReference, ProjectReference.reference_id == Reference.id)
+        .filter(ProjectReference.project_id == project.id)
+        .order_by(ProjectReference.created_at.desc())
+        .all()
+    )
+    if ref_titles:
+        titles = [r[0] for r in ref_titles if r[0]]
+        if titles:
+            parts.append(f"Library references ({len(titles)}): {'; '.join(titles)}")
+
+    paper_titles = (
+        db.query(ResearchPaper.title)
+        .filter(ResearchPaper.project_id == project.id)
+        .all()
+    )
+    if paper_titles:
+        titles = [r[0] for r in paper_titles if r[0]]
+        if titles:
+            parts.append(f"Papers being written: {'; '.join(titles)}")
+
+    # Recently promoted discovery results signal what the user found valuable
+    promoted_titles = (
+        db.query(ProjectDiscoveryResultModel.title)
+        .filter(
+            ProjectDiscoveryResultModel.project_id == project.id,
+            ProjectDiscoveryResultModel.status == ProjectDiscoveryResultStatus.PROMOTED,
+        )
+        .order_by(ProjectDiscoveryResultModel.created_at.desc())
+        .all()
+    )
+    if promoted_titles:
+        titles = [r[0] for r in promoted_titles if r[0]]
+        if titles:
+            parts.append(f"Previously promoted discoveries: {'; '.join(titles)}")
+
+    return "\n".join(parts)
+
+
+_MAX_RECENT_QUERIES = 12
+
+
+async def generate_auto_query(project: Project, db: Session) -> str:
+    """Generate a single search query from project context using LLM.
+
+    Each call produces a different query by including recent query history
+    as exclusions. The LLM is forced to explore new angles each run.
+    Falls back to project title on failure.
+    """
+    context = _build_auto_query_context(project, db)
+    prefs = project.discovery_preferences or {}
+    recent_queries: List[str] = prefs.get("recent_auto_queries", [])
+
+    # Include recent queries in hash so cache invalidates each run
+    hash_input = context + "\n" + json.dumps(recent_queries)
+    context_hash = hashlib.sha256(hash_input.encode()).hexdigest()[:16]
+
+    # Cache: same context + same history = same query (prevents duplicate runs)
+    if prefs.get("auto_query_hash") == context_hash and prefs.get("auto_query"):
+        logger.debug("[AutoQuery] Cache hit for project '%s'", project.title)
+        return prefs["auto_query"]
+
+    # Context is just the title — no enrichment, skip LLM
+    if "\n" not in context:
+        return project.title or ""
+
+    # Build user message with query history exclusions
+    user_msg = context
+    if recent_queries:
+        user_msg += (
+            "\n\nPreviously used queries (do NOT repeat or paraphrase these):\n"
+            + "\n".join(f"- {q}" for q in recent_queries)
+        )
+
+    try:
+        from openai import AsyncOpenAI
+        from app.core.config import settings
+
+        api_key = settings.OPENROUTER_API_KEY
+        if not api_key:
+            return project.title or ""
+
+        client = AsyncOpenAI(
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",
+            default_headers={
+                "HTTP-Referer": "https://scholarhub.space",
+                "X-Title": "ScholarHub",
+            },
+        )
+
+        last_exc = None
+        for attempt in range(2):
+            try:
+                resp = await asyncio.wait_for(
+                    client.chat.completions.create(
+                        model="openai/gpt-5-mini",
+                        messages=[
+                            {"role": "system", "content": _AUTO_QUERY_SYSTEM},
+                            {"role": "user", "content": user_msg},
+                        ],
+                        max_completion_tokens=4096,
+                        temperature=0.5,
+                        extra_body={"reasoning": {"effort": "minimal"}},
+                    ),
+                    timeout=15.0,
+                )
+                raw = (resp.choices[0].message.content or "").strip()
+                if raw:
+                    break
+                logger.warning("[AutoQuery] Empty response (attempt %d)", attempt + 1)
+            except (asyncio.TimeoutError, Exception) as exc:
+                last_exc = exc
+                logger.warning("[AutoQuery] Attempt %d failed: %s", attempt + 1, exc)
+                continue
+        else:
+            if last_exc:
+                raise last_exc
+            return project.title or ""
+
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            raw = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
+
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            match = re.search(r'\{[^{}]*\}', raw)
+            if match:
+                data = json.loads(match.group())
+            else:
+                logger.warning("[AutoQuery] Unparseable LLM response: %s", raw[:200])
+                raise
+
+        generated = (data.get("query") or "").strip()
+        if not generated and isinstance(data.get("queries"), list) and data["queries"]:
+            generated = str(data["queries"][0]).strip()
+
+        if generated:
+            # Update recent query history (rolling window of 12)
+            updated_recent = list(recent_queries)
+            updated_recent.append(generated)
+            if len(updated_recent) > _MAX_RECENT_QUERIES:
+                updated_recent = updated_recent[-_MAX_RECENT_QUERIES:]
+
+            # Store in discovery_preferences
+            updated = dict(prefs)
+            updated["auto_query"] = generated
+            updated["auto_queries"] = updated_recent  # frontend reads this for display
+            updated["auto_query_hash"] = context_hash
+            updated["recent_auto_queries"] = updated_recent
+            project.discovery_preferences = updated
+            db.flush()
+            logger.info(
+                "[AutoQuery] project='%s' → query='%s' (history: %d)",
+                project.title, generated, len(updated_recent),
+            )
+            return generated
+
+        return project.title or ""
+
+    except Exception as exc:
+        logger.warning("[AutoQuery] Failed for project '%s': %s", project.title, exc)
+        return project.title or ""
+
+
 class ProjectDiscoveryManager:
     """Discover related papers for a project and enqueue them as suggestions."""
 
@@ -85,6 +286,7 @@ class ProjectDiscoveryManager:
         max_results: int,
         *,
         fast_mode: bool = False,
+        progress_callback: Optional[Callable[..., Any]] = None,
     ) -> DiscoveryResult:
         """Execute the async discovery search across upstream providers."""
         async with PaperDiscoveryService() as service:
@@ -94,6 +296,7 @@ class ProjectDiscoveryManager:
                 max_results=max_results,
                 target_keywords=target_keywords,
                 fast_mode=fast_mode,
+                progress_callback=progress_callback,
             )
 
     def _run_async(self, coro):
@@ -114,7 +317,7 @@ class ProjectDiscoveryManager:
         """Return the identifier of the most recent discovery run."""
         return self._last_run_id
 
-    def discover(  # pylint: disable=too-many-arguments,too-many-locals,too-many-statements
+    def discover(
         self,
         project: Project,
         user: User,
@@ -124,10 +327,88 @@ class ProjectDiscoveryManager:
         max_results: int = 20,
         run_type: ProjectDiscoveryRunType = ProjectDiscoveryRunType.MANUAL,
     ) -> ProjectDiscoveryOutcome:
+        """Perform a discovery run and persist the resulting artifacts (sync wrapper)."""
+        return self._run_async(self.discover_async(
+            project, user, preferences,
+            override_query=override_query,
+            max_results=max_results,
+            run_type=run_type,
+        ))
+
+    async def discover_async(  # pylint: disable=too-many-arguments,too-many-locals,too-many-statements
+        self,
+        project: Project,
+        user: User,
+        preferences: ProjectDiscoveryPreferences,
+        *,
+        override_query: Optional[str] = None,
+        max_results: int = 20,
+        run_type: ProjectDiscoveryRunType = ProjectDiscoveryRunType.MANUAL,
+        progress_callback: Optional[Callable[..., Any]] = None,
+    ) -> ProjectDiscoveryOutcome:
         """Perform a discovery run and persist the resulting artifacts."""
-        query = (override_query or preferences.query or project.title or '').strip()
+        # Rolling window: trim oldest pending auto results to keep feed fresh
+        if run_type != ProjectDiscoveryRunType.MANUAL:
+            _MAX_PENDING_AUTO = 100
+            auto_pending_ids = [
+                row[0]
+                for row in (
+                    self.db.query(ProjectDiscoveryResultModel.id)
+                    .join(ProjectDiscoveryRun, ProjectDiscoveryResultModel.run_id == ProjectDiscoveryRun.id)
+                    .filter(
+                        ProjectDiscoveryResultModel.project_id == project.id,
+                        ProjectDiscoveryResultModel.status == ProjectDiscoveryResultStatus.PENDING,
+                        ProjectDiscoveryRun.run_type != ProjectDiscoveryRunType.MANUAL,
+                    )
+                    .order_by(ProjectDiscoveryResultModel.relevance_score.desc().nullslast(), ProjectDiscoveryResultModel.created_at.desc())
+                    .all()
+                )
+            ]
+            if len(auto_pending_ids) >= _MAX_PENDING_AUTO:
+                # Keep the 80 most recent, trim the rest to make room
+                trim_ids = auto_pending_ids[80:]
+                self.db.query(ProjectDiscoveryResultModel).filter(
+                    ProjectDiscoveryResultModel.id.in_(trim_ids),
+                ).delete(synchronize_session=False)
+                logger.info(
+                    "Trimmed %d oldest pending auto results for project %s",
+                    len(trim_ids), project.id,
+                )
+                self.db.flush()
+                # Store trim count so the frontend can show a notification
+                prefs = dict(project.discovery_preferences or {})
+                prefs["auto_trimmed_count"] = len(trim_ids)
+                project.discovery_preferences = prefs
+                self.db.flush()
+
+            # Housekeeping: purge dismissed results older than 30 days
+            from datetime import timedelta
+            cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+            stale_dismissed = (
+                self.db.query(ProjectDiscoveryResultModel)
+                .filter(
+                    ProjectDiscoveryResultModel.project_id == project.id,
+                    ProjectDiscoveryResultModel.status == ProjectDiscoveryResultStatus.DISMISSED,
+                    ProjectDiscoveryResultModel.dismissed_at < cutoff,
+                )
+                .delete(synchronize_session=False)
+            )
+            if stale_dismissed:
+                logger.info("Purged %d dismissed results older than 30 days for project %s", stale_dismissed, project.id)
+                self.db.flush()
+
+        query = (override_query or preferences.query or '').strip()
+        if not query and run_type != ProjectDiscoveryRunType.MANUAL:
+            # Auto-discovery: generate intelligent query from project context
+            query = await generate_auto_query(project, self.db)
+        if not query:
+            query = (project.title or '').strip()
         if not query:
             raise ValueError("Discovery query cannot be empty")
+
+        # Auto runs use fewer results per run (accumulates over time)
+        if run_type != ProjectDiscoveryRunType.MANUAL:
+            max_results = min(max_results, 8)
 
         sources = preferences.sources or self.DEFAULT_SOURCES
         keywords = preferences.keywords or project.keywords or []
@@ -198,25 +479,24 @@ class ProjectDiscoveryManager:
 
         try:
             fast_mode = run_type == ProjectDiscoveryRunType.MANUAL
-            fetch_cap = max_results
-            # Allow a limited number of larger fetches when we only see already-linked papers
-            max_attempts = 2 if fast_mode else 3
             max_fetch_cap = max(5, min(100, max_results * 4))
             aggregated_results: List[DiscoveredPaper] = []
             service_fingerprints: Set[str] = set()
-            novel_estimate = 0
-            attempts = 0
             last_source_stats: Optional[List[SourceStats]] = None
 
+            fetch_cap = max_results
+            max_attempts = 2 if fast_mode else 3
+            novel_estimate = 0
+            attempts = 0
+
             while attempts < max_attempts and novel_estimate < max_results:
-                discovery_result: DiscoveryResult = self._run_async(
-                    self._discover_async(
-                        query=query,
-                        sources=sources,
-                        target_keywords=keywords,
-                        max_results=fetch_cap,
-                        fast_mode=fast_mode,
-                    )
+                discovery_result: DiscoveryResult = await self._discover_async(
+                    query=query,
+                    sources=sources,
+                    target_keywords=keywords,
+                    max_results=fetch_cap,
+                    fast_mode=fast_mode,
+                    progress_callback=progress_callback,
                 )
 
                 discovered_batch = discovery_result.papers
@@ -243,6 +523,11 @@ class ProjectDiscoveryManager:
                 if fetch_cap >= max_fetch_cap:
                     break
                 fetch_cap = min(fetch_cap + max(max_results, 5), max_fetch_cap)
+
+            logger.info(
+                "Discovery query complete: query='%s', novel=%d",
+                query, novel_estimate,
+            )
 
             # Store source stats in outcome
             outcome.source_stats = last_source_stats
@@ -293,6 +578,15 @@ class ProjectDiscoveryManager:
             self.db.commit()
             raise
 
+        # Emit saving phase via callback
+        if progress_callback is not None:
+            try:
+                _result = progress_callback({"type": "phase", "phase": "saving", "message": "Saving results..."})
+                if asyncio.iscoroutine(_result):
+                    await _result
+            except Exception:
+                pass
+
         process_start = time.perf_counter()
 
         for paper in discovered:
@@ -307,7 +601,10 @@ class ProjectDiscoveryManager:
                 .one_or_none()
             )
 
-            if existing_result and existing_result.status == ProjectDiscoveryResultStatus.PROMOTED:
+            if existing_result and existing_result.status in (
+                ProjectDiscoveryResultStatus.PROMOTED,
+                ProjectDiscoveryResultStatus.DISMISSED,
+            ):
                 existing_fingerprints.add(fingerprint)
                 continue
 
@@ -411,6 +708,9 @@ class ProjectDiscoveryManager:
 
         if run_type == ProjectDiscoveryRunType.MANUAL and outcome.results_created > 0:
             self._purge_previous_manual_results(project.id, run.id)
+            self.db.commit()
+        elif run_type != ProjectDiscoveryRunType.MANUAL:
+            self._prune_old_auto_runs(project.id, run.id)
             self.db.commit()
 
         logger.info(
@@ -573,6 +873,50 @@ class ProjectDiscoveryManager:
         self.db.query(ProjectDiscoveryRun).filter(
             ProjectDiscoveryRun.id.in_(manual_run_ids)
         ).delete(synchronize_session=False)
+
+        self.db.flush()
+
+    def _prune_old_auto_runs(self, project_id: UUID, _current_run_id: UUID) -> None:
+        """Keep only the 10 most recent auto runs, delete older ones and their orphan results."""
+        recent_ids = [
+            row[0]
+            for row in (
+                self.db.query(ProjectDiscoveryRun.id)
+                .filter(
+                    ProjectDiscoveryRun.project_id == project_id,
+                    ProjectDiscoveryRun.run_type != ProjectDiscoveryRunType.MANUAL,
+                )
+                .order_by(ProjectDiscoveryRun.started_at.desc())
+                .limit(10)
+                .all()
+            )
+        ]
+        old_auto_runs = (
+            self.db.query(ProjectDiscoveryRun.id)
+            .filter(
+                ProjectDiscoveryRun.project_id == project_id,
+                ProjectDiscoveryRun.run_type != ProjectDiscoveryRunType.MANUAL,
+                ProjectDiscoveryRun.id.notin_(recent_ids) if recent_ids else True,
+            )
+            .all()
+        )
+        old_ids = [row[0] for row in old_auto_runs]
+        if not old_ids:
+            return
+
+        # Delete orphan results (non-promoted) from old runs
+        self.db.query(ProjectDiscoveryResultModel).filter(
+            ProjectDiscoveryResultModel.run_id.in_(old_ids),
+            ProjectDiscoveryResultModel.status != ProjectDiscoveryResultStatus.PROMOTED,
+        ).delete(synchronize_session=False)
+
+        # Delete the old run records
+        self.db.query(ProjectDiscoveryRun).filter(
+            ProjectDiscoveryRun.id.in_(old_ids)
+        ).delete(synchronize_session=False)
+
+        if old_ids:
+            logger.info("Pruned %d old auto run records for project %s", len(old_ids), project_id)
 
         self.db.flush()
 

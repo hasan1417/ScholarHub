@@ -60,6 +60,8 @@ import {
   DiscussionAssistantHistoryItem,
   OpenRouterModel,
   OpenRouterModelsResponse,
+  DiscoveryStreamEvent,
+  DiscoveryStreamCompleteEvent,
 } from '../types'
 
 const deduceRuntimeOrigin = () => {
@@ -666,6 +668,93 @@ export const projectDiscoveryAPI = {
         params: runType ? { run_type: runType } : undefined,
       }
     ),
+  runDiscoveryStream: async (
+    projectId: string,
+    payload: {
+      query?: string | null
+      keywords?: string[] | null
+      sources?: string[] | null
+      max_results?: number | null
+      relevance_threshold?: number | null
+    },
+    onProgress: (event: DiscoveryStreamEvent) => void,
+    signal?: AbortSignal,
+  ): Promise<DiscoveryStreamCompleteEvent | null> => {
+    const url = buildApiUrl(`/projects/${projectId}/discovery/run-stream`)
+    const headers = buildAuthHeaders()
+    let response: Response
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+        signal,
+      })
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') return null
+      throw err
+    }
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'Unknown error')
+      throw new Error(`Discovery stream failed: ${response.status} ${errorText}`)
+    }
+    const reader = response.body?.getReader()
+    if (!reader) {
+      throw new Error('No response body')
+    }
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let completeEvent: DiscoveryStreamCompleteEvent | null = null
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+
+        // Parse SSE lines
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const jsonStr = line.slice(6).trim()
+          if (!jsonStr) continue
+          try {
+            const event = JSON.parse(jsonStr) as DiscoveryStreamEvent
+            onProgress(event)
+            if (event.type === 'complete') {
+              completeEvent = event as DiscoveryStreamCompleteEvent
+            }
+          } catch {
+            // Skip malformed JSON lines
+          }
+        }
+      }
+      // Flush remaining bytes from decoder
+      buffer += decoder.decode()
+      if (buffer.trim()) {
+        const remaining = buffer.trim()
+        if (remaining.startsWith('data: ')) {
+          try {
+            const event = JSON.parse(remaining.slice(6).trim()) as DiscoveryStreamEvent
+            onProgress(event)
+            if (event.type === 'complete') {
+              completeEvent = event as DiscoveryStreamCompleteEvent
+            }
+          } catch {
+            // Skip malformed final line
+          }
+        }
+      }
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') return null
+      throw err
+    } finally {
+      reader.releaseLock()
+    }
+    return completeEvent
+  },
 }
 
 export const projectMeetingsAPI = {

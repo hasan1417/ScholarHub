@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from datetime import datetime, timezone
+from typing import Any, AsyncGenerator, Dict, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import inspect
 from sqlalchemy.orm import Session
@@ -16,6 +20,7 @@ from app.api.utils.project_access import ensure_project_member, get_project_or_4
 from app.core.config import settings
 from app.database import get_db
 from app.models import (
+    Project,
     ProjectRole,
     ProjectReference,
     ProjectReferenceStatus,
@@ -27,14 +32,16 @@ from app.models import (
     User,
 )
 from app.schemas.project import (
+    MIN_REFRESH_INTERVAL_HOURS,
     ProjectDiscoveryPreferences,
     ProjectDiscoveryPreferencesUpdate,
 )
 from urllib.parse import urlparse
 
+from app.database import SessionLocal
 from app.services.paper_discovery.models import PaperSource
 from app.services.reference_ingestion_service import ingest_reference_pdf
-from app.services.project_discovery_service import ProjectDiscoveryManager
+from app.services.project_discovery_service import ProjectDiscoveryManager, ProjectDiscoveryOutcome, OPENALEX_PDF_BLOCKLIST
 from app.services.activity_feed import record_project_activity, preview_text
 
 
@@ -42,19 +49,6 @@ logger = logging.getLogger(__name__)
 
 
 router = APIRouter()
-
-
-OPENALEX_PDF_BLOCKLIST = (
-    'nature.com',
-    'www.nature.com',
-    'rdcu.be',
-    'doi.org',
-    'cell.com',
-    'www.cell.com',
-    'linkinghub.elsevier.com',
-    'sciencedirect.com',
-    'www.sciencedirect.com',
-)
 
 
 def _null_if_blocked_openalex_pdf(source: str, url: str | None) -> str | None:
@@ -273,8 +267,20 @@ def update_discovery_settings(
     manager = ProjectDiscoveryManager(db)
     current_preferences = manager.as_preferences(
         project.discovery_preferences
-    ).model_dump(mode="json")
-    merged = manager.merge_preferences(current_preferences, payload)
+    )
+
+    # When enabling auto-refresh, ensure a valid refresh_interval_hours is set
+    if payload.auto_refresh_enabled is True:
+        effective_interval = (
+            payload.refresh_interval_hours
+            or current_preferences.refresh_interval_hours
+        )
+        if not effective_interval or effective_interval < MIN_REFRESH_INTERVAL_HOURS:
+            payload.refresh_interval_hours = 24.0
+
+    merged = manager.merge_preferences(
+        current_preferences.model_dump(mode="json"), payload
+    )
     project.discovery_preferences = merged
     db.commit()
     db.refresh(project)
@@ -387,6 +393,147 @@ def run_project_discovery(
         project_suggestions_created=result.project_suggestions_created,
         last_run_at=last_run_dt,
         source_stats=source_stats_items,
+    )
+
+
+@router.post("/projects/{project_id}/discovery/run-stream")
+async def run_project_discovery_stream(
+    project_id: str,
+    payload: DiscoveryRunRequest = DiscoveryRunRequest(),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Execute a discovery run with SSE streaming progress events."""
+    _guard_feature()
+    _ensure_discovery_schema(db)
+    project = get_project_or_404(db, project_id)
+    ensure_project_member(db, project, current_user, roles=[ProjectRole.ADMIN, ProjectRole.EDITOR])
+
+    # Build effective preferences (same logic as non-streaming endpoint)
+    manager = ProjectDiscoveryManager(db)
+    stored_preferences = manager.as_preferences(project.discovery_preferences)
+    effective_preferences = ProjectDiscoveryPreferences.model_validate(
+        stored_preferences.model_dump(mode="json")
+    )
+    override_query = payload.query
+    if payload.keywords is not None:
+        effective_preferences.keywords = payload.keywords
+    if payload.sources is not None:
+        effective_preferences.sources = payload.sources
+    if payload.auto_refresh_enabled is not None:
+        effective_preferences.auto_refresh_enabled = payload.auto_refresh_enabled
+    if payload.refresh_interval_hours is not None:
+        effective_preferences.refresh_interval_hours = payload.refresh_interval_hours
+    effective_preferences.max_results = payload.max_results
+    effective_preferences.relevance_threshold = payload.relevance_threshold
+
+    # Capture scalar values for the async generator (avoid passing ORM objects)
+    project_id_uuid = project.id
+    user_id = current_user.id
+    stored_prefs_snapshot = stored_preferences.model_dump(mode="json")
+
+    progress_queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue()
+
+    def progress_callback(event: Dict[str, Any]) -> None:
+        progress_queue.put_nowait(event)
+
+    async def event_stream() -> AsyncGenerator[str, None]:
+        discovery_task: Optional[asyncio.Task] = None
+        save_db = SessionLocal()
+        try:
+            mgr = ProjectDiscoveryManager(save_db)
+            project_obj = save_db.get(Project, project_id_uuid)
+            user_obj = save_db.get(User, user_id)
+            if not project_obj or not user_obj:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'Session expired'})}\n\n"
+                return
+
+            async def do_discover() -> ProjectDiscoveryOutcome:
+                return await mgr.discover_async(
+                    project_obj, user_obj, effective_preferences,
+                    override_query=override_query,
+                    max_results=payload.max_results or 20,
+                    run_type=ProjectDiscoveryRunType.MANUAL,
+                    progress_callback=progress_callback,
+                )
+
+            discovery_task = asyncio.create_task(do_discover())
+
+            # Stream progress events until discovery completes
+            while not discovery_task.done():
+                try:
+                    event = await asyncio.wait_for(progress_queue.get(), timeout=0.5)
+                    yield f"data: {json.dumps(event)}\n\n"
+                except asyncio.TimeoutError:
+                    pass
+
+            # Drain remaining queue events
+            while not progress_queue.empty():
+                event = progress_queue.get_nowait()
+                yield f"data: {json.dumps(event)}\n\n"
+
+            outcome = await discovery_task
+
+            # Restore stored preferences (keep stored settings, update run metadata only)
+            updated_prefs = mgr.as_preferences(project_obj.discovery_preferences)
+            restored = dict(stored_prefs_snapshot)
+            if updated_prefs.last_run_at is not None:
+                restored['last_run_at'] = (
+                    updated_prefs.last_run_at.isoformat()
+                    if not isinstance(updated_prefs.last_run_at, str)
+                    else updated_prefs.last_run_at
+                )
+            else:
+                restored.pop('last_run_at', None)
+            restored['last_result_count'] = updated_prefs.last_result_count
+            restored['last_status'] = updated_prefs.last_status
+            project_obj.discovery_preferences = restored
+            save_db.commit()
+
+            # Emit complete event
+            source_stats_list = [
+                {
+                    "source": stat.source,
+                    "count": stat.count,
+                    "status": stat.status,
+                    "error": stat.error,
+                    "elapsed_ms": stat.elapsed_ms,
+                }
+                for stat in (outcome.source_stats or [])
+            ]
+            complete_event = {
+                "type": "complete",
+                "run_id": str(outcome.run_id),
+                "total_found": outcome.total_found,
+                "results_created": outcome.results_created,
+                "references_created": outcome.references_created,
+                "project_suggestions_created": outcome.project_suggestions_created,
+                "last_run_at": datetime.now(timezone.utc).isoformat(),
+                "source_stats": source_stats_list,
+            }
+            yield f"data: {json.dumps(complete_event)}\n\n"
+
+        except BaseException as exc:
+            if discovery_task and not discovery_task.done():
+                discovery_task.cancel()
+                try:
+                    await discovery_task
+                except (asyncio.CancelledError, Exception):
+                    pass
+            if not isinstance(exc, GeneratorExit):
+                logger.error("SSE discovery error: %s", exc, exc_info=True)
+                yield f"data: {json.dumps({'type': 'error', 'message': str(exc)[:200]})}\n\n"
+        finally:
+            save_db.close()
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
@@ -683,6 +830,11 @@ def dismiss_discovery_result(
             .first()
         )
 
+    origin = (
+        ProjectReferenceOrigin.AUTO_DISCOVERY
+        if run.run_type == ProjectDiscoveryRunType.AUTO
+        else ProjectReferenceOrigin.MANUAL_DISCOVERY
+    )
     if project_ref:
         project_ref.status = ProjectReferenceStatus.REJECTED
         project_ref.decided_by = current_user.id
@@ -690,11 +842,20 @@ def dismiss_discovery_result(
         if not project_ref.discovery_run_id:
             project_ref.discovery_run_id = run.id
         if project_ref.origin == ProjectReferenceOrigin.UNKNOWN:
-            project_ref.origin = (
-                ProjectReferenceOrigin.AUTO_DISCOVERY
-                if run.run_type == ProjectDiscoveryRunType.AUTO
-                else ProjectReferenceOrigin.MANUAL_DISCOVERY
-            )
+            project_ref.origin = origin
+    elif result_row.reference_id:
+        # Create a REJECTED ProjectReference so the fingerprint survives
+        # even after the dismissed discovery result is purged
+        project_ref = ProjectReference(
+            project_id=project.id,
+            reference_id=result_row.reference_id,
+            status=ProjectReferenceStatus.REJECTED,
+            origin=origin,
+            discovery_run_id=run.id,
+            decided_by=current_user.id,
+            decided_at=datetime.now(timezone.utc),
+        )
+        db.add(project_ref)
 
     result_row.status = ProjectDiscoveryResultStatus.DISMISSED
     result_row.dismissed_at = datetime.now(timezone.utc)

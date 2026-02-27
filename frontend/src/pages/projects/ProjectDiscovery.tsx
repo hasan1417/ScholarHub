@@ -18,7 +18,7 @@ import {
   Trash2,
   X,
   XCircle,
-  Zap,
+
 } from 'lucide-react'
 import { projectDiscoveryAPI, projectReferencesAPI } from '../../services/api'
 import { Navigate } from 'react-router-dom'
@@ -28,6 +28,7 @@ import {
   ProjectDiscoveryResultItem,
   ProjectDiscoveryResultStatus,
   SourceStatsItem,
+  DiscoveryStreamEvent,
 } from '../../types'
 import { useProjectContext } from './ProjectLayout'
 import { DiscoveryResultCard } from '../../components/discovery/DiscoveryResultCard'
@@ -44,7 +45,7 @@ const AVAILABLE_SOURCES: Array<{ label: string; value: string }> = [
 ]
 
 const DEFAULT_SOURCES = AVAILABLE_SOURCES.map((source) => source.value)
-const MIN_REFRESH_INTERVAL_MINUTES = 5
+const MIN_REFRESH_INTERVAL_MINUTES = 360
 const DEFAULT_REFRESH_INTERVAL_MINUTES = 24 * 60
 
 const toRefreshIntervalHours = (value: string): number | null => {
@@ -89,24 +90,20 @@ const SORT_OPTIONS: Array<{ value: SortOption; label: string }> = [
   { value: 'has_pdf', label: 'Has PDF' },
 ]
 
-// Source presets for quick selection
-const SOURCE_PRESETS = {
-  fast: {
-    label: 'Fast',
-    description: 'Quick results from reliable sources',
-    sources: ['semantic_scholar', 'arxiv', 'openalex'],
-  },
-  comprehensive: {
-    label: 'All Sources',
-    description: 'Search all available databases',
-    sources: AVAILABLE_SOURCES.map((s) => s.value),
-  },
-  biomedical: {
-    label: 'Biomedical',
-    description: 'PubMed, Europe PMC, and general',
-    sources: ['pubmed', 'europe_pmc', 'semantic_scholar', 'crossref'],
-  },
-} as const
+
+type StreamSourceStatus = {
+  status: 'searching' | 'success' | 'timeout' | 'error' | 'rate_limited'
+  count?: number
+  elapsed_ms?: number
+}
+
+type StreamProgress = {
+  phase: 'searching' | 'enriching' | 'ranking' | 'saving' | null
+  phaseMessage: string
+  sources: Record<string, StreamSourceStatus>
+  completedSources: number
+  totalSources: number
+}
 
 const sanitizeKeywords = (value: string) => {
   const trimmed = value.trim()
@@ -196,10 +193,20 @@ const ProjectDiscovery = () => {
   const [resultsLimit, setResultsLimit] = useState(20)
   const [discoveryCooldown, setDiscoveryCooldown] = useState(0) // Seconds remaining
   const [lastSourceStats, setLastSourceStats] = useState<SourceStatsItem[] | null>(null)
+  const [streamProgress, setStreamProgress] = useState<StreamProgress | null>(null)
+  const [isStreaming, setIsStreaming] = useState(false)
+  const streamAbortRef = useRef<AbortController | null>(null)
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false)
   const [lastRunAtOverride, setLastRunAtOverride] = useState<string | null>(null)
   const hasHydratedActiveForm = useRef(false)
   const activeFormDirtyRef = useRef(false)
+
+  // Abort streaming on unmount
+  useEffect(() => {
+    return () => {
+      streamAbortRef.current?.abort()
+    }
+  }, [])
 
   // Cooldown timer effect
   useEffect(() => {
@@ -546,15 +553,13 @@ const ProjectDiscovery = () => {
       const keywordsList = effectiveKeywords ? parseList(effectiveKeywords) : []
       const refreshHours = toRefreshIntervalHours(activeFormState.refreshIntervalMinutes)
       const payload: ProjectDiscoverySettingsPayload = {
-        query: activeFormState.query.trim() || null,
+        query: null,
         keywords: keywordsList.length ? keywordsList : null,
         sources: activeFormState.sources.length ? activeFormState.sources : null,
         auto_refresh_enabled: activeFormState.autoRefresh,
         refresh_interval_hours: activeFormState.autoRefresh ? refreshHours : null,
-        max_results: activeFormState.maxResults ? Number(activeFormState.maxResults) : null,
-        relevance_threshold: activeFormState.relevanceThreshold
-          ? Number(activeFormState.relevanceThreshold)
-          : null,
+        max_results: null,
+        relevance_threshold: null,
       }
       const response = await projectDiscoveryAPI.updateSettings(project.id, payload)
       return response.data
@@ -693,56 +698,111 @@ const ProjectDiscovery = () => {
     [autoResults]
   )
 
-  const runDiscovery = useMutation({
-    onMutate: () => {
-      setManualStatusMessage(null)
-      setManualErrorMessage(null)
-      setLastSourceStats(null)
-    },
-    mutationFn: async () => {
-      const effectiveKeywords = sanitizeKeywords(projectKeywordPreset || '')
-      const keywordsList = effectiveKeywords ? parseList(effectiveKeywords) : []
-      const payload: ProjectDiscoverySettingsPayload = {
-        query: manualFormState.query.trim() || null,
-        keywords: keywordsList.length ? keywordsList : null,
-        sources: manualFormState.sources.length ? manualFormState.sources : null,
-        max_results: manualFormState.maxResults ? Number(manualFormState.maxResults) : null,
-        relevance_threshold: manualFormState.relevanceThreshold
-          ? Number(manualFormState.relevanceThreshold)
-          : null,
+  const handleRunDiscoveryStream = async () => {
+    setManualStatusMessage(null)
+    setManualErrorMessage(null)
+    setLastSourceStats(null)
+    setIsStreaming(true)
+
+    // Initialize stream progress with selected sources
+    const initialSources: Record<string, StreamSourceStatus> = {}
+    for (const source of manualFormState.sources) {
+      initialSources[source] = { status: 'searching' }
+    }
+    setStreamProgress({
+      phase: 'searching',
+      phaseMessage: 'Searching academic databases...',
+      sources: initialSources,
+      completedSources: 0,
+      totalSources: manualFormState.sources.length,
+    })
+
+    const effectiveKeywords = sanitizeKeywords(projectKeywordPreset || '')
+    const keywordsList = effectiveKeywords ? parseList(effectiveKeywords) : []
+    const payload = {
+      query: manualFormState.query.trim() || null,
+      keywords: keywordsList.length ? keywordsList : null,
+      sources: manualFormState.sources.length ? manualFormState.sources : null,
+      max_results: manualFormState.maxResults ? Number(manualFormState.maxResults) : null,
+      relevance_threshold: manualFormState.relevanceThreshold
+        ? Number(manualFormState.relevanceThreshold)
+        : null,
+    }
+
+    const abortController = new AbortController()
+    streamAbortRef.current = abortController
+
+    try {
+      const completeEvent = await projectDiscoveryAPI.runDiscoveryStream(
+        project.id,
+        payload,
+        (event: DiscoveryStreamEvent) => {
+          if (event.type === 'phase') {
+            setStreamProgress((prev) => prev ? {
+              ...prev,
+              phase: event.phase,
+              phaseMessage: event.message,
+            } : prev)
+          } else if (event.type === 'source_complete') {
+            setStreamProgress((prev) => {
+              if (!prev) return prev
+              const newSources = { ...prev.sources }
+              newSources[event.source] = {
+                status: event.status,
+                count: event.count,
+                elapsed_ms: event.elapsed_ms,
+              }
+              const completed = Object.values(newSources).filter(
+                (s) => s.status !== 'searching'
+              ).length
+              return {
+                ...prev,
+                sources: newSources,
+                completedSources: completed,
+              }
+            })
+          } else if (event.type === 'error') {
+            setManualErrorMessage(event.message)
+          }
+        },
+        abortController.signal,
+      )
+
+      setStreamProgress(null)
+      setIsStreaming(false)
+      streamAbortRef.current = null
+
+      if (!completeEvent) return
+
+      setDiscoveryCooldown(30)
+
+      if (completeEvent.last_run_at) {
+        setLastRunAtOverride(completeEvent.last_run_at)
       }
 
-      const response = await projectDiscoveryAPI.runDiscovery(project.id, payload)
-      return response.data
-    },
-    onSuccess: (data) => {
-      setManualErrorMessage(null)
-      setDiscoveryCooldown(30) // 30 second cooldown after discovery
-
-      // Update last run timestamp immediately from response
-      if (data?.last_run_at) {
-        setLastRunAtOverride(data.last_run_at)
+      // Convert source stats to SourceStatsItem format
+      if (completeEvent.source_stats) {
+        setLastSourceStats(
+          completeEvent.source_stats.map((s) => ({
+            source: s.source,
+            count: s.count,
+            status: s.status as SourceStatsItem['status'],
+            error: s.error,
+          }))
+        )
       }
 
-      // Capture source stats from response
-      if (data?.source_stats) {
-        setLastSourceStats(data.source_stats)
-      }
+      const totalFound = completeEvent.total_found ?? 0
+      const resultsCreated = completeEvent.results_created ?? 0
 
-      const totalFound = data?.total_found ?? 0
-      const resultsCreated = data?.results_created ?? 0
-
-      // Build status message based on source stats
-      const sourceStats = data?.source_stats
+      const sourceStats = completeEvent.source_stats
       const failedSources = sourceStats?.filter((s) => s.status === 'error' || s.status === 'timeout' || s.status === 'rate_limited') ?? []
       const successfulSources = sourceStats?.filter((s) => s.status === 'success') ?? []
 
       if (failedSources.length > 0 && successfulSources.length === 0) {
-        // All sources failed
         const failedNames = failedSources.map((s) => getSourceLabel(s.source)).join(', ')
         setManualStatusMessage(`All sources failed: ${failedNames}. Please try again.`)
       } else if (failedSources.length > 0) {
-        // Some sources failed
         const failedDetails = failedSources.map((s) => {
           const label = getSourceLabel(s.source)
           if (s.status === 'timeout') return `${label} (timed out)`
@@ -763,22 +823,26 @@ const ProjectDiscovery = () => {
       } else {
         setManualStatusMessage(null)
       }
+
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryResults'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingCount'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'referenceSuggestions'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoverySettings'] })
-    },
-    onError: (error: unknown) => {
+    } catch (error) {
+      setStreamProgress(null)
+      setIsStreaming(false)
+      streamAbortRef.current = null
       setLastSourceStats(null)
-      const axiosError = error as { response?: { status?: number; data?: { detail?: unknown } } }
-      const isTimeout = (error as { code?: string })?.code === 'ECONNABORTED'
-      const fallback = isTimeout
-        ? 'Search timed out — try fewer sources or a lower max results count.'
-        : 'Discovery search failed. Please try again.'
-      const message = extractErrorMessage(axiosError?.response?.data?.detail, fallback)
+      const message = (error as Error)?.message || 'Discovery search failed. Please try again.'
       setManualErrorMessage(message)
-    },
-  })
+    }
+  }
+
+  // Keep runDiscovery as a compat shim for places that check .isPending
+  const runDiscovery = {
+    mutate: handleRunDiscoveryStream,
+    isPending: isStreaming,
+  }
 
   const clearDismissedResults = useMutation({
     mutationFn: async () => {
@@ -922,33 +986,6 @@ const ProjectDiscovery = () => {
             )}
           </div>
 
-          {/* Source presets */}
-          <div>
-            <label className="text-xs font-medium text-gray-700 dark:text-slate-300">Quick presets</label>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {Object.entries(SOURCE_PRESETS).map(([key, preset]) => {
-                const isActive = preset.sources.length === manualFormState.sources.length &&
-                  preset.sources.every((s) => manualFormState.sources.includes(s))
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => updateManualForm((prev) => ({ ...prev, sources: [...preset.sources] }))}
-                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-all ${
-                      isActive
-                        ? 'bg-indigo-600 text-white shadow-sm'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
-                    }`}
-                    title={preset.description}
-                  >
-                    {key === 'fast' && <Zap className="h-3 w-3" />}
-                    {preset.label}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
           {/* Compact source chips */}
           <div>
             <label className="text-xs font-medium text-gray-700 dark:text-slate-300">
@@ -1057,8 +1094,8 @@ const ProjectDiscovery = () => {
         </div>
       </section>
 
-      {/* Progress indicator during discovery */}
-      {runDiscovery.isPending && (
+      {/* Real-time progress indicator during streaming discovery */}
+      {isStreaming && streamProgress && (
         <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-500/30 dark:bg-indigo-950/30">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/50">
@@ -1066,27 +1103,86 @@ const ProjectDiscovery = () => {
             </div>
             <div className="flex-1">
               <p className="text-sm font-medium text-indigo-900 dark:text-indigo-100">
-                Discovering papers...
+                {streamProgress.phaseMessage}
               </p>
               <p className="text-xs text-indigo-700 dark:text-indigo-300">
-                Searching {manualFormState.sources.length} source{manualFormState.sources.length !== 1 ? 's' : ''} for relevant papers. This may take up to 30 seconds.
+                {streamProgress.phase === 'searching'
+                  ? `${streamProgress.completedSources} of ${streamProgress.totalSources} sources complete`
+                  : streamProgress.phase === 'enriching'
+                    ? 'Adding metadata from CrossRef and Unpaywall...'
+                    : streamProgress.phase === 'ranking'
+                      ? 'Scoring papers by relevance to your query...'
+                      : 'Persisting results to your project...'}
               </p>
             </div>
           </div>
-          {/* Source list during search */}
+          {/* Source chips with real-time status */}
           <div className="mt-3 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
-            {manualFormState.sources.map((source) => (
-              <div
-                key={source}
-                className="flex items-center gap-2 rounded-lg bg-white/60 px-2.5 py-1.5 text-xs dark:bg-slate-900/40"
-              >
-                <Loader2 className="h-3 w-3 animate-spin text-indigo-500 dark:text-indigo-400" />
-                <span className="text-indigo-700 dark:text-indigo-300">{getSourceLabel(source)}</span>
-              </div>
-            ))}
+            {Object.entries(streamProgress.sources).map(([source, info]) => {
+              const isSearching = info.status === 'searching'
+              const isSuccess = info.status === 'success'
+              const isTimeout = info.status === 'timeout'
+              const isError = info.status === 'error'
+              const isRateLimited = info.status === 'rate_limited'
+              const isFailed = isTimeout || isError || isRateLimited
+
+              return (
+                <div
+                  key={source}
+                  className={`flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-xs transition-all duration-300 ${
+                    isSearching
+                      ? 'bg-white/60 dark:bg-slate-900/40'
+                      : isSuccess
+                        ? 'bg-emerald-50/80 dark:bg-emerald-900/20'
+                        : 'bg-rose-50/80 dark:bg-rose-900/20'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    {isSearching && <Loader2 className="h-3 w-3 animate-spin text-indigo-500 dark:text-indigo-400" />}
+                    {isSuccess && <CheckCircle2 className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />}
+                    {isFailed && <XCircle className="h-3 w-3 text-rose-500 dark:text-rose-400" />}
+                    <span className={`truncate ${
+                      isSearching
+                        ? 'text-indigo-700 dark:text-indigo-300'
+                        : isSuccess
+                          ? 'text-emerald-700 dark:text-emerald-300'
+                          : 'text-rose-700 dark:text-rose-300'
+                    }`}>
+                      {getSourceLabel(source)}
+                    </span>
+                  </div>
+                  {isSuccess && info.count !== undefined && (
+                    <span className="flex-shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-emerald-700 dark:bg-emerald-800/40 dark:text-emerald-300">
+                      {info.count}
+                    </span>
+                  )}
+                  {isTimeout && (
+                    <span className="flex-shrink-0 text-rose-500 dark:text-rose-400">timeout</span>
+                  )}
+                  {isRateLimited && (
+                    <span className="flex-shrink-0 text-rose-500 dark:text-rose-400">limited</span>
+                  )}
+                  {isError && (
+                    <span className="flex-shrink-0 text-rose-500 dark:text-rose-400">error</span>
+                  )}
+                </div>
+              )
+            })}
           </div>
+          {/* Real progress bar based on completed sources or phase */}
           <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-indigo-200 dark:bg-indigo-900/50">
-            <div className="h-full w-1/3 animate-pulse rounded-full bg-indigo-500 dark:bg-indigo-400" style={{ animation: 'progress 2s ease-in-out infinite' }} />
+            <div
+              className="h-full rounded-full bg-indigo-500 dark:bg-indigo-400 transition-all duration-500 ease-out"
+              style={{
+                width: streamProgress.phase === 'searching'
+                  ? `${Math.max(5, (streamProgress.completedSources / Math.max(1, streamProgress.totalSources)) * 60)}%`
+                  : streamProgress.phase === 'enriching'
+                    ? '70%'
+                    : streamProgress.phase === 'ranking'
+                      ? '85%'
+                      : '95%',
+              }}
+            />
           </div>
         </div>
       )}
@@ -1542,54 +1638,27 @@ const ProjectDiscovery = () => {
               )}
             </div>
 
-            {/* Search query - full width */}
-            <div>
-              <label className="text-xs font-medium text-gray-700 dark:text-slate-300">
-                Search query
-              </label>
-              <div className="relative mt-1.5">
-                <input
-                  type="text"
-                  value={activeFormState.query}
-                  onChange={(event) =>
-                    updateActiveForm((prev) => ({ ...prev, query: event.target.value }))
-                  }
-                  placeholder="e.g. machine learning healthcare, transformer NLP..."
-                  className="w-full rounded-lg border border-gray-200 bg-gray-50/50 px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800/50 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:bg-slate-800"
-                />
-              </div>
-              {projectKeywordPreset && (
-                <p className="mt-1.5 text-xs text-gray-500 dark:text-slate-400">
-                  Project keywords: <span className="text-indigo-600 dark:text-indigo-400">{projectKeywordPreset}</span>
-                </p>
-              )}
-            </div>
-
-            {/* Source presets */}
-            <div>
-              <label className="text-xs font-medium text-gray-700 dark:text-slate-300">Quick presets</label>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {Object.entries(SOURCE_PRESETS).map(([key, preset]) => {
-                  const isActive = preset.sources.length === activeFormState.sources.length &&
-                    preset.sources.every((s) => activeFormState.sources.includes(s))
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => updateActiveForm((prev) => ({ ...prev, sources: [...preset.sources] }))}
-                      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-all ${
-                        isActive
-                          ? 'bg-indigo-600 text-white shadow-sm'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
-                      }`}
-                      title={preset.description}
-                    >
-                      {key === 'fast' && <Zap className="h-3 w-3" />}
-                      {preset.label}
-                    </button>
-                  )
-                })}
-              </div>
+            {/* Auto-query info */}
+            <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 px-4 py-3 dark:border-indigo-500/20 dark:bg-indigo-950/30">
+              <p className="text-xs text-indigo-700 dark:text-indigo-300">
+                <Sparkles className="mr-1 inline-block h-3.5 w-3.5" />
+                Search queries are generated automatically from your project context — title, keywords, library references, and papers being written.
+              </p>
+              {(() => {
+                const queries = storedPreferences?.auto_queries
+                  ?? (storedPreferences?.auto_query ? [storedPreferences.auto_query] : [])
+                if (!queries.length) return null
+                return (
+                  <div className="mt-2.5 space-y-1">
+                    <p className="text-xs font-medium text-indigo-600/70 dark:text-indigo-400/70">Current search queries:</p>
+                    {queries.map((q, i) => (
+                      <div key={i} className="text-xs px-2.5 py-1.5 bg-white/60 dark:bg-slate-800/40 rounded border border-indigo-100/60 dark:border-indigo-500/10 text-indigo-900 dark:text-indigo-200 font-mono leading-relaxed">
+                        {q}
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
             </div>
 
             {/* Compact source chips */}
@@ -1619,60 +1688,6 @@ const ProjectDiscovery = () => {
               </div>
             </div>
 
-            {/* Collapsible advanced options */}
-            <div className="rounded-lg border border-gray-100 dark:border-slate-700/50">
-              <button
-                type="button"
-                onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
-                className="flex w-full items-center justify-between px-3 py-2.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:text-slate-400 dark:hover:bg-slate-800/50"
-              >
-                <span className="flex items-center gap-2">
-                  <Settings2 className="h-3.5 w-3.5" />
-                  Advanced options
-                </span>
-                {showAdvancedOptions ? (
-                  <ChevronUp className="h-4 w-4" />
-                ) : (
-                  <ChevronDown className="h-4 w-4" />
-                )}
-              </button>
-              {showAdvancedOptions && (
-                <div className="grid gap-4 border-t border-gray-100 px-3 py-3 dark:border-slate-700/50 sm:grid-cols-2">
-                  <label className="text-xs font-medium text-gray-600 dark:text-slate-400">
-                    Max results per run
-                    <input
-                      type="number"
-                      min={1}
-                      max={100}
-                      value={activeFormState.maxResults}
-                      onChange={(event) =>
-                        updateActiveForm((prev) => ({ ...prev, maxResults: event.target.value }))
-                      }
-                      placeholder="20"
-                      className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                    />
-                  </label>
-                  <label className="text-xs font-medium text-gray-600 dark:text-slate-400">
-                    Relevance threshold (0-1)
-                    <input
-                      type="number"
-                      min={0}
-                      max={1}
-                      step={0.05}
-                      value={activeFormState.relevanceThreshold}
-                      onChange={(event) =>
-                        updateActiveForm((prev) => ({
-                          ...prev,
-                          relevanceThreshold: event.target.value,
-                        }))
-                      }
-                      placeholder="0.5"
-                      className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                    />
-                  </label>
-                </div>
-              )}
-            </div>
           </div>
 
           {/* Footer with action buttons */}
@@ -1795,6 +1810,12 @@ const ProjectDiscovery = () => {
           {hiddenAutoCount > 0 && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-300/40 dark:bg-amber-300/20 dark:text-amber-100">
               Hiding {hiddenAutoCount} duplicate suggestion{hiddenAutoCount === 1 ? '' : 's'} already shown in References.
+            </div>
+          )}
+
+          {storedPreferences?.auto_trimmed_count != null && storedPreferences.auto_trimmed_count > 0 && (
+            <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700 dark:border-sky-400/30 dark:bg-sky-500/10 dark:text-sky-200">
+              {storedPreferences.auto_trimmed_count} older result{storedPreferences.auto_trimmed_count === 1 ? ' was' : 's were'} archived to keep your feed fresh.
             </div>
           )}
 

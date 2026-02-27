@@ -8,7 +8,7 @@ import hashlib
 import logging
 import os
 import time
-from typing import List, Dict, Any, Optional, Set
+from typing import Callable, List, Dict, Any, Optional, Set
 from datetime import datetime
 from urllib.parse import urlencode, urljoin, urlparse, quote, parse_qs
 import json
@@ -104,10 +104,21 @@ class SearchOrchestrator:
         year_to: Optional[int] = None,
         open_access_only: bool = False,
         query_intent: Optional[QueryIntent] = None,
+        progress_callback: Optional[Callable[..., Any]] = None,
     ) -> DiscoveryResult:
         """Orchestrate paper discovery and return results with per-source stats."""
         search_start_time = time.time()
         logger.info(f"[Search] START query='{query}' | max_results={max_results} | sources={sources} | fast_mode={fast_mode} | core_terms={core_terms or 'none'}")
+
+        async def _notify(event: Dict[str, Any]) -> None:
+            """Fire progress callback if provided."""
+            if progress_callback is not None:
+                try:
+                    result = progress_callback(event)
+                    if asyncio.iscoroutine(result):
+                        await result
+                except Exception:
+                    pass  # Never let callback errors break the pipeline
 
         active_searchers = self.searchers
         if sources is not None and len(sources) > 0:
@@ -193,6 +204,8 @@ class SearchOrchestrator:
                     logger.error(f"{source_name} failed after {elapsed_ms}ms: {e}")
                     return (source_name, [], "error", error_msg, elapsed_ms)
 
+        await _notify({"type": "phase", "phase": "searching", "message": "Searching academic databases..."})
+
         tasks = [asyncio.create_task(limited_search(s)) for s in active_searchers]
 
         # Flatten and deduplicate results as they arrive
@@ -228,6 +241,13 @@ class SearchOrchestrator:
                         source_stats_map[source_name].status = status
                         source_stats_map[source_name].error = error
                         source_stats_map[source_name].elapsed_ms = elapsed_ms
+                    await _notify({
+                        "type": "source_complete",
+                        "source": source_name,
+                        "status": status,
+                        "count": len(papers) if isinstance(papers, list) else 0,
+                        "elapsed_ms": elapsed_ms,
+                    })
                 except asyncio.CancelledError:
                     continue
                 except Exception as exc:  # pragma: no cover - defensive
@@ -291,7 +311,7 @@ class SearchOrchestrator:
             for term in query_intent.search_terms[:2]:
                 for searcher in fast_sources:
                     supp_tasks.append(
-                        asyncio.wait_for(searcher.search(term, 10), timeout=5.0)
+                        asyncio.wait_for(searcher.search(term, 10), timeout=3.0)
                     )
             supp_results = await asyncio.gather(*supp_tasks, return_exceptions=True)
             for res in supp_results:
@@ -332,6 +352,7 @@ class SearchOrchestrator:
         all_papers = deduped
 
         # Phase 2: Enrichment
+        await _notify({"type": "phase", "phase": "enriching", "message": "Enriching paper metadata..."})
         enrichment_tasks = [
             enricher.enrich(all_papers) for enricher in self.enrichers
         ]
@@ -354,7 +375,9 @@ class SearchOrchestrator:
                 len(all_papers),
             )
 
-        # Phase 3: Ranking (pass core_terms for boost + semantic context from query understanding)
+        # Phase 3: Ranking
+        await _notify({"type": "phase", "phase": "ranking", "message": "AI-ranking papers by relevance..."})
+        # (pass core_terms for boost + semantic context from query understanding)
         # Use interpreted_query as the ranking query when available — it disambiguates
         # vague queries (e.g. "Arabic check processing" → "Arabic bank cheque recognition")
         ranking_query = query
@@ -699,6 +722,7 @@ class PaperDiscoveryService:
         year_from: Optional[int] = None,
         year_to: Optional[int] = None,
         open_access_only: bool = False,
+        progress_callback: Optional[Callable[..., Any]] = None,
     ) -> DiscoveryResult:
         """Main discovery method with clean orchestration"""
 
@@ -751,6 +775,7 @@ class PaperDiscoveryService:
                 year_to=year_to,
                 open_access_only=open_access_only,
                 query_intent=intent,
+                progress_callback=progress_callback,
             )
             papers = result.papers
             if fast_mode:

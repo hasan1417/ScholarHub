@@ -191,6 +191,9 @@ export interface ProjectDiscoveryPreferences {
   last_status?: string | null
   max_results?: number | null
   relevance_threshold?: number | null
+  auto_query?: string | null
+  auto_queries?: string[] | null
+  auto_trimmed_count?: number | null
 }
 
 export interface ProjectDiscoverySettingsPayload {
@@ -219,6 +222,49 @@ export interface ProjectDiscoveryRunResponse {
   last_run_at: string
   source_stats: SourceStatsItem[] | null
 }
+
+// SSE streaming discovery event types
+export interface DiscoveryStreamPhaseEvent {
+  type: 'phase'
+  phase: 'searching' | 'enriching' | 'ranking' | 'saving'
+  message: string
+}
+
+export interface DiscoveryStreamSourceCompleteEvent {
+  type: 'source_complete'
+  source: string
+  status: 'success' | 'timeout' | 'error' | 'rate_limited'
+  count: number
+  elapsed_ms: number
+}
+
+export interface DiscoveryStreamCompleteEvent {
+  type: 'complete'
+  run_id: string
+  total_found: number
+  results_created: number
+  references_created: number
+  project_suggestions_created: number
+  last_run_at: string
+  source_stats: Array<{
+    source: string
+    count: number
+    status: string
+    error: string | null
+    elapsed_ms: number
+  }>
+}
+
+export interface DiscoveryStreamErrorEvent {
+  type: 'error'
+  message: string
+}
+
+export type DiscoveryStreamEvent =
+  | DiscoveryStreamPhaseEvent
+  | DiscoveryStreamSourceCompleteEvent
+  | DiscoveryStreamCompleteEvent
+  | DiscoveryStreamErrorEvent
 
 export type ProjectDiscoveryResultStatus = 'pending' | 'promoted' | 'dismissed'
 export type ProjectDiscoveryRunType = 'manual' | 'auto'

@@ -338,15 +338,22 @@ class GptRanker(PaperRanker):
 
             logger.info(f"GPT Ranker: scoring {len(items)} papers with {self.model_name}")
 
-            resp = await client.chat.completions.create(
-                model=self.model_name,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
-                ],
-                max_completion_tokens=8000,
-                temperature=0.0,
-            )
+            try:
+                resp = await asyncio.wait_for(
+                    client.chat.completions.create(
+                        model=self.model_name,
+                        messages=[
+                            {"role": "system", "content": system},
+                            {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+                        ],
+                        max_completion_tokens=8000,
+                        temperature=0.0,
+                    ),
+                    timeout=12,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("GPT Ranker timed out after 12s, falling back to SimpleRanker")
+                return await SimpleRanker(self.config).rank(papers, query, target_text, target_keywords)
             finish_reason = resp.choices[0].finish_reason
             content = (resp.choices[0].message.content or "[]").strip()
             logger.info("GPT Ranker response (%d chars, finish=%s): %s", len(content), finish_reason, content[:300])

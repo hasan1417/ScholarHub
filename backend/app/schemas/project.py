@@ -41,7 +41,7 @@ class ProjectUpdate(BaseModel):
     status: Optional[str] = None
 
 
-MIN_REFRESH_INTERVAL_HOURS = 5 / 60  # Allow auto-refresh as fast as every 5 minutes
+MIN_REFRESH_INTERVAL_HOURS = 6  # Minimum auto-refresh every 6 hours
 
 
 class ProjectDiscoveryPreferences(BaseModel):

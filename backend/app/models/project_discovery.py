@@ -92,7 +92,7 @@ class ProjectDiscoveryRun(Base):
     promoted_references = relationship(
         "ProjectReference",
         back_populates="discovery_run",
-        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
     def __repr__(self) -> str:
