@@ -813,6 +813,17 @@ const ProjectDiscussion = () => {
     return lookup
   }, [assistantHistory])
 
+  // True when any exchange has inline search results visible (not closed by user)
+  const hasVisibleInlineResults = useMemo(() => {
+    return assistantHistory.some(exchange => {
+      if (closedInlineResults.has(exchange.id)) return false
+      return exchange.response?.suggested_actions?.some(
+        a => a.action_type === 'search_results' &&
+          (a.payload as { papers?: unknown[] } | undefined)?.papers?.length
+      )
+    })
+  }, [assistantHistory, closedInlineResults])
+
   // ========== EVENT HANDLERS ==========
 
   const handleSendMessage = (content: string) => {
@@ -1561,7 +1572,7 @@ const ProjectDiscussion = () => {
                         </button>
                       </div>
                     </div>
-                  ) : discoveryQueue.papers.length > 0 && activeChannelId && !dismissedNotificationChannels.has(activeChannelId) ? (
+                  ) : discoveryQueue.papers.length > 0 && activeChannelId && !dismissedNotificationChannels.has(activeChannelId) && !hasVisibleInlineResults ? (
                     <div className="mx-2 sm:mx-4 mb-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 sm:px-4 sm:py-2.5 shadow-sm dark:border-amber-500/30 dark:bg-amber-900/20">
                       <div className="flex items-center gap-2 sm:gap-3">
                         <div className="flex h-7 w-7 sm:h-8 sm:w-8 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-500/20">

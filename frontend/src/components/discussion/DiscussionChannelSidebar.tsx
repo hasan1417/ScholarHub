@@ -265,7 +265,7 @@ const DiscussionChannelSidebar = ({
                           </div>
                         </div>
 
-                        {/* Second row: badges and description preview */}
+                        {/* Second row: badges and message count */}
                         <div className="mt-1 flex items-center gap-2">
                           {channel.is_default && (
                             <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
@@ -282,12 +282,13 @@ const DiscussionChannelSidebar = ({
                               {messageCount} message{messageCount !== 1 ? 's' : ''}
                             </span>
                           )}
-                          {channel.description && !channel.is_default && !channel.is_archived && (
-                            <span className="text-[10px] text-gray-400 dark:text-slate-500 truncate">
-                              {channel.description}
-                            </span>
-                          )}
                         </div>
+                        {/* Description on its own line */}
+                        {channel.description && !channel.is_default && !channel.is_archived && (
+                          <p className="mt-0.5 text-[10px] text-gray-400 dark:text-slate-500 truncate">
+                            {channel.description}
+                          </p>
+                        )}
                       </div>
                     </div>
                   </div>

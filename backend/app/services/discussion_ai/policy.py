@@ -27,6 +27,9 @@ _LOW_INFO_WORDS = frozenset({
     "more", "another", "additional", "extra", "other", "few", "several",
     # recency (handled separately by year extraction)
     "recent", "new", "latest", "current",
+    # politeness / filler
+    "please", "thanks", "thank", "okay", "ok", "sure", "yes", "yeah",
+    "help", "want", "need", "can", "could", "would",
 })
 
 
@@ -256,6 +259,13 @@ class DiscussionPolicy:
         cleaned_user = re.sub(
             r"\s+(?:from|since|after|before|between)\s+\d{4}(?:\s*[-–to]+\s*\d{4})?\s*$",
             "",
+            cleaned_user,
+            flags=re.IGNORECASE,
+        )
+        # Strip politeness words and common misspellings/abbreviations
+        cleaned_user = re.sub(
+            r"\b(?:pl(?:ease|z|s|ese|s+)|th(?:anks?|x|nks?)|thank\s*you|okay|ok(?:ay)?|sure|ye[sp]|yeah|ty)\b",
+            " ",
             cleaned_user,
             flags=re.IGNORECASE,
         )
