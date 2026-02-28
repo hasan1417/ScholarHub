@@ -20,6 +20,66 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
+def _sanitize_search_query(query: str, project: Optional["Project"] = None) -> str:
+    """Validate a search query and replace garbage with project context.
+
+    Catches cases where the LLM passes filler/politeness words as the
+    search query (e.g. "please", "plese", "ok thanks").  Falls back to
+    project keywords → project title → original query.
+    """
+    import re
+    from app.services.discussion_ai.policy import DiscussionPolicy, _LOW_INFO_WORDS
+
+    cleaned = (query or "").strip()
+    if not cleaned:
+        if project:
+            return _project_fallback_query(project)
+        return query
+
+    # First check: is it explicitly low-info (all stop words)?
+    is_low = DiscussionPolicy.is_low_information_query(cleaned)
+
+    # Second check: single-word queries that don't look academic.
+    # Real single-word academic queries: "BERT", "transformers", "LSTM"
+    # Garbage single-word queries: "please", "plese", "hello", "sure"
+    # Heuristic: a single non-stop word is suspicious if it doesn't
+    # appear in the project context AND isn't a plausible acronym/term.
+    if not is_low:
+        words = re.findall(r"\b[a-zA-Z]+\b", cleaned)
+        non_stop = [w for w in words
+                     if w.lower() not in _LOW_INFO_WORDS and len(w) > 1]
+        if len(non_stop) == 1 and project:
+            word = non_stop[0]
+            # Acronyms (all-caps like "BERT", "NLP") are always valid
+            if not word.isupper():
+                project_text = " ".join(filter(None, [
+                    project.title,
+                    " ".join(project.keywords or []),
+                    getattr(project, "idea", None),
+                    getattr(project, "scope", None),
+                ])).lower()
+                if word.lower() not in project_text:
+                    is_low = True
+
+    if not is_low:
+        return cleaned
+
+    # Query is low-info garbage — use project context instead
+    logger.info("[SearchSanitize] Low-info query '%s', falling back to project context", cleaned)
+    if project:
+        fallback = _project_fallback_query(project)
+        if fallback:
+            return fallback
+    return query
+
+
+def _project_fallback_query(project: "Project") -> str:
+    """Build a search query from project metadata."""
+    if project.keywords:
+        return " ".join(project.keywords[:5])
+    return (project.title or "").strip()
+
+
 class SearchToolsMixin:
     """Mixin providing search and discovery tools.
 
@@ -347,6 +407,9 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         effective_limit = limit if limit is not None else count
         effective_limit = max(1, min(int(effective_limit or 5), 20))
 
+        project = ctx.get("project")
+        query = _sanitize_search_query(query, project)
+
         oa_note = " (Open Access only)" if open_access_only else ""
         year_note = ""
         if year_from is not None or year_to is not None:
@@ -356,7 +419,6 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 year_note = f" (since {year_from})"
             else:
                 year_note = f" (up to {year_to})"
-        project = ctx.get("project")
         search_id = str(uuid4())
         ctx["last_search_id"] = search_id
 
@@ -692,6 +754,10 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 
                 topic_name = str(topic_name).strip('"').strip("'")
                 query = str(query).strip('"').strip("'")
+
+                # Sanitize query — replace filler with project context
+                project = ctx.get("project")
+                query = _sanitize_search_query(query, project)
 
                 if isinstance(max_results, str):
                     max_results = int(max_results) if max_results.isdigit() else 5
