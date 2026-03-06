@@ -1,0 +1,69 @@
+name: AI PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  droid-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install droid CLI
+        run: |
+          curl -fsSL https://app.factory.ai/cli | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Configure BYOK (OpenRouter)
+        run: |
+          mkdir -p ~/.factory
+          cat > ~/.factory/settings.json << 'EOF'
+          {
+            "customModels": [{
+              "model": "anthropic/claude-sonnet-4",
+              "displayName": "Claude Sonnet",
+              "baseUrl": "https://openrouter.ai/api/v1",
+              "apiKey": "${OPENROUTER_API_KEY}",
+              "provider": "generic-chat-completion-api",
+              "maxOutputTokens": 16000
+            }]
+          }
+          EOF
+
+      - name: Review PR
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          droid exec --auto low --model "custom:Claude-Sonnet-0" --output-format text "$(cat <<'PROMPT'
+          You are reviewing a pull request for ScholarHub, an academic research platform.
+
+          Stack: React+TypeScript+Vite frontend, FastAPI+Python backend, PostgreSQL+pgvector, Redis, Docker Compose.
+
+          Review the git diff between the base branch and HEAD. Focus on:
+          1. Bugs and logic errors (P0-P1)
+          2. Security issues (SQL injection, XSS, command injection, auth bypasses)
+          3. TypeScript type safety (no untyped `any`, proper null handling)
+          4. Python type hints and error handling at system boundaries
+          5. Performance concerns (N+1 queries, missing indexes, unbounded loops)
+          6. Breaking API contract changes
+
+          Skip: style nitpicks, missing comments, minor naming preferences.
+
+          Output a concise markdown summary with severity labels [P0]-[P3].
+          If everything looks good, say so briefly - do not fabricate issues.
+
+          Post your review as a PR comment using the PR_NUMBER environment variable:
+            gh pr comment "$PR_NUMBER" --body "<your review>"
+          PROMPT
+          )"
