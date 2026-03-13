@@ -60,6 +60,25 @@ function getSkipRanges(text: string): Array<[number, number]> {
   while (i < len) {
     const ch = text[i]
 
+    // Skip URLs and email addresses
+    if (ch === 'h' && text.startsWith('http', i)) {
+      const urlEnd = text.slice(i).search(/[\s})\]>]/)
+      const end = urlEnd === -1 ? len : i + urlEnd
+      ranges.push([i, end])
+      i = end
+      continue
+    }
+    if (ch === '@' || (i > 0 && /\S/.test(text[i - 1]) && ch === '.' && i + 1 < len && /[a-z]/i.test(text[i + 1]))) {
+      // Find word boundaries around email-like patterns
+      let start = i; while (start > 0 && /[^\s{}\\]/.test(text[start - 1])) start--
+      let end = i + 1; while (end < len && /[^\s{}\\]/.test(text[end])) end++
+      if (text.slice(start, end).includes('@')) {
+        ranges.push([start, end])
+        i = end
+        continue
+      }
+    }
+
     // Comments: % to end of line
     if (ch === '%' && (i === 0 || text[i - 1] !== '\\')) {
       const eol = text.indexOf('\n', i)
@@ -153,7 +172,7 @@ function getSkipRanges(text: string): Array<[number, number]> {
 // Word extraction
 // ---------------------------------------------------------------------------
 
-interface WordEntry { word: string; from: number; to: number }
+interface WordEntry { word: string; from: number; to: number; adjacentHyphen: boolean; sentenceStart: boolean }
 
 const WORD_RE = /[a-zA-Z'\u2019]+/g
 
@@ -175,10 +194,22 @@ function extractTextWords(text: string): WordEntry[] {
     if (skip) continue
 
     // Trim leading/trailing apostrophes
-    let word = m[0].replace(/^['\u2019]+|['\u2019]+$/g, '')
+    const word = m[0].replace(/^['\u2019]+|['\u2019]+$/g, '')
     if (word.length < 2) continue
     const trimStart = m[0].indexOf(word)
-    words.push({ word, from: wFrom + trimStart, to: wFrom + trimStart + word.length })
+    const adjFrom = wFrom + trimStart
+    const adjTo = adjFrom + word.length
+
+    // Check if this word is adjacent to a hyphen in the source
+    const adjacentHyphen = (adjFrom > 0 && text[adjFrom - 1] === '-') ||
+      (adjTo < text.length && text[adjTo] === '-')
+
+    // Check if this is a sentence start (first word after .!?: or start of text)
+    let look = adjFrom - 1
+    while (look >= 0 && ' \n\t'.includes(text[look])) look--
+    const sentenceStart = look < 0 || '.!?:'.includes(text[look])
+
+    words.push({ word, from: adjFrom, to: adjTo, adjacentHyphen, sentenceStart })
   }
 
   return words
@@ -214,10 +245,16 @@ const SUFFIXES = [
   's',
 ]
 
+// Common abbreviations and academic terms missing from basic dictionaries
+const ACADEMIC_ALLOW = new Set([
+  'vs', 'etc', 'eg', 'ie', 'et', 'al', 'cf', 'wrt',
+])
+
 /** Check a word, trying suffix-stripped variants if the full form isn't found. */
 function isKnownWord(word: string, dict: Set<string>): boolean {
   const lower = word.toLowerCase()
   if (dict.has(lower)) return true
+  if (ACADEMIC_ALLOW.has(lower)) return true
 
   // Try stripping common suffixes
   for (const suffix of SUFFIXES) {
@@ -228,9 +265,15 @@ function isKnownWord(word: string, dict: Set<string>): boolean {
       if (stem.length > 2 && stem[stem.length - 1] === stem[stem.length - 2]) {
         if (dict.has(stem.slice(0, -1))) return true
       }
-      // Handle "e" restoration (e.g. "operationalized" → "operationalize" → strip → "operational" + e)
+      // Handle "e" restoration (e.g. "operationalized" → "operationalize")
       if (dict.has(stem + 'e')) return true
     }
+  }
+
+  // Compound word detection: try splitting into two known words
+  // Handles "datasets" (data+sets), "workflow" (work+flow), etc.
+  for (let i = 3; i <= lower.length - 3; i++) {
+    if (dict.has(lower.slice(0, i)) && dict.has(lower.slice(i))) return true
   }
 
   return false
@@ -274,13 +317,20 @@ const spellcheckPlugin = ViewPlugin.fromClass(
         const text = this.view.state.sliceDoc(from, to)
         const words = extractTextWords(text)
 
-        for (const { word, from: wFrom, to: wTo } of words) {
-          if (word.length < 2) continue
-          // Skip ALL-CAPS acronyms (NLP, ML, etc.)
-          if (/^[A-Z]{2,}$/.test(word)) continue
+        for (const { word, from: wFrom, to: wTo, adjacentHyphen, sentenceStart } of words) {
+          // Rule 1: Skip very short words (≤3 chars) — too many false positives
+          if (word.length <= 3) continue
+          // Rule 2: Skip ALL-CAPS acronyms (NLP, DARTS, etc.)
+          if (/^[A-Z]+$/.test(word)) continue
+          // Rule 3: Skip words with digits
           if (/\d/.test(word)) continue
-          // Skip Roman numerals (i, ii, iii, iv, ... used in academic text)
-          if (/^[ivxlcdm]+$/i.test(word) && /^(i{1,3}|iv|vi{0,3}|ix|xi{0,3}|xiv|xv|xvi{0,3}|xix|xx)$/i.test(word)) continue
+          // Rule 4: Skip mixed case — any uppercase after position 0 (TransUNet, DeepLab, nnUNet)
+          if (/[A-Z]/.test(word.slice(1))) continue
+          // Rule 5: Capitalized word NOT at sentence start → proper noun (Zoph, Transformer)
+          if (/^[A-Z]/.test(word) && !sentenceStart) continue
+          // Rule 6: Adjacent to hyphen → part of compound term (Swin-UNet, self-configuring)
+          // Accept if known, or if it looks intentional (capitalized, short, etc.)
+          if (adjacentHyphen && (word.length <= 6 || /^[A-Z]/.test(word))) continue
 
           if (!isKnownWord(word, dict)) {
             builder.add(from + wFrom, from + wTo, spellMark)

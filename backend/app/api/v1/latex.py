@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Query
 from app.core.config import settings
 from starlette.responses import StreamingResponse, FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional, Dict, Any
 import asyncio
 import hashlib
@@ -49,7 +49,7 @@ def _copy_style_files(target_dir: Path) -> None:
         return
     try:
         for style_file in LATEX_STYLES_DIR.glob("*"):
-            if style_file.suffix in (".sty", ".bst", ".cls"):
+            if style_file.suffix in (".sty", ".bst"):
                 shutil.copy2(style_file, target_dir / style_file.name)
     except Exception as e:
         logger.warning("Failed to copy style files to %s: %s", target_dir, e)
@@ -58,19 +58,46 @@ def _copy_style_files(target_dir: Path) -> None:
 class CompileRequest(BaseModel):
     latex_source: str
     paper_id: Optional[str] = None
-    engine: Optional[str] = "tectonic"
+    engine: Optional[str] = "pdflatex"
     job_label: Optional[str] = None
     include_bibtex: Optional[bool] = True
     latex_files: Optional[Dict[str, str]] = None  # Multi-file: {"intro.tex": "...", ...}
 
+    @field_validator("paper_id")
+    @classmethod
+    def validate_paper_id(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            from uuid import UUID
 
-def _sha256(text: str, extra_files: Optional[Dict[str, str]] = None) -> str:
+            UUID(v)
+        return v
+
+
+_ENGINE_VERSION = "texlive-pdflatex-v1"
+
+
+def _sha256(text: str, extra_files: Optional[Dict[str, str]] = None, paper_id: Optional[str] = None) -> str:
     h = hashlib.sha256()
+    h.update(_ENGINE_VERSION.encode("utf-8"))
     h.update(text.encode("utf-8", errors="ignore"))
     if extra_files:
         for name in sorted(extra_files.keys()):
             h.update(name.encode("utf-8", errors="ignore"))
             h.update(extra_files[name].encode("utf-8", errors="ignore"))
+    # Include bundled style file mtimes so cache invalidates when they change
+    if LATEX_STYLES_DIR.exists():
+        for f in sorted(LATEX_STYLES_DIR.iterdir(), key=lambda p: p.name):
+            if f.suffix in ('.sty', '.bst'):
+                h.update(f.name.encode("utf-8"))
+                h.update(str(f.stat().st_mtime_ns).encode("utf-8"))
+    # Include user-uploaded support file mtimes
+    if paper_id:
+        support_dir = Path("uploads") / "papers" / paper_id / "support"
+        if support_dir.exists():
+            for f in sorted(support_dir.iterdir(), key=lambda p: p.name):
+                if f.suffix in ('.cls', '.sty', '.bst', '.bib', '.def', '.fd'):
+                    h.update(f.name.encode("utf-8"))
+                    h.update(str(f.stat().st_mtime_ns).encode("utf-8"))
     return h.hexdigest()
 
 
@@ -80,7 +107,7 @@ def _artifact_paths(content_hash: str) -> Dict[str, Path]:
     return {
         "dir": out_dir,
         "tex": out_dir / "main.tex",
-        # Tectonic outputs <input_basename>.pdf; we use main.tex → main.pdf
+        # latexmk outputs <input_basename>.pdf; we use main.tex → main.pdf
         "pdf": out_dir / "main.pdf",
         "log": out_dir / "compile.log",
     }
@@ -181,7 +208,7 @@ def _inject_arabic_support(source: str) -> str:
 
 
 def _ensure_body_content(source: str) -> str:
-    """Ensure the document body is not completely empty to keep tectonic happy."""
+    """Ensure the document body is not completely empty to keep the compiler happy."""
     try:
         lower = source.lower()
         begin_token = "\\begin{document}"
@@ -214,34 +241,44 @@ def _document_body_empty(source: str) -> bool:
     return False
 
 
-async def _run_tectonic(out_dir: Path, tex_path: Path):
-    """Run tectonic to compile the given tex file into out_dir, stream stderr/stdout."""
-    # Determine tectonic availability
-    from shutil import which
-    exe = which("tectonic")
-    if not exe:
-        raise FileNotFoundError("tectonic not found in PATH. Install via 'brew install tectonic' or see https://tectonic-typesetting.github.io/")
+def _needs_xelatex(source: str) -> bool:
+    """Check if the document requires XeLaTeX (Arabic/RTL, fontspec, etc.)."""
+    has_arabic = (
+        bool(_ARABIC_RE.search(source))
+        or r'\RL{' in source
+        or r'\begin{Arabic}' in source
+    )
+    has_fontspec = (
+        r'\usepackage{fontspec}' in source
+        or r'\usepackage{polyglossia}' in source
+    )
+    return has_arabic or has_fontspec
 
-    # Use subprocess with streaming
-    # -Z continue-on-errors: continue past recoverable errors such as the
-    # "dehypht-x-2022-03-16.pat: Bad \patterns" hyphenation-cache mismatch
-    # that occurs when Tectonic's format cache is stale after container restarts.
-    create = asyncio.create_subprocess_exec(
+
+async def _run_latexmk(out_dir: Path, tex_path: Path, use_xelatex: bool = False):
+    """Run latexmk to compile the given tex file, streaming output lines."""
+    from shutil import which
+    exe = which("latexmk")
+    if not exe:
+        raise FileNotFoundError("latexmk not found in PATH. Install via 'apt-get install latexmk texlive-latex-base'")
+
+    engine_flag = "-xelatex" if use_xelatex else "-pdf"
+    cmd = [
         exe,
-        "-Z",
-        "continue-on-errors",
+        engine_flag,
+        "-interaction=nonstopmode",
+        "-synctex=1",
+        "-file-line-error",
+        f"-outdir={str(out_dir)}",
         str(tex_path.name),
-        "--outdir",
-        str(out_dir),
-        "--keep-logs",
-        "--synctex",
-        "--chatter",
-        "minimal",
+    ]
+
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
         cwd=str(out_dir),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
-    proc = await create
     assert proc.stdout is not None
     try:
         while True:
@@ -284,7 +321,7 @@ async def compile_latex(request: CompileRequest, current_user: User = Depends(ge
     effective_source = _ensure_body_content(request.latex_source)
     effective_source = _decode_unicode_escapes(effective_source)
     effective_source = _inject_arabic_support(effective_source)
-    content_hash = _sha256(effective_source, request.latex_files)
+    content_hash = _sha256(effective_source, request.latex_files, request.paper_id)
     paths = _artifact_paths(content_hash)
 
     # Write source to cache dir (always refresh the tex file for transparency)
@@ -292,6 +329,16 @@ async def compile_latex(request: CompileRequest, current_user: User = Depends(ge
         await asyncio.to_thread(paths["dir"].mkdir, parents=True, exist_ok=True)
         # Copy bundled conference style files (.sty, .bst) for template support
         await asyncio.to_thread(_copy_style_files, paths["dir"])
+        # Copy user-uploaded support files (.cls, .sty, .bst, etc.)
+        paper_id = request.paper_id
+        if paper_id:
+            def _copy_support_files_sync():
+                support_src = Path("uploads") / "papers" / paper_id / "support"
+                if support_src.exists():
+                    for f in support_src.iterdir():
+                        if f.suffix in ('.cls', '.sty', '.bst', '.bib', '.def', '.fd'):
+                            shutil.copy2(f, paths["dir"] / f.name)
+            await asyncio.to_thread(_copy_support_files_sync)
         # Clear cached aux/bbl files to force fresh bibliography build
         def _clear_aux_files():
             for ext in [".aux", ".bbl", ".blg"]:
@@ -645,7 +692,7 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
     effective_source = _ensure_body_content(request.latex_source)
     effective_source = _decode_unicode_escapes(effective_source)
     effective_source = _inject_arabic_support(effective_source)
-    content_hash = _sha256(effective_source, request.latex_files)
+    content_hash = _sha256(effective_source, request.latex_files, request.paper_id)
     paths = _artifact_paths(content_hash)
 
     # Always write the .tex (and extra files if multi-file)
@@ -653,6 +700,16 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
         await asyncio.to_thread(paths["dir"].mkdir, parents=True, exist_ok=True)
         # Copy bundled conference style files (.sty, .bst) for template support
         await asyncio.to_thread(_copy_style_files, paths["dir"])
+        # Copy user-uploaded support files (.cls, .sty, .bst, etc.)
+        paper_id_stream = request.paper_id
+        if paper_id_stream:
+            def _copy_support_files_stream():
+                support_src = Path("uploads") / "papers" / paper_id_stream / "support"
+                if support_src.exists():
+                    for f in support_src.iterdir():
+                        if f.suffix in ('.cls', '.sty', '.bst', '.bib', '.def', '.fd'):
+                            shutil.copy2(f, paths["dir"] / f.name)
+            await asyncio.to_thread(_copy_support_files_stream)
         # Clear cached aux/bbl files to force fresh bibliography build
         # This prevents conflicts when switching templates/bib styles
         def _clear_aux_files():
@@ -679,7 +736,7 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
     async def event_stream():
         t0 = time.time()
         payload_size = len(request.latex_source or '')
-        engine = (request.engine or 'tectonic')
+        engine = (request.engine or 'pdflatex')
         status_str = 'unknown'
         exit_code = None
         build_id = request.job_label or f"{content_hash}-{int(time.time()*1000)}"
@@ -753,7 +810,7 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
                     pass
             return
 
-        # Compile via tectonic
+        # Compile via latexmk (TeX Live)
         start = time.time()
         try:
             # Optionally write main.bib from user's paper references
@@ -767,8 +824,11 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
                 except Exception as e:
                     yield f"data: {json.dumps({'type': 'log', 'line': f'[bibtex] Skipped: {e}'})}\n\n"
 
-            # stream logs
-            async for line in _run_tectonic(paths["dir"], paths["tex"]):
+            # Determine engine: xelatex for Arabic/RTL/fontspec, pdflatex otherwise
+            use_xelatex = _needs_xelatex(effective_source)
+
+            # Stream compile logs (latexmk handles bibtex passes automatically)
+            async for line in _run_latexmk(paths["dir"], paths["tex"], use_xelatex=use_xelatex):
                 try:
                     def _append_log(log_line):
                         with paths["log"].open("a", encoding="utf-8") as lf:
@@ -781,62 +841,6 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
                     error_count += 1
                 payload = {"type": "log", "line": line}
                 yield f"data: {json.dumps(payload)}\n\n"
-
-            # If bibliography is used, try bibtex + up to two more passes with early stop
-            try:
-                aux = (paths["dir"] / "main.aux")
-                aux_exists = await asyncio.to_thread(aux.exists)
-                aux_content = (await asyncio.to_thread(aux.read_text, errors='ignore')) if aux_exists else ''
-                need_bib = '\\citation' in aux_content or '\\bibdata' in aux_content
-            except Exception as e:
-                logger.debug("Failed to check aux for bibliography needs: %s", e)
-                need_bib = False
-
-            if need_bib:
-                bbl_path = paths["dir"] / "main.bbl"
-                bbl_exists = await asyncio.to_thread(bbl_path.exists)
-                bbl_before = (await asyncio.to_thread(bbl_path.read_text, errors='ignore')) if bbl_exists else ''
-                try:
-                    from shutil import which
-                    bibtex_exe = which("bibtex")
-                    if not bibtex_exe:
-                        yield f"data: {json.dumps({'type': 'log', 'line': '[bibtex] bibtex not found in PATH; references may be unresolved'})}\n\n"
-                    else:
-                        proc2 = await asyncio.create_subprocess_exec(
-                            bibtex_exe, "main",
-                            cwd=str(paths["dir"]),
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=asyncio.subprocess.STDOUT,
-                        )
-                        assert proc2.stdout is not None
-                        while True:
-                            l2 = await proc2.stdout.readline()
-                            if not l2:
-                                break
-                            s2 = '[bibtex] ' + l2.decode(errors='ignore').rstrip()
-                            logs_buf.append(s2)
-                            yield f"data: {json.dumps({'type': 'log', 'line': s2})}\n\n"
-                        await proc2.wait()
-                        yield f"data: {json.dumps({'type': 'log', 'line': '[bibtex] Completed'})}\n\n"
-                except Exception as e:
-                    yield f"data: {json.dumps({'type': 'log', 'line': f'[bibtex] Failed: {e}'})}\n\n"
-
-                # Up to two more tectonic passes; stop early if main.bbl stabilized
-                for _ in range(2):
-                    async for line in _run_tectonic(paths["dir"], paths["tex"]):
-                        logs_buf.append(line)
-                        payload = {"type": "log", "line": line}
-                        yield f"data: {json.dumps(payload)}\n\n"
-                    try:
-                        bbl_check_path = paths["dir"] / "main.bbl"
-                        bbl_check_exists = await asyncio.to_thread(bbl_check_path.exists)
-                        bbl_now = (await asyncio.to_thread(bbl_check_path.read_text, errors='ignore')) if bbl_check_exists else ''
-                        if bbl_now == bbl_before:
-                            yield f"data: {json.dumps({'type': 'log', 'line': '[bibtex] Bibliography stabilized; stopping extra passes'})}\n\n"
-                            break
-                        bbl_before = bbl_now
-                    except Exception as e:
-                        logger.debug("Failed to check bbl stabilization: %s", e)
 
             # Check result
             if await asyncio.to_thread(paths["pdf"].exists):
@@ -1317,3 +1321,13 @@ async def build_submission(
         media_type="application/zip",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+@router.get("/latex/templates")
+async def list_templates(
+    current_user: User = Depends(get_current_user),
+):
+    """Return all available conference/journal templates."""
+    from app.constants.paper_templates import CONFERENCE_TEMPLATES
+    templates = list(CONFERENCE_TEMPLATES.values())
+    return {"templates": templates}

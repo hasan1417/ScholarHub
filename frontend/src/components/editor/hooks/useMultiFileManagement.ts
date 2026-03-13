@@ -11,14 +11,20 @@ export function useMultiFileManagement({ realtimeDoc, getYText, getFileList, yTe
   const [activeFile, setActiveFile] = useState('main.tex')
   const [fileList, setFileList] = useState<string[]>(['main.tex'])
 
-  // Sync file list from Yjs when the doc changes
+  // Sync file list from Yjs when the doc changes or new types arrive via sync
   useEffect(() => {
     if (!realtimeDoc) return
-    const files = getFileList()
-    setFileList(prev => {
-      if (JSON.stringify(prev) === JSON.stringify(files)) return prev
-      return files
-    })
+    const refreshFiles = () => {
+      const files = getFileList()
+      setFileList(prev => {
+        if (JSON.stringify(prev) === JSON.stringify(files)) return prev
+        return files
+      })
+    }
+    refreshFiles()
+    // Listen for doc updates (e.g. when server-bootstrapped files arrive)
+    realtimeDoc.on('update', refreshFiles)
+    return () => { realtimeDoc.off('update', refreshFiles) }
   }, [realtimeDoc, getFileList, yTextReady])
 
   const handleCreateFile = useCallback((filename: string) => {

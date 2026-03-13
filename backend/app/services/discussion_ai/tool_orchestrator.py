@@ -92,9 +92,6 @@ When asked to create a paper or literature review:
 **Vague topics** (e.g., "recent algorithms"): Use discover_topics first, then search specific topics.
 **User confirms multiple searches** ("all 6 please", "search all", "yes"): Call batch_search_papers immediately.
 
-Routing, defaults, and filter enforcement are handled by system policy code.
-When policy routes to `search_papers`, execute the tool action directly without optional clarification detours.
-
 **Query quality (research-grade):**
 - Use concise, high-signal academic queries (typically 4-8 terms).
 - Include core concept + context/population + outcome/method when relevant.
@@ -125,6 +122,27 @@ Only quote findings that appear in the context you have. When summarizing across
 - Structure sections with clear topic sentences and logical transitions
 
 Project: {project_title} | Channel: {channel_name}
+{context_summary}"""
+
+PAPER_CHAT_SYSTEM_PROMPT = r"""You are a research assistant helping a researcher understand a specific academic paper.
+
+## YOUR ROLE
+Answer questions about this paper in depth. Use the full text provided below. When you reference specific claims, mention the page number if available. Do not invent information not in the text.
+
+## WHAT YOU CAN DO
+- Explain methods, results, and conclusions from this paper
+- Compare figures/tables mentioned in the text
+- Clarify terminology and concepts
+- Help the researcher understand limitations and future work
+- Suggest related research directions based on what this paper discusses
+
+## WHAT YOU CANNOT DO
+- Reference papers not in the provided text
+- Invent statistics or findings
+- Answer questions unrelated to this paper
+
+Paper: {paper_title} | Project: {project_title}
+
 {context_summary}"""
 
 LITE_SYSTEM_PROMPT = """You are a research assistant for the project "{project_title}".
@@ -219,9 +237,10 @@ class ToolOrchestrator(MemoryMixin, SearchToolsMixin, LibraryToolsMixin, Analysi
                 recent_search_id=recent_search_id,
             )
 
-            # Classify route
+            # Classify route (pass client for LLM classification of ambiguous messages)
             memory_facts = self._get_ai_memory(channel).get("facts", {})
-            route_decision = classify_route(message, conversation_history or [], memory_facts)
+            route_client = getattr(self, "openrouter_client", None)
+            route_decision = classify_route(message, conversation_history or [], memory_facts, client=route_client)
             ctx["route"] = route_decision.route
             ctx["route_reason"] = route_decision.reason
             logger.debug(f"[RouteClassifier] route={route_decision.route} reason={route_decision.reason}")
@@ -272,12 +291,22 @@ class ToolOrchestrator(MemoryMixin, SearchToolsMixin, LibraryToolsMixin, Analysi
                 recent_search_id=recent_search_id,
             )
 
-            # Classify route
+            # Classify route (pass client for LLM classification of ambiguous messages)
             memory_facts = self._get_ai_memory(channel).get("facts", {})
-            route_decision = classify_route(message, conversation_history or [], memory_facts)
+            route_client = getattr(self, "openrouter_client", None)
+            route_decision = classify_route(message, conversation_history or [], memory_facts, client=route_client)
             ctx["route"] = route_decision.route
             ctx["route_reason"] = route_decision.reason
             logger.debug(f"[RouteClassifier] route={route_decision.route} reason={route_decision.reason}")
+
+            # Paper chat: no tools, no route classification — just answer from the paper context
+            is_paper_chat = getattr(channel, 'is_paper_chat', False)
+            if is_paper_chat:
+                messages = self._build_messages(project, channel, message, recent_search_results, conversation_history, ctx=ctx)
+                ctx["paper_chat"] = True
+                async for event in self._execute_lite_streaming(messages, ctx):
+                    yield event
+                return
 
             if route_decision.route == "lite":
                 messages = self._build_messages_lite(project, channel, message, conversation_history)
@@ -403,28 +432,42 @@ class ToolOrchestrator(MemoryMixin, SearchToolsMixin, LibraryToolsMixin, Analysi
             else:
                 logger.info("❌ FOCUSED PAPERS section NOT in the context")
 
-        system_prompt = BASE_SYSTEM_PROMPT.format(
-            project_title=project.title,
-            channel_name=channel.name,
-            context_summary=full_context,
-        )
+        is_paper_chat = getattr(channel, 'is_paper_chat', False)
+        if is_paper_chat:
+            # Extract paper title from context for the prompt
+            paper_title = "Unknown"
+            for line in context_summary.split("\n"):
+                if line.startswith("**Title:**"):
+                    paper_title = line.replace("**Title:**", "").strip()
+                    break
+            system_prompt = PAPER_CHAT_SYSTEM_PROMPT.format(
+                paper_title=paper_title,
+                project_title=project.title,
+                context_summary=full_context,
+            )
+        else:
+            system_prompt = BASE_SYSTEM_PROMPT.format(
+                project_title=project.title,
+                channel_name=channel.name,
+                context_summary=full_context,
+            )
 
-        # Inject stage-adaptive hint from AI memory
-        memory_dict = self._get_ai_memory(channel)
-        research_stage = memory_dict.get("research_state", {}).get("stage", "exploring")
-        stage_hint = STAGE_HINTS.get(research_stage, "")
-        if stage_hint:
-            system_prompt += f"\n\n## CURRENT RESEARCH STAGE: {research_stage}\n{stage_hint}"
+            # Inject stage-adaptive hint from AI memory
+            memory_dict = self._get_ai_memory(channel)
+            research_stage = memory_dict.get("research_state", {}).get("stage", "exploring")
+            stage_hint = STAGE_HINTS.get(research_stage, "")
+            if stage_hint:
+                system_prompt += f"\n\n## CURRENT RESEARCH STAGE: {research_stage}\n{stage_hint}"
 
-        # Inject formal research question if available
-        research_question = memory_dict.get("facts", {}).get("research_question")
-        if research_question:
-            system_prompt += f"\nThe researcher's question: \"{research_question}\" — tailor suggestions to this."
+            # Inject formal research question if available
+            research_question = memory_dict.get("facts", {}).get("research_question")
+            if research_question:
+                system_prompt += f"\nThe researcher's question: \"{research_question}\" — tailor suggestions to this."
 
-        clarification_guardrail = self._build_clarification_guardrail(memory_dict, message)
-        if clarification_guardrail:
-            system_prompt += f"\n\n## CLARIFICATION POLICY\n{clarification_guardrail}"
-            logger.info("[ClarificationGuardrail] Applied deterministic no-repeat clarification rule.")
+            clarification_guardrail = self._build_clarification_guardrail(memory_dict, message)
+            if clarification_guardrail:
+                system_prompt += f"\n\n## CLARIFICATION POLICY\n{clarification_guardrail}"
+                logger.info("[ClarificationGuardrail] Applied deterministic no-repeat clarification rule.")
 
         system_prompt += (
             "\n\n## RESPONSE FORMAT\n"
@@ -660,7 +703,6 @@ If asked to perform write actions, explain that editor/admin access is required.
             iteration = 0
             all_tool_results = []
             response = {"content": "", "tool_calls": []}
-            clarification_first_detected = False
             search_tool_executed = False
 
             while iteration < max_iterations:
@@ -671,31 +713,6 @@ If asked to perform write actions, explain that editor/admin access is required.
                 tool_calls = response.get("tool_calls", [])
 
                 if not tool_calls:
-                    # Deterministic fallback: if direct-search intent has not produced a search tool
-                    # call yet, force search before returning any clarification text.
-                    if (
-                        policy_decision.should_force_tool("search_papers")
-                        and policy_decision.search is not None
-                        and not search_tool_executed
-                    ):
-                        clarification_first_detected = clarification_first_detected or bool((response.get("content") or "").strip())
-                        forced_query = policy_decision.search.query or self._build_fallback_search_query(ctx)
-                        forced_tool_call = {
-                            "id": "forced-search-1",
-                            "name": "search_papers",
-                            "arguments": {
-                                "query": forced_query,
-                                "count": policy_decision.search.count,
-                                "limit": policy_decision.search.count,
-                                "open_access_only": policy_decision.search.open_access_only,
-                                "year_from": policy_decision.search.year_from,
-                                "year_to": policy_decision.search.year_to,
-                            },
-                        }
-                        logger.info(f"Applying direct-search fallback with query: {forced_query[:120]}")
-                        forced_results = self._execute_tool_calls([forced_tool_call], ctx)
-                        all_tool_results.extend(forced_results)
-                        search_tool_executed = True
                     break
 
                 # Filter out duplicate mutating tool calls
@@ -776,7 +793,7 @@ If asked to perform write actions, explain that editor/admin access is required.
 
             # Deterministic stage transition after successful search tools.
             stage_transition_success = self._enforce_finding_papers_stage_after_search(ctx, all_tool_results)
-            self._record_quality_metrics(ctx, policy_decision, all_tool_results, clarification_first_detected, stage_transition_success)
+            self._record_quality_metrics(ctx, policy_decision, all_tool_results, False, stage_transition_success)
 
             # Persist _last_tools_called for route classifier follow-up detection
             tools_called = [t["name"] for t in all_tool_results] if all_tool_results else []
@@ -1083,6 +1100,13 @@ If asked to perform write actions, explain that editor/admin access is required.
         recent_search_results: Optional[List[Dict]],
     ) -> str:
         """Build a lightweight summary of available context."""
+        # Paper chat mode: inject full paper context instead of generic summary
+        is_paper_chat = getattr(channel, 'is_paper_chat', False)
+        if is_paper_chat and channel.scope:
+            ref_ids = (channel.scope or {}).get("reference_ids") or []
+            if len(ref_ids) == 1:
+                return self._build_paper_chat_context(ref_ids[0])
+
         lines = []
 
         # Project info - always include so AI knows the context
@@ -1202,6 +1226,98 @@ If asked to perform write actions, explain that editor/admin access is required.
         # If no resources at all, add a note
         if ref_count == 0 and paper_count == 0 and not recent_search_results and resource_count == 0:
             lines.append("- No papers or references loaded yet")
+
+        return "\n".join(lines)
+
+    def _build_paper_chat_context(self, reference_id: str) -> str:
+        """Build context focused on a single paper for paper chat mode."""
+        from app.models import Reference
+        from app.models.document_chunk import DocumentChunk
+
+        ref = self.db.query(Reference).filter(Reference.id == reference_id).first()
+        if not ref:
+            return "Paper not found."
+
+        lines = []
+        lines.append("## PAPER UNDER DISCUSSION")
+        lines.append(f"**Title:** {ref.title}")
+        authors = ", ".join(ref.authors or []) if ref.authors else "Unknown"
+        lines.append(f"**Authors:** {authors}")
+        if ref.year:
+            lines.append(f"**Year:** {ref.year}")
+        if ref.journal:
+            lines.append(f"**Journal:** {ref.journal}")
+        if ref.doi:
+            lines.append(f"**DOI:** {ref.doi}")
+        lines.append("")
+
+        if ref.abstract:
+            lines.append("### Abstract")
+            lines.append(ref.abstract)
+            lines.append("")
+        else:
+            lines.append("**Note:** No abstract is available for this paper.")
+            lines.append("")
+
+        if ref.status in ("ingested", "analyzed"):
+            if ref.summary:
+                lines.append("### AI Summary")
+                lines.append(ref.summary)
+                lines.append("")
+            if ref.key_findings:
+                lines.append("### Key Findings")
+                for finding in ref.key_findings:
+                    lines.append(f"- {finding}")
+                lines.append("")
+            if ref.methodology:
+                lines.append("### Methodology")
+                lines.append(ref.methodology)
+                lines.append("")
+            if ref.limitations:
+                lines.append("### Limitations")
+                for lim in ref.limitations:
+                    lines.append(f"- {lim}")
+                lines.append("")
+
+            # Load all document chunks
+            chunks = (
+                self.db.query(DocumentChunk)
+                .filter(DocumentChunk.reference_id == ref.id)
+                .order_by(DocumentChunk.chunk_index.asc())
+                .all()
+            )
+
+            if chunks:
+                lines.append("### Full Paper Text")
+                lines.append("(Extracted from PDF, ordered by page)")
+                total_chars = 0
+                # Derive char budget from model context window:
+                # ~4 chars per token, reserve 30% for system prompt + conversation + response
+                from app.services.discussion_ai.token_utils import get_context_limit
+                model_id = getattr(self, 'model', '') or getattr(self, '_model', '')
+                context_tokens = get_context_limit(model_id) if model_id else 28000
+                char_budget = int(context_tokens * 4 * 0.7)  # 70% of context for paper text
+                for chunk in chunks:
+                    if total_chars + len(chunk.chunk_text) > char_budget:
+                        lines.append(
+                            "\n[... remaining text truncated due to context limit. "
+                            "Do NOT ask the user to re-upload or share more pages — "
+                            "this is a system limitation. Answer from what you have.]"
+                        )
+                        break
+                    page = (chunk.chunk_metadata or {}).get("page", "")
+                    if page:
+                        lines.append(f"\n--- [Page {page}] ---")
+                    lines.append(chunk.chunk_text)
+                    total_chars += len(chunk.chunk_text)
+        else:
+            has_abstract = bool(ref.abstract)
+            available = "the abstract and metadata" if has_abstract else "only metadata (title, authors, year, DOI)"
+            lines.append(
+                f"**Note:** The full PDF for this paper has not been ingested yet. "
+                f"You have {available}. "
+                "If the user wants deeper analysis, suggest they upload and analyze the PDF first."
+            )
 
         return "\n".join(lines)
 

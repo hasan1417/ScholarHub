@@ -16,18 +16,13 @@ import {
   Sparkles,
   X,
   Bot,
-  FileText,
   BookOpen,
-  Calendar,
   Check,
   ChevronDown,
   ChevronRight,
-  FilePlus,
-  Pencil,
   Search,
-  Download,
-  MoreHorizontal,
   FolderOpen,
+  FlaskConical,
   Puzzle,
   Hash,
   CheckCircle,
@@ -35,9 +30,6 @@ import {
   Menu,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import { formatDistanceToNow } from 'date-fns'
 import { useProjectContext } from './ProjectLayout'
 import { useAuth } from '../../contexts/AuthContext'
 import {
@@ -61,7 +53,8 @@ import ChannelResourcePanel from '../../components/discussion/ChannelResourcePan
 import ChannelArtifactsPanel from '../../components/discussion/ChannelArtifactsPanel'
 import { DiscoveredPaper } from '../../components/discussion/DiscoveredPaperCard'
 import { DiscoveryQueuePanel } from '../../components/discussion/DiscoveryQueuePanel'
-import { ReferenceSearchResults, LibraryUpdateItem } from '../../components/discussion/ReferenceSearchResults'
+import { LibraryUpdateItem } from '../../components/discussion/ReferenceSearchResults'
+import { AssistantExchangeRenderer } from '../../components/discussion/AssistantExchangeRenderer'
 import { getProjectUrlId } from '../../utils/urlId'
 import { modelSupportsReasoning, useOpenRouterModels } from '../../components/discussion/ModelSelector'
 import { useOnboarding } from '../../contexts/OnboardingContext'
@@ -70,13 +63,12 @@ import ResourceScopePicker from '../../components/projects/ResourceScopePicker'
 import ChannelSettingsModal from '../../components/projects/ChannelSettingsModal'
 import {
   useAssistantChat,
-  buildCitationLookup,
-  formatAssistantMessage,
   type AssistantExchange,
   type ConversationItem,
 } from '../../hooks/useAssistantChat'
 import { useDiscoveryQueue } from '../../hooks/useDiscoveryQueue'
 import { useSuggestedActions } from '../../hooks/useSuggestedActions'
+import { useDeepResearch } from '../../hooks/useDeepResearch'
 
 const ASSISTANT_SCOPE_OPTIONS = [
   { id: 'transcripts', label: 'Transcripts' },
@@ -88,7 +80,9 @@ const ASSISTANT_SCOPE_OPTIONS = [
 const ProjectDiscussion = () => {
   const { toast } = useToast()
   const { project } = useProjectContext()
-  const { user } = useAuth()
+  const { user, subscription: subState } = useAuth()
+  const userTier = subState.subscription?.tier_id ?? 'free'
+  const canUseDeepResearch = userTier === 'pro' || userTier === 'byok'
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -139,11 +133,14 @@ const ProjectDiscussion = () => {
 
   const [openDialog, setOpenDialog] = useState<'resources' | 'artifacts' | 'discoveries' | null>(null)
   const [closedInlineResults, setClosedInlineResults] = useState<Set<string>>(new Set())
-  const [channelMenuOpen, setChannelMenuOpen] = useState(false)
   const [aiContextExpanded, setAiContextExpanded] = useState(false)
-  const channelMenuRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const [showArchivedChannels, setShowArchivedChannels] = useState(false)
+
+  // Deep research modal state
+  const [isDeepResearchModalOpen, setIsDeepResearchModalOpen] = useState(false)
+  const [deepResearchQuestion, setDeepResearchQuestion] = useState('')
+  const [deepResearchSelectedRefs, setDeepResearchSelectedRefs] = useState<Set<string>>(new Set())
 
   // Turn off reasoning when model doesn't support it
   useEffect(() => {
@@ -201,6 +198,7 @@ const ProjectDiscussion = () => {
 
   const {
     assistantHistory,
+    setAssistantHistory,
     assistantMutation,
     sendAssistantMessage,
     cancelAssistantRequest,
@@ -238,6 +236,14 @@ const ProjectDiscussion = () => {
   })
 
   const {
+    startDeepResearch,
+  } = useDeepResearch({
+    projectId: project.id,
+    activeChannelId,
+    setAssistantHistory,
+  })
+
+  const {
     paperCreationDialog,
     setPaperCreationDialog,
     paperFormData,
@@ -257,6 +263,28 @@ const ProjectDiscussion = () => {
     activeChannelId,
     markActionApplied,
   })
+
+  // ========== DEEP RESEARCH ==========
+
+  const handleOpenDeepResearch = useCallback(() => {
+    setDeepResearchQuestion('')
+    setDeepResearchSelectedRefs(new Set())
+    setIsDeepResearchModalOpen(true)
+  }, [])
+
+  const handleStartDeepResearch = useCallback(() => {
+    if (!deepResearchQuestion.trim()) return
+    const id = crypto.randomUUID()
+    startDeepResearch(
+      deepResearchQuestion.trim(),
+      '',
+      Array.from(deepResearchSelectedRefs),
+      id,
+    )
+    setIsDeepResearchModalOpen(false)
+    setDeepResearchQuestion('')
+    setDeepResearchSelectedRefs(new Set())
+  }, [deepResearchQuestion, deepResearchSelectedRefs, startDeepResearch])
 
   // ========== AUTO SCROLL ==========
 
@@ -401,7 +429,7 @@ const ProjectDiscussion = () => {
       return response.data.references
     },
     staleTime: 60000,
-    enabled: isCreateChannelModalOpen || isChannelSettingsOpen,
+    enabled: isCreateChannelModalOpen || isChannelSettingsOpen || isDeepResearchModalOpen,
   })
 
   const availableMeetingsQuery = useQuery({
@@ -747,17 +775,6 @@ const ProjectDiscussion = () => {
     }
   }, [assistantHistory, markActionApplied, activeChannelId, setReferenceSearchResults, setDiscoveryQueue, dismissedNotificationChannels])
 
-  // ========== CLOSE CHANNEL MENU ON CLICK OUTSIDE ==========
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (channelMenuRef.current && !channelMenuRef.current.contains(event.target as Node)) {
-        setChannelMenuOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -1020,235 +1037,24 @@ const ProjectDiscussion = () => {
         {conversationItems.map((item) => {
           if (item.kind === 'assistant') {
             const { exchange } = item
-            const citationLookup = buildCitationLookup(exchange.response.citations)
-            const formattedMessage = formatAssistantMessage(exchange.response.message, citationLookup)
-            const askedLabel = formatDistanceToNow(exchange.createdAt, { addSuffix: true })
-            const answerLabel = exchange.completedAt
-              ? formatDistanceToNow(exchange.completedAt, { addSuffix: true })
-              : askedLabel
-            const displayedMessage = exchange.displayMessage || formattedMessage
-            const showTyping = !displayedMessage && exchange.status !== 'complete'
-            const isExecutingTools = displayedMessage && exchange.isWaitingForTools && exchange.status !== 'complete'
-            const authorLabel = resolveAuthorLabel(exchange.author)
-            const avatarText = authorLabel.trim().charAt(0).toUpperCase() || 'U'
-            const modelName = exchange.model
-              ? openrouterModels.find((m) => m.id === exchange.model)?.name || exchange.model
-              : currentModelInfo.name
-
-            const promptBubbleClass = 'inline-block max-w-full sm:max-w-fit rounded-xl sm:rounded-2xl bg-purple-50/70 px-3 py-1.5 sm:px-4 sm:py-2 shadow-sm ring-2 ring-purple-200 transition dark:bg-purple-500/15 dark:ring-purple-400/40 dark:shadow-purple-900/30'
-            const responseBubbleClass = 'inline-block max-w-full sm:max-w-fit rounded-xl sm:rounded-2xl bg-white px-3 py-1.5 sm:px-4 sm:py-2 transition dark:bg-slate-800/70 dark:ring-1 dark:ring-slate-700'
-
             return (
-              <div key={exchange.id} className="border-b border-gray-100 pb-3 sm:pb-4 last:border-b-0 dark:border-slate-700">
-                <div className="space-y-3 sm:space-y-4 pt-3 sm:pt-4">
-                  {/* User question */}
-                  <div className="flex items-start gap-2 sm:gap-3">
-                    <div className="flex h-6 w-6 sm:h-8 sm:w-8 flex-shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs sm:text-sm font-medium text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-200">
-                      {avatarText}
-                    </div>
-                    <div className="flex min-w-0 flex-1 flex-col">
-                      <div className="mb-1 flex flex-wrap items-center gap-1.5 sm:gap-2">
-                        <span className="text-xs sm:text-sm font-medium text-gray-900 dark:text-slate-100">{authorLabel}</span>
-                        <span className="text-[10px] sm:text-xs text-gray-500">{askedLabel}</span>
-                        <span className="inline-flex items-center gap-0.5 sm:gap-1 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[9px] sm:text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-200">
-                          <Bot className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                          {modelName}
-                        </span>
-                      </div>
-                      <div className={promptBubbleClass}>
-                        <p className="text-xs sm:text-sm text-gray-700 dark:text-slate-200 break-words">{exchange.question}</p>
-                      </div>
-                    </div>
-                  </div>
-                  {/* AI response */}
-                  <div className="flex items-start gap-2 sm:gap-3">
-                    <div className="flex h-6 w-6 sm:h-8 sm:w-8 flex-shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs sm:text-sm font-medium text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-200">
-                      AI
-                    </div>
-                    <div className="flex min-w-0 flex-1 flex-col">
-                      <div className="mb-1 flex flex-wrap items-center gap-1.5 sm:gap-2">
-                        <span className="text-xs sm:text-sm font-medium text-gray-900 dark:text-slate-100">Scholar AI</span>
-                        <span className="text-[10px] sm:text-xs text-gray-500">{answerLabel}</span>
-                        {exchange.response.reasoning_used && (
-                          <span className="inline-flex items-center gap-0.5 sm:gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] sm:text-[10px] font-medium text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-200">
-                            <Sparkles className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                            Reasoning
-                          </span>
-                        )}
-                      </div>
-                      <div className={responseBubbleClass}>
-                        {showTyping ? (
-                          <div className="space-y-3">
-                            <div className="flex items-center gap-3">
-                              <div className="flex items-center gap-2.5 text-sm font-medium text-indigo-600 dark:text-indigo-300">
-                                <div className="relative">
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                </div>
-                                <span>{exchange.statusMessage || 'Thinking'}...</span>
-                              </div>
-                              <button
-                                onClick={cancelAssistantRequest}
-                                className="ml-auto flex h-6 w-6 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
-                                title="Cancel"
-                              >
-                                <X className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <div className="h-1 w-1 animate-pulse rounded-full bg-indigo-400 dark:bg-indigo-500" style={{ animationDelay: '0ms' }} />
-                              <div className="h-1 w-1 animate-pulse rounded-full bg-indigo-400 dark:bg-indigo-500" style={{ animationDelay: '150ms' }} />
-                              <div className="h-1 w-1 animate-pulse rounded-full bg-indigo-400 dark:bg-indigo-500" style={{ animationDelay: '300ms' }} />
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="prose prose-sm max-w-none text-gray-900 dark:prose-invert prose-headings:font-semibold prose-headings:text-gray-900 dark:prose-headings:text-slate-100 prose-h2:text-base prose-h3:text-sm prose-h4:text-sm prose-p:leading-relaxed prose-p:my-1.5 prose-strong:text-gray-900 dark:prose-strong:text-white prose-strong:font-semibold prose-code:rounded prose-code:bg-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:text-indigo-700 prose-code:before:content-none prose-code:after:content-none dark:prose-code:bg-slate-700 dark:prose-code:text-indigo-300 prose-blockquote:border-indigo-300 prose-blockquote:text-gray-600 dark:prose-blockquote:border-indigo-500 dark:prose-blockquote:text-slate-300 prose-li:marker:text-gray-400 prose-a:text-indigo-600 dark:prose-a:text-indigo-400 prose-a:no-underline hover:prose-a:underline">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                              {displayedMessage}
-                            </ReactMarkdown>
-                          </div>
-                        )}
-                        {isExecutingTools && (
-                          <div className="mt-3 flex items-center gap-2 text-sm text-indigo-600 dark:text-indigo-400">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            <span>{exchange.statusMessage}...</span>
-                          </div>
-                        )}
-                      </div>
-                      {/* Citations */}
-                      {!showTyping && exchange.response.citations.length > 0 && (
-                        <div className="mt-2 sm:mt-3 space-y-1 sm:space-y-1.5">
-                          <p className="text-[10px] sm:text-xs font-medium text-slate-500 dark:text-slate-400">Sources Used:</p>
-                          <div className="flex flex-wrap gap-1.5 sm:gap-2">
-                            {exchange.response.citations.map((citation) => {
-                              const getResourceIcon = (resourceType?: string) => {
-                                switch (resourceType) {
-                                  case 'paper': return <FileText className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-blue-500" />
-                                  case 'reference': return <BookOpen className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-emerald-500" />
-                                  case 'meeting': return <Calendar className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-purple-500" />
-                                  default: return <FileText className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-slate-400" />
-                                }
-                              }
-                              return (
-                                <div
-                                  key={`${exchange.id}-${citation.origin}-${citation.origin_id}`}
-                                  className="inline-flex items-center gap-1 sm:gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-1 sm:px-2.5 sm:py-1.5 text-[10px] sm:text-xs dark:border-slate-700 dark:bg-slate-800"
-                                >
-                                  {getResourceIcon(citation.resource_type ?? undefined)}
-                                  <span className="font-medium text-slate-700 dark:text-slate-200 truncate max-w-[100px] sm:max-w-none">
-                                    {citation.label}
-                                  </span>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      )}
-                      {/* Paper created/updated actions */}
-                      {!showTyping && exchange.response.suggested_actions?.some(a => a.action_type === 'paper_created' || a.action_type === 'paper_updated') && (
-                        <div className="mt-2 sm:mt-3 flex flex-wrap gap-1.5 sm:gap-2">
-                          {exchange.response.suggested_actions
-                            .filter(a => a.action_type === 'paper_created' || a.action_type === 'paper_updated')
-                            .map((action, idx) => {
-                              const urlId = action.payload?.url_id || action.payload?.paper_id
-                              return (
-                                <button
-                                  key={idx}
-                                  onClick={() => navigateToPaper(urlId)}
-                                  className="inline-flex items-center gap-1.5 sm:gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm font-medium text-emerald-700 hover:bg-emerald-100 dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20 transition-colors"
-                                >
-                                  <FileText className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-600 dark:text-emerald-400" />
-                                  View Paper
-                                </button>
-                              )
-                            })}
-                        </div>
-                      )}
-                      {/* Suggested actions */}
-                      {!showTyping && exchange.response.suggested_actions && exchange.response.suggested_actions.filter(a =>
-                        a.action_type !== 'paper_created' &&
-                        a.action_type !== 'paper_updated' &&
-                        a.action_type !== 'library_update' &&
-                        a.action_type !== 'search_results'
-                      ).length > 0 && (
-                        <div className="mt-2 space-y-1">
-                          <p className="text-[10px] sm:text-[11px] uppercase tracking-wide text-gray-400">Suggested actions</p>
-                          <div className="flex flex-wrap gap-1.5 sm:gap-2">
-                            {exchange.response.suggested_actions.filter(a =>
-                              a.action_type !== 'paper_created' &&
-                              a.action_type !== 'paper_updated' &&
-                              a.action_type !== 'library_update' &&
-                              a.action_type !== 'search_results'
-                            ).map((action, idx) => {
-                              const actionKey = `${exchange.id}:${idx}`
-                              const applied = exchange.appliedActions.includes(actionKey)
-                              const isPending = paperActionMutation.isPending || searchReferencesMutation.isPending
-                              const getActionIcon = () => {
-                                if (applied) return <Check className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                                switch (action.action_type) {
-                                  case 'create_paper': return <FilePlus className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                                  case 'edit_paper': return <Pencil className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                                  case 'search_references': return <Search className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                                  case 'artifact_created': return <Download className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                                  default: return <Sparkles className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                                }
-                              }
-                              return (
-                                <button
-                                  key={actionKey}
-                                  type="button"
-                                  onClick={() => handleSuggestedAction(exchange, action, idx)}
-                                  disabled={applied || isPending}
-                                  className={`inline-flex items-center gap-1 sm:gap-1.5 rounded-full border px-2 py-0.5 sm:px-3 sm:py-1 text-[10px] sm:text-xs font-medium transition ${applied ? 'border-emerald-300 bg-emerald-50 text-emerald-600 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-200' : 'border-indigo-200 bg-white text-indigo-600 hover:bg-indigo-50 dark:border-indigo-400/40 dark:bg-slate-800/70 dark:text-indigo-200 dark:hover:bg-indigo-500/10'}`}
-                                >
-                                  {getActionIcon()}
-                                  <span className="truncate max-w-[80px] sm:max-w-none">{applied ? 'Applied' : action.summary}</span>
-                                </button>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      )}
-                      {/* Model info */}
-                      {!showTyping && (
-                        <div className="mt-1.5 sm:mt-2 flex flex-wrap items-center gap-2 sm:gap-3 text-[9px] sm:text-[11px] text-gray-400 dark:text-slate-500">
-                          <span>Model: {modelName}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                {/* Inline paper search results */}
-                {!showTyping && (() => {
-                  const searchAction = exchange.response.suggested_actions?.find(
-                    a => a.action_type === 'search_results'
-                  )
-                  if (!searchAction) return null
-                  const payload = searchAction.payload as {
-                    query?: string
-                    papers?: DiscoveredPaper[]
-                    search_id?: string
-                  } | undefined
-                  const papers = payload?.papers || []
-                  const query = payload?.query || ''
-                  const searchId = payload?.search_id
-                  if (papers.length === 0 && exchange.status === 'complete') return null
-                  if (closedInlineResults.has(exchange.id)) return null
-                  const externalUpdates = searchId ? libraryUpdatesBySearchId[searchId] : undefined
-                  return (
-                    <div className="ml-8 sm:ml-11">
-                      <ReferenceSearchResults
-                        papers={papers}
-                        query={query}
-                        projectId={project.id}
-                        onClose={() => setClosedInlineResults(prev => new Set([...prev, exchange.id]))}
-                        isSearching={exchange.status !== 'complete'}
-                        externalUpdates={externalUpdates}
-                        onDismissPaper={handleDismissPaper}
-                      />
-                    </div>
-                  )
-                })()}
-              </div>
+              <AssistantExchangeRenderer
+                key={exchange.id}
+                exchange={exchange}
+                openrouterModels={openrouterModels}
+                currentModelInfo={currentModelInfo}
+                authorLabel={resolveAuthorLabel(exchange.author)}
+                onCancelRequest={cancelAssistantRequest}
+                onSuggestedAction={handleSuggestedAction}
+                onNavigateToPaper={navigateToPaper}
+                paperActionPending={paperActionMutation.isPending}
+                searchReferencesPending={searchReferencesMutation.isPending}
+                projectId={project.id}
+                closedInlineResults={closedInlineResults}
+                onCloseInlineResult={(id) => setClosedInlineResults(prev => new Set([...prev, id]))}
+                libraryUpdatesBySearchId={libraryUpdatesBySearchId}
+                onDismissPaper={handleDismissPaper}
+              />
             )
           }
 
@@ -1379,69 +1185,46 @@ const ProjectDiscussion = () => {
               </div>
 
               {activeChannel && (
-                <div className="relative" ref={channelMenuRef}>
+                <div className="flex items-center gap-1">
+                  {activeChannel.scope && (
+                    <button
+                      type="button"
+                      onClick={() => setOpenDialog('resources')}
+                      className="inline-flex items-center gap-1 rounded-lg border border-gray-200 p-1.5 sm:px-2.5 sm:py-1.5 text-gray-600 transition hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                      title="Channel resources"
+                    >
+                      <FolderOpen className="h-3.5 w-3.5 text-indigo-500" />
+                      <span className="hidden sm:inline text-xs">Resources</span>
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={() => setChannelMenuOpen(!channelMenuOpen)}
-                    className="inline-flex items-center gap-1 rounded-lg border border-gray-200 p-1.5 sm:p-2 text-gray-600 transition hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                    onClick={() => setOpenDialog('artifacts')}
+                    className="inline-flex items-center gap-1 rounded-lg border border-gray-200 p-1.5 sm:px-2.5 sm:py-1.5 text-gray-600 transition hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                    title="Artifacts"
                   >
-                    <MoreHorizontal className="h-4 w-4" />
+                    <Puzzle className="h-3.5 w-3.5 text-emerald-500" />
+                    <span className="hidden sm:inline text-xs">Artifacts</span>
                     {artifactsCount > 0 && (
-                      <span className="ml-0.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold text-white">
+                      <span className="inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold text-white">
                         {artifactsCount}
                       </span>
                     )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOpenDialog('discoveries')}
+                    className="inline-flex items-center gap-1 rounded-lg border border-gray-200 p-1.5 sm:px-2.5 sm:py-1.5 text-gray-600 transition hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                    title="Discoveries"
+                  >
+                    <Search className="h-3.5 w-3.5 text-amber-500" />
+                    <span className="hidden sm:inline text-xs">Discoveries</span>
                     {!isChannelSwitching && discoveryQueue.papers.length > 0 && (
-                      <span className="ml-0.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-white">
+                      <span className="inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-white">
                         {discoveryQueue.papers.length}
                       </span>
                     )}
                   </button>
-
-                  {channelMenuOpen && (
-                    <div className="absolute right-0 top-full z-50 mt-1 w-44 sm:w-48 rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
-                      {activeChannel.scope && (
-                        <button
-                          type="button"
-                          onClick={() => { setOpenDialog('resources'); setChannelMenuOpen(false) }}
-                          className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 transition hover:bg-gray-50 dark:text-slate-200 dark:hover:bg-slate-700"
-                        >
-                          <FolderOpen className="h-4 w-4 text-indigo-500" />
-                          Channel resources
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => { setOpenDialog('artifacts'); setChannelMenuOpen(false) }}
-                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-sm text-gray-700 transition hover:bg-gray-50 dark:text-slate-200 dark:hover:bg-slate-700"
-                      >
-                        <div className="flex items-center gap-2">
-                          <Puzzle className="h-4 w-4 text-emerald-500" />
-                          Artifacts
-                        </div>
-                        {artifactsCount > 0 && (
-                          <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[10px] font-semibold text-white">
-                            {artifactsCount}
-                          </span>
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setOpenDialog('discoveries'); setChannelMenuOpen(false) }}
-                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-sm text-gray-700 transition hover:bg-gray-50 dark:text-slate-200 dark:hover:bg-slate-700"
-                      >
-                        <div className="flex items-center gap-2">
-                          <Search className="h-4 w-4 text-amber-500" />
-                          Discoveries
-                        </div>
-                        {!isChannelSwitching && discoveryQueue.papers.length > 0 && (
-                          <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500 px-1.5 text-[10px] font-semibold text-white">
-                            {discoveryQueue.papers.length}
-                          </span>
-                        )}
-                      </button>
-                    </div>
-                  )}
                 </div>
               )}
             </div>
@@ -1703,6 +1486,7 @@ const ProjectDiscussion = () => {
                 reasoningPending={assistantMutation.isPending}
                 reasoningSupported={discussionEnabled && hasAnyApiKey && modelSupportsReasoning(selectedModel, openrouterModels)}
                 aiGenerating={assistantMutation.isPending}
+                onDeepResearch={discussionEnabled && hasAnyApiKey && canUseDeepResearch && activeChannelId ? handleOpenDeepResearch : undefined}
               />
             </>
           ) : (
@@ -2106,6 +1890,158 @@ const ProjectDiscussion = () => {
           meetings={availableMeetingsQuery.data || []}
           isLoadingResources={availablePapersQuery.isLoading || availableReferencesQuery.isLoading || availableMeetingsQuery.isLoading}
         />
+      )}
+
+      {/* Deep Research Modal */}
+      {isDeepResearchModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-gray-900/40 backdrop-blur-sm dark:bg-black/70">
+          <div className="w-full sm:max-w-md max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white p-4 sm:p-6 shadow-xl transition-colors dark:bg-slate-900/90">
+            <div className="flex items-center justify-between mb-3 sm:mb-4">
+              <div className="flex items-center gap-2">
+                <FlaskConical className="h-5 w-5 text-indigo-500" />
+                <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">Deep Research</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsDeepResearchModalOpen(false)}
+                className="rounded-full p-1 hover:bg-gray-100 dark:hover:bg-slate-800"
+              >
+                <X className="h-5 w-5 text-gray-500" />
+              </button>
+            </div>
+
+            <p className="mb-4 text-xs sm:text-sm text-gray-500 dark:text-slate-400">
+              Searches the web comprehensively and synthesises a cited report. Typically takes 5–30 minutes.
+            </p>
+
+            {/* Research question */}
+            <div className="mb-4">
+              <label className="text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-slate-300">
+                Research question
+              </label>
+              <textarea
+                value={deepResearchQuestion}
+                onChange={(e) => setDeepResearchQuestion(e.target.value)}
+                rows={3}
+                maxLength={5000}
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
+                placeholder="e.g. What are the latest approaches to transformer-based protein folding?"
+                autoFocus
+              />
+            </div>
+
+            {/* Paper selection */}
+            <div className="mb-4">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-slate-300">
+                  Library context
+                </label>
+                {(availableReferencesQuery.data || []).length > 0 && (
+                  <div className="flex gap-2 text-xs text-indigo-600 dark:text-indigo-400">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const allIds = (availableReferencesQuery.data || [])
+                          .filter(r => r.reference_id)
+                          .map(r => r.reference_id)
+                        setDeepResearchSelectedRefs(new Set(allIds))
+                      }}
+                    >
+                      Select all
+                    </button>
+                    <span className="text-gray-300 dark:text-slate-600">|</span>
+                    <button type="button" onClick={() => setDeepResearchSelectedRefs(new Set())}>
+                      Clear
+                    </button>
+                  </div>
+                )}
+              </div>
+              <p className="mt-0.5 mb-2 text-xs text-gray-500 dark:text-slate-400">
+                Choose which references to include as context. Leave empty to skip library context.
+              </p>
+
+              {availableReferencesQuery.isLoading ? (
+                <div className="flex items-center gap-2 py-3 text-sm text-gray-500">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading references…
+                </div>
+              ) : (availableReferencesQuery.data || []).length === 0 ? (
+                <p className="py-2 text-xs text-gray-400 dark:text-slate-500">No approved references in this project yet.</p>
+              ) : (
+                <div className="max-h-52 overflow-y-auto rounded-lg border border-gray-200 dark:border-slate-700">
+                  <div className="divide-y divide-gray-100 dark:divide-slate-700">
+                    {(availableReferencesQuery.data || []).map((ref) => {
+                      const isSelected = deepResearchSelectedRefs.has(ref.reference_id)
+                      return (
+                        <label
+                          key={ref.reference_id}
+                          className="flex cursor-pointer items-start gap-2.5 px-3 py-2 hover:bg-gray-50 dark:hover:bg-slate-800"
+                        >
+                          <div className={`mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border ${
+                            isSelected
+                              ? 'border-indigo-500 bg-indigo-500'
+                              : 'border-gray-300 dark:border-slate-600'
+                          }`}>
+                            {isSelected && <Check className="h-3 w-3 text-white" />}
+                          </div>
+                          <input
+                            type="checkbox"
+                            className="sr-only"
+                            checked={isSelected}
+                            onChange={() =>
+                              setDeepResearchSelectedRefs(prev => {
+                                const next = new Set(prev)
+                                next.has(ref.reference_id) ? next.delete(ref.reference_id) : next.add(ref.reference_id)
+                                return next
+                              })
+                            }
+                          />
+                          <div className="min-w-0">
+                            <p className="truncate text-sm text-gray-700 dark:text-slate-300">
+                              {ref.reference?.title || 'Untitled Reference'}
+                            </p>
+                            {(ref.reference?.authors?.length ?? 0) > 0 && (
+                              <p className="truncate text-xs text-gray-400 dark:text-slate-500">
+                                {ref.reference!.authors!.slice(0, 2).join(', ')}
+                                {ref.reference!.authors!.length > 2 ? ' et al.' : ''}
+                                {ref.reference?.year ? ` · ${ref.reference.year}` : ''}
+                              </p>
+                            )}
+                          </div>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {deepResearchSelectedRefs.size > 0 && (
+                <p className="mt-1.5 text-xs text-indigo-600 dark:text-indigo-400">
+                  {deepResearchSelectedRefs.size} reference{deepResearchSelectedRefs.size !== 1 ? 's' : ''} selected
+                </p>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setIsDeepResearchModalOpen(false)}
+                className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleStartDeepResearch}
+                disabled={!deepResearchQuestion.trim()}
+                className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300 dark:disabled:bg-indigo-500/40"
+              >
+                <FlaskConical className="h-4 w-4" />
+                Start research
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {showWelcome && createPortal(

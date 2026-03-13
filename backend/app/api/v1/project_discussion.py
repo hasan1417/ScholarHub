@@ -7,6 +7,11 @@ from uuid import UUID, uuid4
 import asyncio
 import json
 import logging
+import time
+
+import httpx
+import openai
+from pydantic import BaseModel, Field
 
 from fastapi import (
     APIRouter,
@@ -514,7 +519,10 @@ def list_discussion_channels(
     ensure_project_member(db, project, current_user)
     _ensure_default_channel(db, project)
 
-    channel_query = db.query(ProjectDiscussionChannel).filter(ProjectDiscussionChannel.project_id == project.id)
+    channel_query = db.query(ProjectDiscussionChannel).filter(
+        ProjectDiscussionChannel.project_id == project.id,
+        ProjectDiscussionChannel.is_paper_chat.is_(False),
+    )
     if not include_archived:
         channel_query = channel_query.filter(ProjectDiscussionChannel.is_archived.is_(False))
 
@@ -1017,7 +1025,34 @@ async def invoke_discussion_assistant(
         if search_results_list:
             logger.info(f"AI Assistant - Loaded {len(search_results_list)} papers from server cache (search_id={payload.recent_search_id})")
         else:
-            logger.warning(f"AI Assistant - No cached results for search_id={payload.recent_search_id}, ignoring client data")
+            # Redis cache expired — fall back to DB exchange records (server-generated, trusted)
+            try:
+                past_exchange = (
+                    db.query(ProjectDiscussionAssistantExchange)
+                    .filter(
+                        ProjectDiscussionAssistantExchange.project_id == project.id,
+                        ProjectDiscussionAssistantExchange.channel_id == channel.id,
+                    )
+                    .order_by(ProjectDiscussionAssistantExchange.created_at.desc())
+                    .limit(10)
+                    .all()
+                )
+                for ex in past_exchange:
+                    resp = ex.response or {}
+                    for action in resp.get("suggested_actions", []):
+                        if action.get("action_type") == "search_results":
+                            p = action.get("payload", {})
+                            if p.get("search_id") == payload.recent_search_id and p.get("papers"):
+                                search_results_list = p["papers"]
+                                logger.info(f"AI Assistant - Recovered {len(search_results_list)} papers from DB exchange (search_id={payload.recent_search_id})")
+                                break
+                    if search_results_list:
+                        break
+            except Exception as e:
+                logger.warning(f"AI Assistant - DB fallback for search results failed: {e}")
+
+            if not search_results_list:
+                logger.warning(f"AI Assistant - No cached results for search_id={payload.recent_search_id}")
 
     if payload.recent_search_results and not search_results_list:
         logger.info(f"AI Assistant - Ignoring {len(payload.recent_search_results)} client-provided search results (not in server cache)")
@@ -1491,3 +1526,308 @@ def delete_discussion_task(
     db.commit()
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# Deep Research
+# ---------------------------------------------------------------------------
+
+class DeepResearchRequest(BaseModel):
+    question: str = Field(..., min_length=1, max_length=5000)
+    context_summary: str = Field("", max_length=2000)
+    reference_ids: list[str] = Field(default_factory=list)
+
+
+@router.post("/projects/{project_id}/discussion-or/channels/{channel_id}/deep-research")
+async def run_deep_research(
+    project_id: str,
+    channel_id: UUID,
+    payload: DeepResearchRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_verified_user),
+):
+    """Launch a deep research job that streams SSE progress and a final report."""
+
+    # --- Validate project / channel / permissions ---
+    project = get_project_or_404(db, project_id)
+    ensure_project_member(db, project, current_user)
+    channel = _get_channel_or_404(db, project, channel_id)
+
+    discussion_settings = project.discussion_settings or {"enabled": True}
+    if not discussion_settings.get("enabled", True):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Discussion AI is disabled for this project",
+        )
+
+    # --- Resolve OpenRouter API key ---
+    use_owner_key_for_team = bool(discussion_settings.get("use_owner_key_for_team", False))
+    resolution = resolve_openrouter_key_for_project(
+        db, current_user, project, use_owner_key_for_team=use_owner_key_for_team,
+    )
+    api_key_to_use = resolution.get("api_key")
+
+    if resolution.get("error_status"):
+        raise HTTPException(
+            status_code=int(resolution["error_status"]),
+            detail={
+                "error": "no_api_key" if resolution["error_status"] == 402 else "invalid_api_key",
+                "message": resolution.get("error_detail") or "OpenRouter API key issue.",
+            },
+        )
+    if not api_key_to_use:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "error": "no_api_key",
+                "message": "No API key available. Add your OpenRouter key or ask the project owner to enable key sharing.",
+            },
+        )
+
+    # --- Credit limit check ---
+    from app.services.subscription_service import get_model_credit_cost
+    credit_cost = get_model_credit_cost("openai/o4-mini-deep-research")
+    allowed, current_usage, limit = SubscriptionService.check_feature_limit(
+        db, current_user.id, "discussion_ai_calls"
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "error": "limit_exceeded",
+                "feature": "discussion_ai_calls",
+                "current": current_usage,
+                "limit": limit,
+                "message": f"You have reached your discussion AI credit limit ({current_usage}/{limit} credits this month). Upgrade to Pro for more credits.",
+            },
+        )
+
+    # --- Create exchange with status="processing" ---
+    exchange_id = str(uuid4())
+    exchange_created_at = datetime.utcnow().isoformat() + "Z"
+    display_name = _display_name_for_user(current_user)
+    author_info = {
+        "id": str(current_user.id),
+        "name": {
+            "first": current_user.first_name or "",
+            "last": current_user.last_name or "",
+            "display": display_name,
+        },
+    }
+    deep_research_model = "openai/o4-mini-deep-research"
+
+    initial_response = {
+        "message": "",
+        "citations": [],
+        "reasoning_used": False,
+        "model": deep_research_model,
+        "usage": None,
+        "suggested_actions": [],
+    }
+    await asyncio.to_thread(
+        _persist_assistant_exchange,
+        project.id, channel.id, current_user.id, exchange_id,
+        f"[Deep Research] {payload.question}",
+        initial_response, exchange_created_at, {}, "processing",
+        "Starting deep research...",
+    )
+    await _broadcast_discussion_event(
+        project.id, channel.id, "assistant_processing",
+        {"exchange": {
+            "id": exchange_id,
+            "question": f"[Deep Research] {payload.question}",
+            "status": "processing",
+            "status_message": "Starting deep research...",
+            "created_at": exchange_created_at,
+            "author": author_info,
+        }},
+    )
+
+    # --- Load library context ---
+    def _load_library_context():
+        q = (
+            db.query(Reference)
+            .join(ProjectReference, ProjectReference.reference_id == Reference.id)
+            .filter(ProjectReference.project_id == project.id)
+        )
+        if payload.reference_ids:
+            q = q.filter(ProjectReference.reference_id.in_(payload.reference_ids))
+        else:
+            q = q.limit(50)
+        refs = q.all()
+        parts: list[str] = []
+        for ref in refs:
+            lines = [f"- {ref.title}"]
+            if ref.abstract:
+                lines.append(f"  Abstract: {ref.abstract[:500]}")
+            if ref.summary:
+                lines.append(f"  Summary: {ref.summary[:500]}")
+            if ref.key_findings:
+                lines.append(f"  Key findings: {'; '.join(ref.key_findings[:5])}")
+            parts.append("\n".join(lines))
+        return "\n".join(parts)
+
+    library_context = await asyncio.to_thread(_load_library_context)
+
+    # --- Build prompt ---
+    system_content = (
+        "You are a deep research assistant for an academic project. "
+        "The researcher has these papers in their library:\n"
+        f"{library_context}\n\n"
+        "Use this to understand what they already know. Search the web for additional sources. "
+        "Provide a comprehensive report with: "
+        "1) Key findings by theme "
+        "2) Inline citations with URLs "
+        "3) Areas of consensus and debate "
+        "4) Gaps and future directions "
+        "5) Relevance to existing library"
+    )
+    user_content = payload.question
+    if payload.context_summary:
+        user_content += f"\n\nAdditional context: {payload.context_summary}"
+
+    messages = [
+        {"role": "system", "content": system_content},
+        {"role": "user", "content": user_content},
+    ]
+
+    # --- Capture closure values ---
+    proj_id = project.id
+    chan_id = channel.id
+    user_id = current_user.id
+    question_text = f"[Deep Research] {payload.question}"
+
+    async def stream_sse():
+        accumulated = ""
+        first_token = True
+        last_keepalive = time.monotonic()
+
+        try:
+            client = openai.AsyncOpenAI(
+                api_key=api_key_to_use,
+                base_url="https://openrouter.ai/api/v1",
+                timeout=httpx.Timeout(1800.0, connect=30.0),
+                default_headers={
+                    "HTTP-Referer": "https://scholarhub.space",
+                    "X-Title": "ScholarHub",
+                },
+            )
+            stream = await client.chat.completions.create(
+                model=deep_research_model,
+                messages=messages,
+                stream=True,
+            )
+
+            async for chunk in stream:
+                # Keepalive every 15s
+                now = time.monotonic()
+                if now - last_keepalive >= 15:
+                    yield "data: " + json.dumps({"type": "keepalive"}) + "\n\n"
+                    last_keepalive = now
+
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if not delta or not delta.content:
+                    continue
+
+                token = delta.content
+                if first_token:
+                    yield "data: " + json.dumps({"type": "status", "message": "Generating report..."}) + "\n\n"
+                    first_token = False
+
+                accumulated += token
+                yield "data: " + json.dumps({"type": "token", "content": token}) + "\n\n"
+
+            # --- Stream finished: build result ---
+            response_dict = {
+                "message": accumulated,
+                "citations": [],
+                "reasoning_used": False,
+                "model": deep_research_model,
+                "usage": None,
+                "suggested_actions": [],
+            }
+            yield "data: " + json.dumps({"type": "result", "payload": response_dict}) + "\n\n"
+
+            # Fire-and-forget persist + broadcast
+            async def _post_stream_work():
+                try:
+                    await asyncio.to_thread(
+                        _persist_assistant_exchange,
+                        proj_id, chan_id, user_id, exchange_id,
+                        question_text, response_dict, exchange_created_at,
+                        {}, "completed",
+                    )
+                    await _broadcast_discussion_event(
+                        proj_id, chan_id, "assistant_reply",
+                        {"exchange": {
+                            "id": exchange_id,
+                            "question": question_text,
+                            "response": response_dict,
+                            "created_at": exchange_created_at,
+                            "author": author_info,
+                            "status": "completed",
+                        }},
+                    )
+                    await asyncio.to_thread(
+                        SubscriptionService.increment_usage,
+                        db, user_id, "discussion_ai_calls", credit_cost,
+                    )
+                except Exception as e:
+                    logger.error(f"Deep research post-stream work failed for exchange {exchange_id}: {e}")
+
+            asyncio.create_task(_post_stream_work())
+
+        except GeneratorExit:
+            logger.info(f"Client disconnected during deep research for exchange {exchange_id}")
+            try:
+                if accumulated:
+                    # Partial results are still valuable
+                    partial_response = {
+                        "message": accumulated,
+                        "citations": [],
+                        "reasoning_used": False,
+                        "model": deep_research_model,
+                        "usage": None,
+                        "suggested_actions": [],
+                    }
+                    _persist_assistant_exchange(
+                        proj_id, chan_id, user_id, exchange_id,
+                        question_text, partial_response, exchange_created_at,
+                        {}, "completed", "Partial results (client disconnected)",
+                    )
+                else:
+                    _persist_assistant_exchange(
+                        proj_id, chan_id, user_id, exchange_id,
+                        question_text,
+                        {"message": "Deep research interrupted before results were available. Please try again.",
+                         "citations": [], "suggested_actions": []},
+                        exchange_created_at, {}, "failed",
+                        "Client disconnected",
+                    )
+            except Exception:
+                logger.warning(f"Failed to persist exchange {exchange_id} after client disconnect")
+
+        except Exception as exc:
+            logger.exception("Deep research streaming error", exc_info=exc)
+            error_response = {
+                "message": "An error occurred during deep research.",
+                "citations": [],
+                "suggested_actions": [],
+            }
+            await asyncio.to_thread(
+                _persist_assistant_exchange,
+                proj_id, chan_id, user_id, exchange_id,
+                question_text, error_response, exchange_created_at,
+                {}, "failed", "Deep research failed. Please try again.",
+            )
+            await _broadcast_discussion_event(
+                proj_id, chan_id, "assistant_failed",
+                {"exchange_id": exchange_id, "error": "Deep research failed"},
+            )
+            yield "data: " + json.dumps({"type": "error", "message": "Deep research failed"}) + "\n\n"
+
+    return StreamingResponse(
+        stream_sse(),
+        media_type="text/event-stream",
+        headers={"X-Exchange-Id": exchange_id},
+    )

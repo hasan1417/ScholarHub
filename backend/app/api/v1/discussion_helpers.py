@@ -228,6 +228,7 @@ def serialize_channel(
         description=channel.description,
         is_default=channel.is_default,
         is_archived=channel.is_archived,
+        is_paper_chat=getattr(channel, 'is_paper_chat', False),
         scope=scope_value,
         created_at=channel.created_at,
         updated_at=channel.updated_at,
@@ -427,7 +428,8 @@ def persist_assistant_exchange(
     try:
         try:
             exchange_uuid = UUID(exchange_id)
-        except Exception:
+        except (ValueError, TypeError, AttributeError):
+            logger.warning("Invalid exchange_id received for persistence; generating fallback UUID", extra={"exchange_id": exchange_id})
             exchange_uuid = uuid4()
 
         exchange = db.query(ProjectDiscussionAssistantExchange).filter_by(id=exchange_uuid).one_or_none()

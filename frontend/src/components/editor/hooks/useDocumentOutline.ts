@@ -28,11 +28,13 @@ const SECTION_RE = new RegExp(
   'g',
 )
 
+// Environments that appear as outline landmarks
+const ENV_RE = /\\begin\{(abstract|document)\}/g
+
 const LEVEL_MAP = new Map(SECTION_COMMANDS)
 
 export function parseOutline(doc: string): OutlineEntry[] {
   const entries: OutlineEntry[] = []
-  // Build a line offset lookup for fast line-number resolution
   const lineStarts: number[] = [0]
   for (let i = 0; i < doc.length; i++) {
     if (doc[i] === '\n') lineStarts.push(i + 1)
@@ -45,29 +47,40 @@ export function parseOutline(doc: string): OutlineEntry[] {
       if (lineStarts[mid] <= offset) lo = mid
       else hi = mid - 1
     }
-    return lo + 1 // 1-indexed
+    return lo + 1
+  }
+
+  const isCommented = (offset: number): boolean => {
+    const lineStart = lineStarts[getLine(offset) - 1]
+    return doc.slice(lineStart, offset).includes('%')
+  }
+
+  // Detect \begin{abstract} and \begin{document} as outline landmarks
+  ENV_RE.lastIndex = 0
+  let envMatch: RegExpExecArray | null
+  while ((envMatch = ENV_RE.exec(doc)) !== null) {
+    if (isCommented(envMatch.index)) continue
+    const envName = envMatch[1]
+    entries.push({
+      level: envName === 'document' ? 0 : 2,
+      title: envName.charAt(0).toUpperCase() + envName.slice(1),
+      line: getLine(envMatch.index),
+      from: envMatch.index,
+      command: `begin{${envName}}`,
+    })
   }
 
   SECTION_RE.lastIndex = 0
   let match: RegExpExecArray | null
   while ((match = SECTION_RE.exec(doc)) !== null) {
-    // Skip if inside a comment (check if line starts with %)
-    const lineStart = lineStarts[getLine(match.index) - 1]
-    const prefix = doc.slice(lineStart, match.index)
-    if (prefix.includes('%')) continue
-
+    if (isCommented(match.index)) continue
     const command = match[1]
     const level = LEVEL_MAP.get(command) ?? 2
     const title = match[2].trim()
-    entries.push({
-      level,
-      title,
-      line: getLine(match.index),
-      from: match.index,
-      command,
-    })
+    entries.push({ level, title, line: getLine(match.index), from: match.index, command })
   }
 
+  entries.sort((a, b) => a.from - b.from)
   return entries
 }
 

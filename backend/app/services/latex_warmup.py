@@ -22,7 +22,7 @@ WARMUP_SOURCE = textwrap.dedent(
     \date{\today}
     \maketitle
 
-    This is a short warmup document used to prime the \texttt{tectonic} cache.
+    This is a short warmup document used to prime the \texttt{TeX Live} cache.
 
     \section{Introduction}
     Consider the famous identity:
@@ -46,24 +46,19 @@ WARMUP_SOURCE = textwrap.dedent(
 ).strip()
 
 
-async def _run_tectonic(tex_dir: Path, tex_filename: str) -> int:
-    exe = which("tectonic")
+async def _run_latexmk(tex_dir: Path, tex_filename: str) -> int:
+    exe = which("latexmk")
     if not exe:
-        print("[latex-warmup] Skipping warmup: tectonic not found in PATH")
+        print("[latex-warmup] Skipping warmup: latexmk not found in PATH")
         return 0
 
-    # -Z continue-on-errors: continue past recoverable errors such as the
-    # "dehypht-x-2022-03-16.pat: Bad \patterns" hyphenation-cache mismatch.
     process = await asyncio.create_subprocess_exec(
         exe,
-        "-Z",
-        "continue-on-errors",
+        "-pdf",
+        "-interaction=nonstopmode",
+        "-synctex=1",
+        "-file-line-error",
         tex_filename,
-        "--outdir",
-        str(tex_dir),
-        "--keep-logs",
-        "--chatter",
-        "minimal",
         cwd=str(tex_dir),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
@@ -80,9 +75,9 @@ async def _run_tectonic(tex_dir: Path, tex_filename: str) -> int:
 
 
 async def warmup_latex_cache() -> None:
-    exe = which("tectonic")
+    exe = which("latexmk")
     if not exe:
-        print("[latex-warmup] Tectonic not installed; warmup skipped")
+        print("[latex-warmup] latexmk not installed; warmup skipped")
         return
 
     with tempfile.TemporaryDirectory(prefix="latex-warmup-") as tmpdir:
@@ -90,9 +85,9 @@ async def warmup_latex_cache() -> None:
         tex_path = tmp_path / "main.tex"
         tex_path.write_text(WARMUP_SOURCE, encoding="utf-8")
 
-        print("[latex-warmup] Running tectonic warmup pass…")
+        print("[latex-warmup] Running latexmk/pdflatex warmup pass…")
         try:
-            exit_code = await _run_tectonic(tmp_path, tex_path.name)
+            exit_code = await _run_latexmk(tmp_path, tex_path.name)
             if exit_code == 0:
                 print("[latex-warmup] Warmup completed successfully")
             else:

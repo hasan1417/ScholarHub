@@ -950,7 +950,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
         className="flex-1 min-h-0 flex flex-col p-0"
         style={fullBleed ? { } : { height: containerH }}
       >
-        <div className="relative flex-1">
+        <div className="relative flex-1 min-h-0 overflow-hidden">
           {showSyncOverlay && (
             <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-slate-100/95 text-slate-600 dark:bg-slate-900/95 dark:text-slate-300">
               <Loader2 className="h-5 w-5 animate-spin" />

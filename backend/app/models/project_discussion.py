@@ -41,6 +41,7 @@ class ProjectDiscussionChannel(Base):
     description = Column(Text)
     is_default = Column(Boolean, nullable=False, server_default=text("false"))
     is_archived = Column(Boolean, nullable=False, server_default=text("false"))
+    is_paper_chat = Column(Boolean, nullable=False, server_default=text("false"))
     # Scope configuration: null = project-wide (all resources), or array of types: ["papers", "references", "transcripts"]
     scope = Column(JSONB, nullable=True, server_default=text("NULL"))
     # AI Memory: stores session context for long conversations

@@ -23,7 +23,10 @@ export function useHistoryRestore({
   const handleRestoreFromHistory = useCallback((content: string, _snapshotId: string) => {
     if (realtimeDoc) {
       try {
-        const yText = realtimeDoc.getText('main')
+        // TODO: Only restores main.tex. Multi-file projects store other files
+      // as Y.Text('file:<name>.tex') but snapshots only capture main content.
+      // Extend when backend supports multi-file snapshots.
+      const yText = realtimeDoc.getText('main')
         // Use 'history-restore' origin so the track changes observer skips marking
         realtimeDoc.transact(() => {
           yText.delete(0, yText.length)

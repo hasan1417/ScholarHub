@@ -217,6 +217,54 @@ export function useDiscoveryQueue({
     }
   }, [currentIngestionStates, activeChannelId, ingestionUnverifiedChannels])
 
+  // Cross-reference discovery queue papers against the project library on load
+  const existingRefsQuery = useQuery({
+    queryKey: ['projectReferences', projectId],
+    queryFn: async () => {
+      const response = await projectReferencesAPI.list(projectId)
+      return response.data.references
+    },
+    staleTime: 30000,
+  })
+
+  useEffect(() => {
+    if (!existingRefsQuery.data || !activeChannelId) return
+    const queuePapers = discoveryQueueByChannel[activeChannelId]?.papers
+    if (!queuePapers || queuePapers.length === 0) return
+
+    // Build lookup maps from existing library references
+    const doiToRef = new Map<string, { id: string; pdfProcessed: boolean }>()
+    const titleToRef = new Map<string, { id: string; pdfProcessed: boolean }>()
+    for (const item of existingRefsQuery.data) {
+      const r = item.reference
+      if (!r?.id) continue
+      const info = { id: r.id, pdfProcessed: !!r.pdf_processed }
+      if (r.doi) doiToRef.set(r.doi.toLowerCase().trim(), info)
+      if (r.title) titleToRef.set(r.title.toLowerCase().trim(), info)
+    }
+
+    // Match papers against library
+    setIngestionStatesByChannel((prev) => {
+      const channelStates = { ...(prev[activeChannelId] || {}) }
+      let changed = false
+      for (const paper of queuePapers) {
+        if (channelStates[paper.id]?.referenceId) continue // already tracked
+        let ref: { id: string; pdfProcessed: boolean } | undefined
+        if (paper.doi) ref = doiToRef.get(paper.doi.toLowerCase().trim())
+        if (!ref && paper.title) ref = titleToRef.get(paper.title.toLowerCase().trim())
+        if (ref) {
+          channelStates[paper.id] = {
+            referenceId: ref.id,
+            status: ref.pdfProcessed ? 'success' : 'no_pdf',
+            isAdding: false,
+          }
+          changed = true
+        }
+      }
+      return changed ? { ...prev, [activeChannelId]: channelStates } : prev
+    })
+  }, [existingRefsQuery.data, activeChannelId, discoveryQueueByChannel])
+
   // Poll backend for fresh ingestion statuses
   const pendingReferenceIds = useMemo(() => {
     return Object.values(currentIngestionStates)

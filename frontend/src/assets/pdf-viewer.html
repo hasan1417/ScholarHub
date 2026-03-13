@@ -42,6 +42,7 @@
         let preRendering = false
         let ignoreResize = false
         let shrinkTimer = null
+        let userZoom = 1.0 // numeric zoom factor from parent
 
         async function loadUrl(url, seq) {
           try {
@@ -76,8 +77,8 @@
             // Keep existing canvases; we'll replace or append as needed
             while (scaler.firstChild) scaler.removeChild(scaler.firstChild)
           }
-          // Set a new base width (fit to current container)
-          baseWidth = Math.max(200, viewer.clientWidth - 16)
+          // Set a new base width (fit to current container, scaled by userZoom)
+          baseWidth = Math.max(200, (viewer.clientWidth - 16) * userZoom)
           maxSeenWidth = Math.max(maxSeenWidth, baseWidth)
           baseTotalHeight = 0
           for (let i = 1; i <= pdfDoc.numPages; i++) {
@@ -108,6 +109,7 @@
           rendering = false
           ignoreResize = false
           console.log('[pdf-viewer] renderAll complete')
+          if (typeof reportPageInfo === 'function') reportPageInfo()
         }
 
         async function preRenderHighRes(targetBase) {
@@ -223,7 +225,13 @@
       window.addEventListener('message', (e) => {
         try {
           const data = e.data || {}
-          if (data && data.type === 'setScale') {
+          if (data && data.type === 'setZoom') {
+              const z = Number(data.zoom)
+              if (z > 0 && Number.isFinite(z)) {
+                userZoom = z
+                renderAll()
+              }
+            } else if (data && data.type === 'setScale') {
               const s = String(data.scale)
               if (s === 'page-width' || s === 'page-fit') {
                 currentScaleMode = s
@@ -302,7 +310,15 @@
                 scaler.style.transform = 'scale(1)'
                 try { document.body.removeChild(tmp) } catch {}
                 ignoreResize = false
+                if (typeof reportPageInfo === 'function') reportPageInfo()
               })()
+          } else if (data && data.type === 'goToPage') {
+              const target = Math.max(1, Math.min(data.page || 1, canvases.length))
+              const canvas = canvases[target - 1]
+              if (canvas) {
+                canvas.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                reportPageInfo(target)
+              }
           } else if (data && data.type === 'syncToPosition') {
               // SyncTeX forward sync: scroll to page/position and flash indicator
               const targetPage = data.page || 1
@@ -364,6 +380,48 @@
             return
           }
         }
+      })
+
+      // ── Page tracking ──────────────────────────────────
+      let lastReportedPage = 0
+      function reportPageInfo(page) {
+        if (!pdfDoc) return
+        const p = page || getCurrentVisiblePage()
+        if (p === lastReportedPage && pdfDoc.numPages === lastReportedTotal) return
+        lastReportedPage = p
+        lastReportedTotal = pdfDoc.numPages
+        try {
+          window.parent.postMessage({ type: 'pageInfo', currentPage: p, totalPages: pdfDoc.numPages }, '*')
+        } catch {}
+      }
+      let lastReportedTotal = 0
+
+      function getCurrentVisiblePage() {
+        if (!canvases.length) return 1
+        const viewerRect = viewer.getBoundingClientRect()
+        const mid = viewerRect.top + viewerRect.height / 2
+        for (let i = 0; i < canvases.length; i++) {
+          const rect = canvases[i].getBoundingClientRect()
+          if (rect.top <= mid && rect.bottom >= mid) return i + 1
+        }
+        // Fallback: find closest canvas to viewport center
+        let best = 1, bestDist = Infinity
+        for (let i = 0; i < canvases.length; i++) {
+          const rect = canvases[i].getBoundingClientRect()
+          const center = (rect.top + rect.bottom) / 2
+          const dist = Math.abs(center - mid)
+          if (dist < bestDist) { bestDist = dist; best = i + 1 }
+        }
+        return best
+      }
+
+      let scrollRafId = null
+      viewer.addEventListener('scroll', function() {
+        if (scrollRafId) return
+        scrollRafId = requestAnimationFrame(() => {
+          scrollRafId = null
+          reportPageInfo()
+        })
       })
 
       try {

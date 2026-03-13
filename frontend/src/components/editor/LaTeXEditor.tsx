@@ -4,7 +4,8 @@ import 'katex/dist/katex.min.css'
 import pdfViewerHtml from '../../assets/pdf-viewer.html?raw'
 import FigureUploadDialog from './FigureUploadDialog'
 import CitationDialog from './CitationDialog'
-import HistoryPanel from './HistoryPanel'
+import { useHistoryView } from './hooks/useHistoryView'
+import { HistoryView } from './history/HistoryView'
 import { useSplitPane } from './hooks/useSplitPane'
 import { useRealtimeSync } from './hooks/useRealtimeSync'
 import { useCodeMirrorEditor } from './hooks/useCodeMirrorEditor'
@@ -17,20 +18,22 @@ import { useCitationHandlers } from './hooks/useCitationHandlers'
 import { useAiTextTools } from './hooks/useAiTextTools'
 import { useAuth } from '../../contexts/AuthContext'
 import { API_ROOT, latexAPI } from '../../services/api'
+import { EditorView } from '@codemirror/view'
+import { toggleVisualModeEffect } from './extensions/latexVisualMode'
 import { EditorToolbar } from './components/EditorToolbar'
 import { PdfPreviewPane } from './components/PdfPreviewPane'
-import { OutlinePanel } from './components/OutlinePanel'
 import { FileSelector } from './components/FileSelector'
+import { FilePanel } from './components/FilePanel'
+import { EditorMenuBar } from './components/EditorMenuBar'
+import { EditorSideRail } from './components/EditorSideRail'
 import { SymbolPalette } from './components/SymbolPalette'
 import { TrackChangesPanel } from './components/TrackChangesPanel'
-import CitationSuggestions from './components/CitationSuggestions'
 import { WritingAnalysisPanel, type WritingAnalysisResult } from './components/WritingAnalysisPanel'
 import { useToast } from '../../hooks/useToast'
 import SubmissionBuilder from './components/SubmissionBuilder'
 import { useDocumentOutline } from './hooks/useDocumentOutline'
 import { useSyncTeX } from './hooks/useSyncTeX'
 import { useTrackChanges } from './hooks/useTrackChanges'
-import { countLatexWords } from './utils/latexWordCount'
 import { dispatchTrackedChanges, type TrackedChangeDecoration } from './extensions/trackChangesDecoration'
 import { setDiagnostics } from '@codemirror/lint'
 import { latexErrorsToDiagnostics } from './extensions/latexErrorMarkers'
@@ -40,18 +43,11 @@ interface LaTeXEditorProps {
   onChange: (next: string) => void
   onSave?: (content: string, contentJson: any) => Promise<void>
   templateTitle?: string
-  fullHeight?: boolean
   paperId?: string
   projectId?: string
   readOnly?: boolean
   disableSave?: boolean
-  branchName?: 'draft' | 'published'
-  lockedSectionKeys?: string[]
-  allowAutoVersion?: boolean
-  uncontrolled?: boolean
   onNavigateBack?: () => void
-  onOpenReferences?: () => void
-  onInsertBibliographyShortcut?: () => void
   onOpenAiChatWithMessage?: (message: string) => void
   realtime?: {
     doc: any
@@ -63,6 +59,7 @@ interface LaTeXEditorProps {
     paperRole?: 'admin' | 'editor' | 'viewer'
   }
   collaborationStatus?: string | null
+  onRenamePaper?: (newTitle: string) => Promise<void>
 }
 
 export interface LaTeXEditorHandle {
@@ -74,7 +71,7 @@ export interface LaTeXEditorHandle {
 
 // LaTeX editor with CodeMirror and live PDF preview
 function LaTeXEditorImpl(
-  { value, onChange, onSave, templateTitle, paperId, projectId, readOnly = false, disableSave = false, onNavigateBack, onOpenAiChatWithMessage, realtime, collaborationStatus }: LaTeXEditorProps,
+  { value, onChange, onSave, templateTitle, paperId, projectId, readOnly = false, disableSave = false, onOpenAiChatWithMessage, realtime, onRenamePaper }: LaTeXEditorProps,
   ref: React.Ref<LaTeXEditorHandle>
 ) {
   const isMobile = useIsMobile()
@@ -82,7 +79,8 @@ function LaTeXEditorImpl(
     window.innerWidth < 640 ? 'pdf' : 'split'
   )
   const [figureDialogOpen, setFigureDialogOpen] = useState(false)
-  const [outlinePanelOpen, setOutlinePanelOpen] = useState(false)
+  const [sideRailPanel, setSideRailPanel] = useState<'files' | 'search' | null>(null)
+  const [showBreadcrumbs, setShowBreadcrumbs] = useState(true)
   const [exportDocxLoading, setExportDocxLoading] = useState(false)
   const [exportSourceZipLoading, setExportSourceZipLoading] = useState(false)
   const [symbolPaletteOpen, setSymbolPaletteOpen] = useState(false)
@@ -96,7 +94,7 @@ function LaTeXEditorImpl(
   const [writingAnalysisResult, setWritingAnalysisResult] = useState<WritingAnalysisResult | null>(null)
   const [writingAnalysisLoading, setWritingAnalysisLoading] = useState(false)
   const [submissionBuilderOpen, setSubmissionBuilderOpen] = useState(false)
-  const [wordCount, setWordCount] = useState<number | null>(null)
+  const [visualMode, setVisualMode] = useState(false)
 
   // Current user identity (for track changes attribution)
   const { user: authUser } = useAuth()
@@ -137,8 +135,8 @@ function LaTeXEditorImpl(
 
   // CodeMirror editor lifecycle
   const {
-    viewRef, editorReady, undoEnabled, redoEnabled, hasTextSelected,
-    handleContainerRef, flushBufferedChange, latestDocRef, handleUndo, handleRedo,
+    viewRef, editorReady, undoEnabled, redoEnabled, hasTextSelected, boldActive, italicActive,
+    handleContainerRef, flushBufferedChange, latestDocRef, handleUndo, handleRedo, onSaveRef,
   } = useCodeMirrorEditor({
     value, onChange, readOnly,
     realtimeDoc: realtime?.doc || null,
@@ -147,6 +145,13 @@ function LaTeXEditorImpl(
     synced: realtime?.synced, paperId,
     trackChangesFilter: trackFilterExt,
   })
+
+  // Dispatch visual mode toggle via CM6 effect (avoids extension reconfigure)
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view) return
+    view.dispatch({ effects: toggleVisualModeEffect.of(visualMode) })
+  }, [visualMode, editorReady])
 
   // Stable accessor for latest document source
   const getLatestSource = useCallback(() => {
@@ -326,72 +331,6 @@ function LaTeXEditorImpl(
     }
   }, [flushBufferedChange, getLatestSource, paperId, toast])
 
-  // Word count: debounced update from latest source
-  const wordCountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const updateWordCount = useCallback(() => {
-    if (wordCountTimerRef.current) clearTimeout(wordCountTimerRef.current)
-    wordCountTimerRef.current = setTimeout(() => {
-      const source = getLatestSource()
-      if (source.length > 10) {
-        setWordCount(countLatexWords(source).words)
-      }
-    }, 1000)
-  }, [getLatestSource])
-
-  // Update word count after compile and on initial load
-  useEffect(() => {
-    updateWordCount()
-  }, [compileStatus]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Citation suggestions: extract paragraph text around cursor
-  const [cursorParagraph, setCursorParagraph] = useState('')
-  const paragraphTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  // Update paragraph text when the value changes (piggyback on onChange)
-  useEffect(() => {
-    if (!projectId) return
-    if (paragraphTimerRef.current) clearTimeout(paragraphTimerRef.current)
-    paragraphTimerRef.current = setTimeout(() => {
-      const view = viewRef.current
-      if (!view) return
-      try {
-        const pos = view.state.selection.main.head
-        const doc = view.state.doc
-        // Find the paragraph: walk backwards/forwards from cursor to find blank lines
-        const curLine = doc.lineAt(pos)
-        let startLine = curLine.number
-        let endLine = curLine.number
-        // Walk backwards to find paragraph start
-        while (startLine > 1) {
-          const prev = doc.line(startLine - 1)
-          if (prev.text.trim() === '') break
-          startLine--
-        }
-        // Walk forwards to find paragraph end
-        while (endLine < doc.lines) {
-          const next = doc.line(endLine + 1)
-          if (next.text.trim() === '') break
-          endLine++
-        }
-        const paragraphText = doc.sliceString(doc.line(startLine).from, doc.line(endLine).to)
-        // Only update if substantially different to avoid re-renders
-        setCursorParagraph(prev => {
-          if (prev === paragraphText) return prev
-          return paragraphText
-        })
-      } catch {}
-    }, 500)
-  }, [value, projectId]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Handle citation insertion from suggestions
-  const handleSuggestedCitationInsert = useCallback((citationKey: string) => {
-    const view = viewRef.current
-    if (!view) return
-    const sel = view.state.selection.main
-    const cite = `\\cite{${citationKey}}`
-    view.dispatch({ changes: { from: sel.from, to: sel.to, insert: cite } })
-    view.focus()
-  }, [viewRef])
 
   // Symbol palette: insert symbol at cursor
   const handleInsertSymbol = useCallback((latex: string) => {
@@ -417,11 +356,9 @@ function LaTeXEditorImpl(
     dispatchTrackedChanges(view, decos)
   }, [trackChanges.trackedChanges, viewRef])
 
-  // Wire document changes to trigger auto-compile and word count
+  // Wire document changes to trigger auto-compile
   const triggerAutoCompileRef = useRef(triggerAutoCompile)
   triggerAutoCompileRef.current = triggerAutoCompile
-  const updateWordCountRef = useRef(updateWordCount)
-  updateWordCountRef.current = updateWordCount
 
   // Listen for doc changes via the value prop (which onChange passes up)
   const prevValueLenRef = useRef(value.length)
@@ -429,7 +366,6 @@ function LaTeXEditorImpl(
     if (value.length !== prevValueLenRef.current) {
       prevValueLenRef.current = value.length
       triggerAutoCompileRef.current()
-      updateWordCountRef.current()
     }
   }, [value])
 
@@ -446,18 +382,86 @@ function LaTeXEditorImpl(
   // Window event listeners for sidebar bibliography/cite insertion
   useLatexEventListeners(viewRef)
 
-  // Document outline
-  const { outline } = useDocumentOutline({ viewRef, enabled: outlinePanelOpen })
+  // Document outline (enabled when file panel or breadcrumbs visible)
+  const outlineEnabled = sideRailPanel === 'files' || showBreadcrumbs
+  const { outline } = useDocumentOutline({ viewRef, enabled: outlineEnabled })
+
+  // Scroll editor to a section position
+  const handleScrollToSection = useCallback((from: number) => {
+    const view = viewRef.current
+    if (!view) return
+    view.dispatch({
+      selection: { anchor: from },
+      effects: EditorView.scrollIntoView(from, { y: 'start' }),
+    })
+    view.focus()
+  }, [viewRef])
 
   // History restore + save
-  const { historyPanelOpen, setHistoryPanelOpen, saveState, saveError, handleRestoreFromHistory, handleSave } = useHistoryRestore({
+  // handleRestoreFromHistory will be wired to HistoryView's restore button in Phase 3
+  const { handleRestoreFromHistory: _handleRestoreFromHistory, handleSave, saveState } = useHistoryRestore({
     viewRef, realtimeDoc: realtime?.doc || null, paperId, readOnly, disableSave: disableSave ?? false, flushBufferedChange, onSave,
   })
 
+  // History view (full-page mode)
+  const historyView = useHistoryView({
+    paperId,
+    currentContent: viewRef.current?.state?.doc?.toString() || '',
+  })
+
+  // History restore handler
+  const [historyRestoring, setHistoryRestoring] = useState(false)
+
+  const handleHistoryRestore = useCallback(async (snapshotId: string) => {
+    setHistoryRestoring(true)
+    const content = await historyView.restoreSnapshot(snapshotId)
+    if (content !== null) {
+      if (realtime?.doc) {
+        try {
+          const yText = realtime.doc.getText('main')
+          realtime.doc.transact(() => {
+            yText.delete(0, yText.length)
+            yText.insert(0, content)
+          }, 'history-restore')
+        } catch (err) {
+          console.warn('[LaTeXEditor] realtime restore failed', err)
+        }
+      } else {
+        try {
+          const v = viewRef.current
+          if (v) {
+            const cur = v.state.doc.toString()
+            v.dispatch({ changes: { from: 0, to: cur.length, insert: content } })
+          }
+        } catch {}
+      }
+      historyView.exitHistoryMode()
+    }
+    setHistoryRestoring(false)
+  }, [historyView, realtime?.doc, viewRef])
+
+  // Wire Cmd/Ctrl+S to handleSave via the CodeMirror keybinding
+  onSaveRef.current = readOnly || disableSave ? null : handleSave
+
+  // Also catch Cmd/Ctrl+S at window level (for when editor doesn't have focus)
+  useEffect(() => {
+    if (readOnly || disableSave) return
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault()
+        handleSave()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [readOnly, disableSave, handleSave])
+
+
   // Snippet / formatting insertion
   const {
-    formattingGroups, insertAtDocumentEnd, insertSnippet,
-    insertBold, insertItalics, insertInlineMath, insertCite, insertFigure, insertTable, insertItemize, insertEnumerate,
+    formattingActions, formattingGroups, insertAtDocumentEnd, insertSnippet,
+    insertBold, insertItalics, insertInlineMath, insertDisplayMath, insertCite, insertRef, insertLink,
+    insertFigure, insertTable, insertTableWithSize, insertItemize, insertEnumerate,
     handleFigureInsert,
   } = useLatexSnippets({ viewRef, readOnly, setFigureDialogOpen })
 
@@ -466,6 +470,20 @@ function LaTeXEditorImpl(
     citationDialogOpen, citationAnchor,
     handleOpenReferencesToolbar, handleCloseCitationDialog, handleInsertCitation, handleInsertBibliography,
   } = useCitationHandlers({ paperId, readOnly, insertSnippet, insertAtDocumentEnd })
+
+  // Auto-insert citation from URL query param (from "Cite in Paper" flow)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const citeKey = params.get('insertCite')
+    if (!citeKey || readOnly) return
+    const timer = setTimeout(() => {
+      insertSnippet(`\\cite{${citeKey}}`, citeKey)
+      const url = new URL(window.location.href)
+      url.searchParams.delete('insertCite')
+      window.history.replaceState({}, '', url.toString())
+    }, 500)
+    return () => clearTimeout(timer)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // AI text tools
   const { aiActionLoading, handleAiAction } = useAiTextTools({ viewRef, readOnly, projectId, onOpenAiChatWithMessage })
@@ -501,213 +519,276 @@ function LaTeXEditorImpl(
   const showPreview = viewMode === 'pdf' || viewMode === 'split'
   const splitLayout = viewMode === 'split'
   const contentLayoutCls = splitLayout
-    ? 'mt-2 flex-1 min-h-0 flex overflow-hidden'
-    : 'mt-2 flex-1 min-h-0 flex flex-col'
+    ? 'flex-1 min-h-0 flex overflow-hidden'
+    : 'flex-1 min-h-0 flex flex-col'
   const editorPaneCls = splitLayout
-    ? 'relative min-w-0 overflow-hidden rounded-l-md border border-slate-200 bg-white shadow-sm transition-colors dark:border-slate-800 dark:bg-slate-950/40 dark:shadow-slate-950/30'
-    : 'relative flex-1 min-h-0 overflow-auto rounded-md border border-slate-200 bg-white shadow-sm transition-colors dark:border-slate-800 dark:bg-slate-950/40 dark:shadow-slate-950/30'
+    ? 'min-w-0 overflow-hidden rounded-l-md border border-slate-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900 dark:shadow-slate-950/30'
+    : 'flex-1 min-h-0 overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900 dark:shadow-slate-950/30'
   const previewPaneCls = splitLayout
-    ? 'min-w-0 flex flex-col overflow-hidden rounded-r-md border border-l-0 border-slate-200 bg-white shadow-sm transition-colors dark:border-slate-800 dark:bg-slate-950/40 dark:shadow-slate-950/30'
-    : 'flex-1 min-h-0 flex flex-col overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm transition-colors dark:border-slate-800 dark:bg-slate-950/40 dark:shadow-slate-950/30'
+    ? 'min-w-0 flex flex-col overflow-hidden rounded-r-md border border-l-0 border-slate-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900 dark:shadow-slate-950/30'
+    : 'flex-1 min-h-0 flex flex-col overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900 dark:shadow-slate-950/30'
+
+  // Map viewMode to EditorMenuBar's expected format
+  const handleToggleView = useCallback((mode: 'split' | 'editor' | 'pdf') => {
+    setViewMode(mode === 'editor' ? 'code' : mode)
+  }, [])
 
   return (
     <div className={containerCls}>
-      <EditorToolbar
-        viewMode={viewMode}
-        onSetViewMode={setViewMode}
-        isMobile={isMobile}
-        onNavigateBack={onNavigateBack}
-        templateTitle={templateTitle}
-        collaborationStatus={collaborationStatus}
-        compileStatus={compileStatus}
-        compileError={compileError}
-        lastCompileAt={lastCompileAt}
-        onCompile={compileNow}
-        readOnly={readOnly}
-        disableSave={disableSave}
-        saveState={saveState}
-        saveError={saveError}
-        onSave={handleSave}
-        undoEnabled={undoEnabled}
-        redoEnabled={redoEnabled}
-        onUndo={handleUndo}
-        onRedo={handleRedo}
-        hasTextSelected={hasTextSelected}
-        formattingGroups={formattingGroups}
-        onInsertBold={insertBold}
-        onInsertItalics={insertItalics}
-        onInsertInlineMath={insertInlineMath}
-        onInsertCite={insertCite}
-        onInsertFigure={insertFigure}
-        onInsertTable={insertTable}
-        onInsertItemize={insertItemize}
-        onInsertEnumerate={insertEnumerate}
-        paperId={paperId}
-        onOpenReferences={handleOpenReferencesToolbar}
-        outlinePanelOpen={outlinePanelOpen}
-        onToggleOutline={() => setOutlinePanelOpen(prev => !prev)}
-        onOpenHistory={() => setHistoryPanelOpen(true)}
-        aiActionLoading={aiActionLoading}
-        onAiAction={handleAiAction}
-        onForwardSync={handleForwardSync}
-        onExportPdf={handleExportPdf}
-        onExportDocx={handleExportDocx}
-        onExportSourceZip={handleExportSourceZip}
-        exportDocxLoading={exportDocxLoading}
-        exportSourceZipLoading={exportSourceZipLoading}
-        wordCount={wordCount}
-        symbolPaletteOpen={symbolPaletteOpen}
-        onToggleSymbolPalette={() => setSymbolPaletteOpen(prev => !prev)}
-        autoCompileEnabled={autoCompileEnabled}
-        onToggleAutoCompile={toggleAutoCompile}
-        trackChangesEnabled={trackChangesEnabled}
-        onToggleTrackChanges={ySharedText ? () => setTrackChangesEnabled(prev => {
-          const next = !prev
-          if (tcKey) try { localStorage.setItem(tcKey, next ? '1' : '0') } catch {}
-          return next
-        }) : undefined}
-        trackChangesPanelOpen={trackChangesPanelOpen}
-        onToggleTrackChangesPanel={realtime?.paperRole === 'admin' ? () => setTrackChangesPanelOpen(prev => !prev) : undefined}
-        hasTrackedChanges={trackChanges.trackedChanges.length > 0}
-        writingAnalysisPanelOpen={writingAnalysisPanelOpen}
-        onToggleWritingAnalysis={() => setWritingAnalysisPanelOpen(prev => !prev)}
-        writingAnalysisLoading={writingAnalysisLoading}
-        onOpenSubmissionBuilder={() => setSubmissionBuilderOpen(true)}
-      />
-      <div ref={splitContainerRef} className={contentLayoutCls}>
-        {showEditor && (
-          <div className={editorPaneCls} style={splitLayout ? { width: `${splitPosition}%` } : undefined}>
-            {realtime?.doc && (
-              <FileSelector
-                files={fileList}
-                activeFile={activeFile}
-                onSelectFile={handleSelectFile}
-                onCreateFile={handleCreateFile}
-                onDeleteFile={handleDeleteFile}
-                readOnly={readOnly}
-              />
-            )}
-            <div ref={handleContainerRef} className={realtime?.doc ? 'absolute inset-0 top-auto bottom-0' : 'absolute inset-0'} style={realtime?.doc && fileList.length > 0 ? { top: fileList.length > 1 ? '33px' : '29px' } : undefined} />
-            {!editorReady && (
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-white/80 text-xs text-slate-500 dark:bg-slate-950/70 dark:text-slate-300">
-                Initializing editor…
-              </div>
-            )}
-            {projectId && !readOnly && (
-              <div className="absolute right-0 bottom-0 left-0 z-10">
-                <CitationSuggestions
-                  projectId={projectId}
-                  currentText={cursorParagraph}
-                  onInsertCitation={handleSuggestedCitationInsert}
+      {historyView.historyMode ? (
+        <HistoryView
+          paperId={paperId!}
+          snapshots={historyView.snapshots}
+          snapshotsLoading={historyView.snapshotsLoading}
+          selectedSnapshotId={historyView.selectedSnapshotId}
+          onSelectSnapshot={historyView.selectSnapshot}
+          diffData={historyView.diffData}
+          diffLoading={historyView.diffLoading}
+          activeTab={historyView.activeTab}
+          onSetActiveTab={historyView.setActiveTab}
+          onBack={historyView.exitHistoryMode}
+          onRestore={handleHistoryRestore}
+          restoring={historyRestoring}
+          onUpdateLabel={historyView.updateLabel}
+          selectedRange={historyView.selectedRange}
+          currentStateId={historyView.CURRENT_STATE_ID}
+        />
+      ) : (
+        <>
+          {/* Row 1: Menu Bar */}
+          <EditorMenuBar
+            editorViewRef={viewRef}
+            onCompile={compileNow}
+            onToggleView={handleToggleView}
+            viewMode={viewMode}
+            paperId={paperId}
+            activeFile={activeFile}
+            paperTitle={templateTitle}
+            showBreadcrumbs={showBreadcrumbs}
+            onToggleBreadcrumbs={() => setShowBreadcrumbs(prev => !prev)}
+            onDownloadPdf={handleExportPdf}
+            onSave={readOnly || disableSave ? undefined : handleSave}
+            onInsertSnippet={insertSnippet}
+            onInsertBold={insertBold}
+            onInsertItalics={insertItalics}
+            onInsertInlineMath={insertInlineMath}
+            onInsertCite={insertCite}
+            onInsertFigure={insertFigure}
+            onInsertTable={insertTable}
+            onInsertItemize={insertItemize}
+            onInsertEnumerate={insertEnumerate}
+            formattingActions={formattingActions}
+            symbolPaletteOpen={symbolPaletteOpen}
+            onToggleSymbolPalette={() => setSymbolPaletteOpen(prev => !prev)}
+            onForwardSync={handleForwardSync}
+            onOpenSubmissionBuilder={() => setSubmissionBuilderOpen(true)}
+            onOpenHistory={paperId ? historyView.enterHistoryMode : undefined}
+            saveState={saveState}
+            onRenamePaper={onRenamePaper}
+            canRename={!readOnly && (realtime?.paperRole === 'admin' || !realtime?.paperRole)}
+            onExportSourceZip={handleExportSourceZip}
+          />
+
+          {/* Row 2: Main content area */}
+          <div className="flex flex-1 min-h-0 overflow-hidden">
+            {/* Col 1: Side Rail (always visible) */}
+            <EditorSideRail
+              activePanel={sideRailPanel}
+              onTogglePanel={(panel) => setSideRailPanel(prev => prev === panel ? null : panel)}
+              trackChangesEnabled={trackChangesEnabled}
+              onToggleTrackChanges={ySharedText ? () => setTrackChangesEnabled(prev => {
+                const next = !prev
+                if (tcKey) try { localStorage.setItem(tcKey, next ? '1' : '0') } catch {}
+                return next
+              }) : undefined}
+              trackChangesPanelOpen={trackChangesPanelOpen}
+              onToggleTrackChangesPanel={realtime?.paperRole === 'admin' ? () => setTrackChangesPanelOpen(prev => !prev) : undefined}
+              hasTrackedChanges={trackChanges.trackedChanges.length > 0}
+              writingAnalysisPanelOpen={writingAnalysisPanelOpen}
+              onToggleWritingAnalysis={() => setWritingAnalysisPanelOpen(prev => !prev)}
+              writingAnalysisLoading={writingAnalysisLoading}
+            />
+
+            {/* Col 2: File Panel (always mounted when paperId exists, hidden when not active) */}
+            {paperId && (
+              <div className={sideRailPanel === 'files' ? '' : 'hidden'}>
+                <FilePanel
+                  paperId={paperId}
+                  fileList={fileList}
+                  activeFile={activeFile}
+                  onSelectFile={handleSelectFile}
+                  onCreateFile={handleCreateFile}
+                  onDeleteFile={handleDeleteFile}
+                  readOnly={readOnly}
+                  editorViewRef={viewRef}
+                  canCreateFiles={!!realtime?.doc}
+                  yText={ySharedText}
+                  outlineItems={outline}
+                  onScrollToSection={handleScrollToSection}
                 />
               </div>
             )}
-          </div>
-        )}
 
-        {/* Resizable Divider */}
-        {splitLayout && showEditor && showPreview && (
-          <div
-            className="group relative z-10 flex w-1 cursor-col-resize items-center justify-center bg-slate-200 transition-colors hover:bg-indigo-400 dark:bg-slate-700 dark:hover:bg-indigo-500"
-            onMouseDown={handleSplitDragStart}
-          >
-            <div className="absolute flex h-8 w-4 items-center justify-center rounded bg-slate-300 opacity-0 transition-opacity group-hover:opacity-100 dark:bg-slate-600">
-              <div className="flex flex-col gap-0.5">
-                <div className="h-0.5 w-1 rounded-full bg-slate-500 dark:bg-slate-400" />
-                <div className="h-0.5 w-1 rounded-full bg-slate-500 dark:bg-slate-400" />
-                <div className="h-0.5 w-1 rounded-full bg-slate-500 dark:bg-slate-400" />
+            {/* Col 3: Editor + PDF area */}
+            <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+              {/* Split pane: Editor | PDF */}
+              <div ref={splitContainerRef} className={contentLayoutCls}>
+                {showEditor && (
+                  <div className={editorPaneCls + ' flex flex-col'} style={splitLayout ? { width: `${splitPosition}%` } : undefined}>
+                    {/* Editor Toolbar — scoped to editor pane only */}
+                    <EditorToolbar
+                      viewMode={viewMode}
+                      isMobile={isMobile}
+                      readOnly={readOnly}
+                      undoEnabled={undoEnabled}
+                      redoEnabled={redoEnabled}
+                      onUndo={handleUndo}
+                      onRedo={handleRedo}
+                      hasTextSelected={hasTextSelected}
+                      boldActive={boldActive}
+                      italicActive={italicActive}
+                      formattingGroups={formattingGroups}
+                      onInsertBold={insertBold}
+                      onInsertItalics={insertItalics}
+                      onInsertInlineMath={insertInlineMath}
+                      onInsertDisplayMath={insertDisplayMath}
+                      onInsertCite={insertCite}
+                      onInsertRef={insertRef}
+                      onInsertLink={insertLink}
+                      onInsertFigure={insertFigure}
+                      onInsertTable={insertTable}
+                      onInsertTableWithSize={insertTableWithSize}
+                      onInsertItemize={insertItemize}
+                      onInsertEnumerate={insertEnumerate}
+                      onOpenReferences={handleOpenReferencesToolbar}
+                      editorViewRef={viewRef}
+                      aiActionLoading={aiActionLoading}
+                      onAiAction={handleAiAction}
+                      symbolPaletteOpen={symbolPaletteOpen}
+                      onToggleSymbolPalette={() => setSymbolPaletteOpen(prev => !prev)}
+                      onForwardSync={handleForwardSync}
+                      visualMode={visualMode}
+                      onToggleVisualMode={() => setVisualMode(prev => !prev)}
+                    />
+                    {/* Code editor area */}
+                    <div className="relative flex-1 min-h-0">
+                      {realtime?.doc && sideRailPanel !== 'files' && (
+                        <FileSelector
+                          files={fileList}
+                          activeFile={activeFile}
+                          onSelectFile={handleSelectFile}
+                          onCreateFile={handleCreateFile}
+                          onDeleteFile={handleDeleteFile}
+                          readOnly={readOnly}
+                        />
+                      )}
+                      <div ref={handleContainerRef} className={realtime?.doc && sideRailPanel !== 'files' ? 'absolute inset-0 top-auto bottom-0' : 'absolute inset-0'} style={realtime?.doc && fileList.length > 0 && sideRailPanel !== 'files' ? { top: fileList.length > 1 ? '33px' : '29px' } : undefined} />
+                      {!editorReady && (
+                        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-white/80 text-xs text-slate-500 dark:bg-slate-950/70 dark:text-slate-300">
+                          Initializing editor…
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Resizable Divider */}
+                {splitLayout && showEditor && showPreview && (
+                  <div
+                    className="group relative z-10 flex w-1 cursor-col-resize items-center justify-center bg-slate-200 transition-colors hover:bg-indigo-400 dark:bg-slate-700 dark:hover:bg-indigo-500"
+                    onMouseDown={handleSplitDragStart}
+                  >
+                    <div className="absolute flex h-8 w-4 items-center justify-center rounded bg-slate-300 opacity-0 transition-opacity group-hover:opacity-100 dark:bg-slate-600">
+                      <div className="flex flex-col gap-0.5">
+                        <div className="h-0.5 w-1 rounded-full bg-slate-500 dark:bg-slate-400" />
+                        <div className="h-0.5 w-1 rounded-full bg-slate-500 dark:bg-slate-400" />
+                        <div className="h-0.5 w-1 rounded-full bg-slate-500 dark:bg-slate-400" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {showPreview && (
+                  <div className={previewPaneCls} style={splitLayout ? { width: `${100 - splitPosition}%` } : undefined}>
+                    <PdfPreviewPane
+                      iframeRef={iframeRef}
+                      pdfViewerHtml={pdfViewerHtml}
+                      compileStatus={compileStatus}
+                      compileError={compileError}
+                      compileLogs={compileLogs}
+                      lastCompileAt={lastCompileAt}
+                      onCompile={compileNow}
+                      autoCompileEnabled={autoCompileEnabled}
+                      onToggleAutoCompile={toggleAutoCompile}
+                      onExportPdf={handleExportPdf}
+                      onExportDocx={handleExportDocx}
+                      onExportSourceZip={handleExportSourceZip}
+                      exportDocxLoading={exportDocxLoading}
+                      exportSourceZipLoading={exportSourceZipLoading}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           </div>
-        )}
 
-        {showPreview && (
-          <div className={previewPaneCls} style={splitLayout ? { width: `${100 - splitPosition}%` } : undefined}>
-            <PdfPreviewPane
-              iframeRef={iframeRef}
-              pdfViewerHtml={pdfViewerHtml}
-              compileStatus={compileStatus}
-              compileError={compileError}
-              compileLogs={compileLogs}
-              lastCompileAt={lastCompileAt}
+          {paperId && (
+            <FigureUploadDialog
+              isOpen={figureDialogOpen}
+              onClose={() => setFigureDialogOpen(false)}
+              onInsert={handleFigureInsert}
+              paperId={paperId}
             />
-          </div>
-        )}
-      </div>
+          )}
 
-      {paperId && (
-        <FigureUploadDialog
-          isOpen={figureDialogOpen}
-          onClose={() => setFigureDialogOpen(false)}
-          onInsert={handleFigureInsert}
-          paperId={paperId}
-        />
+          {paperId && (
+            <CitationDialog
+              isOpen={citationDialogOpen}
+              onClose={handleCloseCitationDialog}
+              paperId={paperId}
+              projectId={projectId}
+              onInsertCitation={handleInsertCitation}
+              onInsertBibliography={handleInsertBibliography}
+              anchorElement={citationAnchor}
+            />
+          )}
+
+          {symbolPaletteOpen && (
+            <SymbolPalette
+              onInsertSymbol={handleInsertSymbol}
+              onClose={() => setSymbolPaletteOpen(false)}
+            />
+          )}
+
+          {trackChangesPanelOpen && trackChanges.trackedChanges.length > 0 && (
+            <TrackChangesPanel
+              changes={trackChanges.trackedChanges}
+              onAcceptChange={trackChanges.acceptChange}
+              onRejectChange={trackChanges.rejectChange}
+              onAcceptAll={trackChanges.acceptAllChanges}
+              onRejectAll={trackChanges.rejectAllChanges}
+              onClose={() => setTrackChangesPanelOpen(false)}
+            />
+          )}
+
+          {writingAnalysisPanelOpen && (
+            <WritingAnalysisPanel
+              result={writingAnalysisResult}
+              loading={writingAnalysisLoading}
+              onAnalyze={handleAnalyzeWriting}
+              onClose={() => setWritingAnalysisPanelOpen(false)}
+            />
+          )}
+
+          <SubmissionBuilder
+            isOpen={submissionBuilderOpen}
+            onClose={() => setSubmissionBuilderOpen(false)}
+            getLatexSource={() => { flushBufferedChange(); return getLatestSource() }}
+            paperId={paperId}
+            getExtraFiles={getExtraFiles}
+          />
+        </>
       )}
-
-      {paperId && (
-        <CitationDialog
-          isOpen={citationDialogOpen}
-          onClose={handleCloseCitationDialog}
-          paperId={paperId}
-          projectId={projectId}
-          onInsertCitation={handleInsertCitation}
-          onInsertBibliography={handleInsertBibliography}
-          anchorElement={citationAnchor}
-        />
-      )}
-
-      {outlinePanelOpen && (
-        <OutlinePanel
-          outline={outline}
-          viewRef={viewRef}
-          onClose={() => setOutlinePanelOpen(false)}
-        />
-      )}
-
-      {paperId && historyPanelOpen && (
-        <HistoryPanel
-          paperId={paperId}
-          isOpen={historyPanelOpen}
-          onClose={() => setHistoryPanelOpen(false)}
-          onRestore={handleRestoreFromHistory}
-          currentContent={viewRef.current?.state?.doc?.toString() || ''}
-        />
-      )}
-
-      {symbolPaletteOpen && (
-        <SymbolPalette
-          onInsertSymbol={handleInsertSymbol}
-          onClose={() => setSymbolPaletteOpen(false)}
-        />
-      )}
-
-      {trackChangesPanelOpen && trackChanges.trackedChanges.length > 0 && (
-        <TrackChangesPanel
-          changes={trackChanges.trackedChanges}
-          onAcceptChange={trackChanges.acceptChange}
-          onRejectChange={trackChanges.rejectChange}
-          onAcceptAll={trackChanges.acceptAllChanges}
-          onRejectAll={trackChanges.rejectAllChanges}
-          onClose={() => setTrackChangesPanelOpen(false)}
-        />
-      )}
-
-      {writingAnalysisPanelOpen && (
-        <WritingAnalysisPanel
-          result={writingAnalysisResult}
-          loading={writingAnalysisLoading}
-          onAnalyze={handleAnalyzeWriting}
-          onClose={() => setWritingAnalysisPanelOpen(false)}
-        />
-      )}
-
-      <SubmissionBuilder
-        isOpen={submissionBuilderOpen}
-        onClose={() => setSubmissionBuilderOpen(false)}
-        getLatexSource={() => { flushBufferedChange(); return getLatestSource() }}
-        paperId={paperId}
-        getExtraFiles={getExtraFiles}
-      />
     </div>
   )
 }

@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     # ScienceDirect / Elsevier API (optional)
     SCIENCEDIRECT_API_KEY: Optional[str] = None
 
+    # Mistral OCR (optional, fallback for low-quality PDF extractions)
+    MISTRAL_API_KEY: Optional[str] = None
+
     # OpenAI (optional, for query enhancement and ranking)
     OPENAI_API_KEY: Optional[str] = None
 
@@ -104,6 +107,7 @@ class Settings(BaseSettings):
     COLLAB_JWT_ALGORITHM: str = "HS256"
     COLLAB_JWT_EXPIRE_SECONDS: int = 300
     COLLAB_WS_URL: str = "ws://localhost:3001"
+    COLLAB_SERVER_URL: str = "http://collab:3001"
     COLLAB_DEFAULT_ROLES: List[str] = ["editor"]
     COLLAB_BOOTSTRAP_SECRET: Optional[str] = None
     COLLAB_BOOTSTRAP_SOURCE: str = "content_json"  # content_json or content

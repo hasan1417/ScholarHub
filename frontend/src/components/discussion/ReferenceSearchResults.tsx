@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { X, Loader2, Search, AlertCircle } from 'lucide-react'
 import { DiscoveredPaperCard, DiscoveredPaper, IngestionStatus } from './DiscoveredPaperCard'
-import { projectDiscussionAPI } from '../../services/api'
+import { projectDiscussionAPI, projectReferencesAPI } from '../../services/api'
 import api from '../../services/api'
 import { useToast } from '../../hooks/useToast'
 
@@ -47,6 +47,56 @@ export function ReferenceSearchResults({
   const [ingestionStates, setIngestionStates] = useState<Record<string, PaperIngestionState>>({})
   // Track dismissed papers
   const [dismissedPapers, setDismissedPapers] = useState<Set<string>>(new Set())
+
+  // Check which papers are already in the project library (survives page refresh)
+  const existingRefsQuery = useQuery({
+    queryKey: ['projectReferences', projectId],
+    queryFn: async () => {
+      const response = await projectReferencesAPI.list(projectId)
+      return response.data.references
+    },
+    staleTime: 30000,
+  })
+
+  useEffect(() => {
+    if (!existingRefsQuery.data || papers.length === 0) return
+
+    // Build lookup maps from existing references
+    const doiToRef = new Map<string, { id: string; pdfProcessed: boolean }>()
+    const titleToRef = new Map<string, { id: string; pdfProcessed: boolean }>()
+    for (const item of existingRefsQuery.data) {
+      const r = item.reference
+      if (!r?.id) continue
+      const info = { id: r.id, pdfProcessed: !!r.pdf_processed }
+      if (r.doi) doiToRef.set(r.doi.toLowerCase().trim(), info)
+      if (r.title) titleToRef.set(r.title.toLowerCase().trim(), info)
+    }
+
+    // Match discovered papers against library
+    const matched = new Set<string>()
+    const states: Record<string, PaperIngestionState> = {}
+    for (const paper of papers) {
+      let ref: { id: string; pdfProcessed: boolean } | undefined
+      if (paper.doi) ref = doiToRef.get(paper.doi.toLowerCase().trim())
+      if (!ref && paper.title) ref = titleToRef.get(paper.title.toLowerCase().trim())
+      if (ref) {
+        matched.add(paper.id)
+        states[paper.id] = {
+          referenceId: ref.id,
+          status: ref.pdfProcessed ? 'success' : 'no_pdf',
+        }
+      }
+    }
+
+    if (matched.size > 0) {
+      setAddedPapers(prev => {
+        const next = new Set(prev)
+        for (const id of matched) next.add(id)
+        return next
+      })
+      setIngestionStates(prev => ({ ...prev, ...states }))
+    }
+  }, [existingRefsQuery.data, papers])
 
   const handleDismiss = (paperId: string) => {
     setDismissedPapers(prev => new Set([...prev, paperId]))
@@ -235,7 +285,7 @@ export function ReferenceSearchResults({
 
   if (isSearching) {
     return (
-      <div className="mt-3 border rounded-lg p-4 bg-gray-50/50 dark:bg-slate-800/30">
+      <div className="mt-3 border border-gray-200 dark:border-slate-700/60 rounded-lg p-4 bg-gray-50/50 dark:bg-slate-800/40">
         <div className="flex items-center justify-center gap-2 text-sm text-gray-500 dark:text-gray-400">
           <Loader2 className="h-4 w-4 animate-spin" />
           <span>Searching for papers about "{query}"...</span>
@@ -246,7 +296,7 @@ export function ReferenceSearchResults({
 
   if (papers.length === 0) {
     return (
-      <div className="mt-3 border rounded-lg p-4 bg-gray-50/50 dark:bg-slate-800/30">
+      <div className="mt-3 border border-gray-200 dark:border-slate-700/60 rounded-lg p-4 bg-gray-50/50 dark:bg-slate-800/40">
         <div className="flex items-center justify-between mb-2">
           <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
             <Search className="h-4 w-4" />
@@ -280,7 +330,7 @@ export function ReferenceSearchResults({
   const failedCount = Object.values(ingestionStates).filter(s => s.status === 'failed').length
 
   return (
-    <div className="mt-3 border rounded-lg p-3 bg-gray-50/50 dark:bg-slate-800/30">
+    <div className="mt-3 border border-gray-200 dark:border-slate-700/60 rounded-lg p-3 bg-gray-50/50 dark:bg-slate-800/40">
       <div className="flex items-center justify-between mb-3">
         <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
           <Search className="h-4 w-4" />

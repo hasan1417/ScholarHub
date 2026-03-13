@@ -27,10 +27,13 @@ from app.models import (
     User,
 )
 from app.models.document import DocumentStatus
+from app.models.project_discussion import ProjectDiscussionChannel
+from app.api.v1.discussion_helpers import generate_unique_slug
 from app.services.project_reference_service import ProjectReferenceSuggestionService
 from app.services.project_discovery_service import ProjectDiscoveryManager
 from app.services.activity_feed import record_project_activity, preview_text
 from app.services.embedding_worker import queue_library_paper_embedding_sync
+from app.utils.doi import normalize_doi
 from pydantic import BaseModel, Field
 
 
@@ -84,18 +87,13 @@ _S2_LOCK = asyncio.Lock()
 _S2_LAST_REQUEST: float = 0.0
 
 
-def _normalize_doi(doi: str) -> str:
-    """Strip URL prefixes from DOIs (e.g. 'https://doi.org/10.xxx' -> '10.xxx')."""
-    return re.sub(r'^https?://(dx\.)?doi\.org/', '', doi).strip()
-
-
 async def _fetch_semantic_scholar(doi: str) -> dict | None:
     """Fetch references and citations for a DOI from Semantic Scholar.
 
     Enforces 1 request/second rate limit (S2 API key constraint).
     """
     global _S2_LAST_REQUEST
-    doi = _normalize_doi(doi)
+    doi = normalize_doi(doi) or ""
     url = f"https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}"
     params = {"fields": "references.externalIds,references.title,citations.externalIds,citations.title"}
     headers: dict[str, str] = {}
@@ -187,7 +185,9 @@ async def get_citation_graph(
         }
         nodes_by_id[node_id] = node
         if ref.doi:
-            norm_doi = _normalize_doi(ref.doi).lower()
+            norm_doi = normalize_doi(ref.doi)
+            if norm_doi is None:
+                continue
             doi_to_node_id[norm_doi] = node_id
             library_dois.add(norm_doi)
 
@@ -1454,4 +1454,87 @@ def list_references_for_paper(
         "project_id": str(project.id),
         "paper_id": str(paper.id),
         "references": [_serialize(*row) for row in rows],
+    }
+
+
+# ──────────────────────────────────────────────────────────────
+# Paper chat channel (get-or-create)
+# ──────────────────────────────────────────────────────────────
+
+@router.post("/projects/{project_id}/references/{reference_id}/chat-channel")
+def get_or_create_paper_chat_channel(
+    project_id: str,
+    reference_id: UUID,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get or create a discussion channel scoped to a single reference (paper chat)."""
+    project = get_project_or_404(db, project_id)
+    ensure_project_member(db, project, current_user)
+
+    # Verify the reference belongs to this project
+    project_ref = (
+        db.query(ProjectReference)
+        .filter(
+            ProjectReference.project_id == project.id,
+            ProjectReference.reference_id == reference_id,
+        )
+        .first()
+    )
+    if not project_ref:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Reference not found in this project",
+        )
+
+    reference = db.query(Reference).filter(Reference.id == reference_id).first()
+    if not reference:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Reference not found",
+        )
+
+    channel_name = f"__paper_chat:{str(reference_id)}"
+
+    # Look for existing channel
+    channel = (
+        db.query(ProjectDiscussionChannel)
+        .filter(
+            ProjectDiscussionChannel.project_id == project.id,
+            ProjectDiscussionChannel.name == channel_name,
+        )
+        .first()
+    )
+
+    is_new = channel is None
+
+    if is_new:
+        slug = generate_unique_slug(db, project.id, f"paper-chat-{str(reference_id)[:8]}")
+        channel = ProjectDiscussionChannel(
+            project_id=project.id,
+            name=channel_name,
+            slug=slug,
+            is_default=False,
+            is_archived=False,
+            is_paper_chat=True,
+            scope={"reference_ids": [str(reference_id)]},
+            created_by=current_user.id,
+            updated_by=current_user.id,
+        )
+        db.add(channel)
+        db.commit()
+        db.refresh(channel)
+
+    # Trigger enrichment if the reference lacks abstract/metadata
+    if not reference.abstract or not reference.authors:
+        from app.services.reference_enrichment_service import enrich_and_ingest_reference
+        background_tasks.add_task(enrich_and_ingest_reference, str(reference_id))
+
+    return {
+        "channel_id": str(channel.id),
+        "reference_id": str(reference_id),
+        "reference_title": reference.title,
+        "reference_status": project_ref.status.value,
+        "is_new": is_new,
     }

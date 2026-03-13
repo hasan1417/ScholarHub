@@ -7,10 +7,13 @@ All paper creation should go through this service to ensure:
 - Proper member/owner setup
 """
 import logging
+import hashlib
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone
 from uuid import UUID
 
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.research_paper import ResearchPaper
@@ -20,6 +23,88 @@ from app.models.user import User
 from app.models.project import Project
 
 logger = logging.getLogger(__name__)
+SNAPSHOT_SEQUENCE_RETRY_COUNT = 3
+
+
+def compute_snapshot_content_hash(text: Optional[str]) -> str:
+    """Return a stable short hash for snapshot deduplication."""
+    normalized_text = text or ""
+    return hashlib.sha256(normalized_text.encode("utf-8")).hexdigest()[:16]
+
+
+def get_next_snapshot_sequence_number(db: Session, paper_id: UUID) -> int:
+    """Get the next sequence number for a paper snapshot."""
+    max_seq = db.query(func.max(DocumentSnapshot.sequence_number)).filter(
+        DocumentSnapshot.paper_id == paper_id
+    ).scalar()
+    return (max_seq or 0) + 1
+
+
+def _is_snapshot_sequence_conflict(exc: IntegrityError) -> bool:
+    """Return True when the error is the paper+sequence unique constraint."""
+    constraint_name = getattr(getattr(exc.orig, "diag", None), "constraint_name", None)
+    if constraint_name == "uq_document_snapshots_paper_sequence":
+        return True
+
+    message = str(exc.orig)
+    return "uq_document_snapshots_paper_sequence" in message or (
+        "document_snapshots" in message and "sequence_number" in message
+    )
+
+
+def add_snapshot_with_retry(
+    db: Session,
+    *,
+    paper_id: UUID,
+    yjs_state: bytes,
+    materialized_text: Optional[str],
+    snapshot_type: str,
+    label: Optional[str] = None,
+    created_by: Optional[UUID] = None,
+) -> DocumentSnapshot:
+    """
+    Stage a snapshot in the current transaction, retrying sequence allocation on conflicts.
+
+    The snapshot is flushed inside a savepoint so callers can safely use this while other
+    model changes are pending in the same transaction.
+    """
+    text_length = len(materialized_text) if materialized_text is not None else 0
+    content_hash = compute_snapshot_content_hash(materialized_text)
+
+    last_error: Optional[IntegrityError] = None
+    for attempt in range(SNAPSHOT_SEQUENCE_RETRY_COUNT):
+        snapshot = DocumentSnapshot(
+            paper_id=paper_id,
+            yjs_state=yjs_state,
+            materialized_text=materialized_text,
+            snapshot_type=snapshot_type,
+            label=label,
+            created_by=created_by,
+            sequence_number=get_next_snapshot_sequence_number(db, paper_id),
+            text_length=text_length,
+            content_hash=content_hash,
+        )
+
+        try:
+            with db.begin_nested():
+                db.add(snapshot)
+                db.flush()
+            return snapshot
+        except IntegrityError as exc:
+            last_error = exc
+            if not _is_snapshot_sequence_conflict(exc) or attempt == SNAPSHOT_SEQUENCE_RETRY_COUNT - 1:
+                raise
+            logger.info(
+                "Retrying snapshot sequence allocation for paper %s after conflict (attempt %s/%s)",
+                paper_id,
+                attempt + 1,
+                SNAPSHOT_SEQUENCE_RETRY_COUNT,
+            )
+
+    if last_error:
+        raise last_error
+
+    raise RuntimeError("Snapshot creation failed without a captured error")
 
 
 def create_paper(
@@ -138,17 +223,15 @@ def _create_initial_snapshot(
             logger.debug("No content to snapshot for paper %s", paper.id)
             return None
 
-        snapshot = DocumentSnapshot(
+        snapshot = add_snapshot_with_retry(
+            db,
             paper_id=paper.id,
             yjs_state=b"",  # No Yjs state for API-created papers
             materialized_text=materialized_text,
             snapshot_type="auto",
             label=label,
             created_by=creator_id,
-            sequence_number=1,
-            text_length=len(materialized_text),
         )
-        db.add(snapshot)
         db.commit()
         db.refresh(snapshot)
 
@@ -200,37 +283,27 @@ def create_snapshot_for_paper(
 
     This is used for manual saves and other snapshot creation needs.
     """
-    from sqlalchemy import func
-
     try:
         materialized_text = _extract_materialized_text(paper)
 
         if not materialized_text or not materialized_text.strip():
             return None
 
-        # Get next sequence number
-        max_seq = db.query(func.max(DocumentSnapshot.sequence_number)).filter(
-            DocumentSnapshot.paper_id == paper.id
-        ).scalar()
-        next_seq = (max_seq or 0) + 1
-
-        snapshot = DocumentSnapshot(
+        snapshot = add_snapshot_with_retry(
+            db,
             paper_id=paper.id,
             yjs_state=b"",
             materialized_text=materialized_text,
             snapshot_type=snapshot_type,
             label=label,
             created_by=creator_id,
-            sequence_number=next_seq,
-            text_length=len(materialized_text),
         )
-        db.add(snapshot)
         db.commit()
         db.refresh(snapshot)
 
         logger.info(
             "Created %s snapshot for paper %s: seq=%s, len=%s",
-            snapshot_type, paper.id, next_seq, snapshot.text_length
+            snapshot_type, paper.id, snapshot.sequence_number, snapshot.text_length
         )
         return snapshot
 

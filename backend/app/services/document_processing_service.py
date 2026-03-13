@@ -1,12 +1,7 @@
 """
 Document Processing Service - Enhanced PDF extraction for academic papers.
 
-Uses Marker for high-quality PDF extraction:
-- Math equations converted to LaTeX
-- Tables formatted as markdown
-- Better handling of academic paper layouts
-- Fallback to pdfplumber if Marker fails
-
+Uses pymupdf4llm for high-quality PDF extraction with pdfplumber fallback.
 Both Discussion AI OR and LaTeX Editor AI OR use this for RAG.
 """
 import os
@@ -14,7 +9,6 @@ import re
 import uuid
 import json
 import logging
-import threading
 from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
 from pathlib import Path
 
@@ -25,86 +19,47 @@ from openai import OpenAI
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
 from app.services.ai_service import AIService
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Global Marker state (shared across service instances)
-_marker_lock = threading.Lock()
-_marker_converter = None
-_marker_loading = False
-_marker_ready = False
-_marker_failed = False
 
+def _score_extraction_quality(text: str, page_count: int) -> float:
+    """Score extracted text quality from 0.0 (garbage) to 1.0 (clean)."""
+    if not text or not text.strip():
+        return 0.0
 
-def warmup_marker_background():
-    """
-    Initialize Marker in a background thread.
-    Called on app startup - does NOT block the event loop.
-    """
-    global _marker_converter, _marker_loading, _marker_ready, _marker_failed
+    score = 1.0
 
-    # Check if disabled
-    if os.getenv("DISABLE_MARKER", "false").lower() in ("true", "1", "yes"):
-        print("[marker-warmup] Disabled via DISABLE_MARKER env var")
-        return
+    # 1. Replacement/control character ratio
+    bad_chars = sum(1 for c in text if c in '\ufffd\x00' or (ord(c) < 32 and c not in '\n\r\t'))
+    if len(text) > 0:
+        bad_ratio = bad_chars / len(text)
+        if bad_ratio > 0.15:
+            score -= 0.5
+        elif bad_ratio > 0.05:
+            score -= 0.3
 
-    with _marker_lock:
-        if _marker_ready or _marker_loading or _marker_failed:
-            return
-        _marker_loading = True
+    # 2. Word density per page
+    words = len(text.split())
+    pages = max(page_count, 1)
+    words_per_page = words / pages
+    if words_per_page < 30:
+        score -= 0.4
+    elif words_per_page < 50:
+        score -= 0.2
 
-    def _load_marker():
-        global _marker_converter, _marker_loading, _marker_ready, _marker_failed
-        try:
-            print("[marker-warmup] Loading Marker PDF converter (this may take 30-60 seconds)...")
-            from marker.converters.pdf import PdfConverter
-            from marker.models import create_model_dict
+    # 3. Structure check — expect headings in longer docs
+    if pages > 5 and '#' not in text:
+        score -= 0.1
 
-            print("[marker-warmup] Creating model dict...")
-            model_dict = create_model_dict()
-            print("[marker-warmup] Initializing PdfConverter...")
-            converter = PdfConverter(artifact_dict=model_dict)
-
-            with _marker_lock:
-                _marker_converter = converter
-                _marker_ready = True
-                _marker_loading = False
-
-            print("[marker-warmup] Marker PDF converter ready!")
-
-        except Exception as e:
-            print(f"[marker-warmup] FAILED to load Marker: {e}")
-            logger.error(f"Failed to load Marker: {e}")
-            with _marker_lock:
-                _marker_failed = True
-                _marker_loading = False
-
-    # Start in background thread (doesn't block event loop)
-    thread = threading.Thread(target=_load_marker, daemon=True)
-    thread.start()
-    print("[marker-warmup] Started loading in background thread...")
-
-
-def get_marker_converter_if_ready():
-    """
-    Get Marker converter if ready, otherwise return None.
-    This is non-blocking - returns immediately.
-    """
-    global _marker_converter, _marker_ready
-
-    if os.getenv("DISABLE_MARKER", "false").lower() in ("true", "1", "yes"):
-        return None
-
-    if _marker_ready and _marker_converter:
-        return _marker_converter
-
-    return None
+    return max(0.0, min(1.0, score))
 
 
 class DocumentProcessingService:
     """
     Enhanced document processing with:
-    - Marker for high-quality PDF extraction (math, tables, structure)
+    - pymupdf4llm for high-quality PDF extraction (markdown, structure)
     - pdfplumber as fallback for simpler extraction
     - PyMuPDF for image extraction
     - Smart chunking that preserves tables
@@ -176,25 +131,6 @@ class DocumentProcessingService:
             db.rollback()
             return False
 
-    def _get_marker_converter(self):
-        """
-        Get Marker converter if ready (non-blocking).
-        Returns None if Marker is still loading or disabled - will use pdfplumber fallback.
-        """
-        converter = get_marker_converter_if_ready()
-        if converter:
-            return converter
-
-        # Log status for debugging
-        if _marker_loading:
-            logger.info("Marker still loading in background, using pdfplumber for now")
-        elif _marker_failed:
-            logger.debug("Marker failed to load, using pdfplumber")
-        elif os.getenv("DISABLE_MARKER", "false").lower() in ("true", "1", "yes"):
-            logger.debug("Marker disabled via env var")
-
-        return None
-
     def _extract_from_pdf_enhanced(self, document: Document) -> Dict[str, Any]:
         """
         Enhanced PDF extraction using pymupdf4llm (primary) or pdfplumber (fallback).
@@ -214,6 +150,16 @@ class DocumentProcessingService:
         if not file_path or not os.path.exists(file_path):
             logger.error(f"PDF file not found: {file_path}")
             return result
+
+        # Get page count for quality scoring
+        page_count = document.page_count or 0
+        if not page_count:
+            try:
+                import fitz
+                with fitz.open(file_path) as doc:
+                    page_count = len(doc)
+            except Exception:
+                page_count = 1
 
         # Try pymupdf4llm first (best quality markdown for RAG)
         extraction_success = False
@@ -246,10 +192,29 @@ class DocumentProcessingService:
         # Sanitize text
         result['text'] = (result['text'] or '').replace('\x00', '')
 
+        # Score extraction quality; try Mistral OCR fallback for low-quality extractions
+        quality_score = _score_extraction_quality(result['text'], page_count)
+        if quality_score < 0.7 and settings.MISTRAL_API_KEY:
+            logger.info(f"Low extraction quality ({quality_score:.2f}) for {file_path}, trying Mistral OCR")
+            try:
+                from app.services.mistral_ocr_service import extract_with_mistral_ocr_sync
+                mistral_text = extract_with_mistral_ocr_sync(file_path, settings.MISTRAL_API_KEY)
+                if mistral_text:
+                    mistral_score = _score_extraction_quality(mistral_text, page_count)
+                    if mistral_score > quality_score:
+                        logger.info("Mistral OCR improved extraction for %s (%.2f -> %.2f)", file_path, quality_score, mistral_score)
+                        result['text'] = mistral_text
+                        result['tables'] = self._extract_tables_from_markdown(mistral_text)
+                        quality_score = mistral_score
+            except Exception as e:
+                logger.warning(f"Mistral OCR fallback failed for {file_path}: {e}")
+
+        document.extraction_quality = quality_score
+
         return result
 
     def _extract_tables_from_markdown(self, markdown_text: str) -> List[Dict]:
-        """Extract table metadata from Marker's markdown output."""
+        """Extract table metadata from markdown output."""
         tables = []
         # Find markdown tables (lines starting with |)
         lines = markdown_text.split('\n')
@@ -265,7 +230,7 @@ class DocumentProcessingService:
                 if current_table_lines and len(current_table_lines) >= 2:
                     # Valid table found
                     tables.append({
-                        'page': 0,  # Marker doesn't provide page numbers
+                        'page': 0,
                         'index': len(tables),
                         'markdown': '\n'.join(current_table_lines),
                         'rows': len(current_table_lines) - 1,  # Minus header separator

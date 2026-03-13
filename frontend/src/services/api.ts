@@ -62,6 +62,8 @@ import {
   OpenRouterModelsResponse,
   DiscoveryStreamEvent,
   DiscoveryStreamCompleteEvent,
+  SupportFile,
+  ConferenceTemplate,
 } from '../types'
 
 const deduceRuntimeOrigin = () => {
@@ -578,6 +580,10 @@ export const projectReferencesAPI = {
     }),
   getCitationGraph: (projectId: string) =>
     api.get<CitationGraphData>(`/projects/${projectId}/references/citation-graph`),
+  getOrCreateChatChannel: (projectId: string, referenceId: string) =>
+    api.post<{ channel_id: string; reference_id: string; reference_title: string; reference_status: string; is_new: boolean }>(
+      `/projects/${projectId}/references/${referenceId}/chat-channel`
+    ),
 }
 
 export const projectAIAPI = {
@@ -661,11 +667,14 @@ export const projectDiscoveryAPI = {
     api.delete<ProjectDiscoveryClearResponse>(
       `/projects/${projectId}/discovery/results/dismissed`
     ),
-  clearResults: (projectId: string, runType?: 'manual' | 'auto') =>
+  clearResults: (projectId: string, opts?: { runType?: 'manual' | 'auto'; status?: string }) =>
     api.delete<{ deleted: number }>(
       `/projects/${projectId}/discovery/results/clear`,
       {
-        params: runType ? { run_type: runType } : undefined,
+        params: {
+          ...(opts?.runType ? { run_type: opts.runType } : {}),
+          ...(opts?.status ? { status: opts.status } : {}),
+        },
       }
     ),
   runDiscoveryStream: async (
@@ -1243,6 +1252,22 @@ export const researchPapersAPI = {
   listReferences: (paperId: string) => api.get<{ references: any[]; total: number }>(`/research-papers/${paperId}/references`),
 
   deleteReference: (paperId: string, refId: string) => api.delete(`/research-papers/${paperId}/references/${refId}`),
+
+  // Support files (images, .bst, .cls, etc.)
+  uploadSupportFile: (paperId: string, file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post<{ filename: string; size: number; type: string }>(
+      `/research-papers/${paperId}/support-files`, fd,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    )
+  },
+  listSupportFiles: (paperId: string) =>
+    api.get<{ files: SupportFile[] }>(`/research-papers/${paperId}/support-files`),
+  deleteSupportFile: (paperId: string, filename: string) =>
+    api.delete(`/research-papers/${paperId}/support-files/${encodeURIComponent(filename)}`),
+  listFigures: (paperId: string) =>
+    api.get<{ files: { filename: string; size: number }[] }>(`/research-papers/${paperId}/figures`),
 }
 
 // Documents API endpoints (for reference documents, not rich text editing)
@@ -1517,6 +1542,8 @@ export const latexAPI = {
       responseType: 'blob',
       timeout: 60000,
     }),
+  getTemplates: () =>
+    api.get<{ templates: ConferenceTemplate[] }>('/latex/templates'),
 }
 
 export default api
@@ -1643,6 +1670,10 @@ export const snapshotsAPI = {
   // Get diff between two snapshots
   getSnapshotDiff: (paperId: string, snapshotId1: string, snapshotId2: string) =>
     api.get<SnapshotDiffResponse>(`/papers/${paperId}/snapshots/${snapshotId1}/diff/${snapshotId2}`),
+
+  // Get full-document diff between two snapshots (every line tagged)
+  getFullDiff: (paperId: string, snapshotId1: string, snapshotId2: string) =>
+    api.get<SnapshotDiffResponse>(`/papers/${paperId}/snapshots/${snapshotId1}/full-diff/${snapshotId2}`),
 
   // Restore document to a snapshot
   restoreSnapshot: (paperId: string, snapshotId: string) =>

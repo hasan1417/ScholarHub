@@ -11,7 +11,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from app.services.discussion_ai.utils import sanitize_for_context
+from app.services.discussion_ai.utils import _emit_progress, sanitize_for_context
 
 if TYPE_CHECKING:
     from app.models import Project
@@ -349,6 +349,8 @@ class AnalysisToolsMixin:
                 "suggestion": "Try: 'Focus on papers 1 and 2' or 'Focus on the first three papers from the search'",
             }
 
+        _emit_progress(ctx, "Loading papers for analysis...")
+
         # Map focused papers to their reference IDs (if they exist in library)
         paper_to_ref_id = {}
         papers_with_chunks = []
@@ -567,6 +569,8 @@ class AnalysisToolsMixin:
         memory["cross_paper_analysis"]["abstract_only"] = abstract_only_count
         self._save_ai_memory(channel, memory)
 
+        _emit_progress(ctx, "Running cross-paper analysis...")
+
         # Build instruction
         instruction = (
             f"Analyze the following question across all {len(focused_papers)} papers:\n\n"
@@ -621,6 +625,8 @@ class AnalysisToolsMixin:
                 "status": "error",
                 "message": "Provide at least one dimension to compare across (e.g. 'methodology', 'results').",
             }
+
+        _emit_progress(ctx, "Loading papers to compare...")
 
         # Re-use focus_on_papers to load papers into context
         focus_result = self._tool_focus_on_papers(
@@ -703,6 +709,8 @@ class AnalysisToolsMixin:
 
         comparison_context = "\n\n" + "\n\n".join(context_parts)
 
+        _emit_progress(ctx, "Comparing papers...")
+
         dims_str = ", ".join(dimensions)
         instruction = (
             f"Compare the following papers across these dimensions: {dims_str}.\n"
@@ -733,6 +741,8 @@ class AnalysisToolsMixin:
         channel = ctx.get("channel")
 
         papers_data: List[Dict[str, Any]] = []
+
+        _emit_progress(ctx, "Loading paper content...")
 
         if scope == "focused":
             if not channel:
@@ -815,6 +825,8 @@ class AnalysisToolsMixin:
                 "status": "error",
                 "message": f"Invalid scope '{scope}'. Use 'focused', 'library', or 'channel'.",
             }
+
+        _emit_progress(ctx, "Identifying research gaps...")
 
         # Build context from collected papers
         context_parts = []
@@ -950,6 +962,8 @@ class AnalysisToolsMixin:
                 papers_data.append(paper)
         else:
             return {"status": "error", "message": f"Invalid scope '{scope}'. Use 'focused', 'library', or 'channel'."}
+
+        _emit_progress(ctx, "Analyzing methodologies...")
 
         # Build methodology context from papers
         methodology_parts = []
@@ -1130,6 +1144,8 @@ class AnalysisToolsMixin:
             context_parts.append(f"\n**Cross-paper Analysis:** {cross_analysis['last_question']}")
 
         full_context = "\n".join(context_parts) if context_parts else "No prior context available."
+
+        _emit_progress(ctx, "Generating section content...")
 
         # Section-specific instructions
         section_instructions = {

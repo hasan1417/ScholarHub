@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
 import {
   AlertCircle,
   BookOpen,
@@ -29,6 +28,8 @@ import AddProjectReferenceModal from '../../components/projects/AddProjectRefere
 import ConfirmationModal from '../../components/common/ConfirmationModal'
 import ZoteroImportModal from '../../components/references/ZoteroImportModal'
 import CitationGraph from '../../components/references/CitationGraph'
+import { PaperChatDrawer } from '../../components/discussion/PaperChatDrawer'
+import CiteInPaperModal from '../../components/references/CiteInPaperModal'
 import { getProjectUrlId } from '../../utils/urlId'
 import { useToast } from '../../hooks/useToast'
 
@@ -37,7 +38,6 @@ const ProjectReferences = () => {
   const { project } = useProjectContext()
   const { user } = useAuth()
   const queryClient = useQueryClient()
-  const navigate = useNavigate()
   const [showAddModal, setShowAddModal] = useState(false)
   const [uploadTarget, setUploadTarget] = useState<string | null>(null)
   const [uploadingId, setUploadingId] = useState<string | null>(null)
@@ -63,6 +63,14 @@ const ProjectReferences = () => {
   const [bibExporting, setBibExporting] = useState(false)
   const [viewMode, setViewMode] = useState<'list' | 'graph'>('list')
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const [activePaperChat, setActivePaperChat] = useState<{
+    reference_id: string
+    title: string
+    authors?: string[] | null
+    year?: number | null
+    status?: string | null
+  } | null>(null)
+  const [citeTarget, setCiteTarget] = useState<ProjectReferenceSuggestion | null>(null)
 
   useEffect(() => {
     usersAPI.getApiKeys().then((res) => {
@@ -658,16 +666,24 @@ const ProjectReferences = () => {
                         <button
                           type="button"
                           className="inline-flex items-center gap-1 hover:text-indigo-600 dark:hover:text-indigo-300"
-                          onClick={() => navigate(`/projects/${getProjectUrlId(project)}/discussion`)}
-                          title={`Discuss "${ref?.title ?? 'this paper'}"`}
+                          onClick={() =>
+                            setActivePaperChat({
+                              reference_id: item.reference_id,
+                              title: ref?.title ?? 'Untitled',
+                              authors: ref?.authors,
+                              year: ref?.year,
+                              status: ref?.status,
+                            })
+                          }
+                          title={`Chat with "${ref?.title ?? 'this paper'}"`}
                         >
                           <MessageSquare className="h-3 w-3" />
-                          Discuss
+                          Chat
                         </button>
                         <button
                           type="button"
                           className="inline-flex items-center gap-1 hover:text-indigo-600 dark:hover:text-indigo-300"
-                          onClick={() => navigate(`/projects/${getProjectUrlId(project)}/papers`)}
+                          onClick={() => setCiteTarget(item)}
                           title="Cite in a paper"
                         >
                           <FileEdit className="h-3 w-3" />
@@ -733,6 +749,23 @@ const ProjectReferences = () => {
         confirmTone="danger"
         isSubmitting={deleteLoading}
       />
+
+      <PaperChatDrawer
+        isOpen={!!activePaperChat}
+        onClose={() => setActivePaperChat(null)}
+        projectId={project.id}
+        reference={activePaperChat}
+      />
+
+      {citeTarget && (
+        <CiteInPaperModal
+          isOpen={!!citeTarget}
+          onClose={() => setCiteTarget(null)}
+          projectId={project.id}
+          projectUrlId={getProjectUrlId(project)}
+          reference={citeTarget}
+        />
+      )}
 
     </div>
   )

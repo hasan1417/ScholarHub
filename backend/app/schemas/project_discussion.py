@@ -124,6 +124,7 @@ class DiscussionChannelSummary(BaseModel):
     description: Optional[str]
     is_default: bool
     is_archived: bool
+    is_paper_chat: bool = False
     scope: Optional[ChannelScopeConfig] = None  # null = project-wide, or specific resource IDs
     created_at: datetime
     updated_at: datetime

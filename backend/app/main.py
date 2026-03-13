@@ -23,7 +23,6 @@ from sqlalchemy import text
 from typing import Dict
 from app.services.latex_warmup import warmup_latex_cache
 from app.services.latex_cache_cleanup import start_cache_cleanup_task
-from app.services.document_processing_service import warmup_marker_background
 try:
     import redis as redis_lib
 except Exception:  # pragma: no cover
@@ -155,7 +154,7 @@ app.include_router(comments.router, prefix="/api/v1", tags=["comments"])
 app.include_router(section_locks.router, prefix="/api/v1", tags=["section-locks"])
 if settings.PROJECT_COLLAB_REALTIME_ENABLED:
     app.include_router(collab.router, prefix="/api/v1/collab", tags=["collaboration"])
-    app.include_router(collab_bootstrap.router, prefix="/api/v1", tags=["collaboration"])
+app.include_router(collab_bootstrap.router, prefix="/api/v1", tags=["collaboration"])
 
 # Document history/snapshots
 app.include_router(snapshots.router, prefix="/api/v1", tags=["document history"])
@@ -181,10 +180,6 @@ async def startup_warmup_event() -> None:
 
     # LaTeX cache cleanup (periodic background task)
     asyncio.create_task(start_cache_cleanup_task())
-
-    # Marker PDF converter warmup (background thread - doesn't block event loop)
-    # This loads the ML models so first PDF request doesn't timeout
-    warmup_marker_background()
 
     # Start embedding worker for semantic search (background thread)
     try:

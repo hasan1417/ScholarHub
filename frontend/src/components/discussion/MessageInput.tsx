@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, X, Lightbulb } from 'lucide-react'
+import { Send, X, Lightbulb, FlaskConical } from 'lucide-react'
 
 interface MessageInputProps {
   onSend: (content: string) => void
@@ -14,6 +14,7 @@ interface MessageInputProps {
   reasoningPending?: boolean
   reasoningSupported?: boolean // Whether the current model supports reasoning
   aiGenerating?: boolean // Whether AI is currently generating a response
+  onDeepResearch?: () => void // PRO/BYOK only; undefined hides the button
 }
 
 const MessageInput = ({
@@ -29,6 +30,7 @@ const MessageInput = ({
   reasoningPending = false,
   reasoningSupported = true,
   aiGenerating = false,
+  onDeepResearch,
 }: MessageInputProps) => {
   const [content, setContent] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -127,6 +129,17 @@ const MessageInput = ({
                     : 'text-gray-400 dark:text-slate-400'
               }`}
             />
+          </button>
+        )}
+        {onDeepResearch && (
+          <button
+            type="button"
+            onClick={onDeepResearch}
+            disabled={isSubmitting}
+            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white transition hover:bg-gray-50 dark:border-slate-600 dark:bg-slate-800 dark:hover:bg-slate-700"
+            title="Deep Research (Pro)"
+          >
+            <FlaskConical className="h-4 w-4 text-indigo-500 dark:text-indigo-400" />
           </button>
         )}
         <button

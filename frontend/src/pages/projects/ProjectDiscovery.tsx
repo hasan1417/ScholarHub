@@ -7,7 +7,6 @@ import {
   ChevronDown,
   ChevronUp,
   Clock,
-  FileText,
   Filter,
   Loader2,
   MinusCircle,
@@ -179,7 +178,6 @@ const ProjectDiscovery = () => {
   const [activeFormState, setActiveFormState] = useState<ActiveFormState>(defaultActiveFormState)
   const [statusFilter, setStatusFilter] = useState<ProjectDiscoveryResultStatus | 'all'>('pending')
   const [sortBy, setSortBy] = useState<SortOption>('relevance')
-  const [showPdfOnly, setShowPdfOnly] = useState(false)
   const [activeStatusMessage, setActiveStatusMessage] = useState<string | null>(null)
   const [activeErrorMessage, setActiveErrorMessage] = useState<string | null>(null)
   const [manualStatusMessage, setManualStatusMessage] = useState<string | null>(null)
@@ -200,6 +198,7 @@ const ProjectDiscovery = () => {
   const [lastRunAtOverride, setLastRunAtOverride] = useState<string | null>(null)
   const hasHydratedActiveForm = useRef(false)
   const activeFormDirtyRef = useRef(false)
+  const autoRefreshRunningRef = useRef(false)
 
   // Abort streaming on unmount
   useEffect(() => {
@@ -264,6 +263,17 @@ const ProjectDiscovery = () => {
     enabled: !isViewer,
   })
 
+  // Accurate server-side count for pending auto results (used in batch action bar)
+  const pendingAutoCountQuery = useQuery({
+    queryKey: ['project', project.id, 'discoveryPendingAutoCount'],
+    queryFn: async () => {
+      const response = await projectDiscoveryAPI.getPendingCount(project.id, 'auto')
+      return response.data.pending
+    },
+    enabled: !isViewer && statusFilter === 'pending',
+    staleTime: 10_000,
+  })
+
   const suggestionsQuery = useQuery({
     queryKey: ['project', project.id, 'referenceSuggestionsForDiscovery'],
     queryFn: async () => {
@@ -310,11 +320,6 @@ const ProjectDiscovery = () => {
     return sorted
   }
 
-  // Filter function for results
-  const filterResults = (items: ProjectDiscoveryResultItem[]) => {
-    if (!showPdfOnly) return items
-    return items.filter((item) => item.has_pdf || Boolean(item.pdf_url))
-  }
 
   const manualResults = useMemo(() => {
     const filtered = allResults.filter((item) => item.run_type === 'manual')
@@ -323,8 +328,8 @@ const ProjectDiscovery = () => {
         const startedAt = new Date(item.run_started_at).getTime()
         return Number.isFinite(startedAt) ? startedAt >= manualSessionStart : true
       })
-    return sortResults(filterResults(filtered))
-  }, [allResults, sortBy, showPdfOnly, manualSessionStart])
+    return sortResults(filtered)
+  }, [allResults, sortBy, manualSessionStart])
 
   const deletableManualResults = useMemo(
     () => manualResults.filter((item) => item.status !== 'promoted'),
@@ -382,9 +387,9 @@ const ProjectDiscovery = () => {
         if (titleKey && suggestionKeys.has(titleKey)) return false
         return true
       })
-      return sortResults(filterResults(deduplicated))
+      return sortResults(deduplicated)
     },
-    [autoResultsRaw, suggestionKeys, sortBy, showPdfOnly]
+    [autoResultsRaw, suggestionKeys, sortBy]
   )
 
   const hiddenAutoCount = Math.max(0, autoResultsRaw.length - autoResults.length)
@@ -403,23 +408,25 @@ const ProjectDiscovery = () => {
       : 0
 
     let timer: ReturnType<typeof setInterval> | undefined
-    let running = false
+    let cancelled = false
 
     const runRefresh = async (reason: 'interval' | 'initial') => {
-      if (running) return
-      running = true
+      if (autoRefreshRunningRef.current || cancelled) return
+      autoRefreshRunningRef.current = true
       try {
         await projectReferencesAPI.refreshSuggestions(project.id)
+        if (cancelled) return
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryResults'] }),
           queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingCount'] }),
+          queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingAutoCount'] }),
           queryClient.invalidateQueries({ queryKey: ['project', project.id, 'referenceSuggestionsForDiscovery'] }),
           queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoverySettings'] }),
         ])
       } catch (error) {
         console.warn('Auto discovery refresh failed', { reason, error })
       } finally {
-        running = false
+        autoRefreshRunningRef.current = false
       }
     }
 
@@ -433,6 +440,7 @@ const ProjectDiscovery = () => {
     }, intervalMs)
 
     return () => {
+      cancelled = true
       if (timer) {
         clearInterval(timer)
       }
@@ -596,6 +604,7 @@ const ProjectDiscovery = () => {
       })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryResults'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingCount'] })
+      queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingAutoCount'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'referenceSuggestions'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoverySettings'] })
     },
@@ -632,6 +641,7 @@ const ProjectDiscovery = () => {
       })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryResults'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingCount'] })
+      queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingAutoCount'] })
     },
     onError: (_error, resultId) => {
       setDismissingIds((prev) => {
@@ -649,6 +659,7 @@ const ProjectDiscovery = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryResults'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingCount'] })
+      queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingAutoCount'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'referenceSuggestions'] })
       setSelectedResults([])
       setIsDeleteMode(false)
@@ -665,6 +676,7 @@ const ProjectDiscovery = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryResults'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingCount'] })
+      queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingAutoCount'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'referenceSuggestions'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoverySettings'] })
     },
@@ -680,12 +692,27 @@ const ProjectDiscovery = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryResults'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingCount'] })
+      queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingAutoCount'] })
+    },
+  })
+
+  // Dismiss ALL pending auto results server-side (not just loaded ones)
+  const bulkDismissAllAutoResults = useMutation({
+    mutationFn: async () => {
+      const response = await projectDiscoveryAPI.clearResults(project.id, { runType: 'auto', status: 'pending' })
+      return response.data
+    },
+    onSuccess: ({ deleted }) => {
+      setActiveStatusMessage(`Dismissed ${deleted} pending suggestion${deleted === 1 ? '' : 's'}.`)
+      queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryResults'] })
+      queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingCount'] })
+      queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingAutoCount'] })
     },
   })
 
   const isDeleting = bulkDeleteResults.isPending
   const isBulkPromoting = bulkPromoteResults.isPending
-  const isBulkDismissing = bulkDismissResults.isPending
+  const isBulkDismissing = bulkDismissResults.isPending || bulkDismissAllAutoResults.isPending
 
   // Pending items for batch actions
   const pendingManualResults = useMemo(
@@ -826,6 +853,7 @@ const ProjectDiscovery = () => {
 
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryResults'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingCount'] })
+      queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingAutoCount'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'referenceSuggestions'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoverySettings'] })
     } catch (error) {
@@ -854,11 +882,30 @@ const ProjectDiscovery = () => {
       setManualErrorMessage(null)
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryResults'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingCount'] })
+      queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingAutoCount'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'referenceSuggestions'] })
     },
     onError: () => {
       setManualStatusMessage(null)
       setManualErrorMessage('Unable to clear dismissed results right now.')
+    },
+  })
+
+  const clearPromotedResults = useMutation({
+    mutationFn: async () => {
+      const response = await projectDiscoveryAPI.clearResults(project.id, { status: 'promoted' })
+      return response.data
+    },
+    onSuccess: ({ deleted }) => {
+      setManualStatusMessage(`Cleared ${deleted} promoted result${deleted === 1 ? '' : 's'}.`)
+      setManualErrorMessage(null)
+      queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryResults'] })
+      queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingCount'] })
+      queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingAutoCount'] })
+    },
+    onError: () => {
+      setManualStatusMessage(null)
+      setManualErrorMessage('Unable to clear promoted results right now.')
     },
   })
 
@@ -896,9 +943,17 @@ const ProjectDiscovery = () => {
     bulkDeleteResults.mutate(selectedResults)
   }
 
-  const fallbackPrefs = project.discovery_preferences
-  const pendingCount = settingsQuery.data?.last_result_count ?? fallbackPrefs?.last_result_count ?? 0
-  const lastRunAt = lastRunAtOverride ?? settingsQuery.data?.last_run_at ?? fallbackPrefs?.last_run_at
+  // For the manual discovery card, derive stats from actual manual results
+  // instead of stored preferences (which are shared with auto-refresh runs).
+  const manualPendingCount = pendingManualResults.length
+  const lastManualRun = useMemo(() => {
+    if (lastRunAtOverride) return lastRunAtOverride
+    const manualWithDates = manualResults.filter((r) => r.run_started_at)
+    if (manualWithDates.length === 0) return null
+    return manualWithDates.reduce((latest, r) =>
+      new Date(r.run_started_at) > new Date(latest.run_started_at) ? r : latest
+    ).run_started_at
+  }, [manualResults, lastRunAtOverride])
 
   const toggleSourceValue = (current: string[], value: string) => {
     if (current.includes(value)) {
@@ -946,7 +1001,7 @@ const ProjectDiscovery = () => {
           </div>
           <div className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-slate-500">
             <Clock className="h-3.5 w-3.5" />
-            <span>{lastRunAt ? formatDateTime(lastRunAt) : 'Never run'}</span>
+            <span>{lastManualRun ? formatDateTime(lastManualRun) : 'Never run'}</span>
           </div>
         </div>
 
@@ -1072,7 +1127,7 @@ const ProjectDiscovery = () => {
         {/* Footer with action button */}
         <div className="flex items-center justify-between border-t border-indigo-50 bg-gray-50/50 px-5 py-3 dark:border-indigo-500/20 dark:bg-slate-900/50">
           <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-slate-400">
-            <span>{pendingCount} pending results</span>
+            <span>{manualPendingCount} pending results</span>
           </div>
           <button
             type="button"
@@ -1363,18 +1418,6 @@ const ProjectDiscovery = () => {
             </select>
             <button
               type="button"
-              onClick={() => setShowPdfOnly(!showPdfOnly)}
-              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 ${
-                showPdfOnly
-                  ? 'bg-emerald-600 text-white'
-                  : 'border border-gray-200 text-gray-600 hover:bg-gray-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700'
-              }`}
-            >
-              <FileText className="h-3.5 w-3.5" />
-              PDF only
-            </button>
-            <button
-              type="button"
               onClick={() => resultsQuery.refetch()}
               className="inline-flex items-center gap-2 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
             >
@@ -1393,6 +1436,21 @@ const ProjectDiscovery = () => {
                   <Trash2 className="h-3.5 w-3.5" />
                 )}
                 Clear dismissed
+              </button>
+            )}
+            {statusFilter === 'promoted' && (
+              <button
+                type="button"
+                onClick={() => clearPromotedResults.mutate()}
+                disabled={clearPromotedResults.isPending}
+                className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-400/40 dark:text-rose-200 dark:hover:bg-rose-500/10"
+              >
+                {clearPromotedResults.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3.5 w-3.5" />
+                )}
+                Clear promoted
               </button>
             )}
           </div>
@@ -1554,13 +1612,21 @@ const ProjectDiscovery = () => {
                 Configure background paper discovery
               </p>
             </div>
-            <div className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
-              activeFormState.autoRefresh
-                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
-                : 'bg-gray-100 text-gray-500 dark:bg-slate-800 dark:text-slate-400'
-            }`}>
-              <span className={`h-1.5 w-1.5 rounded-full ${activeFormState.autoRefresh ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'}`} />
-              {activeFormState.autoRefresh ? refreshSummary : 'Off'}
+            <div className="flex items-center gap-3">
+              {settingsQuery.data?.last_run_at && (
+                <div className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-slate-500">
+                  <Clock className="h-3.5 w-3.5" />
+                  <span>Last run {formatDateTime(settingsQuery.data.last_run_at)}</span>
+                </div>
+              )}
+              <div className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+                activeFormState.autoRefresh
+                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
+                  : 'bg-gray-100 text-gray-500 dark:bg-slate-800 dark:text-slate-400'
+              }`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${activeFormState.autoRefresh ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'}`} />
+                {activeFormState.autoRefresh ? refreshSummary : 'Off'}
+              </div>
             </div>
           </div>
 
@@ -1766,18 +1832,6 @@ const ProjectDiscovery = () => {
               </select>
               <button
                 type="button"
-                onClick={() => setShowPdfOnly(!showPdfOnly)}
-                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 ${
-                  showPdfOnly
-                    ? 'bg-emerald-600 text-white'
-                    : 'border border-gray-200 text-gray-600 hover:bg-gray-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700'
-                }`}
-              >
-                <FileText className="h-3.5 w-3.5" />
-                PDF only
-              </button>
-              <button
-                type="button"
                 onClick={() => resultsQuery.refetch()}
                 className="inline-flex items-center gap-2 rounded-full border border-gray-200 px-3 py-1.5 font-medium text-gray-600 hover:bg-gray-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
               >
@@ -1796,6 +1850,21 @@ const ProjectDiscovery = () => {
                     <Trash2 className="h-3.5 w-3.5" />
                   )}
                   Clear dismissed
+                </button>
+              )}
+              {statusFilter === 'promoted' && (
+                <button
+                  type="button"
+                  onClick={() => clearPromotedResults.mutate()}
+                  disabled={clearPromotedResults.isPending}
+                  className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-3 py-1.5 font-medium text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-400/40 dark:text-rose-200 dark:hover:bg-rose-500/10"
+                >
+                  {clearPromotedResults.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-3.5 w-3.5" />
+                  )}
+                  Clear list
                 </button>
               )}
             </div>
@@ -1820,10 +1889,10 @@ const ProjectDiscovery = () => {
           )}
 
           {/* Batch actions for pending auto results */}
-          {pendingAutoResults.length > 0 && statusFilter === 'pending' && (
+          {(pendingAutoResults.length > 0 || (pendingAutoCountQuery.data ?? 0) > 0) && statusFilter === 'pending' && (
             <div className="flex items-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-2 dark:border-indigo-500/30 dark:bg-indigo-950/30">
               <span className="text-xs text-indigo-700 dark:text-indigo-200">
-                {pendingAutoResults.length} pending paper{pendingAutoResults.length !== 1 ? 's' : ''}
+                {pendingAutoCountQuery.data ?? pendingAutoResults.length} pending paper{(pendingAutoCountQuery.data ?? pendingAutoResults.length) !== 1 ? 's' : ''}
               </span>
               <div className="flex-1" />
               <button
@@ -1831,6 +1900,7 @@ const ProjectDiscovery = () => {
                 onClick={() => bulkPromoteResults.mutate(pendingAutoResults.map((r) => r.id))}
                 disabled={isBulkPromoting || isBulkDismissing}
                 className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                title={pendingAutoResults.length < (pendingAutoCountQuery.data ?? 0) ? `Adds the ${pendingAutoResults.length} loaded papers` : undefined}
               >
                 {isBulkPromoting ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1841,7 +1911,7 @@ const ProjectDiscovery = () => {
               </button>
               <button
                 type="button"
-                onClick={() => bulkDismissResults.mutate(pendingAutoResults.map((r) => r.id))}
+                onClick={() => bulkDismissAllAutoResults.mutate()}
                 disabled={isBulkPromoting || isBulkDismissing}
                 className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
               >

@@ -222,14 +222,18 @@ const ProjectLayout = () => {
     }
   }, [isOnDiscoveryPage, pendingCount, storageKey])
 
+  // Only show the dot when the count genuinely increases (new papers discovered),
+  // not when the query resolves after a page refresh with the same count.
+  const queryResolved = pendingDiscovery.isFetched
   useEffect(() => {
-    if (pendingCount > prevCount && prevCount >= 0) {
+    if (!queryResolved) return
+    if (pendingCount > prevCount) {
       setHasViewedDiscovery(false)
       localStorage.setItem(`${storageKey}-viewed`, 'false')
     }
     setPrevCount(pendingCount)
     localStorage.setItem(`${storageKey}-count`, pendingCount.toString())
-  }, [pendingCount, prevCount, storageKey])
+  }, [pendingCount, prevCount, storageKey, queryResolved])
 
   // Dot indicator only; numeric badge comes from pendingCount elsewhere
   const hasLibraryNotifications = pendingCount > 0 && !hasViewedDiscovery
@@ -360,7 +364,7 @@ const ProjectLayout = () => {
             </div>
           </div>
         </div>
-        <nav ref={tabNavRef} className="mt-6 sm:mt-8 flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium overflow-x-auto scrollbar-hide pb-1 -mx-1 px-1">
+        <nav ref={tabNavRef} className="mt-6 sm:mt-8 flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium overflow-x-auto scrollbar-hide py-1 -mx-1 px-1">
           {getNavigationMode() === 'new' ? (
             // NEW NAVIGATION: 4 simple tabs
             NEW_TAB_GROUPS.main.map(({ label, path, icon: Icon, tooltip, badge }) => (
@@ -380,7 +384,7 @@ const ProjectLayout = () => {
                 </NavLink>
                 {badge === 'discovery' && hasLibraryNotifications && (
                   <span
-                    className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-red-500 shadow-sm ring-2 ring-white"
+                    className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-red-500 shadow-sm ring-2 ring-white dark:ring-slate-800"
                     title={`${pendingCount} new paper${pendingCount === 1 ? '' : 's'} discovered`}
                   />
                 )}

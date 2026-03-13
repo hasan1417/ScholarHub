@@ -25,7 +25,7 @@ class DocumentSnapshot(Base):
     materialized_text = Column(Text, nullable=True)
 
     # Snapshot metadata
-    snapshot_type = Column(String(20), nullable=False, default="auto")  # 'auto', 'manual', 'restore'
+    snapshot_type = Column(String(20), nullable=False, default="auto")  # 'auto', 'manual', 'restore', 'save'
     label = Column(String(255), nullable=True)  # Optional user-provided label
 
     # Authorship
@@ -37,6 +37,7 @@ class DocumentSnapshot(Base):
 
     # Size tracking for UI display
     text_length = Column(Integer, nullable=True)
+    content_hash = Column(String(16), nullable=True, index=True)
 
     # Relationships
     paper = relationship("ResearchPaper", backref="snapshots")

@@ -13,6 +13,8 @@ import json
 import logging
 from typing import Any, Awaitable, Callable, Dict, List, Optional, TYPE_CHECKING, TypeVar
 
+from app.services.discussion_ai.utils import _emit_progress
+
 if TYPE_CHECKING:
     from app.models import Project
 
@@ -232,6 +234,32 @@ class SearchToolsMixin:
 
             papers_list.append(paper_info)
 
+        # Mark which references have paper chat discussions
+        try:
+            from app.models.project_discussion import ProjectDiscussionChannel, ProjectDiscussionAssistantExchange
+            from sqlalchemy import func as sa_func
+            chat_counts = dict(
+                self.db.query(
+                    ProjectDiscussionChannel.name,
+                    sa_func.count(ProjectDiscussionAssistantExchange.id),
+                )
+                .join(ProjectDiscussionAssistantExchange, ProjectDiscussionAssistantExchange.channel_id == ProjectDiscussionChannel.id)
+                .filter(
+                    ProjectDiscussionChannel.project_id == project.id,
+                    ProjectDiscussionChannel.is_paper_chat.is_(True),
+                )
+                .group_by(ProjectDiscussionChannel.name)
+                .all()
+            )
+            for paper in papers_list:
+                key = f"__paper_chat:{paper['id']}"
+                count = chat_counts.get(key, 0)
+                if count > 0:
+                    paper["has_paper_chat"] = True
+                    paper["paper_chat_exchanges"] = count
+        except Exception:
+            pass
+
         return {
             "total_count": total_count,  # Total references in library (before limit)
             "returned_count": len(references),  # How many returned in this response
@@ -292,6 +320,41 @@ class SearchToolsMixin:
                 if doc:
                     result["page_count"] = doc.page_count if hasattr(doc, 'page_count') else None
                     # Could also include word count or other metadata if available
+
+        # Pull recent Q&A from paper chat channel so the discussion AI knows what was discussed
+        try:
+            from app.models.project_discussion import ProjectDiscussionChannel, ProjectDiscussionAssistantExchange
+            paper_chat = (
+                self.db.query(ProjectDiscussionChannel)
+                .filter(
+                    ProjectDiscussionChannel.project_id == project.id,
+                    ProjectDiscussionChannel.name == f"__paper_chat:{reference_id}",
+                )
+                .first()
+            )
+            if paper_chat:
+                exchanges = (
+                    self.db.query(ProjectDiscussionAssistantExchange)
+                    .filter(ProjectDiscussionAssistantExchange.channel_id == paper_chat.id)
+                    .order_by(ProjectDiscussionAssistantExchange.created_at.desc())
+                    .limit(10)
+                    .all()
+                )
+                if exchanges:
+                    qa_pairs = []
+                    for ex in reversed(exchanges):
+                        answer = ""
+                        if isinstance(ex.response, dict):
+                            answer = ex.response.get("message", "") or ex.response.get("content", "") or ex.response.get("text", "")
+                        elif isinstance(ex.response, str):
+                            answer = ex.response
+                        # Truncate long answers
+                        if len(answer) > 300:
+                            answer = answer[:300] + "..."
+                        qa_pairs.append(f"Q: {ex.question}\nA: {answer}")
+                    result["paper_chat_history"] = "\n\n".join(qa_pairs)
+        except Exception:
+            pass
 
         return result
 
@@ -458,7 +521,10 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                     await discovery_service.close()
 
             # Run async search
+            _emit_progress(ctx, "Querying academic databases...")
             result = self._run_async_operation(_run_search)
+
+            _emit_progress(ctx, f"Evaluating {len(result.papers)} results...")
 
             # Filter for open access if requested
             source_papers = result.papers
@@ -504,6 +570,8 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                     "is_open_access": getattr(p, 'is_open_access', False),
                     "journal": getattr(p, 'journal', None) or getattr(p, 'venue', None),
                 })
+
+            _emit_progress(ctx, f"Found {len(papers)} new papers, preparing results...")
 
             # Persist to Redis (cross-turn) AND update ctx (within-turn)
             self._set_recent_papers(ctx, papers, search_id=search_id)
@@ -834,8 +902,10 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 _search_topic(t) for t in formatted_topics
             ])
 
+        _emit_progress(ctx, f"Searching {len(formatted_topics)} topics...")
         topic_search_results = self._run_async_operation(_run_all_searches)
 
+        _emit_progress(ctx, "Deduplicating across topics...")
         # Process results: deduplicate across topics and filter library duplicates
         seen_keys: set = set()
         all_papers: list = []
@@ -917,6 +987,8 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 "status": "success",
                 "message": f"No new papers found across {len(formatted_topics)} topics (they may already be in your library).",
             }
+
+        _emit_progress(ctx, f"Found {len(all_papers)} papers, preparing results...")
 
         # Cache results in Redis
         search_id = str(uuid4())
@@ -1276,9 +1348,11 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 return {"source": None, "source_title": paper_identifier, "papers": []}
 
         # Run async function
+        _emit_progress(ctx, "Querying for related papers...")
         result = self._run_async_operation(fetch_related)
 
         papers_data = result.get("papers", [])
+        _emit_progress(ctx, f"Evaluating {len(papers_data)} related papers...")
         source_title = result.get("source_title", paper_identifier)
         api_source = result.get("source", "unknown")
 

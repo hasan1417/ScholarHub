@@ -5,13 +5,13 @@ import { researchPapersAPI } from '../../../services/api'
 
 type Props = EditorAdapterProps;
 
-type EnhancedProps = Props & { branchName?: 'draft' | 'published'; };
-
 const LatexAdapter = forwardRef(function LatexAdapter(
-  props: EnhancedProps,
+  props: Props,
   ref: React.Ref<EditorAdapterHandle>
 ) {
-  const { contentJson, onContentChange, onReady, onDirtyChange, className, paperId, projectId, paperTitle, lockedSectionKeys, branchName = 'draft', readOnly = false, onNavigateBack, onOpenReferences, onOpenAiChatWithMessage, onInsertBibliographyShortcut, realtime, collaborationStatus, theme: _theme } = props
+  const { contentJson, onContentChange, onReady, onDirtyChange, className, paperId, projectId, paperTitle, branchName = 'draft', readOnly = false, onNavigateBack, onOpenAiChatWithMessage, realtime, collaborationStatus, theme: _theme } = props
+  const [displayTitle, setDisplayTitle] = useState(paperTitle)
+  useEffect(() => { setDisplayTitle(paperTitle) }, [paperTitle])
   const dbg = (...args: any[]) => { try { if ((window as any).__SH_DEBUG_LTX) console.debug('[LatexAdapter]', ...args) } catch {} }
   const editorRef = useRef<any>(null)
   const realtimeEnabled = Boolean(realtime?.enabled)
@@ -275,7 +275,12 @@ const LatexAdapter = forwardRef(function LatexAdapter(
     }
   }, [])
 
-  // No special viewer-only mode; always mount editor to keep Save and PDF preview behavior consistent
+  // Rename paper title (persists to DB)
+  const handleRenamePaper = async (newTitle: string) => {
+    if (!paperId) return
+    await researchPapersAPI.updatePaper(paperId, { title: newTitle })
+    setDisplayTitle(newTitle)
+  }
 
   return (
     <div className={`flex flex-1 min-h-0 ${className || ''}`}>
@@ -284,23 +289,17 @@ const LatexAdapter = forwardRef(function LatexAdapter(
         value={src}
         onChange={handleChange}
         onSave={handleSave}
-        templateTitle={paperTitle}
-        fullHeight
+        templateTitle={displayTitle}
         paperId={paperId}
         projectId={projectId}
-        uncontrolled={false}
-      lockedSectionKeys={lockedSectionKeys || []}
-      branchName={branchName || 'draft'}
-      readOnly={readOnly}
-      disableSave={readOnly}
-      allowAutoVersion={false}
-      onNavigateBack={onNavigateBack}
-      onOpenReferences={onOpenReferences}
-      onOpenAiChatWithMessage={onOpenAiChatWithMessage}
-      onInsertBibliographyShortcut={onInsertBibliographyShortcut}
-      realtime={realtime}
-      collaborationStatus={collaborationStatus}
-    />
+        readOnly={readOnly}
+        disableSave={readOnly}
+        onNavigateBack={onNavigateBack}
+        onOpenAiChatWithMessage={onOpenAiChatWithMessage}
+        realtime={realtime}
+        collaborationStatus={collaborationStatus}
+        onRenamePaper={paperId ? handleRenamePaper : undefined}
+      />
   </div>
 )
 })

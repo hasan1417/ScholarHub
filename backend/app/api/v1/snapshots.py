@@ -12,17 +12,20 @@ Provides endpoints for:
 
 import base64
 import difflib
+import logging
 from typing import List, Optional
 from uuid import UUID
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status, Query
-from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+import httpx
 
 from app.api.deps import get_db, get_current_user
 from app.core.config import settings
 from app.models import DocumentSnapshot, ResearchPaper, User, PaperMember
+from app.schemas.collab import CollabStateResponse
 
 from app.schemas.snapshot import (
     SnapshotCreate,
@@ -36,8 +39,11 @@ from app.schemas.snapshot import (
     DiffLine,
     DiffStats,
 )
+from app.services.paper_service import compute_snapshot_content_hash
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+SNAPSHOT_SEQUENCE_RETRY_COUNT = 3
 
 
 def _resolve_collab_secret(provided: str | None) -> None:
@@ -50,7 +56,7 @@ def _resolve_collab_secret(provided: str | None) -> None:
         )
 
 
-def _check_paper_access(db: Session, paper_id: UUID, user: User) -> ResearchPaper:
+def _check_paper_access(db: Session, paper_id: UUID | str, user: User) -> ResearchPaper:
     """Check if user has access to the paper."""
     paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
     if not paper:
@@ -74,6 +80,117 @@ def _get_next_sequence_number(db: Session, paper_id: UUID) -> int:
         DocumentSnapshot.paper_id == paper_id
     ).scalar()
     return (max_seq or 0) + 1
+
+
+def _is_snapshot_sequence_conflict(exc: IntegrityError) -> bool:
+    """Return True when the paper+sequence unique constraint was hit."""
+    constraint_name = getattr(getattr(exc.orig, "diag", None), "constraint_name", None)
+    if constraint_name == "uq_document_snapshots_paper_sequence":
+        return True
+
+    message = str(exc.orig)
+    return "uq_document_snapshots_paper_sequence" in message or (
+        "document_snapshots" in message and "sequence_number" in message
+    )
+
+
+def _create_snapshot_with_retry(
+    db: Session,
+    *,
+    paper_id: UUID,
+    yjs_state: bytes,
+    materialized_text: Optional[str],
+    snapshot_type: str,
+    label: Optional[str],
+    created_by: Optional[UUID],
+) -> DocumentSnapshot:
+    """Create a snapshot, retrying sequence allocation on concurrent inserts."""
+    text_length = len(materialized_text) if materialized_text is not None else 0
+    content_hash = compute_snapshot_content_hash(materialized_text)
+
+    last_error: Optional[IntegrityError] = None
+    for attempt in range(SNAPSHOT_SEQUENCE_RETRY_COUNT):
+        snapshot = DocumentSnapshot(
+            paper_id=paper_id,
+            yjs_state=yjs_state,
+            materialized_text=materialized_text,
+            snapshot_type=snapshot_type,
+            label=label,
+            created_by=created_by,
+            sequence_number=_get_next_sequence_number(db, paper_id),
+            text_length=text_length,
+            content_hash=content_hash,
+        )
+
+        try:
+            with db.begin_nested():
+                db.add(snapshot)
+                db.flush()
+            return snapshot
+        except IntegrityError as exc:
+            last_error = exc
+            if not _is_snapshot_sequence_conflict(exc) or attempt == SNAPSHOT_SEQUENCE_RETRY_COUNT - 1:
+                raise
+            logger.info(
+                "Retrying snapshot creation for paper %s after sequence conflict (attempt %s/%s)",
+                paper_id,
+                attempt + 1,
+                SNAPSHOT_SEQUENCE_RETRY_COUNT,
+            )
+
+    if last_error:
+        raise last_error
+
+    raise RuntimeError("Snapshot creation failed without a captured error")
+
+
+def _collab_state_headers() -> Optional[dict[str, str]]:
+    """Build the shared-secret headers for internal collab service calls."""
+    secret = settings.COLLAB_BOOTSTRAP_SECRET or settings.COLLAB_JWT_SECRET
+    if not secret:
+        return None
+    return {"X-Collab-Secret": secret}
+
+
+def _fetch_live_collab_state(paper_id: str) -> tuple[str, bytes] | None:
+    """Fetch the current live document state from the collab service if available."""
+    headers = _collab_state_headers()
+    if not headers:
+        logger.debug("Skipping collab live state fetch for paper %s because no collab secret is configured", paper_id)
+        return None
+
+    endpoint = f"{settings.COLLAB_SERVER_URL.rstrip('/')}/documents/{paper_id}/state"
+
+    try:
+        with httpx.Client(timeout=httpx.Timeout(3.0, connect=1.0)) as client:
+            response = client.get(endpoint, headers=headers)
+
+        if response.status_code == status.HTTP_404_NOT_FOUND:
+            logger.debug("No live collab state available for paper %s", paper_id)
+            return None
+
+        response.raise_for_status()
+        payload = CollabStateResponse.model_validate(response.json())
+
+        encoded_yjs_state = payload.yjs_state_base64
+        if encoded_yjs_state is None:
+            encoded_yjs_state = payload.yjs_state
+        if encoded_yjs_state is None:
+            raise ValueError("Collab live state response is missing yjs_state")
+
+        return payload.materialized_text, base64.b64decode(encoded_yjs_state, validate=True)
+    except httpx.RequestError as exc:
+        logger.warning("Failed to fetch live collab state for paper %s: %s", paper_id, exc)
+    except httpx.HTTPStatusError as exc:
+        logger.warning(
+            "Collab live state lookup failed for paper %s with status %s",
+            paper_id,
+            exc.response.status_code,
+        )
+    except ValueError as exc:
+        logger.warning("Invalid collab live state payload for paper %s: %s", paper_id, exc)
+
+    return None
 
 
 def _compute_diff(text1: str, text2: str) -> tuple[List[DiffLine], DiffStats]:
@@ -134,6 +251,63 @@ def _compute_diff(text1: str, text2: str) -> tuple[List[DiffLine], DiffStats]:
     return diff_lines, stats
 
 
+def _compute_full_diff(text1: str, text2: str) -> tuple[List[DiffLine], DiffStats]:
+    """Compute a full-document line diff between two texts."""
+    lines1 = (text1 or "").splitlines()
+    lines2 = (text2 or "").splitlines()
+
+    diff_lines: List[DiffLine] = []
+    additions = 0
+    deletions = 0
+    unchanged = 0
+
+    matcher = difflib.SequenceMatcher(a=lines1, b=lines2)
+
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            for offset, line in enumerate(lines2[j1:j2], start=j1 + 1):
+                diff_lines.append(DiffLine(
+                    type="unchanged",
+                    content=line,
+                    line_number=offset,
+                ))
+                unchanged += 1
+        elif tag == "delete":
+            for offset, line in enumerate(lines1[i1:i2], start=i1 + 1):
+                diff_lines.append(DiffLine(
+                    type="deleted",
+                    content=line,
+                    line_number=offset,
+                ))
+                deletions += 1
+        elif tag == "insert":
+            for offset, line in enumerate(lines2[j1:j2], start=j1 + 1):
+                diff_lines.append(DiffLine(
+                    type="added",
+                    content=line,
+                    line_number=offset,
+                ))
+                additions += 1
+        elif tag == "replace":
+            for offset, line in enumerate(lines1[i1:i2], start=i1 + 1):
+                diff_lines.append(DiffLine(
+                    type="deleted",
+                    content=line,
+                    line_number=offset,
+                ))
+                deletions += 1
+            for offset, line in enumerate(lines2[j1:j2], start=j1 + 1):
+                diff_lines.append(DiffLine(
+                    type="added",
+                    content=line,
+                    line_number=offset,
+                ))
+                additions += 1
+
+    stats = DiffStats(additions=additions, deletions=deletions, unchanged=unchanged)
+    return diff_lines, stats
+
+
 def _snapshot_to_response(snapshot: DocumentSnapshot) -> SnapshotResponse:
     """Convert a snapshot model to response schema."""
     return SnapshotResponse(
@@ -162,30 +336,26 @@ def create_manual_snapshot(
     """Create a manual snapshot of the current document state."""
     paper = _check_paper_access(db, paper_id, current_user)
 
-    # Get current document content from paper
-    latex_source = ""
-    if isinstance(paper.content_json, dict):
-        latex_source = paper.content_json.get("latex_source", "")
-    if not latex_source and paper.content:
-        latex_source = paper.content
+    live_state = _fetch_live_collab_state(paper_id)
+    if live_state is not None:
+        latex_source, yjs_state = live_state
+    else:
+        latex_source = ""
+        if isinstance(paper.content_json, dict):
+            latex_source = paper.content_json.get("latex_source", "")
+        if not latex_source and paper.content:
+            latex_source = paper.content
+        yjs_state = b""
 
-    # For manual snapshots, we need to get the current Yjs state
-    # This would typically come from the collab server
-    # For now, we'll store an empty Yjs state and rely on materialized_text
-    yjs_state = b""  # Placeholder - collab server will provide real state
-
-    snapshot = DocumentSnapshot(
-        paper_id=paper_id,
+    snapshot = _create_snapshot_with_retry(
+        db,
+        paper_id=paper.id,
         yjs_state=yjs_state,
         materialized_text=latex_source,
         snapshot_type="manual",
         label=data.label,
         created_by=current_user.id,
-        sequence_number=_get_next_sequence_number(db, paper_id),
-        text_length=len(latex_source) if latex_source else 0,
     )
-
-    db.add(snapshot)
     db.commit()
     db.refresh(snapshot)
 
@@ -343,6 +513,46 @@ def get_snapshot_diff(
     )
 
 
+@router.get(
+    "/papers/{paper_id}/snapshots/{from_id}/full-diff/{to_id}",
+    response_model=SnapshotDiffResponse,
+)
+def get_snapshot_full_diff(
+    paper_id: str,
+    from_id: UUID,
+    to_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Compute a full-document diff between two snapshots."""
+    _check_paper_access(db, paper_id, current_user)
+
+    snapshot1 = db.query(DocumentSnapshot).filter(
+        DocumentSnapshot.id == from_id,
+        DocumentSnapshot.paper_id == paper_id,
+    ).first()
+
+    snapshot2 = db.query(DocumentSnapshot).filter(
+        DocumentSnapshot.id == to_id,
+        DocumentSnapshot.paper_id == paper_id,
+    ).first()
+
+    if not snapshot1 or not snapshot2:
+        raise HTTPException(status_code=404, detail="One or both snapshots not found")
+
+    diff_lines, stats = _compute_full_diff(
+        snapshot1.materialized_text or "",
+        snapshot2.materialized_text or "",
+    )
+
+    return SnapshotDiffResponse(
+        from_snapshot=_snapshot_to_response(snapshot1),
+        to_snapshot=_snapshot_to_response(snapshot2),
+        diff_lines=diff_lines,
+        stats=stats,
+    )
+
+
 @router.post(
     "/papers/{paper_id}/snapshots/{snapshot_id}/restore",
     response_model=SnapshotRestoreResponse,
@@ -370,18 +580,15 @@ def restore_snapshot(
         raise HTTPException(status_code=404, detail="Snapshot not found")
 
     # Create a restore snapshot to mark this point in history
-    restore_snapshot = DocumentSnapshot(
-        paper_id=paper_id,
+    restore_snapshot = _create_snapshot_with_retry(
+        db,
+        paper_id=paper.id,
         yjs_state=snapshot.yjs_state,
         materialized_text=snapshot.materialized_text,
         snapshot_type="restore",
         label=f"Restored from snapshot #{snapshot.sequence_number}",
         created_by=current_user.id,
-        sequence_number=_get_next_sequence_number(db, paper_id),
-        text_length=snapshot.text_length,
     )
-
-    db.add(restore_snapshot)
 
     # Update paper content
     if isinstance(paper.content_json, dict):
@@ -431,18 +638,15 @@ def create_auto_snapshot(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid base64 Yjs state")
 
-    snapshot = DocumentSnapshot(
-        paper_id=paper_id,
+    snapshot = _create_snapshot_with_retry(
+        db,
+        paper_id=paper.id,
         yjs_state=yjs_state,
         materialized_text=data.materialized_text,
         snapshot_type=data.snapshot_type,
         label=None,
         created_by=None,  # Auto snapshots have no specific creator
-        sequence_number=_get_next_sequence_number(db, paper_id),
-        text_length=len(data.materialized_text) if data.materialized_text else 0,
     )
-
-    db.add(snapshot)
     db.commit()
     db.refresh(snapshot)
 

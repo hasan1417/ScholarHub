@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, DateTime, Boolean, ForeignKey, Enum, Integer
+from sqlalchemy import Column, String, Text, DateTime, Boolean, ForeignKey, Enum, Integer, Float
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -55,6 +55,7 @@ class Document(Base):
     # AI Processing
     is_processed_for_ai = Column(Boolean, default=False)
     processed_at = Column(DateTime(timezone=True))
+    extraction_quality = Column(Float, nullable=True)
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())

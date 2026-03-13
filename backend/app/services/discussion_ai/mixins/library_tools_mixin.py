@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from sqlalchemy.exc import IntegrityError
 
 from app.services.discussion_ai.utils import (
+    _emit_progress,
     _escape_latex,
     _normalize_title,
     _normalize_author,
@@ -763,7 +764,6 @@ class LibraryToolsMixin:
         if abstract:
             # Explicit abstract parameter provided - use it and remove any from content
             if content_abstract_match:
-                # Remove the abstract from content since we'll add it separately
                 content = re.sub(r'\\begin\{abstract\}.*?\\end\{abstract\}\s*', '', content, flags=re.DOTALL)
             abstract_section = f"""
 \\begin{{abstract}}
@@ -780,6 +780,13 @@ class LibraryToolsMixin:
 {extracted_abstract}
 \\end{{abstract}}
 """
+
+        # Remove duplicate \section{Abstract} if we already have a \begin{abstract} env
+        if abstract_section:
+            content = re.sub(
+                r'\\section\*?\{Abstract\}.*?(?=\\section|\Z)',
+                '', content, count=1, flags=re.DOTALL | re.IGNORECASE
+            )
 
         # Check if content has citations
         has_citations = '\\cite{' in content
@@ -955,6 +962,8 @@ class LibraryToolsMixin:
 
         safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
 
+        _emit_progress(ctx, "Generating document...")
+
         # Handle PDF generation with proper cleanup
         if format == "pdf":
             md_path = None
@@ -967,8 +976,7 @@ class LibraryToolsMixin:
                 pdf_path = md_path.replace('.md', '.pdf')
 
                 result = subprocess.run(
-                    ['pandoc', md_path, '-o', pdf_path, '--pdf-engine=tectonic',
-                     '--pdf-engine-opt=-Z', '--pdf-engine-opt=continue-on-errors'],
+                    ['pandoc', md_path, '-o', pdf_path, '--pdf-engine=pdflatex'],
                     capture_output=True,
                     text=True,
                     timeout=60
@@ -1020,6 +1028,8 @@ class LibraryToolsMixin:
             file_size = f"{file_size_bytes / 1024:.1f} KB"
         else:
             file_size = f"{file_size_bytes / (1024 * 1024):.1f} MB"
+
+        _emit_progress(ctx, "Saving artifact...")
 
         # Save artifact to database
         channel = ctx.get("channel")
@@ -1186,6 +1196,8 @@ class LibraryToolsMixin:
         failed_papers = []
         ingestion_results = []
         used_keys: set = set()
+
+        _emit_progress(ctx, "Adding papers to your library...")
 
         for idx in paper_indices:
             if idx < 0 or idx >= len(recent_search_results):
@@ -1355,6 +1367,9 @@ class LibraryToolsMixin:
                 # Attempt PDF ingestion if requested and PDF is available
                 # Reference is already committed, so PDF ingestion failures won't affect it
                 if ingest_pdfs and existing_ref.pdf_url:
+                    pdfs_so_far = sum(1 for p in added_papers if p.get("ingestion_status") == "success") + 1
+                    pdfs_total = sum(1 for i in paper_indices if i < len(recent_search_results) and recent_search_results[i].get("pdf_url"))
+                    _emit_progress(ctx, f"Ingesting PDF {pdfs_so_far} of {pdfs_total}...")
                     try:
                         success = ingest_reference_pdf(
                             self.db,
@@ -1388,6 +1403,8 @@ class LibraryToolsMixin:
                 # Previously committed papers are safe since each iteration commits independently
                 self.db.rollback()
                 failed_papers.append({"index": idx, "title": title, "error": str(e)})
+
+        _emit_progress(ctx, "Finalizing library entries...")
 
         # Summary
         ingested_count = sum(1 for p in added_papers if p.get("ingestion_status") == "success")

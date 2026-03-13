@@ -37,7 +37,7 @@ CREATE_PAPER_SCHEMA = {
                 },
                 "content": {
                     "type": "string",
-                    "description": "Content in LATEX FORMAT ONLY. Use ONLY basic LaTeX: \\section{}, \\subsection{}, \\textbf{}, \\textit{}, \\begin{itemize}, \\cite{}. Do NOT use Markdown. MUST INCLUDE CITATIONS: Use \\cite{authorYYYYword} format where author=first author's last name (lowercase), YYYY=year, word=first significant word from title (lowercase). Example: \\cite{mcmahan2017communication} for 'Communication-Efficient Learning' by McMahan (2017). Every academic paper needs citations - do not create papers without \\cite{} commands! Do NOT add References section - it's auto-generated from your citations.",
+                    "description": "Content in LATEX FORMAT ONLY. Use ONLY basic LaTeX: \\section{}, \\subsection{}, \\textbf{}, \\textit{}, \\begin{itemize}, \\cite{}. Do NOT use Markdown. MUST INCLUDE CITATIONS: Use \\cite{authorYYYYword} format where author=first author's last name (lowercase), YYYY=year, word=first significant word from title (lowercase). Example: \\cite{mcmahan2017communication} for 'Communication-Efficient Learning' by McMahan (2017). Every academic paper needs citations - do not create papers without \\cite{} commands! Do NOT add References section - it's auto-generated from your citations. Do NOT include an abstract in content (no \\begin{abstract} and no \\section{Abstract}) - use the separate 'abstract' parameter instead. Start content with \\section{Introduction} or the first real section.",
                 },
                 "paper_type": {
                     "type": "string",
@@ -46,7 +46,7 @@ CREATE_PAPER_SCHEMA = {
                 },
                 "abstract": {
                     "type": "string",
-                    "description": "Optional abstract/summary of the paper",
+                    "description": "Abstract/summary of the paper. ALWAYS provide this for academic papers. This is rendered as \\begin{abstract}...\\end{abstract} automatically — do NOT duplicate it in the content field.",
                 },
                 "template": {
                     "type": "string",

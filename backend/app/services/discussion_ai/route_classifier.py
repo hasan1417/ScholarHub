@@ -2,101 +2,144 @@
 Lite/Full Route Classifier for Discussion AI
 
 Classifies each user message as "lite" or "full" to skip the expensive
-tool pipeline for trivial messages (greetings, acknowledgments, short
-confirmations). Conservative: defaults to "full" when uncertain.
+tool pipeline for trivial messages (greetings, acknowledgments).
+
+Hybrid approach:
+  - Regex fast-path for obvious cases (free, instant)
+  - LLM classifier for the ambiguous middle zone (~50ms, ~$0.0001)
+  - Conservative: defaults to "full" when uncertain
 """
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal
+
+logger = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True)
 class RouteDecision:
     route: Literal["lite", "full"]
     reason: str
 
-# Patterns that always require full pipeline
+
+# ── Regex fast-paths (free, instant) ────────────────────────────────
+
+# Action verbs → always full
 _ACTION_VERBS = re.compile(
     r"\b(find|search|create|write|draft|compare|analyze|ingest|add|update|"
     r"help|suggest|explain|summarize|review|plan|recommend|generate|export|annotate)\b",
     re.IGNORECASE,
 )
+
+# Research terms → always full
 _RESEARCH_TERMS = re.compile(
     r"\b(papers?|references?|library|abstract|methodology|literature|citation|"
     r"research|study|studies|thesis|dissertation|journal|article)\b",
     re.IGNORECASE,
 )
-_GREETING_PATTERNS = re.compile(
-    r"^(hi|hello|hey|thanks|thx|thanx|thank you|ok|okay|cool|great|got it|"
+
+# Question starters → always full ("what about GPT", "how does X work")
+_QUESTION_START = re.compile(
+    r"^(what|how|why|when|where|who|which|can|could|should|would|does|do|is|are)\b",
+    re.IGNORECASE,
+)
+
+# Pure greetings: the ENTIRE message is just a greeting/ack, nothing else.
+# Unlike the old pattern, this does NOT match compound messages like
+# "thanks, now tell me about X".
+_PURE_LITE = re.compile(
+    r"^(?:hi|hello|hey|thanks|thx|thanx|thank you|ok|okay|cool|great|got it|"
     r"makes sense|i see|understood|noted|nice|awesome|sure|alright|"
-    r"no problem|no worries|right|nope|cheers|good morning|good afternoon|good evening|"
-    r"bye|goodbye|see ya|later|k bye|cya)"
-    r"(?:[.!,\s].*)?$",
-    re.IGNORECASE,
-)
-# Confirmations that imply pending action ("yes", "do it", "go ahead")
-_CONFIRMATION_PATTERNS = re.compile(
-    r"^(yes|yeah|yep|yup|do it|go ahead|please do|all of them|go for it|"
-    r"let's do it|proceed|continue|absolutely|definitely|for sure|"
-    r"looks good|that works|that's good|sounds good|perfect|approved)[.!,\s]*$",
-    re.IGNORECASE,
-)
-_CONFIRMATION_PREFIX = re.compile(
-    r"^(looks good|sounds good|that works|that's good|perfect|go ahead|yes)\b",
+    r"no problem|no worries|right|nope|cheers|good morning|good afternoon|"
+    r"good evening|bye|goodbye|see ya|later|k bye|cya)"
+    r"[.!,\s]*$",
     re.IGNORECASE,
 )
 
 
-def _last_assistant_suggested_action(conversation_history: List[Dict[str, str]]) -> bool:
-    """Check if the last assistant message suggested a tool action."""
-    for msg in reversed(conversation_history):
-        if msg.get("role") == "assistant":
-            text = (msg.get("content") or "").lower()
-            action_hints = (
-                "shall i", "should i", "want me to", "i can",
-                "would you like me to", "ready to", "i'll",
-                "let me know if", "do you want",
-            )
-            return any(hint in text for hint in action_hints)
-    return False
+# ── LLM classifier prompt ──────────────────────────────────────────
+
+_ROUTE_PROMPT = (
+    'Does this message need the research assistant\'s full capabilities '
+    '(tools, search, analysis, answering questions), or is it just a casual exchange?\n'
+    'Reply with exactly one word: "full" or "lite"\n\n'
+    '"full" = question, request, instruction, feedback, follow-up, or anything substantive\n'
+    '"lite" = ONLY a simple greeting, thanks, or acknowledgment with no additional request'
+)
 
 
-def _last_turn_had_tool_action(
+def _get_classifier_model() -> str:
+    try:
+        from app.core.config import settings
+        model = getattr(settings, "ROUTE_CLASSIFIER_MODEL", None)
+        if model:
+            return model
+    except Exception:
+        pass
+    return "openai/gpt-5-mini"
+
+
+def _classify_with_llm(
+    msg: str,
     conversation_history: List[Dict[str, str]],
-    memory_facts: Optional[Dict[str, Any]] = None,
-) -> bool:
-    """Check if the last turn involved tool calls — using state, not text heuristics.
+    client: Any,
+) -> RouteDecision:
+    """Use a cheap LLM call to classify ambiguous messages."""
+    try:
+        messages = [{"role": "system", "content": _ROUTE_PROMPT}]
 
-    Option 1: Check memory for _last_tools_called (set by orchestrator after each turn).
-    Option 2: Fallback — check conversation metadata for tool result markers.
-    """
-    if memory_facts and memory_facts.get("_last_tools_called"):
-        return True
-    # Fallback: check conversation for tool call metadata
-    for msg in reversed(conversation_history):
-        if msg.get("role") == "assistant" and msg.get("tools_called"):
-            return True
-    return False
+        # Last 2 messages for deictic context ("more on that", "try that instead")
+        for m in (conversation_history or [])[-2:]:
+            role = m.get("role", "user")
+            content = (m.get("content") or "")[:150]
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content})
 
+        messages.append({"role": "user", "content": msg[:200]})
+
+        response = client.chat.completions.create(
+            model=_get_classifier_model(),
+            messages=messages,
+            max_tokens=128,
+            temperature=0,
+            timeout=2.0,
+            extra_body={"reasoning_effort": "low"},
+        )
+        text = (response.choices[0].message.content or "").strip().lower()
+
+        if "lite" in text:
+            return RouteDecision("lite", "llm_lite")
+        # "full" or anything else → full (conservative)
+        return RouteDecision("full", "llm_full")
+
+    except Exception as exc:
+        logger.debug("[RouteClassifier] LLM failed: %s — defaulting to full", exc)
+        return RouteDecision("full", "llm_error_fallback")
+
+
+# ── Public API ──────────────────────────────────────────────────────
 
 def classify_route(
     user_message: str,
     conversation_history: List[Dict[str, str]],
     memory_facts: Dict[str, Any],
+    client: Any = None,
 ) -> RouteDecision:
     """Classify a user message as needing 'lite' or 'full' AI pipeline.
 
-    Conservative: defaults to 'full' when uncertain. False-positive lites
-    (routing a real request to lite) are worse than false-positive fulls.
+    Args:
+        client: Optional OpenAI-compatible sync client for LLM classification
+                of ambiguous messages. When None, falls back to regex-only.
     """
     msg = (user_message or "").strip()
     if not msg:
         return RouteDecision("lite", "empty_message")
 
-    # --- Full triggers (check first - conservative) ---
-
+    # ── Definite FULL (regex fast-path) ──────────────────────────────
     if "?" in msg:
         return RouteDecision("full", "contains_question_mark")
 
@@ -106,28 +149,22 @@ def classify_route(
     if _RESEARCH_TERMS.search(msg):
         return RouteDecision("full", "research_term_detected")
 
+    if _QUESTION_START.match(msg):
+        return RouteDecision("full", "question_start")
+
     if len(msg) > 80:
         return RouteDecision("full", "long_message")
 
-    # Confirmations -> full if assistant suggested an action
-    if _CONFIRMATION_PATTERNS.match(msg) or _CONFIRMATION_PREFIX.match(msg):
-        if _last_assistant_suggested_action(conversation_history):
-            return RouteDecision("full", "confirmation_of_pending_action")
-        # Pure confirmation without pending action -> lite
-        return RouteDecision("lite", "standalone_confirmation")
+    # ── Definite LITE (regex fast-path) ──────────────────────────────
+    # Only when the ENTIRE message is a greeting/ack, nothing else.
+    if _PURE_LITE.match(msg):
+        return RouteDecision("lite", "pure_greeting")
 
-    # --- Lite triggers ---
+    # ── Ambiguous zone ───────────────────────────────────────────────
+    # Short messages, compound confirmations, follow-ups without clear
+    # action verbs or research terms. LLM handles these accurately.
+    if client:
+        return _classify_with_llm(msg, conversation_history, client)
 
-    if _GREETING_PATTERNS.match(msg):
-        return RouteDecision("lite", "greeting_or_acknowledgment")
-
-    # Short follow-up after tool action -> full (state-based, not text heuristic)
-    # "more plz" after a search should stay full, not drop to lite
-    if len(msg) <= 20 and _last_turn_had_tool_action(conversation_history, memory_facts):
-        return RouteDecision("full", "short_followup_after_action")
-
-    if len(msg) <= 20:
-        return RouteDecision("lite", "short_message")
-
-    # Default: full (conservative)
+    # ── No client: conservative fallback (always full) ───────────────
     return RouteDecision("full", "default_full")

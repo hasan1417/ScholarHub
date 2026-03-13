@@ -29,6 +29,7 @@ from app.services.reference_ingestion_service import ingest_reference_pdf
 from app.services.paper_membership_service import ensure_paper_membership_for_project_member
 import traceback
 from app.services.activity_feed import record_project_activity, preview_text
+from app.services.paper_service import add_snapshot_with_retry, compute_snapshot_content_hash
 from app.services.subscription_service import SubscriptionService
 from app.utils.slugify import slugify, generate_short_id
 
@@ -591,8 +592,6 @@ async def update_paper_content(
 
     # Create a snapshot on save (with deduplication to prevent spam)
     try:
-        from datetime import datetime, timedelta
-
         # Get the latex source for materialized text
         materialized_text = ""
         if isinstance(paper.content_json, dict):
@@ -611,40 +610,44 @@ async def update_paper_content(
 
             should_create_snapshot = True
             skip_reason = None
+            content_hash = compute_snapshot_content_hash(materialized_text)
 
-            # Manual saves always create a snapshot (user clicked save button)
+            # Manual saves always create a snapshot immediately.
+            # Autosaves only create a snapshot if enough time has passed (5 min)
+            # to avoid cluttering history with per-keystroke entries.
             is_manual_save = getattr(content_update, 'manual_save', False)
 
-            if last_snapshot and not is_manual_save:
-                time_since_last = datetime.utcnow() - last_snapshot.created_at
-                length_diff = abs(current_length - (last_snapshot.text_length or 0))
-
-                # Skip if less than 30 seconds AND less than 50 character change (only for auto-saves)
-                if time_since_last < timedelta(seconds=30) and length_diff < 50:
+            if last_snapshot and last_snapshot.content_hash == content_hash:
+                should_create_snapshot = False
+                skip_reason = "Content hash matches previous snapshot"
+            elif not is_manual_save and last_snapshot:
+                from datetime import datetime, timezone, timedelta
+                AUTO_SNAPSHOT_INTERVAL = timedelta(minutes=5)
+                last_created = last_snapshot.created_at
+                if last_created.tzinfo is None:
+                    last_created = last_created.replace(tzinfo=timezone.utc)
+                if datetime.now(timezone.utc) - last_created < AUTO_SNAPSHOT_INTERVAL:
                     should_create_snapshot = False
-                    skip_reason = f"Too soon ({time_since_last.seconds}s) and small change ({length_diff} chars)"
+                    skip_reason = "Autosave throttled (< 5 min since last snapshot)"
 
             if should_create_snapshot:
-                # Get next sequence number
-                max_seq = db.query(func.max(DocumentSnapshot.sequence_number)).filter(
-                    DocumentSnapshot.paper_id == paper.id
-                ).scalar()
-                next_seq = (max_seq or 0) + 1
-
-                # Create snapshot
-                snapshot = DocumentSnapshot(
+                snapshot = add_snapshot_with_retry(
+                    db,
                     paper_id=paper.id,
                     yjs_state=b"",  # No Yjs state when saving from API
                     materialized_text=materialized_text,
                     snapshot_type="save",
                     label=None,
                     created_by=current_user.id,
-                    sequence_number=next_seq,
-                    text_length=current_length,
                 )
-                db.add(snapshot)
                 db.commit()
-                logger.info("Created save snapshot for paper %s, seq=%s, len=%s", paper_id, next_seq, current_length)
+                logger.info(
+                    "Created save snapshot for paper %s, seq=%s, len=%s, hash=%s",
+                    paper_id,
+                    snapshot.sequence_number,
+                    current_length,
+                    content_hash,
+                )
             else:
                 logger.debug("Skipped duplicate snapshot for paper %s: %s", paper_id, skip_reason)
         else:
@@ -1202,7 +1205,6 @@ async def upload_figure(
     db: Session = Depends(get_db)
 ):
     """Upload a figure/image for a research paper."""
-    import os
     import shutil
     from pathlib import Path
 
@@ -1308,3 +1310,151 @@ async def upload_bib_file(
         "filename": file.filename,
         "size": file_path.stat().st_size
     }
+
+
+@router.post("/{paper_id}/support-files")
+async def upload_support_file(
+    paper_id: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Upload a support file (.cls, .sty, .bst, .bib, .def, .fd) for a research paper."""
+    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    # Check permissions
+    if paper.owner_id != current_user.id:
+        member = db.query(PaperMember).filter(
+            PaperMember.paper_id == paper.id,
+            PaperMember.user_id == current_user.id,
+            PaperMember.status == "accepted"
+        ).first()
+        if not member or member.role not in {PaperRole.OWNER, PaperRole.ADMIN, PaperRole.EDITOR}:
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    # Validate file type
+    allowed_extensions = {'.cls', '.sty', '.bst', '.bib', '.def', '.fd'}
+    file_ext = Path(file.filename).suffix.lower() if file.filename else ''
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type. Allowed: {', '.join(sorted(allowed_extensions))}"
+        )
+
+    # Validate filename (no path traversal)
+    safe_filename = Path(file.filename).name if file.filename else ''
+    if not safe_filename or '..' in safe_filename or '/' in safe_filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    # Enforce max 2MB
+    contents = await file.read()
+    if len(contents) > 2 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large. Maximum 2MB allowed.")
+
+    # Create upload directory
+    upload_dir = Path("uploads") / "papers" / str(paper_id) / "support"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    file_path = upload_dir / safe_filename
+
+    try:
+        with file_path.open("wb") as buffer:
+            buffer.write(contents)
+    except Exception as e:
+        logger.error(f"Failed to save support file: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save file")
+
+    return {
+        "filename": safe_filename,
+        "size": file_path.stat().st_size,
+        "type": file_ext.lstrip('.')
+    }
+
+
+@router.get("/{paper_id}/support-files")
+async def list_support_files(
+    paper_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List support files uploaded for a research paper."""
+    import os
+    from datetime import datetime, timezone
+
+    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    support_dir = Path("uploads") / "papers" / str(paper_id) / "support"
+    files = []
+    if support_dir.exists():
+        for f in support_dir.iterdir():
+            if f.is_file():
+                mtime = os.path.getmtime(f)
+                files.append({
+                    "filename": f.name,
+                    "size": f.stat().st_size,
+                    "uploaded_at": datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
+                })
+
+    return {"files": files}
+
+
+@router.delete("/{paper_id}/support-files/{filename}")
+async def delete_support_file(
+    paper_id: str,
+    filename: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a support file from a research paper."""
+    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    # Check permissions
+    if paper.owner_id != current_user.id:
+        member = db.query(PaperMember).filter(
+            PaperMember.paper_id == paper.id,
+            PaperMember.user_id == current_user.id,
+            PaperMember.status == "accepted"
+        ).first()
+        if not member or member.role not in {PaperRole.OWNER, PaperRole.ADMIN, PaperRole.EDITOR}:
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    # Validate filename (no path traversal)
+    if '..' in filename or '/' in filename or '\\' in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    file_path = Path("uploads") / "papers" / str(paper_id) / "support" / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    file_path.unlink()
+    return {"success": True}
+
+
+@router.get("/{paper_id}/figures")
+async def list_figures(
+    paper_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List uploaded figures for a research paper."""
+    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    figures_dir = Path("uploads") / "papers" / str(paper_id) / "figures"
+    files = []
+    if figures_dir.exists():
+        for f in figures_dir.iterdir():
+            if f.is_file():
+                files.append({
+                    "filename": f.name,
+                    "size": f.stat().st_size
+                })
+
+    return {"files": files}

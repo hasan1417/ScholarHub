@@ -147,12 +147,10 @@ class DiscussionPolicy:
                 reasons.append("recency_or_year_filter_requested")
             action_plan = ActionPlan(
                 primary_tool="search_papers",
-                force_tool="search_papers" if search_tool_available else None,
                 reasons=reasons.copy(),
             )
             return PolicyDecision(
                 intent="direct_search",
-                force_tool="search_papers" if search_tool_available else None,
                 search=search,
                 reasons=reasons,
                 action_plan=action_plan,

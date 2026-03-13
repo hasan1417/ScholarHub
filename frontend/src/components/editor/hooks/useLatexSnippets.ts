@@ -109,9 +109,27 @@ export function useLatexSnippets({ viewRef, readOnly, setFigureDialogOpen }: Use
     insertSnippet(figureCode, caption)
   }, [insertSnippet])
   const insertTable = useCallback(() => insertSnippet('\\begin{table}[ht]\n  \\centering\n  \\begin{tabular}{lcc}\n    \\toprule\n    Column 1 & Column 2 & Column 3 \\\n    \\midrule\n    Row 1 & 0.0 & 0.0 \\\n    Row 2 & 0.0 & 0.0 \\\n    \\bottomrule\n  \\end{tabular}\n  \\caption{Caption here}\n  \\label{tab:example}\n\\end{table}\n\n', 'Caption here'), [insertSnippet])
+  const insertTableWithSize = useCallback((cols: number, rows: number) => {
+    if (readOnly) return
+    const colSpec = Array(cols).fill('c').join('')
+    const header = Array.from({ length: cols }, (_, i) => `Col ${i + 1}`).join(' & ')
+    const dataRows = Array.from({ length: rows }, () =>
+      Array.from({ length: cols }, () => '—').join(' & ')
+    ).map(row => `    ${row} \\\\`).join('\n')
+    const snippet = `\\begin{table}[ht]\n  \\centering\n  \\begin{tabular}{${colSpec}}\n    \\toprule\n    ${header} \\\\\n    \\midrule\n${dataRows}\n    \\bottomrule\n  \\end{tabular}\n  \\caption{Caption here}\n  \\label{tab:example}\n\\end{table}\n\n`
+    insertSnippet(snippet, 'Caption here')
+  }, [readOnly, insertSnippet])
   const insertCite = useCallback(() => {
     if (readOnly) return
     insertSnippet('\\cite{key}', 'key')
+  }, [readOnly, insertSnippet])
+  const insertRef = useCallback(() => {
+    if (readOnly) return
+    insertSnippet('\\ref{label}', 'label')
+  }, [readOnly, insertSnippet])
+  const insertLink = useCallback(() => {
+    if (readOnly) return
+    insertSnippet('\\href{url}{text}', 'url')
   }, [readOnly, insertSnippet])
   const handleInsertBibliographyAction = useCallback(() => {
     if (readOnly) return
@@ -138,8 +156,10 @@ export function useLatexSnippets({ viewRef, readOnly, setFigureDialogOpen }: Use
     figure: insertFigure,
     table: insertTable,
     cite: insertCite,
+    ref: insertRef,
+    link: insertLink,
     bibliography: handleInsertBibliographyAction,
-  }), [insertHeading, insertBold, insertItalics, insertSmallCaps, insertInlineCode, insertQuote, insertFootnote, insertInlineMath, insertDisplayMath, insertAlignEnv, insertItemize, insertEnumerate, insertDescription, insertFigure, insertTable, insertCite, handleInsertBibliographyAction])
+  }), [insertHeading, insertBold, insertItalics, insertSmallCaps, insertInlineCode, insertQuote, insertFootnote, insertInlineMath, insertDisplayMath, insertAlignEnv, insertItemize, insertEnumerate, insertDescription, insertFigure, insertTable, insertCite, insertRef, insertLink, handleInsertBibliographyAction])
 
   const formattingGroups = useMemo(() => LATEX_FORMATTING_GROUPS.map(group => ({
     label: group.label,
@@ -168,6 +188,10 @@ export function useLatexSnippets({ viewRef, readOnly, setFigureDialogOpen }: Use
     insertTable,
     insertItemize,
     insertEnumerate,
+    insertRef,
+    insertLink,
+    insertDisplayMath,
+    insertTableWithSize,
     handleFigureInsert,
     handleInsertBibliographyAction,
   }

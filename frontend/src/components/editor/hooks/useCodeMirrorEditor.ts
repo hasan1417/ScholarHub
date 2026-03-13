@@ -2,18 +2,20 @@ import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { EditorState, StateEffect, type Extension } from '@codemirror/state'
 import { EditorView, keymap, drawSelection, highlightActiveLine, highlightActiveLineGutter, lineNumbers } from '@codemirror/view'
 import { defaultKeymap, indentWithTab, history, historyKeymap, undo, redo, undoDepth, redoDepth } from '@codemirror/commands'
-import { bracketMatching, foldGutter, foldKeymap } from '@codemirror/language'
+import { bracketMatching, foldGutter, foldKeymap, indentOnInput } from '@codemirror/language'
 import { search, searchKeymap } from '@codemirror/search'
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
 import { lintGutter } from '@codemirror/lint'
 import { latexAutocompletion, completionKeymap } from '../extensions/latexAutocomplete'
 import { latexFoldService } from '../extensions/latexFoldService'
-import { latexLanguageSetup } from '../extensions/latexLanguageSetup'
+import { latexLanguageSetup, latexHighlightFixes } from '../extensions/latexLanguageSetup'
 import { latexSpellcheck } from '../extensions/latexSpellcheck'
 import { overleafLatexTheme } from '../codemirror/overleafTheme'
 import { setRemoteSelectionsEffect, remoteSelectionsField, createRemoteDecorations } from '../extensions/remoteSelectionsField'
 import { scrollOnDragSelection } from '../extensions/scrollOnDragSelection'
 import { trackChangesExtension } from '../extensions/trackChangesDecoration'
+import { latexVisualMode } from '../extensions/latexVisualMode'
+
 import type { RemoteSelection } from '../extensions/remoteSelectionsField'
 import type { UndoManager } from 'yjs'
 
@@ -43,11 +45,14 @@ interface UseCodeMirrorEditorReturn {
   undoEnabled: boolean
   redoEnabled: boolean
   hasTextSelected: boolean
+  boldActive: boolean
+  italicActive: boolean
   handleContainerRef: (el: HTMLDivElement | null) => void
   flushBufferedChange: () => void
   latestDocRef: React.MutableRefObject<string>
   handleUndo: () => void
   handleRedo: () => void
+  onSaveRef: React.MutableRefObject<(() => void) | null>
 }
 
 // ---------------------------------------------------------------------------
@@ -92,6 +97,10 @@ export function useCodeMirrorEditor({
   useEffect(() => {
     onChangeRef.current = onChange
   }, [onChange])
+
+  // Save callback ref — set by the parent after useHistoryRestore provides handleSave
+  const onSaveRef = useRef<(() => void) | null>(null)
+
 
   const flushBufferedChange = useCallback(() => {
     if (pendingChangeTimerRef.current !== null) {
@@ -141,6 +150,8 @@ export function useCodeMirrorEditor({
   const [undoEnabled, setUndoEnabled] = useState(false)
   const [redoEnabled, setRedoEnabled] = useState(false)
   const [hasTextSelected, setHasTextSelected] = useState(false)
+  const [boldActive, setBoldActive] = useState(false)
+  const [italicActive, setItalicActive] = useState(false)
 
   useEffect(() => {
     if (readOnly) {
@@ -165,6 +176,7 @@ export function useCodeMirrorEditor({
   // -----------------------------------------------------------------------
   const cmExtensions = useMemo<Extension[]>(() => {
     const baseKeymap = [
+      { key: 'Mod-s', run: () => { onSaveRef.current?.(); return true } },
       ...(realtimeDoc ? [] : historyKeymap),
       ...searchKeymap,
       ...closeBracketsKeymap,
@@ -177,28 +189,30 @@ export function useCodeMirrorEditor({
       remoteSelectionsField,
       lineNumbers(),
       drawSelection(),
-      highlightActiveLine(),
-      highlightActiveLineGutter(),
+      highlightActiveLine(), highlightActiveLineGutter(),
       ...(realtimeDoc ? [] : [history()]),
       latexLanguageSetup(),
+      latexHighlightFixes(),
       keymap.of(baseKeymap),
       EditorView.lineWrapping,
       scrollOnDragSelection,
       overleafLatexTheme,
       // Search & replace (Ctrl+F / Ctrl+H)
-      search({ top: true }),
-      // Bracket matching & auto-closing
+      search({ top: false }),
+      // Bracket matching, auto-closing & auto-indentation
       bracketMatching(),
       closeBrackets(),
+      indentOnInput(),
       // LaTeX-aware autocompletion (commands, environments, citations, refs)
       latexAutocompletion(paperId),
       // Code folding for LaTeX environments and sections
-      foldGutter(),
-      latexFoldService,
+      foldGutter(), latexFoldService,
       lintGutter(),
       latexSpellcheck(),
       trackChangesExtension(),
+      latexVisualMode(),
       ...(trackChangesFilter ? [trackChangesFilter] : []),
+
       ...realtimeExtensions,
       EditorView.updateListener.of((update) => {
         if (update.selectionSet || update.docChanged) {
@@ -207,6 +221,13 @@ export function useCodeMirrorEditor({
           if (hasSelection) dom.classList.add('cm-has-selection')
           else dom.classList.remove('cm-has-selection')
           setHasTextSelected(hasSelection)
+          // Detect if cursor is inside \textbf{} or \textit{}
+          const pos = update.state.selection.main.head
+          const doc = update.state.doc.toString()
+          const lineStart = doc.lastIndexOf('\n', pos - 1) + 1
+          const before = doc.slice(lineStart, pos)
+          setBoldActive(/\\textbf\{(?:[^}]*)$/.test(before))
+          setItalicActive(/\\textit\{(?:[^}]*)$/.test(before))
           if (!readOnly && realtimeAwareness) {
             try {
               const main = update.state.selection.main
@@ -488,10 +509,13 @@ export function useCodeMirrorEditor({
     undoEnabled,
     redoEnabled,
     hasTextSelected,
+    boldActive,
+    italicActive,
     handleContainerRef,
     flushBufferedChange,
     latestDocRef,
     handleUndo,
     handleRedo,
+    onSaveRef,
   }
 }

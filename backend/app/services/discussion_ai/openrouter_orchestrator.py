@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import os
+import queue as stdlib_queue
 import re
 import time
 from typing import Any, AsyncGenerator, Dict, List, Optional, TYPE_CHECKING
@@ -804,10 +805,11 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             return self._error_response("OpenRouter API not configured.")
 
         try:
+            is_paper_chat = ctx.get("paper_chat", False)
             call_kwargs: Dict[str, Any] = dict(
                 model=self.model,
                 messages=messages,
-                max_tokens=50,
+                max_tokens=4096 if is_paper_chat else 50,
             )
             response = self.openrouter_client.chat.completions.create(**call_kwargs)
             raw = response.choices[0].message.content or ""
@@ -850,10 +852,11 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         content_chunks: List[str] = []
         think_filter = ThinkTagFilter()
         try:
+            is_paper_chat = ctx.get("paper_chat", False)
             lite_kwargs: Dict[str, Any] = dict(
                 model=self.model,
                 messages=messages,
-                max_tokens=50,
+                max_tokens=4096 if is_paper_chat else 50,
                 stream=True,
             )
             stream = await self.async_openrouter_client.chat.completions.create(**lite_kwargs)
@@ -949,11 +952,6 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         iteration = 0
         all_tool_results = []
         final_content_chunks = []
-        clarification_first_detected = False
-        direct_search_intent = (
-            policy_decision.should_force_tool("search_papers")
-            and policy_decision.search is not None
-        )
         search_tool_executed = False
         recovery_attempted = False
 
@@ -968,10 +966,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             tool_calls = []
             iteration_content = []
 
-            # Stream tokens directly to the client.  If the model decides to
-            # call tools mid-stream, content_reset will clear the partial text.
-            # Only buffer when forced search may fire (it replaces all content).
-            stream_directly = not (direct_search_intent and not search_tool_executed)
+            stream_directly = True
             tokens_yielded = False
             async for event in self._call_ai_with_tools_streaming(messages, ctx):
                 if event["type"] == "token":
@@ -982,9 +977,6 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                         yield {"type": "token", "content": event["content"]}
                         tokens_yielded = True
                 elif event["type"] == "tool_call_detected":
-                    # Stop streaming — model is calling tools, so this isn't
-                    # the final response.  Tokens already yielded are a small
-                    # fragment; they'll be replaced by the result event.
                     stream_directly = False
                     logger.info("[OpenRouter Async Streaming] Tool call detected")
                 elif event["type"] == "result":
@@ -994,58 +986,27 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             logger.debug(f"[OpenRouter Async Streaming] Got {len(tool_calls)} tool calls: {[tc.get('name') for tc in tool_calls]}")
 
             if not tool_calls:
-                if direct_search_intent and not search_tool_executed and policy_decision.search is not None:
-                    clarification_first_detected = clarification_first_detected or bool((response_content or "").strip() or iteration_content)
-                    forced_query = policy_decision.search.query or self._build_fallback_search_query(ctx)
-                    forced_tool_call = {
-                        "id": "forced-search-1",
-                        "name": "search_papers",
-                        "arguments": {
-                            "query": forced_query,
-                            "count": policy_decision.search.count,
-                            "limit": policy_decision.search.count,
-                            "open_access_only": policy_decision.search.open_access_only,
-                            "year_from": policy_decision.search.year_from,
-                            "year_to": policy_decision.search.year_to,
-                        },
-                    }
-                    logger.info(f"[OpenRouter Async] Applying direct-search fallback with query: {forced_query[:120]}")
-
-                    yield {
-                        "type": "status",
-                        "tool": "search_papers",
-                        "message": self._get_tool_status_message("search_papers"),
-                    }
-                    tool_results = await asyncio.to_thread(self._execute_tool_calls, [forced_tool_call], ctx)
-                    all_tool_results.extend(tool_results)
-                    search_tool_executed = True
-                    break
-
                 # Recovery retry: if no tool calls but user clearly requested action,
-                # retry once with the same intent tools + a nudge.
+                # retry once with a nudge.
                 if (
                     not all_tool_results
                     and not recovery_attempted
                     and _ACTION_SIGNAL.search(ctx.get("user_message", ""))
                 ):
                     recovery_attempted = True
-                    ctx["intent_confidence"] = 1.0  # keep intent tools — intent was correct
-                    # Clear any tokens streamed on this attempt before retrying
                     if tokens_yielded:
                         yield {"type": "content_reset"}
                         tokens_yielded = False
-                    # Nudge the model to actually use tools on retry
                     messages.append({
                         "role": "system",
                         "content": "You MUST use a tool to fulfill this request. Do not just describe what you would do — call the appropriate tool now.",
                     })
-                    logger.info("[ToolRecovery] No tool calls, retrying with widened tools + nudge")
+                    logger.info("[ToolRecovery] No tool calls, retrying with nudge")
                     continue
 
                 # Final iteration — flush buffered tokens to the client now.
                 logger.info("[OpenRouter Async Streaming] Final response - no more tool calls")
                 if not stream_directly:
-                    # Iteration 1 tokens were buffered — flush them now
                     for chunk in iteration_content:
                         if ttfb_ms == 0:
                             ttfb_ms = int((time.monotonic() - t_start) * 1000)
@@ -1082,8 +1043,29 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 status_message = self._get_tool_status_message(tool_name)
                 yield {"type": "status", "tool": tool_name, "message": status_message}
 
-            # Execute tool calls in thread (tools use sync DB)
-            tool_results = await asyncio.to_thread(self._execute_tool_calls, tool_calls, ctx)
+            # Execute tool calls in thread with progress polling
+            progress_queue: stdlib_queue.Queue[str] = stdlib_queue.Queue()
+            ctx["_progress_callback"] = lambda msg: progress_queue.put(msg)
+            tool_task = asyncio.create_task(
+                asyncio.to_thread(self._execute_tool_calls, tool_calls, ctx)
+            )
+            while not tool_task.done():
+                await asyncio.sleep(0.15)
+                while not progress_queue.empty():
+                    try:
+                        msg = progress_queue.get_nowait()
+                        yield {"type": "status", "tool": "", "message": msg}
+                    except stdlib_queue.Empty:
+                        break
+            tool_results = await tool_task
+            # Drain any remaining progress messages
+            while not progress_queue.empty():
+                try:
+                    msg = progress_queue.get_nowait()
+                    yield {"type": "status", "tool": "", "message": msg}
+                except stdlib_queue.Empty:
+                    break
+            ctx.pop("_progress_callback", None)
             all_tool_results.extend(tool_results)
             if any(tr.get("name") in ("search_papers", "batch_search_papers") for tr in tool_results):
                 search_tool_executed = True
@@ -1168,7 +1150,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             ctx,
             policy_decision,
             all_tool_results,
-            clarification_first_detected,
+            False,
             stage_transition_success,
         )
 

@@ -94,7 +94,7 @@ const CitationSuggestions: React.FC<CitationSuggestionsProps> = ({
   }
 
   return (
-    <div className="border-t border-slate-200 bg-slate-50/80 dark:border-slate-700 dark:bg-slate-900/60">
+    <div className="border-t border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">
       <button
         onClick={() => setCollapsed(prev => !prev)}
         className="flex w-full items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
@@ -115,7 +115,7 @@ const CitationSuggestions: React.FC<CitationSuggestionsProps> = ({
           {suggestions.map((s) => (
             <div
               key={s.reference_id}
-              className="group flex items-start gap-2 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs transition-colors hover:border-indigo-300 dark:border-slate-700 dark:bg-slate-800/60 dark:hover:border-indigo-600"
+              className="group flex items-start gap-2 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs transition-colors hover:border-indigo-300 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-indigo-600"
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-1.5">

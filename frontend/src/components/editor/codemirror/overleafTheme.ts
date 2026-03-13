@@ -122,6 +122,221 @@ export const overleafLatexTheme: Extension = [
     '.cm-tooltip .cm-tooltip-arrow:before': {
       borderTopColor: 'var(--latex-editor-tooltip-bg)',
     },
+    // ---- Search / Replace panel (Overleaf-inspired) ----
+    // CM6 DOM: div.cm-search > [input[search], btn[next], btn[prev], btn[select],
+    //   label>chk[case], label>chk[re], label>chk[word], br, input[replace],
+    //   btn[replace], btn[replaceAll], btn[close]]
+    // Grid: cols 1-4 = input area (labels overlay cols 2-4 inside search input),
+    //        cols 5-6 = nav arrows, col 7 = select-all
+    '.cm-panels': {
+      backgroundColor: 'var(--latex-editor-search-bg)',
+      color: 'var(--latex-editor-search-fg)',
+      zIndex: '10',
+    },
+    '.cm-panels.cm-panels-top': {
+      borderBottom: '1px solid var(--latex-editor-search-border)',
+    },
+    '.cm-panels.cm-panels-bottom': {
+      borderTop: '1px solid var(--latex-editor-search-border)',
+    },
+    '.cm-panel.cm-search': {
+      display: 'grid',
+      gridTemplateColumns: 'minmax(200px, 1fr) auto auto auto auto auto auto',
+      gridTemplateRows: 'auto auto',
+      alignItems: 'center',
+      gap: '4px 2px',
+      padding: '6px 36px 6px 12px',
+      backgroundColor: 'var(--latex-editor-search-bg)',
+      fontSize: '13px',
+      position: 'relative',
+    },
+    '.cm-panel.cm-search br': {
+      display: 'none',
+    },
+    // ---- Text inputs ----
+    '.cm-panel.cm-search input.cm-textfield': {
+      backgroundColor: 'var(--latex-editor-search-input-bg)',
+      color: 'var(--latex-editor-search-input-fg)',
+      border: '1px solid var(--latex-editor-search-input-border)',
+      borderRadius: '4px',
+      padding: '5px 8px',
+      fontSize: '13px',
+      outline: 'none',
+      fontFamily: 'inherit',
+      margin: '0',
+      minWidth: '0',
+    },
+    '.cm-panel.cm-search input.cm-textfield:focus': {
+      borderColor: '#6366f1',
+      boxShadow: '0 0 0 1px rgba(99,102,241,0.3)',
+    },
+    // Search input spans cols 1-4; right padding leaves room for overlaid toggles
+    '.cm-panel.cm-search input.cm-textfield[name="search"]': {
+      gridRow: '1',
+      gridColumn: '1 / 5',
+      paddingRight: '96px',
+    },
+    // Replace input spans same cols 1-4 → same width as search
+    '.cm-panel.cm-search input.cm-textfield[name="replace"]': {
+      gridRow: '2',
+      gridColumn: '1 / 5',
+    },
+    // ---- Toggle labels (Aa, [.*], W) — overlaid inside the search input ----
+    '.cm-panel.cm-search label': {
+      gridRow: '1',
+      zIndex: '1',
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontSize: '0',
+      color: 'var(--latex-editor-search-fg)',
+      opacity: '0.5',
+      cursor: 'pointer',
+      userSelect: 'none',
+      width: '26px',
+      height: '24px',
+      borderRadius: '4px',
+      backgroundColor: 'rgba(255,255,255,0.06)',
+      border: '1px solid transparent',
+      margin: '0',
+      padding: '0',
+    },
+    '.cm-panel.cm-search label:hover': {
+      opacity: '0.85',
+      backgroundColor: 'rgba(255,255,255,0.12)',
+    },
+    '.cm-panel.cm-search label:has(input:checked)': {
+      opacity: '1',
+      backgroundColor: 'rgba(99,102,241,0.2)',
+      borderColor: 'rgba(99,102,241,0.4)',
+    },
+    '.cm-panel.cm-search label input[type="checkbox"]': {
+      display: 'none',
+    },
+    // Place each label in its grid column (2, 3, 4) to overlay on search input
+    '.cm-panel.cm-search label:nth-of-type(1)': {
+      gridColumn: '2',
+    },
+    '.cm-panel.cm-search label:nth-of-type(2)': {
+      gridColumn: '3',
+    },
+    '.cm-panel.cm-search label:nth-of-type(3)': {
+      gridColumn: '4',
+    },
+    // Icon symbols via ::after (match case → Aa, regexp → [.*], by word → W)
+    '.cm-panel.cm-search label:nth-of-type(1)::after': {
+      content: '"Aa"',
+      fontSize: '11px',
+      fontWeight: '700',
+      lineHeight: '1',
+    },
+    '.cm-panel.cm-search label:nth-of-type(2)::after': {
+      content: '"[.*]"',
+      fontSize: '10px',
+      fontWeight: '600',
+      lineHeight: '1',
+      fontFamily: 'monospace',
+    },
+    '.cm-panel.cm-search label:nth-of-type(3)::after': {
+      content: '"W"',
+      fontSize: '12px',
+      fontWeight: '700',
+      lineHeight: '1',
+    },
+    // ---- Action buttons: compact, borderless ----
+    '.cm-panel.cm-search button.cm-button': {
+      appearance: 'none',
+      WebkitAppearance: 'none',
+      background: 'transparent',
+      backgroundColor: 'transparent',
+      color: 'var(--latex-editor-search-fg)',
+      border: 'none',
+      borderRadius: '4px',
+      padding: '4px 6px',
+      fontSize: '12px',
+      fontWeight: '500',
+      cursor: 'pointer',
+      backgroundImage: 'none',
+      textTransform: 'none',
+      whiteSpace: 'nowrap',
+      opacity: '0.7',
+      lineHeight: '1',
+      margin: '0',
+    },
+    '.cm-panel.cm-search button.cm-button:hover': {
+      backgroundColor: 'var(--latex-editor-search-btn-hover-bg)',
+      opacity: '1',
+    },
+    // Nav buttons: prev (∧) & next (∨) arrows — grid row 1, cols 5-6
+    '.cm-panel.cm-search button[name="prev"]': {
+      gridRow: '1',
+      gridColumn: '5',
+      fontSize: '0',
+      padding: '3px 5px',
+    },
+    '.cm-panel.cm-search button[name="prev"]::after': {
+      content: '"\\2039"',
+      fontSize: '18px',
+      lineHeight: '1',
+      transform: 'rotate(90deg)',
+      display: 'inline-block',
+    },
+    '.cm-panel.cm-search button[name="next"]': {
+      gridRow: '1',
+      gridColumn: '6',
+      fontSize: '0',
+      padding: '3px 5px',
+    },
+    '.cm-panel.cm-search button[name="next"]::after': {
+      content: '"\\203A"',
+      fontSize: '18px',
+      lineHeight: '1',
+      transform: 'rotate(90deg)',
+      display: 'inline-block',
+    },
+    '.cm-panel.cm-search button[name="select"]': {
+      gridRow: '1',
+      gridColumn: '7',
+    },
+    // Replace / Replace All — grid row 2, cols 5-6
+    '.cm-panel.cm-search button[name="replace"]': {
+      gridRow: '2',
+      gridColumn: '5 / 7',
+    },
+    '.cm-panel.cm-search button[name="replaceAll"]': {
+      gridRow: '2',
+      gridColumn: '7',
+    },
+    // Close button: absolute top-right, aligned with row 1
+    '.cm-panel.cm-search button[name="close"]': {
+      position: 'absolute',
+      right: '8px',
+      top: '8px',
+      backgroundColor: 'transparent',
+      color: 'var(--latex-editor-search-fg)',
+      border: 'none',
+      fontSize: '16px',
+      padding: '2px 6px',
+      opacity: '0.5',
+      borderRadius: '4px',
+      cursor: 'pointer',
+      margin: '0',
+      lineHeight: '1',
+    },
+    '.cm-panel.cm-search button[name="close"]:hover': {
+      opacity: '1',
+      backgroundColor: 'var(--latex-editor-search-btn-hover-bg)',
+    },
+    // Search match highlights
+    '.cm-searchMatch': {
+      backgroundColor: 'rgba(255, 213, 0, 0.25)',
+      borderRadius: '2px',
+    },
+    '.cm-searchMatch.cm-searchMatch-selected': {
+      backgroundColor: 'rgba(99, 102, 241, 0.35)',
+      outline: '1px solid rgba(99, 102, 241, 0.6)',
+      borderRadius: '2px',
+    },
   }),
   EditorView.baseTheme({
     '.cm-cursor, .cm-dropCursor': {

@@ -29,6 +29,7 @@ from app.models import (
     ProjectDiscoveryRunType,
     ProjectDiscoveryResult as ProjectDiscoveryResultModel,
     ProjectDiscoveryRun,
+    Reference,
     User,
 )
 from app.schemas.project import (
@@ -43,6 +44,7 @@ from app.services.paper_discovery.models import PaperSource
 from app.services.reference_ingestion_service import ingest_reference_pdf
 from app.services.project_discovery_service import ProjectDiscoveryManager, ProjectDiscoveryOutcome, OPENALEX_PDF_BLOCKLIST
 from app.services.activity_feed import record_project_activity, preview_text
+from app.utils.doi import normalize_doi
 
 
 logger = logging.getLogger(__name__)
@@ -61,6 +63,97 @@ def _null_if_blocked_openalex_pdf(source: str, url: str | None) -> str | None:
     if any(host == blocked or host.endswith(blocked) for blocked in OPENALEX_PDF_BLOCKLIST):
         return None
     return url
+
+
+def _auto_promote_library_matches(db: Session, project_id: UUID) -> int:
+    """Auto-promote pending discovery results whose paper is already in the project library.
+
+    Matches by direct reference_id first, then falls back to normalized DOI matching
+    (handles cases where different sources created separate Reference records for the
+    same paper with different DOI formats).
+    """
+    now = datetime.now(timezone.utc)
+    promoted_ids: list[UUID] = []
+
+    # 1. Direct reference_id match (fast, SQL-only)
+    library_ref_ids = (
+        db.query(ProjectReference.reference_id)
+        .filter(ProjectReference.project_id == project_id)
+        .subquery()
+    )
+    direct_matches = (
+        db.query(ProjectDiscoveryResultModel.id)
+        .filter(
+            ProjectDiscoveryResultModel.project_id == project_id,
+            ProjectDiscoveryResultModel.status == ProjectDiscoveryResultStatus.PENDING,
+            ProjectDiscoveryResultModel.reference_id.in_(library_ref_ids),
+        )
+        .all()
+    )
+    promoted_ids.extend(row[0] for row in direct_matches)
+
+    # 2. DOI-based match for remaining pending results
+    remaining_pending = (
+        db.query(ProjectDiscoveryResultModel)
+        .filter(
+            ProjectDiscoveryResultModel.project_id == project_id,
+            ProjectDiscoveryResultModel.status == ProjectDiscoveryResultStatus.PENDING,
+            ProjectDiscoveryResultModel.reference_id.isnot(None),
+            ~ProjectDiscoveryResultModel.id.in_([r for r in promoted_ids]) if promoted_ids else True,
+        )
+        .all()
+    )
+
+    if remaining_pending:
+        # Build set of normalized DOIs from the project library
+        library_dois: set[str] = set()
+        library_refs = (
+            db.query(Reference.doi)
+            .join(ProjectReference, ProjectReference.reference_id == Reference.id)
+            .filter(
+                ProjectReference.project_id == project_id,
+                Reference.doi.isnot(None),
+        )
+        .all()
+        )
+        for (doi_val,) in library_refs:
+            nd = normalize_doi(doi_val)
+            if nd:
+                library_dois.add(nd)
+
+        if library_dois:
+            # Check each pending result's reference DOI
+            pending_ref_ids = [r.reference_id for r in remaining_pending]
+            ref_dois = (
+                db.query(Reference.id, Reference.doi)
+                .filter(Reference.id.in_(pending_ref_ids), Reference.doi.isnot(None))
+                .all()
+            )
+            doi_matched_ref_ids = set()
+            for ref_id, doi_val in ref_dois:
+                nd = normalize_doi(doi_val)
+                if nd and nd in library_dois:
+                    doi_matched_ref_ids.add(ref_id)
+
+            for result in remaining_pending:
+                if result.reference_id in doi_matched_ref_ids:
+                    promoted_ids.append(result.id)
+
+    # Bulk update all matched results
+    if promoted_ids:
+        db.query(ProjectDiscoveryResultModel).filter(
+            ProjectDiscoveryResultModel.id.in_(promoted_ids)
+        ).update(
+            {
+                ProjectDiscoveryResultModel.status: ProjectDiscoveryResultStatus.PROMOTED,
+                ProjectDiscoveryResultModel.promoted_at: now,
+            },
+            synchronize_session="fetch",
+        )
+        db.commit()
+        logger.info(f"Auto-promoted {len(promoted_ids)} discovery results already in library for project {project_id}")
+
+    return len(promoted_ids)
 
 
 def _guard_feature() -> None:
@@ -295,19 +388,16 @@ def run_project_discovery(
     current_user: User = Depends(get_current_user),
 ):
     """Execute a manual discovery run for the given project."""
-    try:
-        logger.info(
-            "Project %s run discovery payload: query=%s keywords=%s sources=%s max_results=%s auto_refresh=%s refresh_interval=%s",
-            project_id,
-            getattr(payload, 'query', None),
-            getattr(payload, 'keywords', None),
-            getattr(payload, 'sources', None),
-            getattr(payload, 'max_results', None),
-            getattr(payload, 'auto_refresh_enabled', None),
-            getattr(payload, 'refresh_interval_hours', None),
-        )
-    except Exception:
-        pass
+    logger.info(
+        "Project %s run discovery payload: query=%s keywords=%s sources=%s max_results=%s auto_refresh=%s refresh_interval=%s",
+        project_id,
+        getattr(payload, 'query', None),
+        getattr(payload, 'keywords', None),
+        getattr(payload, 'sources', None),
+        getattr(payload, 'max_results', None),
+        getattr(payload, 'auto_refresh_enabled', None),
+        getattr(payload, 'refresh_interval_hours', None),
+    )
     _guard_feature()
     _ensure_discovery_schema(db)
     project = get_project_or_404(db, project_id)
@@ -521,8 +611,8 @@ async def run_project_discovery_stream(
                 except (asyncio.CancelledError, Exception):
                     pass
             if not isinstance(exc, GeneratorExit):
-                logger.error("SSE discovery error: %s", exc, exc_info=True)
-                yield f"data: {json.dumps({'type': 'error', 'message': str(exc)[:200]})}\n\n"
+                logger.exception("SSE discovery error")
+                yield f"data: {json.dumps({'type': 'error', 'message': 'Discovery search failed due to an internal error'})}\n\n"
         finally:
             save_db.close()
 
@@ -551,6 +641,9 @@ def list_discovery_results(  # pylint: disable=too-many-arguments,too-many-local
     _ensure_discovery_schema(db)
     project = get_project_or_404(db, project_id)
     ensure_project_member(db, project, current_user)
+
+    # Auto-promote pending results whose reference is already in the library
+    _auto_promote_library_matches(db, project.id)
 
     base_query = (
         db.query(ProjectDiscoveryResultModel, ProjectDiscoveryRun)
@@ -586,22 +679,28 @@ def list_discovery_results(  # pylint: disable=too-many-arguments,too-many-local
 def clear_discovery_results(
     project_id: str,
     run_type: ProjectDiscoveryRunType | None = Query(None, alias="run_type"),
+    clear_status: ProjectDiscoveryResultStatus | None = Query(None, alias="status"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Clear non-promoted discovery results for a project (optionally filtered by run type)."""
+    """Clear discovery results for a project.
+
+    By default clears non-promoted results. Pass status=promoted to clear promoted results instead.
+    """
     _guard_feature()
     _ensure_discovery_schema(db)
     project = get_project_or_404(db, project_id)
     ensure_project_member(db, project, current_user, roles=[ProjectRole.ADMIN, ProjectRole.EDITOR])
 
-    base_query = (
-        db.query(ProjectDiscoveryResultModel)
-        .filter(
-            ProjectDiscoveryResultModel.project_id == project.id,
+    base_query = db.query(ProjectDiscoveryResultModel).filter(
+        ProjectDiscoveryResultModel.project_id == project.id,
+    )
+    if clear_status is not None:
+        base_query = base_query.filter(ProjectDiscoveryResultModel.status == clear_status)
+    else:
+        base_query = base_query.filter(
             ProjectDiscoveryResultModel.status != ProjectDiscoveryResultStatus.PROMOTED,
         )
-    )
 
     if run_type is not None:
         run_ids = (
@@ -635,6 +734,9 @@ def get_pending_discovery_count(
     _ensure_discovery_schema(db)
     project = get_project_or_404(db, project_id)
     ensure_project_member(db, project, current_user)
+
+    # Auto-promote pending results whose reference is already in the library
+    _auto_promote_library_matches(db, project.id)
 
     base_query = (
         db.query(ProjectDiscoveryResultModel)

@@ -347,9 +347,33 @@ class ProjectDiscoveryManager:
         progress_callback: Optional[Callable[..., Any]] = None,
     ) -> ProjectDiscoveryOutcome:
         """Perform a discovery run and persist the resulting artifacts."""
+        # Guard against concurrent auto runs (e.g. multiple browser tabs)
+        if run_type != ProjectDiscoveryRunType.MANUAL:
+            from datetime import timedelta as _td
+            recent_cutoff = datetime.now(timezone.utc) - _td(minutes=5)
+            concurrent_run = (
+                self.db.query(ProjectDiscoveryRun.id)
+                .filter(
+                    ProjectDiscoveryRun.project_id == project.id,
+                    ProjectDiscoveryRun.run_type != ProjectDiscoveryRunType.MANUAL,
+                    ProjectDiscoveryRun.started_at >= recent_cutoff,
+                    ProjectDiscoveryRun.status.in_([
+                        ProjectDiscoveryRunStatus.RUNNING,
+                        ProjectDiscoveryRunStatus.COMPLETED,
+                    ]),
+                )
+                .first()
+            )
+            if concurrent_run:
+                logger.info(
+                    "Skipping auto discovery for project %s — recent run exists within 5 min",
+                    project.id,
+                )
+                return ProjectDiscoveryOutcome()
+
         # Rolling window: trim oldest pending auto results to keep feed fresh
         if run_type != ProjectDiscoveryRunType.MANUAL:
-            _MAX_PENDING_AUTO = 100
+            _MAX_PENDING_AUTO = 50
             auto_pending_ids = [
                 row[0]
                 for row in (
@@ -365,8 +389,8 @@ class ProjectDiscoveryManager:
                 )
             ]
             if len(auto_pending_ids) >= _MAX_PENDING_AUTO:
-                # Keep the 80 most recent, trim the rest to make room
-                trim_ids = auto_pending_ids[80:]
+                # Keep the 30 highest-relevance, trim the rest
+                trim_ids = auto_pending_ids[30:]
                 self.db.query(ProjectDiscoveryResultModel).filter(
                     ProjectDiscoveryResultModel.id.in_(trim_ids),
                 ).delete(synchronize_session=False)
@@ -406,13 +430,13 @@ class ProjectDiscoveryManager:
         if not query:
             raise ValueError("Discovery query cannot be empty")
 
-        # Auto runs use fewer results per run (accumulates over time)
-        if run_type != ProjectDiscoveryRunType.MANUAL:
-            max_results = min(max_results, 8)
-
         sources = preferences.sources or self.DEFAULT_SOURCES
         keywords = preferences.keywords or project.keywords or []
         max_results = max(1, preferences.max_results or max_results)
+
+        # Auto runs use fewer results per run (accumulates over time)
+        if run_type != ProjectDiscoveryRunType.MANUAL:
+            max_results = min(max_results, 5)
         relevance_threshold = getattr(preferences, 'relevance_threshold', None)
 
         logger.info(

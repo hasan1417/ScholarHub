@@ -7,9 +7,7 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Install system dependencies
-ARG TECTONIC_VERSION=0.15.0
-
+# Install system dependencies + TeX Live
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -20,17 +18,17 @@ RUN apt-get update \
         libfontconfig1 \
         fonts-hosny-amiri \
         ffmpeg \
-    && arch="$(dpkg --print-architecture)" \
-    && case "$arch" in \
-        amd64) tectonic_arch="x86_64-unknown-linux-gnu" ;; \
-        arm64) tectonic_arch="aarch64-unknown-linux-musl" ;; \
-        armhf) tectonic_arch="arm-unknown-linux-musleabihf" ;; \
-        *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; \
-    esac \
-    && curl -fsSL "https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%40${TECTONIC_VERSION}/tectonic-${TECTONIC_VERSION}-${tectonic_arch}.tar.gz" -o /tmp/tectonic.tar.gz \
-    && tar -xzf /tmp/tectonic.tar.gz -C /tmp \
-    && install -m 0755 /tmp/tectonic /usr/local/bin/tectonic \
-    && rm -rf /tmp/tectonic* \
+        texlive-latex-base \
+        texlive-latex-recommended \
+        texlive-latex-extra \
+        texlive-fonts-recommended \
+        texlive-fonts-extra \
+        texlive-science \
+        texlive-bibtex-extra \
+        texlive-publishers \
+        texlive-xetex \
+        texlive-lang-arabic \
+        latexmk \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

@@ -741,6 +741,7 @@ export interface DiscussionChannelSummary {
   description?: string | null
   is_default: boolean
   is_archived: boolean
+  is_paper_chat: boolean
   scope?: ChannelScopeConfig | null  // null = project-wide, or specific resource IDs
   created_at: string
   updated_at: string
@@ -985,4 +986,19 @@ export interface PdfAnnotationUpdate {
 export interface PdfAnnotationListResponse {
   annotations: PdfAnnotation[]
   total: number
+}
+
+export interface SupportFile {
+  filename: string
+  size: number
+  uploaded_at?: string
+}
+
+export interface ConferenceTemplate {
+  id: string
+  name: string
+  description: string
+  preamble_example: string
+  sections: string[]
+  bib_style: string
 }

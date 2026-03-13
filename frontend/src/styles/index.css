@@ -92,6 +92,16 @@
   --latex-editor-number: #833FBA;
   --latex-editor-bracket: #000000;
   --latex-editor-operator: rgb(104, 118, 135);
+  /* Search panel */
+  --latex-editor-search-bg: #f1f5f9;
+  --latex-editor-search-border: #cbd5e1;
+  --latex-editor-search-fg: #1e293b;
+  --latex-editor-search-input-bg: #ffffff;
+  --latex-editor-search-input-border: #94a3b8;
+  --latex-editor-search-input-fg: #0f172a;
+  --latex-editor-search-btn-bg: #e2e8f0;
+  --latex-editor-search-btn-fg: #334155;
+  --latex-editor-search-btn-hover-bg: #cbd5e1;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -124,6 +134,16 @@
     --latex-editor-number: #f9c97d;
     --latex-editor-bracket: #9ac5ff;
     --latex-editor-operator: #7ab7ff;
+    /* Search panel */
+    --latex-editor-search-bg: #1e293b;
+    --latex-editor-search-border: #334155;
+    --latex-editor-search-fg: #e2e8f0;
+    --latex-editor-search-input-bg: #0f172a;
+    --latex-editor-search-input-border: #475569;
+    --latex-editor-search-input-fg: #f1f5f9;
+    --latex-editor-search-btn-bg: #334155;
+    --latex-editor-search-btn-fg: #e2e8f0;
+    --latex-editor-search-btn-hover-bg: #475569;
   }
 }
 
@@ -156,6 +176,16 @@ body.dark, [data-theme='dark'], :root.dark {
   --latex-editor-number: #f9c97d;
   --latex-editor-bracket: #9ac5ff;
   --latex-editor-operator: #7ab7ff;
+  /* Search panel */
+  --latex-editor-search-bg: #1e293b;
+  --latex-editor-search-border: #334155;
+  --latex-editor-search-fg: #e2e8f0;
+  --latex-editor-search-input-bg: #0f172a;
+  --latex-editor-search-input-border: #475569;
+  --latex-editor-search-input-fg: #f1f5f9;
+  --latex-editor-search-btn-bg: #334155;
+  --latex-editor-search-btn-fg: #e2e8f0;
+  --latex-editor-search-btn-hover-bg: #475569;
 }
 
 :root[data-theme='light'], body[data-theme='light'], :root.light {
@@ -187,6 +217,16 @@ body.dark, [data-theme='dark'], :root.dark {
   --latex-editor-number: #833FBA;
   --latex-editor-bracket: #000000;
   --latex-editor-operator: rgb(104, 118, 135);
+  /* Search panel */
+  --latex-editor-search-bg: #f1f5f9;
+  --latex-editor-search-border: #cbd5e1;
+  --latex-editor-search-fg: #1e293b;
+  --latex-editor-search-input-bg: #ffffff;
+  --latex-editor-search-input-border: #94a3b8;
+  --latex-editor-search-input-fg: #0f172a;
+  --latex-editor-search-btn-bg: #e2e8f0;
+  --latex-editor-search-btn-fg: #334155;
+  --latex-editor-search-btn-hover-bg: #cbd5e1;
 }
 
 /* Academic Editor Custom Styles using Tailwind */

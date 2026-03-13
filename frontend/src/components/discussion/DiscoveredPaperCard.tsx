@@ -208,8 +208,10 @@ export function DiscoveredPaperCard({
   }
 
   return (
-    <div className={`border rounded-lg p-2.5 sm:p-3 bg-white dark:bg-slate-800/60 hover:border-indigo-300 dark:hover:border-indigo-500/50 transition-colors ${
-      ingestionStatus === 'failed' ? 'border-amber-200 dark:border-amber-500/30' : ''
+    <div className={`border rounded-lg p-2.5 sm:p-3 bg-white dark:bg-slate-700/40 transition-colors ${
+      ingestionStatus === 'failed'
+        ? 'border-amber-200 dark:border-amber-500/30'
+        : 'border-gray-200 dark:border-slate-600/50 hover:border-indigo-300 dark:hover:border-indigo-500/40'
     }`}>
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2 sm:gap-3">
         <div className="flex-1 min-w-0">

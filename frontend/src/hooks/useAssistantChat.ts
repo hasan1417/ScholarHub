@@ -438,6 +438,19 @@ export function useAssistantChat({
 
     setAssistantHistory((prev) => {
       const idsFromServer = new Set(serverAssistantHistory.map((entry) => entry.id))
+      const localCompleteIds = new Map(
+        prev.filter((e) => e.status === 'complete').map((e) => [e.id, e])
+      )
+
+      // Use server entries, but prefer local version if it's already complete
+      // (server may still have stale 'processing' status)
+      const serverEntries = serverAssistantHistory.map((serverEntry) => {
+        const localEntry = localCompleteIds.get(serverEntry.id)
+        if (localEntry && serverEntry.status !== 'complete') {
+          return localEntry
+        }
+        return serverEntry
+      })
 
       const localOnlyEntries = prev.filter((entry) => {
         if (idsFromServer.has(entry.id)) return false
@@ -445,7 +458,7 @@ export function useAssistantChat({
         return false
       })
 
-      const merged = [...serverAssistantHistory, ...localOnlyEntries]
+      const merged = [...serverEntries, ...localOnlyEntries]
       return merged.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
     })
   }, [serverAssistantHistory, activeChannelId])

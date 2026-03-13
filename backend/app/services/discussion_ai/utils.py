@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Dict, List, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +63,13 @@ _LATEX_SPECIAL_CHARS = str.maketrans({
 
 # Available template IDs for create_paper tool
 AVAILABLE_TEMPLATES = list(CONFERENCE_TEMPLATES.keys())
+
+
+def _emit_progress(ctx: Dict[str, Any], message: str) -> None:
+    """Emit a progress update to the streaming frontend when available."""
+    cb = ctx.get("_progress_callback")
+    if cb:
+        cb(message)
 
 
 def _escape_latex(text: str) -> str:
