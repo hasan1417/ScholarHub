@@ -959,24 +959,33 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                           {m.proposals.length} proposed edit{m.proposals.length > 1 ? 's' : ''}
                           {m.fromHistory && <span className="ml-1 text-slate-400">(from history)</span>}
                         </div>
-                        {!m.fromHistory && (
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => handleRegenerateEdits(idx)}
-                              disabled={sending}
-                              className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-                            >
-                              Regenerate
-                            </button>
-                            <button
-                              onClick={() => handleApplyAllEdits(idx)}
-                              disabled={sending}
-                              className="rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              Apply All
-                            </button>
-                          </div>
-                        )}
+                        {!m.fromHistory && (() => {
+                          const hasPending = m.proposals?.some(p => p.status === 'pending')
+                          return (
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleRegenerateEdits(idx)}
+                                disabled={sending}
+                                className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                              >
+                                Regenerate
+                              </button>
+                              {hasPending ? (
+                                <button
+                                  onClick={() => handleApplyAllEdits(idx)}
+                                  disabled={sending}
+                                  className="rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  Apply All
+                                </button>
+                              ) : (
+                                <span className="rounded-md bg-emerald-100 px-2.5 py-1 text-[11px] font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                                  All Applied
+                                </span>
+                              )}
+                            </div>
+                          )
+                        })()}
                       </div>
                       {m.proposals.map((proposal) => {
                         const isExpanded = expandedProposals.has(proposal.id)
