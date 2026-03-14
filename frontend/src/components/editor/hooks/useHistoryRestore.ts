@@ -53,7 +53,13 @@ export function useHistoryRestore({
     setSaveState('saving')
     setSaveError(null)
     try {
-      const v = viewRef.current?.state.doc.toString() || ''
+      // Always read main.tex from Y.Text, not the editor view (which may show a sub-file)
+      let v: string
+      if (realtimeDoc) {
+        v = realtimeDoc.getText('main').toString()
+      } else {
+        v = viewRef.current?.state.doc.toString() || ''
+      }
       const contentJson = { authoring_mode: 'latex', latex_source: v }
       const activePaperId = paperId ?? (window as any).__SH_ACTIVE_PAPER_ID
 
@@ -72,7 +78,7 @@ export function useHistoryRestore({
       setSaveState('error')
       setSaveError(e?.message || 'Save failed')
     }
-  }, [disableSave, readOnly, saveState, flushBufferedChange, paperId, onSave])
+  }, [disableSave, readOnly, saveState, flushBufferedChange, paperId, onSave, realtimeDoc])
 
   return {
     historyPanelOpen,

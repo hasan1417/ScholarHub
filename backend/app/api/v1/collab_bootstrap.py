@@ -106,12 +106,18 @@ def persist_collab_document_state(
     paper.content_json = content_json
     paper.updated_at = datetime.now(timezone.utc)
 
+    # Persist extra files if provided
+    if data.latex_files:
+        paper.latex_files = data.latex_files
+
     db.commit()
 
+    file_count = len(data.latex_files) if data.latex_files else 0
     logger.info(
-        "Persisted collab LaTeX source for paper %s (len=%s)",
+        "Persisted collab state for paper %s (main=%s chars, files=%s)",
         paper_id,
         len(data.latex_source),
+        file_count,
     )
 
     return CollabPersistResponse(ok=True)

@@ -1,11 +1,12 @@
-from typing import Optional
+from typing import Dict, Optional
 
 from pydantic import BaseModel, Field
 
 
 class CollabPersistRequest(BaseModel):
-    """Internal request to persist the current LaTeX source."""
-    latex_source: str = Field(..., description="Current materialized LaTeX source")
+    """Internal request to persist the current LaTeX source and extra files."""
+    latex_source: str = Field(..., description="Current materialized LaTeX source (main.tex)")
+    latex_files: Optional[Dict[str, str]] = Field(None, description="Extra .tex files: filename -> content")
 
 
 class CollabPersistResponse(BaseModel):

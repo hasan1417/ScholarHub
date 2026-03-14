@@ -169,20 +169,14 @@ function LaTeXEditorImpl(
 
   // Stable accessor for latest MAIN document source (always main.tex, not the active file)
   const getLatestSource = useCallback(() => {
-    // In multi-file mode, always read main.tex from Yjs (not the current editor view
-    // which might show introduction.tex, methods.tex, etc.)
+    // In realtime mode, ALWAYS read from Y.Text('main') — never the editor view
     if (realtime?.doc) {
-      try {
-        const mainYText = realtime.doc.getText('main')
-        if (mainYText && mainYText.length > 0) return mainYText.toString()
-      } catch {}
+      return realtime.doc.getText('main').toString()
     }
-    // Fallback: if viewing main.tex, the editor has it; otherwise use latestDocRef
-    if (activeFile === 'main.tex') {
-      try { const v = viewRef.current; if (v) return v.state.doc.toString() } catch {}
-    }
+    // Non-realtime: editor always shows main.tex (no multi-file)
+    try { const v = viewRef.current; if (v) return v.state.doc.toString() } catch {}
     return latestDocRef.current || ''
-  }, [viewRef, latestDocRef, realtime?.doc, activeFile])
+  }, [viewRef, latestDocRef, realtime?.doc])
 
   // Multi-file: get contents of all extra files for compilation
   const getExtraFiles = useCallback((): Record<string, string> | null => {

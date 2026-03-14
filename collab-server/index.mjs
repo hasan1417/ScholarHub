@@ -268,11 +268,25 @@ const server = new Server({
       return
     }
 
-    // Safety guard: don't persist if Y.Text('main') contains sub-file content
-    // (no \documentclass means it's not the real main.tex — likely a file-switch race)
-    if (materializedText.length > 10 && !materializedText.includes('\\documentclass')) {
-      log.warn({ document: documentName, length: materializedText.length }, 'Skipping persist: main Y.Text lacks \\documentclass (possible file-switch race)')
-      return
+    // Collect ALL extra files from the Yjs doc
+    const latexFiles = {}
+    try {
+      document.share.forEach((value, key) => {
+        if (key.startsWith('file:')) {
+          const filename = key.slice(5)
+          const fileText = document.getText(key)
+          if (fileText && fileText.length > 0) {
+            latexFiles[filename] = fileText.toString()
+          }
+        }
+      })
+    } catch (err) {
+      log.warn({ document: documentName, error: err }, 'Failed to collect extra files for persist')
+    }
+
+    const body = { latex_source: materializedText }
+    if (Object.keys(latexFiles).length > 0) {
+      body.latex_files = latexFiles
     }
 
     try {
@@ -282,7 +296,7 @@ const server = new Server({
           'X-Collab-Secret': bootstrapSecret,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ latex_source: materializedText }),
+        body: JSON.stringify(body),
       })
 
       if (!response.ok) {
@@ -290,7 +304,8 @@ const server = new Server({
         return
       }
 
-      log.debug({ document: documentName, length: materializedText.length }, 'Document persisted')
+      const fileCount = Object.keys(latexFiles).length
+      log.debug({ document: documentName, length: materializedText.length, fileCount }, 'Document persisted')
 
       await maybeCreateAutoSnapshot({
         documentName,

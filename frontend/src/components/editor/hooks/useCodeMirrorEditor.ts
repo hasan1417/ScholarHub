@@ -382,8 +382,14 @@ export function useCodeMirrorEditor({
       debugLog('File switch detected, recreating view')
       try { viewRef.current.destroy() } catch {}
       viewRef.current = null
+      // Create immediately — container is already in DOM (no rAF gap)
+      if (containerRef.current) {
+        try { createView(containerRef.current) } catch {}
+      }
+      return
     }
 
+    // Initial mount — use rAF to ensure container is in the DOM
     const yTextContent = ySharedText.toString()
     debugLog('yText ready, creating view now', {
       yTextLength: yTextContent.length,

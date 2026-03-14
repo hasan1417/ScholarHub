@@ -10,10 +10,12 @@ interface UseMultiFileManagementOptions {
   onActiveFileChange: (file: string) => void
 }
 
-export function useMultiFileManagement({ realtimeDoc, getYText, getFileList, yTextReady, activeFile, onActiveFileChange }: UseMultiFileManagementOptions) {
+export function useMultiFileManagement({ realtimeDoc, getYText, getFileList, yTextReady: _yTextReady, activeFile, onActiveFileChange }: UseMultiFileManagementOptions) {
+  void _yTextReady // kept in interface for backward compat
   const [fileList, setFileList] = useState<string[]>(['main.tex'])
 
-  // Sync file list from Yjs when the doc changes or new types arrive via sync
+  // Sync file list from Yjs — use afterTransaction which fires when any
+  // shared type is created or modified (catches bootstrap + later changes)
   useEffect(() => {
     if (!realtimeDoc) return
     const refreshFiles = () => {
@@ -24,16 +26,11 @@ export function useMultiFileManagement({ realtimeDoc, getYText, getFileList, yTe
       })
     }
     refreshFiles()
-    // Listen for doc updates (e.g. when server-bootstrapped files arrive)
-    realtimeDoc.on('update', refreshFiles)
-    // Also retry after a short delay — the initial sync from the provider
-    // populates doc.share but may not fire 'update' for pre-existing types
-    const retryTimer = window.setTimeout(refreshFiles, 1500)
+    realtimeDoc.on('afterTransaction', refreshFiles)
     return () => {
-      realtimeDoc.off('update', refreshFiles)
-      window.clearTimeout(retryTimer)
+      realtimeDoc.off('afterTransaction', refreshFiles)
     }
-  }, [realtimeDoc, getFileList, yTextReady])
+  }, [realtimeDoc, getFileList])
 
   const handleCreateFile = useCallback((filename: string) => {
     if (!realtimeDoc) return
