@@ -680,9 +680,58 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
   }, [])
 
   /** Handle AI edit approval - replace lines by line numbers (root cause fix) */
-  const handleApplyAiEdit = useCallback((startLine: number, endLine: number, anchor: string, replacement: string, sourceDocument?: string): boolean => {
+  const handleApplyAiEdit = useCallback((startLine: number, endLine: number, anchor: string, replacement: string, sourceDocument?: string, file?: string): boolean => {
     if (readOnly) return false
 
+    // Multi-file edit: apply to a different file via Yjs
+    if (file && file !== 'main.tex' && collab.doc) {
+      const yText = collab.doc.getText(`file:${file}`)
+      if (!yText || yText.length === 0) {
+        showToast(`File ${file} not found`, 'error')
+        return false
+      }
+      const fileContent = yText.toString()
+      const lines = fileContent.split('\n')
+      const totalLines = lines.length
+
+      if (startLine < 1 || endLine < startLine || startLine > totalLines) {
+        showToast('Edit line range is out of bounds', 'error')
+        return false
+      }
+
+      const startIdx = startLine - 1
+      const endIdx = Math.min(endLine - 1, totalLines - 1)
+
+      // Verify anchor
+      if (anchor && anchor.trim()) {
+        const actualLine = lines[startIdx] || ''
+        const anchorNorm = anchor.trim().slice(0, 40).toLowerCase()
+        const actualNorm = actualLine.trim().slice(0, 40).toLowerCase()
+        const substringMatch =
+          actualNorm.includes(anchorNorm.slice(0, 15)) ||
+          anchorNorm.includes(actualNorm.slice(0, 15))
+        const wordMatch = anchorNorm.split(/\s+/).filter(w => w.length > 2).slice(0, 3)
+          .every((word) => actualNorm.includes(word))
+        if (!substringMatch && !wordMatch) {
+          showToast(`Edit rejected: anchor mismatch in ${file} at line ${startLine}. Please regenerate.`, 'error')
+          return false
+        }
+      }
+
+      const newLines = [...lines.slice(0, startIdx), ...replacement.split('\n'), ...lines.slice(endIdx + 1)]
+      const newContent = newLines.join('\n')
+
+      collab.doc.transact(() => {
+        yText.delete(0, yText.length)
+        yText.insert(0, newContent)
+      })
+
+      showToast(`Applied edit to ${file}`, 'success')
+      requestAutosave('ai-edit-applied')
+      return true
+    }
+
+    // Main file edit (file is undefined or 'main.tex')
     // Get current content from the adapter directly for most accurate state
     const currentContent = adapterRef.current?.getContent?.() || latestContentRef.current.html || ''
 
@@ -792,7 +841,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     updateLatestContent(newContent, nextJson)
     requestAutosave('ai-edit-applied')
     return true
-  }, [isLatex, readOnly, requestAutosave, showToast, updateLatestContent])
+  }, [collab.doc, isLatex, readOnly, requestAutosave, showToast, updateLatestContent])
 
   type BatchEdit = {
     id: string
@@ -887,6 +936,25 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     requestAutosave('ai-edit-applied-batch')
     return appliedIds
   }, [isLatex, readOnly, requestAutosave, showToast, updateLatestContent])
+
+  /** Get extra file contents from Yjs for multi-file AI context */
+  const getDocumentFiles = useCallback((): Record<string, string> | null => {
+    if (!collab.doc) return null
+    const files: Record<string, string> = {}
+    try {
+      const types = collab.doc.share as Map<string, unknown>
+      types.forEach((_value: unknown, key: string) => {
+        if (key.startsWith('file:')) {
+          const filename = key.slice(5)
+          const yText = collab.doc!.getText(key)
+          if (yText && yText.length > 0) {
+            files[filename] = yText.toString()
+          }
+        }
+      })
+    } catch { /* ignore errors reading Yjs types */ }
+    return Object.keys(files).length > 0 ? files : null
+  }, [collab.doc])
 
   const rootCls = fullBleed
     ? 'fixed inset-0 flex flex-col overflow-auto bg-slate-100 transition-colors duration-200 dark:bg-slate-900'
@@ -1123,6 +1191,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
         paperId={paperId}
         projectId={projectId}
         documentText={lastHtml}
+        documentFiles={getDocumentFiles()}
         open={!readOnly && aiChatOpen}
         onOpenChange={(next) => setAiChatOpen(readOnly ? false : next)}
         onApplyEdit={handleApplyAiEdit}

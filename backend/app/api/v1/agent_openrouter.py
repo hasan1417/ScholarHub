@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Dict
 import logging
 import uuid as uuid_mod
 
@@ -36,6 +36,7 @@ class AgentChatRequest(BaseModel):
     paper_id: Optional[str] = None
     project_id: Optional[str] = None
     document_excerpt: Optional[str] = None
+    document_files: Optional[Dict[str, str]] = None
     reasoning_mode: bool = False
     edit_mode: bool = False  # Kept for API compatibility, auto-detected by backend
 
@@ -115,6 +116,7 @@ async def agent_chat_stream_or(
         paper_id: Optional paper ID for reference context
         project_id: Optional project ID
         document_excerpt: The current LaTeX document content
+        document_files: Optional additional LaTeX files keyed by filename
         reasoning_mode: Enable reasoning mode for supported models
     """
     # Resolve API key — use project-level resolution (supports owner key sharing)
@@ -187,6 +189,7 @@ async def agent_chat_stream_or(
                 paper_id=request.paper_id,
                 project_id=request.project_id,
                 document_excerpt=request.document_excerpt,
+                document_files=request.document_files,
                 reasoning_mode=request.reasoning_mode,
             ):
                 yield chunk

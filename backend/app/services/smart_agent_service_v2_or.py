@@ -128,6 +128,11 @@ EDITOR_TOOLS = [
                                     "type": "string",
                                     "description": "Brief description of this specific edit"
                                 },
+                                "file": {
+                                    "type": "string",
+                                    "description": "LaTeX file to edit. Use main.tex for the primary document unless another file is the target.",
+                                    "default": "main.tex"
+                                },
                                 "start_line": {
                                     "type": "integer",
                                     "description": "Line number where the text to replace STARTS"
@@ -394,7 +399,66 @@ class SmartAgentServiceV2OR:
         numbered_lines = [f"{i:>{width}}| {line}" for i, line in enumerate(lines, 1)]
         return '\n'.join(numbered_lines)
 
-    def _build_clarification(self, query: str, document_excerpt: Optional[str]) -> Optional[Dict[str, Any]]:
+    def _format_multi_file_context(
+        self,
+        document_excerpt: Optional[str],
+        document_files: Optional[Dict[str, str]] = None,
+    ) -> Tuple[str, int, List[str]]:
+        """Format document context, preserving the legacy single-file layout by default."""
+        if not document_files:
+            doc_size = len(document_excerpt or "")
+            if not document_excerpt:
+                return "", doc_size, []
+            numbered_doc = self._add_line_numbers(document_excerpt)
+            return f"=== DOCUMENT ({doc_size:,} chars) ===\n{numbered_doc}", doc_size, ["main.tex"]
+
+        file_sections: List[str] = []
+        available_files: List[str] = []
+        total_chars = 0
+
+        if document_excerpt is not None:
+            main_content = document_excerpt
+        else:
+            main_content = document_files.get("main.tex")
+
+        if main_content is not None:
+            available_files.append("main.tex")
+            total_chars += len(main_content)
+            file_sections.append(f"--- main.tex ---\n{self._add_line_numbers(main_content)}")
+
+        for file_name, content in document_files.items():
+            if file_name == "main.tex" and main_content is not None:
+                continue
+            available_files.append(file_name)
+            total_chars += len(content)
+            file_sections.append(f"--- {file_name} ---\n{self._add_line_numbers(content)}")
+
+        if not file_sections:
+            return "", total_chars, []
+
+        return "=== DOCUMENT FILES ===\n" + "\n\n".join(file_sections), total_chars, available_files
+
+    def _build_system_prompt(self, available_files: Optional[List[str]] = None) -> str:
+        """Add multi-file editing instructions only when extra files are present."""
+        if not available_files or available_files == ["main.tex"]:
+            return SYSTEM_PROMPT
+
+        file_list = ", ".join(available_files)
+        return (
+            f"{SYSTEM_PROMPT}\n\n"
+            "## MULTI-FILE EDITING\n"
+            "When proposing edits, ALWAYS specify which file to edit using the file field.\n"
+            f"Available files: {file_list}\n"
+            "- Use the exact filename from the available files list.\n"
+            "- Use main.tex for edits to the primary document.\n"
+        )
+
+    def _build_clarification(
+        self,
+        query: str,
+        document_excerpt: Optional[str],
+        document_files: Optional[Dict[str, str]] = None,
+    ) -> Optional[Dict[str, Any]]:
         q = (query or "").strip()
         if not q:
             return None
@@ -411,7 +475,7 @@ class SmartAgentServiceV2OR:
             return None
 
         target = self._detect_target(q_lower)
-        if not target and document_excerpt:
+        if not target and (document_excerpt or document_files):
             target = "document"
 
         if self._has_explicit_replacement(q_lower, q):
@@ -551,8 +615,13 @@ class SmartAgentServiceV2OR:
             yield f"{explanation}\n\n"
 
             for edit in edits:
+                file_name = edit.get("file")
+                if not isinstance(file_name, str) or not file_name.strip():
+                    file_name = "main.tex"
                 yield "<<<EDIT>>>\n"
                 yield f"{edit.get('description', 'Edit')}\n"
+                yield "<<<FILE>>>\n"
+                yield f"{file_name}\n"
                 yield "<<<LINES>>>\n"
                 yield f"{edit.get('start_line', 1)}-{edit.get('end_line', 1)}\n"
                 yield "<<<ANCHOR>>>\n"
@@ -901,6 +970,7 @@ class SmartAgentServiceV2OR:
         paper_id: Optional[str] = None,
         project_id: Optional[str] = None,
         document_excerpt: Optional[str] = None,
+        document_files: Optional[Dict[str, str]] = None,
         reasoning_mode: bool = False,
         user_name: str = "User",
     ) -> Generator[str, None, None]:
@@ -947,11 +1017,14 @@ class SmartAgentServiceV2OR:
 
         # Build context with line numbers
         context_parts = []
-        doc_size = len(document_excerpt or "")
+        document_context, doc_size, available_files = self._format_multi_file_context(
+            document_excerpt=document_excerpt,
+            document_files=document_files,
+        )
+        system_prompt = self._build_system_prompt(available_files if document_files else None)
 
-        if document_excerpt:
-            numbered_doc = self._add_line_numbers(document_excerpt)
-            context_parts.append(f"=== DOCUMENT ({doc_size:,} chars) ===\n{numbered_doc}")
+        if document_context:
+            context_parts.append(document_context)
 
         if ref_context:
             context_parts.append(f"=== ATTACHED REFERENCES ===\n{ref_context}")
@@ -968,6 +1041,7 @@ class SmartAgentServiceV2OR:
             paper_id=paper_id,
             project_id=project_id,
             document_tokens=count_tokens(full_context),
+            system_prompt=system_prompt,
         )
 
         # Build tools list (add reference search)
@@ -976,7 +1050,7 @@ class SmartAgentServiceV2OR:
         if effective_query.strip().lower().startswith("clarification:"):
             tools = [tool for tool in tools if tool["function"]["name"] != "ask_clarification"]
 
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages = [{"role": "system", "content": system_prompt}]
         if summary_block:
             messages.append({"role": "system", "content": summary_block})
         messages.extend(history_messages)
@@ -1000,7 +1074,7 @@ class SmartAgentServiceV2OR:
                     yield chunk
 
             yield self._emit_status("Analyzing request")
-            clarification = self._build_clarification(effective_query, document_excerpt)
+            clarification = self._build_clarification(effective_query, document_excerpt, document_files)
             if clarification:
                 yield from _collect_and_yield(self._format_tool_response("ask_clarification", clarification))
                 self._store_chat_exchange(
@@ -1293,6 +1367,7 @@ class SmartAgentServiceV2OR:
         paper_id: Optional[str],
         project_id: Optional[str],
         document_tokens: int = 0,
+        system_prompt: str = SYSTEM_PROMPT,
     ) -> tuple:
         """Build token-managed context: (history_messages, summary_block_or_None)."""
         # Load rolling summary from paper if available
@@ -1310,7 +1385,7 @@ class SmartAgentServiceV2OR:
 
         # Calculate budget
         total_limit = get_context_limit(self.model)
-        system_tokens = count_tokens(SYSTEM_PROMPT) + 50  # overhead
+        system_tokens = count_tokens(system_prompt) + 50  # overhead
         summary_tokens = count_tokens(summary_block) if summary_block else 0
         available = total_limit - RESPONSE_TOKEN_RESERVE - TOOL_OUTPUT_RESERVE - system_tokens - document_tokens - summary_tokens
         history_budget = min(available, 8000)  # Cap at 8000 tokens for history

@@ -16,6 +16,7 @@ interface EditProposal {
   anchor: string
   proposed: string
   status: 'pending' | 'approved' | 'rejected' | 'expired'
+  file?: string  // which file this edit targets (default: main.tex)
 }
 
 interface Clarification {
@@ -27,10 +28,11 @@ interface EditorAIChatORProps {
   paperId: string
   projectId?: string
   documentText: string
+  documentFiles?: Record<string, string> | null  // extra files: { 'introduction.tex': 'content', ... }
   open: boolean
   onOpenChange: (open: boolean) => void
   /** Callback to apply an approved edit to the document (line-based) */
-  onApplyEdit?: (startLine: number, endLine: number, anchor: string, replacement: string, sourceDocument?: string) => boolean
+  onApplyEdit?: (startLine: number, endLine: number, anchor: string, replacement: string, sourceDocument?: string, file?: string) => boolean
   /** Callback to apply a batch of edits against a snapshot */
   onApplyEditsBatch?: (proposals: EditProposal[], sourceDocument: string) => string[]
   /** Initial message to auto-send when chat opens (e.g., from Sparkles explain/summarize) */
@@ -82,6 +84,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
   paperId,
   projectId,
   documentText,
+  documentFiles,
   open,
   onOpenChange,
   onApplyEdit,
@@ -142,7 +145,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
     if (!historyQuery.data?.length || historyLoadedRef.current || messages.length > 0) return
     historyLoadedRef.current = true
 
-    const editRegex = /<<<EDIT>>>\s*([\s\S]*?)<<<LINES>>>\s*([\s\S]*?)<<<ANCHOR>>>\s*([\s\S]*?)<<<PROPOSED>>>\s*([\s\S]*?)<<<END>>>/g
+    const editRegex = /<<<EDIT>>>\s*([\s\S]*?)(?:<<<FILE>>>\s*([\s\S]*?))?\s*<<<LINES>>>\s*([\s\S]*?)<<<ANCHOR>>>\s*([\s\S]*?)<<<PROPOSED>>>\s*([\s\S]*?)<<<END>>>/g
     const clarifyRegex = /<<<CLARIFY>>>\s*QUESTION:\s*([\s\S]*?)\s*OPTIONS:\s*([\s\S]*?)<<<END>>>/i
 
     const loaded: ChatMessage[] = historyQuery.data.map((msg: any) => {
@@ -161,7 +164,12 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
         let match: RegExpExecArray | null
         editRegex.lastIndex = 0
         while ((match = editRegex.exec(base.content)) !== null) {
-          const [fullMatch, description, linesStr, anchor, proposed] = match
+          const fullMatch = match[0]
+          const description = match[1]
+          const file = match[2]?.trim() || undefined
+          const linesStr = match[3]
+          const anchor = match[4]
+          const proposed = match[5]
           const linesParts = linesStr.trim().split('-')
           proposals.push({
             id: `hist-${msg.id}-${proposals.length}`,
@@ -171,6 +179,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
             anchor: anchor.trim(),
             proposed: proposed.trim(),
             status: 'expired',
+            file,
           })
           cleanText = cleanText.replace(fullMatch, '')
         }
@@ -275,19 +284,24 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
   /** Parse edit proposals from AI response using line-based format */
   const parseEditProposals = useCallback((text: string): { cleanText: string; proposals: EditProposal[] } => {
     const proposals: EditProposal[] = []
-    // Match line-based format: <<<EDIT>>> description <<<LINES>>> start-end <<<ANCHOR>>> text <<<PROPOSED>>> text <<<END>>>
-    const editRegex = /<<<EDIT>>>\s*([\s\S]*?)<<<LINES>>>\s*([\s\S]*?)<<<ANCHOR>>>\s*([\s\S]*?)<<<PROPOSED>>>\s*([\s\S]*?)<<<END>>>/g
+    // Match line-based format: <<<EDIT>>> description [<<<FILE>>> filename] <<<LINES>>> start-end <<<ANCHOR>>> text <<<PROPOSED>>> text <<<END>>>
+    const editRegex = /<<<EDIT>>>\s*([\s\S]*?)(?:<<<FILE>>>\s*([\s\S]*?))?\s*<<<LINES>>>\s*([\s\S]*?)<<<ANCHOR>>>\s*([\s\S]*?)<<<PROPOSED>>>\s*([\s\S]*?)<<<END>>>/g
     let match
     let cleanText = text
 
     while ((match = editRegex.exec(text)) !== null) {
-      const [fullMatch, description, linesStr, anchor, proposed] = match
+      const fullMatch = match[0]
+      const description = match[1]
+      const file = match[2]?.trim() || undefined
+      const linesStr = match[3]
+      const anchor = match[4]
+      const proposed = match[5]
       // Parse lines like "15-20" or "15"
       const linesParts = linesStr.trim().split('-')
       const startLine = parseInt(linesParts[0], 10) || 1
       const endLine = parseInt(linesParts[1] || linesParts[0], 10) || startLine
 
-      const parsedProposal = {
+      const parsedProposal: EditProposal = {
         id: `edit-${Date.now()}-${proposals.length}`,
         description: description.trim(),
         startLine,
@@ -295,10 +309,12 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
         anchor: anchor.trim(),
         proposed: proposed.trim(),
         status: 'pending' as const,
+        file,
       }
       console.log('[EditorAIChatOR] Parsed edit proposal:', {
         startLine,
         endLine,
+        file: parsedProposal.file,
         anchor: parsedProposal.anchor,
         anchorLength: parsedProposal.anchor.length,
         description: parsedProposal.description.slice(0, 50),
@@ -329,7 +345,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
       })
 
       // Apply edit using line numbers
-      const success = onApplyEdit?.(proposal.startLine, proposal.endLine, proposal.anchor, proposal.proposed, msg.sourceDocument) ?? false
+      const success = onApplyEdit?.(proposal.startLine, proposal.endLine, proposal.anchor, proposal.proposed, msg.sourceDocument, proposal.file) ?? false
 
       if (success) {
         msg.proposals = msg.proposals.map((p) =>
@@ -563,6 +579,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
               paper_id: paperId,
               project_id: projectId || null,
               document_excerpt: docToSend,
+              document_files: documentFiles || null,
               reasoning_mode: reasoningMode,
             }),
           }
@@ -702,6 +719,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
     },
     [
       docContext,
+      documentFiles,
       documentText,
       paperId,
       parseClarification,
@@ -983,6 +1001,11 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                                 <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
                                   {proposal.description || 'Suggested Edit'}
                                 </span>
+                                {proposal.file && (
+                                  <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
+                                    {proposal.file}
+                                  </span>
+                                )}
                                 {proposal.status === 'approved' && (
                                   <span className="rounded-full bg-emerald-200 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-800 dark:bg-emerald-800 dark:text-emerald-200">
                                     Applied
