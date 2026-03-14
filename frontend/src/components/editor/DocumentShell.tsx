@@ -718,12 +718,13 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
         }
       }
 
-      const newLines = [...lines.slice(0, startIdx), ...replacement.split('\n'), ...lines.slice(endIdx + 1)]
-      const newContent = newLines.join('\n')
+      // Surgical Yjs edit: only modify the changed lines (track-changes compatible)
+      const charStart = lines.slice(0, startIdx).reduce((sum, l) => sum + l.length + 1, 0)
+      const oldText = lines.slice(startIdx, endIdx + 1).join('\n')
 
       collab.doc.transact(() => {
-        yText.delete(0, yText.length)
-        yText.insert(0, newContent)
+        yText.delete(charStart, oldText.length)
+        yText.insert(charStart, replacement)
       })
 
       showToast(`Applied edit to ${file}`, 'success')
@@ -832,7 +833,29 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
       diff: newContent.length - currentContent.length,
     })
 
-    // Apply to editor
+    // Use surgical Yjs edit when collab is active (track-changes compatible)
+    if (collab.doc) {
+      const mainYText = collab.doc.getText('main')
+      if (mainYText && mainYText.length > 0) {
+        const charStart = lines.slice(0, startIdx).reduce((sum, l) => sum + l.length + 1, 0)
+        const oldText = lines.slice(startIdx, endIdx + 1).join('\n')
+
+        collab.doc.transact(() => {
+          mainYText.delete(charStart, oldText.length)
+          mainYText.insert(charStart, replacement)
+        })
+
+        setLastHtml(newContent)
+        const nextJson = isLatex
+          ? { authoring_mode: 'latex', latex_source: newContent }
+          : latestContentRef.current.json
+        updateLatestContent(newContent, nextJson)
+        requestAutosave('ai-edit-applied')
+        return true
+      }
+    }
+
+    // Fallback: non-collab mode — use adapter setContent
     adapterRef.current?.setContent?.(newContent, { overwriteRealtime: true })
     setLastHtml(newContent)
     const nextJson = isLatex
@@ -927,6 +950,37 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
       return []
     }
 
+    // Use surgical Yjs edits when collab is active (track-changes compatible)
+    if (collab.doc) {
+      const mainYText = collab.doc.getText('main')
+      if (mainYText && mainYText.length > 0) {
+        // Re-compute from the original sourceDocument lines for precise char offsets
+        // Edits are sorted descending by startLine, so applying in order keeps offsets valid
+        const origLines = sourceDocument.split('\n')
+        collab.doc.transact(() => {
+          for (const proposal of validProposals) {
+            const sIdx = proposal.startLine - 1
+            const eIdx = Math.min(proposal.endLine - 1, origLines.length - 1)
+            const charStart = origLines.slice(0, sIdx).reduce((sum, l) => sum + l.length + 1, 0)
+            const oldText = origLines.slice(sIdx, eIdx + 1).join('\n')
+            mainYText.delete(charStart, oldText.length)
+            mainYText.insert(charStart, proposal.proposed)
+            // Update origLines in-place so subsequent (earlier line) offsets remain correct
+            origLines.splice(sIdx, eIdx - sIdx + 1, ...proposal.proposed.split('\n'))
+          }
+        })
+
+        setLastHtml(newContent)
+        const nextJson = isLatex
+          ? { authoring_mode: 'latex', latex_source: newContent }
+          : latestContentRef.current.json
+        updateLatestContent(newContent, nextJson)
+        requestAutosave('ai-edit-applied-batch')
+        return appliedIds
+      }
+    }
+
+    // Fallback: non-collab mode — use adapter setContent
     adapterRef.current?.setContent?.(newContent, { overwriteRealtime: true })
     setLastHtml(newContent)
     const nextJson = isLatex
@@ -935,7 +989,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     updateLatestContent(newContent, nextJson)
     requestAutosave('ai-edit-applied-batch')
     return appliedIds
-  }, [isLatex, readOnly, requestAutosave, showToast, updateLatestContent])
+  }, [collab.doc, isLatex, readOnly, requestAutosave, showToast, updateLatestContent])
 
   /** Get extra file contents from Yjs for multi-file AI context */
   const getDocumentFiles = useCallback((): Record<string, string> | null => {
