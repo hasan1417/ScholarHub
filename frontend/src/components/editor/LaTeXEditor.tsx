@@ -89,12 +89,21 @@ function LaTeXEditorImpl(
     if (!tcKey) return false
     try { return localStorage.getItem(tcKey) === '1' } catch { return false }
   })
+  // Re-read localStorage when paperId becomes available (may be undefined on first render)
+  useEffect(() => {
+    if (!tcKey) return
+    try {
+      const stored = localStorage.getItem(tcKey) === '1'
+      setTrackChangesEnabled(stored)
+    } catch {}
+  }, [tcKey])
   const [trackChangesPanelOpen, setTrackChangesPanelOpen] = useState(false)
   const [writingAnalysisPanelOpen, setWritingAnalysisPanelOpen] = useState(false)
   const [writingAnalysisResult, setWritingAnalysisResult] = useState<WritingAnalysisResult | null>(null)
   const [writingAnalysisLoading, setWritingAnalysisLoading] = useState(false)
   const [submissionBuilderOpen, setSubmissionBuilderOpen] = useState(false)
   const [visualMode, setVisualMode] = useState(false)
+  const [activeFile, setActiveFile] = useState('main.tex')
 
   // Current user identity (for track changes attribution)
   const { user: authUser } = useAuth()
@@ -111,20 +120,25 @@ function LaTeXEditorImpl(
     readOnly,
     providerVersion: realtime?.version,
     synced: realtime?.synced,
-    activeFile: 'main.tex', // updated below via multi-file hook
+    activeFile,
   })
 
   // Multi-file management
-  const { activeFile, fileList, handleCreateFile, handleDeleteFile, handleSelectFile } = useMultiFileManagement({
+  const { fileList, handleCreateFile, handleDeleteFile, handleSelectFile } = useMultiFileManagement({
     realtimeDoc: realtime?.doc || null,
     getYText,
     getFileList,
     yTextReady,
+    activeFile,
+    onActiveFileChange: setActiveFile,
   })
 
-  // Track changes hook (must come before useCodeMirrorEditor to provide the transaction filter)
+  // Track changes hook (must come AFTER useMultiFileManagement for fileList,
+  // and BEFORE useCodeMirrorEditor to provide the transaction filter)
   const trackChanges = useTrackChanges({
     yText: ySharedText,
+    realtimeDoc: realtime?.doc || null,
+    fileList,
     enabled: trackChangesEnabled,
     userId: authUser?.id || 'local',
     userName: [authUser?.first_name, authUser?.last_name].filter(Boolean).join(' ') || 'You',
@@ -552,6 +566,9 @@ function LaTeXEditorImpl(
           onUpdateLabel={historyView.updateLabel}
           selectedRange={historyView.selectedRange}
           currentStateId={historyView.CURRENT_STATE_ID}
+          activeHistoryFile={historyView.activeHistoryFile}
+          onFileSelect={historyView.setActiveHistoryFile}
+          snapshotFiles={historyView.snapshotFiles}
         />
       ) : (
         <>

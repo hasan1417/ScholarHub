@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List, Literal
+from typing import Optional, List, Literal, Dict
 from datetime import datetime
 from uuid import UUID
 
@@ -13,6 +13,7 @@ class SnapshotAutoCreate(BaseModel):
     """Request to create an auto-snapshot from collab server."""
     yjs_state_base64: str = Field(..., description="Base64-encoded Yjs state")
     materialized_text: str = Field(..., description="Materialized LaTeX text")
+    materialized_files: Optional[Dict[str, str]] = Field(None, description="Additional LaTeX files at snapshot time")
     snapshot_type: Literal["auto", "manual", "restore"] = Field("auto")
 
 
@@ -39,6 +40,7 @@ class SnapshotResponse(BaseModel):
 class SnapshotDetailResponse(SnapshotResponse):
     """Snapshot with content included."""
     materialized_text: Optional[str] = None
+    materialized_files: Optional[Dict[str, str]] = None
 
 
 class SnapshotListResponse(BaseModel):

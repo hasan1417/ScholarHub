@@ -8,6 +8,7 @@ All paper creation should go through this service to ensure:
 """
 import logging
 import hashlib
+import json
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone
 from uuid import UUID
@@ -26,10 +27,21 @@ logger = logging.getLogger(__name__)
 SNAPSHOT_SEQUENCE_RETRY_COUNT = 3
 
 
-def compute_snapshot_content_hash(text: Optional[str]) -> str:
+def compute_snapshot_content_hash(
+    text: Optional[str],
+    materialized_files: Optional[Dict[str, str]] = None,
+) -> str:
     """Return a stable short hash for snapshot deduplication."""
-    normalized_text = text or ""
-    return hashlib.sha256(normalized_text.encode("utf-8")).hexdigest()[:16]
+    if not materialized_files:
+        normalized_text = text or ""
+        return hashlib.sha256(normalized_text.encode("utf-8")).hexdigest()[:16]
+
+    payload = {
+        "materialized_text": text or "",
+        "materialized_files": materialized_files,
+    }
+    normalized_payload = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(normalized_payload.encode("utf-8")).hexdigest()[:16]
 
 
 def get_next_snapshot_sequence_number(db: Session, paper_id: UUID) -> int:
@@ -58,6 +70,7 @@ def add_snapshot_with_retry(
     paper_id: UUID,
     yjs_state: bytes,
     materialized_text: Optional[str],
+    materialized_files: Optional[Dict[str, str]] = None,
     snapshot_type: str,
     label: Optional[str] = None,
     created_by: Optional[UUID] = None,
@@ -69,7 +82,7 @@ def add_snapshot_with_retry(
     model changes are pending in the same transaction.
     """
     text_length = len(materialized_text) if materialized_text is not None else 0
-    content_hash = compute_snapshot_content_hash(materialized_text)
+    content_hash = compute_snapshot_content_hash(materialized_text, materialized_files)
 
     last_error: Optional[IntegrityError] = None
     for attempt in range(SNAPSHOT_SEQUENCE_RETRY_COUNT):
@@ -77,6 +90,7 @@ def add_snapshot_with_retry(
             paper_id=paper_id,
             yjs_state=yjs_state,
             materialized_text=materialized_text,
+            materialized_files=materialized_files,
             snapshot_type=snapshot_type,
             label=label,
             created_by=created_by,
@@ -218,6 +232,7 @@ def _create_initial_snapshot(
     try:
         # Extract content for snapshot
         materialized_text = _extract_materialized_text(paper)
+        materialized_files = _extract_materialized_files(paper)
 
         if not materialized_text or not materialized_text.strip():
             logger.debug("No content to snapshot for paper %s", paper.id)
@@ -228,6 +243,7 @@ def _create_initial_snapshot(
             paper_id=paper.id,
             yjs_state=b"",  # No Yjs state for API-created papers
             materialized_text=materialized_text,
+            materialized_files=materialized_files,
             snapshot_type="auto",
             label=label,
             created_by=creator_id,
@@ -271,6 +287,18 @@ def _extract_materialized_text(paper: ResearchPaper) -> Optional[str]:
     return None
 
 
+def _extract_materialized_files(paper: ResearchPaper) -> Optional[Dict[str, str]]:
+    """Extract additional LaTeX files from a paper for snapshotting."""
+    if not isinstance(paper.latex_files, dict):
+        return None
+
+    return {
+        name: content
+        for name, content in paper.latex_files.items()
+        if isinstance(name, str) and isinstance(content, str)
+    }
+
+
 def create_snapshot_for_paper(
     db: Session,
     paper: ResearchPaper,
@@ -285,6 +313,7 @@ def create_snapshot_for_paper(
     """
     try:
         materialized_text = _extract_materialized_text(paper)
+        materialized_files = _extract_materialized_files(paper)
 
         if not materialized_text or not materialized_text.strip():
             return None
@@ -294,6 +323,7 @@ def create_snapshot_for_paper(
             paper_id=paper.id,
             yjs_state=b"",
             materialized_text=materialized_text,
+            materialized_files=materialized_files,
             snapshot_type=snapshot_type,
             label=label,
             created_by=creator_id,

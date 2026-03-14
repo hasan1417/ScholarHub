@@ -7,6 +7,7 @@ interface TrackedChangeItem {
   userName: string
   userColor?: string
   timestamp: number
+  file?: string
 }
 
 interface TrackChangesPanelProps {
@@ -41,6 +42,15 @@ export const TrackChangesPanel: React.FC<TrackChangesPanelProps> = ({
   onRejectAll,
   onClose,
 }) => {
+  // Group changes by file
+  const changesByFile = new Map<string, TrackedChangeItem[]>()
+  for (const change of changes) {
+    const file = change.file || 'main.tex'
+    if (!changesByFile.has(file)) changesByFile.set(file, [])
+    changesByFile.get(file)!.push(change)
+  }
+  const multiFile = changesByFile.size > 1
+
   return (
     <div className="fixed inset-y-0 right-0 z-50 flex w-[300px] flex-col border-l border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900">
       {/* Header */}
@@ -89,69 +99,78 @@ export const TrackChangesPanel: React.FC<TrackChangesPanelProps> = ({
       <div className="flex-1 overflow-y-auto px-2 py-2">
         {changes.length > 0 ? (
           <div className="flex flex-col gap-1.5">
-            {changes.map((change) => (
-              <div
-                key={change.id}
-                className="group rounded-md border border-slate-200 px-2.5 py-2 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800/60"
-              >
-                <div className="flex items-start gap-2">
-                  {/* Type indicator */}
-                  <span
-                    className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-xs font-bold ${
-                      change.type === 'insert'
-                        ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400'
-                        : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400'
-                    }`}
+            {Array.from(changesByFile.entries()).map(([file, fileChanges]) => (
+              <div key={file}>
+                {multiFile && (
+                  <div className="sticky top-0 z-10 bg-slate-100/90 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500 backdrop-blur dark:bg-slate-800/90 dark:text-slate-400">
+                    {file}
+                  </div>
+                )}
+                {fileChanges.map((change) => (
+                  <div
+                    key={change.id}
+                    className="group rounded-md border border-slate-200 px-2.5 py-2 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800/60"
                   >
-                    {change.type === 'insert' ? '+' : '\u2212'}
-                  </span>
+                    <div className="flex items-start gap-2">
+                      {/* Type indicator */}
+                      <span
+                        className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-xs font-bold ${
+                          change.type === 'insert'
+                            ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400'
+                            : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400'
+                        }`}
+                      >
+                        {change.type === 'insert' ? '+' : '\u2212'}
+                      </span>
 
-                  {/* Text preview and meta */}
-                  <div className="min-w-0 flex-1">
-                    <p
-                      className={`break-words text-sm ${
-                        change.type === 'insert'
-                          ? 'text-green-700 dark:text-green-400'
-                          : 'text-red-700 line-through dark:text-red-400'
-                      }`}
-                    >
-                      {truncate(change.text, 80)}
-                    </p>
-                    <div className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500">
-                      {change.userColor && (
-                        <span
-                          className="inline-block h-2 w-2 rounded-full"
-                          style={{ backgroundColor: change.userColor }}
-                        />
-                      )}
-                      <span>{change.userName}</span>
-                      <span>&middot;</span>
-                      <span>{relativeTime(change.timestamp)}</span>
+                      {/* Text preview and meta */}
+                      <div className="min-w-0 flex-1">
+                        <p
+                          className={`break-words text-sm ${
+                            change.type === 'insert'
+                              ? 'text-green-700 dark:text-green-400'
+                              : 'text-red-700 line-through dark:text-red-400'
+                          }`}
+                        >
+                          {truncate(change.text, 80)}
+                        </p>
+                        <div className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500">
+                          {change.userColor && (
+                            <span
+                              className="inline-block h-2 w-2 rounded-full"
+                              style={{ backgroundColor: change.userColor }}
+                            />
+                          )}
+                          <span>{change.userName}</span>
+                          <span>&middot;</span>
+                          <span>{relativeTime(change.timestamp)}</span>
+                        </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex shrink-0 gap-1">
+                        <button
+                          type="button"
+                          onClick={() => onAcceptChange(change.id)}
+                          className="rounded p-1 text-slate-400 transition-colors hover:bg-green-100 hover:text-green-700 dark:hover:bg-green-900/40 dark:hover:text-green-400"
+                          aria-label="Accept change"
+                          title="Accept"
+                        >
+                          <span className="text-sm leading-none">&#10003;</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onRejectChange(change.id)}
+                          className="rounded p-1 text-slate-400 transition-colors hover:bg-red-100 hover:text-red-700 dark:hover:bg-red-900/40 dark:hover:text-red-400"
+                          aria-label="Reject change"
+                          title="Reject"
+                        >
+                          <span className="text-sm leading-none">&times;</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
-
-                  {/* Action buttons */}
-                  <div className="flex shrink-0 gap-1">
-                    <button
-                      type="button"
-                      onClick={() => onAcceptChange(change.id)}
-                      className="rounded p-1 text-slate-400 transition-colors hover:bg-green-100 hover:text-green-700 dark:hover:bg-green-900/40 dark:hover:text-green-400"
-                      aria-label="Accept change"
-                      title="Accept"
-                    >
-                      <span className="text-sm leading-none">&#10003;</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onRejectChange(change.id)}
-                      className="rounded p-1 text-slate-400 transition-colors hover:bg-red-100 hover:text-red-700 dark:hover:bg-red-900/40 dark:hover:text-red-400"
-                      aria-label="Reject change"
-                      title="Reject"
-                    >
-                      <span className="text-sm leading-none">&times;</span>
-                    </button>
-                  </div>
-                </div>
+                ))}
               </div>
             ))}
           </div>

@@ -602,6 +602,7 @@ async def update_paper_content(
         # Only create snapshot if there's actual content
         if materialized_text and len(materialized_text.strip()) > 0:
             current_length = len(materialized_text)
+            materialized_files = paper.latex_files if isinstance(paper.latex_files, dict) else None
 
             # Check the last snapshot for deduplication
             last_snapshot = db.query(DocumentSnapshot).filter(
@@ -610,7 +611,7 @@ async def update_paper_content(
 
             should_create_snapshot = True
             skip_reason = None
-            content_hash = compute_snapshot_content_hash(materialized_text)
+            content_hash = compute_snapshot_content_hash(materialized_text, materialized_files)
 
             # Manual saves always create a snapshot immediately.
             # Autosaves only create a snapshot if enough time has passed (5 min)
@@ -636,6 +637,7 @@ async def update_paper_content(
                     paper_id=paper.id,
                     yjs_state=b"",  # No Yjs state when saving from API
                     materialized_text=materialized_text,
+                    materialized_files=materialized_files,
                     snapshot_type="save",
                     label=None,
                     created_by=current_user.id,

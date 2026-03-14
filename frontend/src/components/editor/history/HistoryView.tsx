@@ -21,6 +21,10 @@ interface HistoryViewProps {
   onUpdateLabel: (snapshotId: string, label: string | null) => Promise<void>
   selectedRange?: { from: string; to: string } | null
   currentStateId: string
+  // Multi-file
+  activeHistoryFile: string | null
+  onFileSelect: (file: string | null) => void
+  snapshotFiles: string[]
 }
 
 function formatSnapshotDate(snapshots: Snapshot[], selectedId: string | null): string {
@@ -32,11 +36,12 @@ function formatSnapshotDate(snapshots: Snapshot[], selectedId: string | null): s
   return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
 
-function countChangesLabel(diffData: SnapshotDiffResponse | null): string {
+function countChangesLabel(diffData: SnapshotDiffResponse | null, file: string | null): string {
   if (!diffData) return ''
   const total = diffData.stats.additions + diffData.stats.deletions
-  if (total === 0) return 'No changes'
-  return `${total} change${total !== 1 ? 's' : ''} in main.tex`
+  const fname = file || 'main.tex'
+  if (total === 0) return `No changes in ${fname}`
+  return `${total} change${total !== 1 ? 's' : ''} in ${fname}`
 }
 
 export const HistoryView: React.FC<HistoryViewProps> = ({
@@ -54,9 +59,13 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   onUpdateLabel,
   selectedRange,
   currentStateId,
+  activeHistoryFile,
+  onFileSelect,
+  snapshotFiles,
 }) => {
   const dateLabel = formatSnapshotDate(snapshots, selectedSnapshotId)
-  const changesLabel = countChangesLabel(diffData)
+  const changesLabel = countChangesLabel(diffData, activeHistoryFile)
+  const allFiles = ['main.tex', ...snapshotFiles]
 
   // Escape key exits history mode
   useEffect(() => {
@@ -109,20 +118,33 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
 
       {/* Content area */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Left: File panel placeholder */}
+        {/* Left: File panel */}
         <div className="flex w-[180px] flex-none flex-col border-r border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/50">
           <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
             Files
           </div>
-          <div className="flex items-center gap-2 bg-white px-3 py-1.5 dark:bg-slate-800">
-            <FileText className="h-3.5 w-3.5 text-slate-500 dark:text-slate-400" />
-            <span className="flex-1 truncate text-xs font-medium text-slate-700 dark:text-slate-200">
-              main.tex
-            </span>
-            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 dark:bg-amber-700/30 dark:text-amber-300">
-              Edited
-            </span>
-          </div>
+          {allFiles.map(file => {
+            const isActive = (file === 'main.tex' && !activeHistoryFile) || file === activeHistoryFile
+            return (
+              <button
+                key={file}
+                onClick={() => onFileSelect(file === 'main.tex' ? null : file)}
+                className={`flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors ${
+                  isActive
+                    ? 'bg-white dark:bg-slate-800'
+                    : 'hover:bg-slate-100 dark:hover:bg-slate-800/50'
+                }`}
+              >
+                <FileText className="h-3.5 w-3.5 flex-none text-slate-500 dark:text-slate-400" />
+                <span className="flex-1 truncate text-xs font-medium text-slate-700 dark:text-slate-200">
+                  {file}
+                </span>
+                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 dark:bg-amber-700/30 dark:text-amber-300">
+                  Edited
+                </span>
+              </button>
+            )
+          })}
         </div>
 
         {/* Center: Diff pane */}

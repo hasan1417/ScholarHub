@@ -66,6 +66,11 @@ interface UseHistoryViewReturn {
   diffLoading: boolean
   CURRENT_STATE_ID: string
 
+  // Multi-file: which file is being viewed in the diff
+  activeHistoryFile: string | null  // null = main.tex
+  setActiveHistoryFile: (file: string | null) => void
+  snapshotFiles: string[]  // list of files in the selected snapshot
+
   activeTab: 'all' | 'labels'
   setActiveTab: (tab: 'all' | 'labels') => void
 
@@ -95,6 +100,10 @@ export function useHistoryView({
 
   const [activeTab, setActiveTab] = useState<'all' | 'labels'>('all')
 
+  // Multi-file: which file's diff is being viewed
+  const [activeHistoryFile, setActiveHistoryFile] = useState<string | null>(null)
+  const [snapshotFiles, setSnapshotFiles] = useState<string[]>([])
+
   // Track whether snapshots have been loaded for the current history session
   const loadedRef = useRef(false)
 
@@ -115,14 +124,27 @@ export function useHistoryView({
     }
   }, [])
 
+  const activeHistoryFileRef = useRef<string | null>(null)
+  activeHistoryFileRef.current = activeHistoryFile
+
   const selectSnapshot = useCallback(async (snapshotId: string, rangeFromId?: string) => {
     const pid = paperIdRef.current
     if (!pid) return
+    const file = activeHistoryFileRef.current || undefined
 
     setDiffLoading(true)
     setDiffData(null)
 
     const currentSnapshots = snapshotsRef.current
+
+    // Helper: fetch snapshot detail and update file list
+    const fetchAndSetFiles = async (sid: string) => {
+      const res = await snapshotsAPI.getSnapshot(pid, sid)
+      const files = res.data.materialized_files ? Object.keys(res.data.materialized_files) : []
+      console.log('[useHistoryView] fetchAndSetFiles', sid, 'materialized_files:', res.data.materialized_files, 'files:', files)
+      setSnapshotFiles(files)
+      return res.data
+    }
 
     try {
       if (rangeFromId) {
@@ -130,45 +152,43 @@ export function useHistoryView({
         setSelectedRange({ from: rangeFromId, to: snapshotId })
 
         if (snapshotId === CURRENT_STATE_ID) {
-          // Diff current content vs a snapshot
-          const res = await snapshotsAPI.getSnapshot(pid, rangeFromId)
-          const snapshotText = res.data.materialized_text || ''
+          const detail = await fetchAndSetFiles(rangeFromId)
+          const snapshotText = detail.materialized_text || ''
           const currentText = currentContentRef.current
           const diffLines = computeClientDiff(snapshotText, currentText)
           const snap = currentSnapshots.find(s => s.id === rangeFromId)
-          const syntheticDiff: SnapshotDiffResponse = {
+          setDiffData({
             from_snapshot: snap || currentSnapshots[0],
             to_snapshot: { ...(snap || currentSnapshots[0]), id: CURRENT_STATE_ID as any, snapshot_type: 'current' as any, label: 'Current state', sequence_number: 0 },
             diff_lines: diffLines.lines,
             stats: diffLines.stats,
-          }
-          setDiffData(syntheticDiff)
+          })
         } else if (rangeFromId === CURRENT_STATE_ID) {
-          // Diff a snapshot vs current content (reversed)
-          const res = await snapshotsAPI.getSnapshot(pid, snapshotId)
-          const snapshotText = res.data.materialized_text || ''
+          const detail = await fetchAndSetFiles(snapshotId)
+          const snapshotText = detail.materialized_text || ''
           const currentText = currentContentRef.current
           const diffLines = computeClientDiff(currentText, snapshotText)
           const snap = currentSnapshots.find(s => s.id === snapshotId)
-          const syntheticDiff: SnapshotDiffResponse = {
+          setDiffData({
             from_snapshot: { ...(snap || currentSnapshots[0]), id: CURRENT_STATE_ID as any, snapshot_type: 'current' as any, label: 'Current state', sequence_number: 0 },
             to_snapshot: snap || currentSnapshots[0],
             diff_lines: diffLines.lines,
             stats: diffLines.stats,
-          }
-          setDiffData(syntheticDiff)
+          })
         } else {
-          const res = await snapshotsAPI.getFullDiff(pid, rangeFromId, snapshotId)
+          // Fetch detail to get file list
+          await fetchAndSetFiles(snapshotId)
+          const res = await snapshotsAPI.getFullDiff(pid, rangeFromId, snapshotId, file)
           setDiffData(res.data)
         }
       } else {
-        // Single snapshot selected — diff against its predecessor (existing behavior)
+        // Single snapshot selected — diff against its predecessor
 
         if (snapshotId === CURRENT_STATE_ID) {
-          // Current state vs newest snapshot
           setSelectedRange({ from: '', to: CURRENT_STATE_ID })
           const newest = currentSnapshots[0]
           if (newest) {
+            await fetchAndSetFiles(newest.id)
             const res = await snapshotsAPI.getSnapshot(pid, newest.id)
             const snapshotText = res.data.materialized_text || ''
             const currentText = currentContentRef.current
@@ -188,14 +208,16 @@ export function useHistoryView({
         const idx = currentSnapshots.findIndex((s) => s.id === snapshotId)
         if (idx < 0) { setDiffLoading(false); return }
 
+        // Fetch detail to get file list
+        const detail = await fetchAndSetFiles(snapshotId)
+
         const previousSnapshot = currentSnapshots[idx + 1]
         if (previousSnapshot) {
-          const res = await snapshotsAPI.getFullDiff(pid, previousSnapshot.id, snapshotId)
+          const res = await snapshotsAPI.getFullDiff(pid, previousSnapshot.id, snapshotId, file)
           setDiffData(res.data)
         } else {
           // Oldest snapshot — synthesize all-added diff
-          const res = await snapshotsAPI.getSnapshot(pid, snapshotId)
-          const text = res.data.materialized_text || ''
+          const text = (file && detail.materialized_files?.[file]) || detail.materialized_text || ''
           const lines = text.split('\n')
           const snapshot = currentSnapshots[idx]
           setDiffData({
@@ -227,6 +249,8 @@ export function useHistoryView({
     setSelectedRange(null)
     setDiffData(null)
     setDiffLoading(false)
+    setActiveHistoryFile(null)
+    setSnapshotFiles([])
     loadedRef.current = false
   }, [])
 
@@ -277,6 +301,22 @@ export function useHistoryView({
     }
   }, [historyMode, snapshots, selectedRange, selectSnapshot])
 
+  // Re-fetch diff when active file changes (file tab click in history view)
+  useEffect(() => {
+    if (!selectedSnapshotId || !historyMode) return
+    const range = selectedRange
+    if (range && range.from) {
+      selectSnapshot(range.to, range.from)
+    } else if (selectedSnapshotId) {
+      selectSnapshot(selectedSnapshotId)
+    }
+  }, [activeHistoryFile]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Wrap setActiveHistoryFile to also reset to null for main.tex
+  const handleSetActiveHistoryFile = useCallback((file: string | null) => {
+    setActiveHistoryFile(file === 'main.tex' ? null : file)
+  }, [])
+
   return {
     historyMode,
     enterHistoryMode,
@@ -293,6 +333,10 @@ export function useHistoryView({
     diffData,
     diffLoading,
     CURRENT_STATE_ID,
+
+    activeHistoryFile,
+    setActiveHistoryFile: handleSetActiveHistoryFile,
+    snapshotFiles,
 
     activeTab,
     setActiveTab,

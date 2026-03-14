@@ -720,8 +720,17 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
         await asyncio.to_thread(_clear_aux_files)
         await asyncio.to_thread(paths["tex"].write_text, effective_source, encoding="utf-8")
         # Write additional multi-file sources
-        if request.latex_files:
-            for fname, content in request.latex_files.items():
+        # Use request.latex_files if provided, otherwise fall back to paper.latex_files from DB
+        extra_files = request.latex_files
+        if not extra_files and request.paper_id:
+            try:
+                paper_obj = db.query(ResearchPaper).filter(ResearchPaper.id == request.paper_id).first()
+                if paper_obj and isinstance(paper_obj.latex_files, dict):
+                    extra_files = paper_obj.latex_files
+            except Exception:
+                pass
+        if extra_files:
+            for fname, content in extra_files.items():
                 # Sanitize filename: only allow .tex files in the compile dir
                 safe_name = Path(fname).name
                 if not safe_name.endswith('.tex') or safe_name == 'main.tex':

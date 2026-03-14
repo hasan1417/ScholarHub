@@ -1,5 +1,5 @@
 from sqlalchemy import Column, String, Text, DateTime, Integer, ForeignKey, LargeBinary
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -23,6 +23,7 @@ class DocumentSnapshot(Base):
 
     # Materialized LaTeX text for quick access and diff computation
     materialized_text = Column(Text, nullable=True)
+    materialized_files = Column(JSONB, nullable=True)
 
     # Snapshot metadata
     snapshot_type = Column(String(20), nullable=False, default="auto")  # 'auto', 'manual', 'restore', 'save'

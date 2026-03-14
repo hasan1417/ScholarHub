@@ -279,7 +279,9 @@ export function useCodeMirrorEditor({
     //    content as initialDoc, since no new sync event will fire the observer.
     let initialDoc: string
     if (realtimeDoc) {
-      const yContent = syncedRef.current ? (realtimeDoc.getText('main')?.toString() || '') : ''
+      // Use the current ySharedText (active file), not hardcoded 'main'
+      const yText = ySharedText || realtimeDoc.getText('main')
+      const yContent = syncedRef.current ? (yText?.toString() || '') : ''
       initialDoc = yContent
     } else {
       initialDoc = latestDocRef.current || ''
@@ -320,7 +322,7 @@ export function useCodeMirrorEditor({
         realtimeAwareness.setLocalStateField('selection', { anchor: main.from, head: main.to })
       } catch {}
     }
-  }, [cmExtensions, realtimeDoc, realtimeAwareness, readOnly, clearContainer, realtimeExtensions.length])
+  }, [cmExtensions, realtimeDoc, realtimeAwareness, readOnly, clearContainer, realtimeExtensions.length, ySharedText])
 
   const handleContainerRef = useCallback((el: HTMLDivElement | null) => {
     if (el === containerRef.current) return
@@ -352,8 +354,10 @@ export function useCodeMirrorEditor({
   }, [createView, clearContainer, realtimeDoc, debugLog, ySharedText])
 
   // -----------------------------------------------------------------------
-  // yText-ready effect: create view once yText is available in realtime mode
+  // yText-ready effect: create or RECREATE view when yText changes
+  // (e.g. initial load or multi-file switching)
   // -----------------------------------------------------------------------
+  const prevYTextRef = useRef<any>(null)
   useEffect(() => {
     debugLog('yText ready effect check', {
       hasRealtimeDoc: !!realtimeDoc,
@@ -366,8 +370,19 @@ export function useCodeMirrorEditor({
 
     if (!realtimeDoc) return
     if (!ySharedText) return
-    if (viewRef.current) return // View already exists
     if (!containerRef.current) return
+
+    const isFileSwitch = viewRef.current && prevYTextRef.current && prevYTextRef.current !== ySharedText
+    prevYTextRef.current = ySharedText
+
+    if (viewRef.current && !isFileSwitch) return // View already exists, same file
+
+    // Destroy old view on file switch — yCollab can't be swapped via reconfigure
+    if (isFileSwitch && viewRef.current) {
+      debugLog('File switch detected, recreating view')
+      try { viewRef.current.destroy() } catch {}
+      viewRef.current = null
+    }
 
     const yTextContent = ySharedText.toString()
     debugLog('yText ready, creating view now', {

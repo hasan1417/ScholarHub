@@ -1607,6 +1607,7 @@ export interface Snapshot {
 
 export interface SnapshotDetail extends Snapshot {
   materialized_text: string | null
+  materialized_files: Record<string, string> | null
 }
 
 export interface SnapshotListResponse {
@@ -1671,9 +1672,9 @@ export const snapshotsAPI = {
   getSnapshotDiff: (paperId: string, snapshotId1: string, snapshotId2: string) =>
     api.get<SnapshotDiffResponse>(`/papers/${paperId}/snapshots/${snapshotId1}/diff/${snapshotId2}`),
 
-  // Get full-document diff between two snapshots (every line tagged)
-  getFullDiff: (paperId: string, snapshotId1: string, snapshotId2: string) =>
-    api.get<SnapshotDiffResponse>(`/papers/${paperId}/snapshots/${snapshotId1}/full-diff/${snapshotId2}`),
+  // Get full-document diff between two snapshots (every line tagged, optionally for a specific file)
+  getFullDiff: (paperId: string, snapshotId1: string, snapshotId2: string, file?: string) =>
+    api.get<SnapshotDiffResponse>(`/papers/${paperId}/snapshots/${snapshotId1}/full-diff/${snapshotId2}${file ? `?file=${encodeURIComponent(file)}` : ''}`),
 
   // Restore document to a snapshot
   restoreSnapshot: (paperId: string, snapshotId: string) =>

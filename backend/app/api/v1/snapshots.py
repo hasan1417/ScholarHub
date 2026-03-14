@@ -100,13 +100,14 @@ def _create_snapshot_with_retry(
     paper_id: UUID,
     yjs_state: bytes,
     materialized_text: Optional[str],
+    materialized_files: Optional[dict[str, str]],
     snapshot_type: str,
     label: Optional[str],
     created_by: Optional[UUID],
 ) -> DocumentSnapshot:
     """Create a snapshot, retrying sequence allocation on concurrent inserts."""
     text_length = len(materialized_text) if materialized_text is not None else 0
-    content_hash = compute_snapshot_content_hash(materialized_text)
+    content_hash = compute_snapshot_content_hash(materialized_text, materialized_files)
 
     last_error: Optional[IntegrityError] = None
     for attempt in range(SNAPSHOT_SEQUENCE_RETRY_COUNT):
@@ -114,6 +115,7 @@ def _create_snapshot_with_retry(
             paper_id=paper_id,
             yjs_state=yjs_state,
             materialized_text=materialized_text,
+            materialized_files=materialized_files,
             snapshot_type=snapshot_type,
             label=label,
             created_by=created_by,
@@ -308,17 +310,44 @@ def _compute_full_diff(text1: str, text2: str) -> tuple[List[DiffLine], DiffStat
     return diff_lines, stats
 
 
-def _snapshot_to_response(snapshot: DocumentSnapshot) -> SnapshotResponse:
+def _get_snapshot_materialized_content(snapshot: DocumentSnapshot, file: Optional[str] = None) -> str:
+    """Return snapshot content for the requested file."""
+    if file is None:
+        return snapshot.materialized_text or ""
+
+    if not isinstance(snapshot.materialized_files, dict):
+        return ""
+
+    file_content = snapshot.materialized_files.get(file)
+    return file_content if isinstance(file_content, str) else ""
+
+
+def _snapshot_to_response(
+    snapshot: DocumentSnapshot,
+    *,
+    include_content: bool = False,
+) -> SnapshotResponse | SnapshotDetailResponse:
     """Convert a snapshot model to response schema."""
+    response_data = {
+        "id": snapshot.id,
+        "paper_id": snapshot.paper_id,
+        "snapshot_type": snapshot.snapshot_type,
+        "label": snapshot.label,
+        "created_by": snapshot.created_by,
+        "created_at": snapshot.created_at,
+        "sequence_number": snapshot.sequence_number,
+        "text_length": snapshot.text_length,
+    }
+
+    if include_content:
+        return SnapshotDetailResponse(
+            **response_data,
+            materialized_text=snapshot.materialized_text,
+            materialized_files=snapshot.materialized_files,
+        )
+
     return SnapshotResponse(
-        id=snapshot.id,
-        paper_id=snapshot.paper_id,
-        snapshot_type=snapshot.snapshot_type,
-        label=snapshot.label,
-        created_by=snapshot.created_by,
-        created_at=snapshot.created_at,
-        sequence_number=snapshot.sequence_number,
-        text_length=snapshot.text_length,
+        **response_data,
     )
 
 
@@ -337,6 +366,7 @@ def create_manual_snapshot(
     paper = _check_paper_access(db, paper_id, current_user)
 
     live_state = _fetch_live_collab_state(paper_id)
+    materialized_files = paper.latex_files if isinstance(paper.latex_files, dict) else None
     if live_state is not None:
         latex_source, yjs_state = live_state
     else:
@@ -352,6 +382,7 @@ def create_manual_snapshot(
         paper_id=paper.id,
         yjs_state=yjs_state,
         materialized_text=latex_source,
+        materialized_files=materialized_files,
         snapshot_type="manual",
         label=data.label,
         created_by=current_user.id,
@@ -408,17 +439,7 @@ def get_snapshot(
     if not snapshot:
         raise HTTPException(status_code=404, detail="Snapshot not found")
 
-    return SnapshotDetailResponse(
-        id=snapshot.id,
-        paper_id=snapshot.paper_id,
-        snapshot_type=snapshot.snapshot_type,
-        label=snapshot.label,
-        created_by=snapshot.created_by,
-        created_at=snapshot.created_at,
-        sequence_number=snapshot.sequence_number,
-        text_length=snapshot.text_length,
-        materialized_text=snapshot.materialized_text,
-    )
+    return _snapshot_to_response(snapshot, include_content=True)
 
 
 @router.put("/papers/{paper_id}/snapshots/{snapshot_id}", response_model=SnapshotResponse)
@@ -521,6 +542,7 @@ def get_snapshot_full_diff(
     paper_id: str,
     from_id: UUID,
     to_id: UUID,
+    file: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -541,8 +563,8 @@ def get_snapshot_full_diff(
         raise HTTPException(status_code=404, detail="One or both snapshots not found")
 
     diff_lines, stats = _compute_full_diff(
-        snapshot1.materialized_text or "",
-        snapshot2.materialized_text or "",
+        _get_snapshot_materialized_content(snapshot1, file),
+        _get_snapshot_materialized_content(snapshot2, file),
     )
 
     return SnapshotDiffResponse(
@@ -585,6 +607,7 @@ def restore_snapshot(
         paper_id=paper.id,
         yjs_state=snapshot.yjs_state,
         materialized_text=snapshot.materialized_text,
+        materialized_files=snapshot.materialized_files,
         snapshot_type="restore",
         label=f"Restored from snapshot #{snapshot.sequence_number}",
         created_by=current_user.id,
@@ -598,6 +621,8 @@ def restore_snapshot(
         }
     else:
         paper.content = snapshot.materialized_text or ""
+    if snapshot.materialized_files is not None:
+        paper.latex_files = snapshot.materialized_files
 
     db.commit()
     db.refresh(restore_snapshot)
@@ -643,6 +668,7 @@ def create_auto_snapshot(
         paper_id=paper.id,
         yjs_state=yjs_state,
         materialized_text=data.materialized_text,
+        materialized_files=data.materialized_files,
         snapshot_type=data.snapshot_type,
         label=None,
         created_by=None,  # Auto snapshots have no specific creator
