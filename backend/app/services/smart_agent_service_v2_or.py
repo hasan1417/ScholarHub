@@ -259,6 +259,19 @@ IMPORTANT:
 - The template preamble ends with \\maketitle — do NOT leave a duplicate \\maketitle in the document
 - PRESERVE the existing bibliography format: if the document uses inline \\begin{thebibliography}, keep it (only update \\bibliographystyle). Do NOT replace it with \\bibliography{references}
 
+## SUB-FILE CONSTRAINTS
+Files included via \\input{} or \\include{} are SUB-FILES. They must NOT contain:
+- \\documentclass{}
+- \\begin{document} or \\end{document}
+- \\usepackage{} (packages go in main.tex only)
+Sub-files should contain only body content (sections, text, figures, etc).
+
+## CROSS-REFERENCE RULES
+- Only use \\ref{} with labels listed in DEFINED LABELS in the document context below
+- Only use \\cite{} with keys listed in CITATION KEYS IN USE in the document context below
+- Do NOT invent new \\label{} keys unless you are also creating the \\ref{} in the same edit
+- Do NOT use commands from packages not listed in LOADED PACKAGES in the document context below
+
 ## REFERENCE SCOPE
 You can ONLY discuss or cite references shown in the ATTACHED REFERENCES section.
 Do NOT invent, fabricate, or guess reference titles, authors, or findings.
@@ -312,6 +325,165 @@ def _validate_latex_syntax(latex_source: str) -> list[str]:
             errors.append(f"Unclosed environment: {env} ({b_count} \\begin vs {e_count} \\end)")
 
     return errors
+
+
+def _strip_latex_comments(latex_source: str) -> str:
+    """Remove LaTeX comments for lightweight regex parsing."""
+    return re.sub(r'(?<!\\)%.*$', '', latex_source or "", flags=re.MULTILINE)
+
+
+def _dedupe_preserve_order(items: list[str]) -> list[str]:
+    """Return items in first-seen order without duplicates."""
+    return list(dict.fromkeys(item for item in items if item))
+
+
+def _normalize_latex_file_name(path: str) -> str:
+    """Normalize \\input/\\include targets to display a file name."""
+    normalized = (path or "").strip()
+    if not normalized:
+        return normalized
+    if "." not in os.path.basename(normalized):
+        return f"{normalized}.tex"
+    return normalized
+
+
+def _extract_document_context(
+    document_excerpt: str,
+    document_files: Dict[str, str] | None = None,
+) -> str:
+    """Extract labels, citations, packages, and structure from the LaTeX document."""
+    if not document_excerpt:
+        return ""
+
+    main_content = document_excerpt
+    files_to_scan: list[tuple[str, str]] = []
+
+    if document_files:
+        main_content = document_files.get("main.tex", document_excerpt)
+        files_to_scan.append(("main.tex", main_content))
+        for file_name in sorted(document_files.keys()):
+            if file_name == "main.tex":
+                continue
+            files_to_scan.append((file_name, document_files[file_name]))
+    else:
+        files_to_scan.append(("main.tex", document_excerpt))
+
+    clean_main = _strip_latex_comments(main_content)
+    preamble = clean_main.split(r"\begin{document}", 1)[0]
+
+    packages: list[str] = []
+    for package_group in re.findall(r'\\usepackage(?:\[[^\]]*\])?\{([^}]+)\}', preamble):
+        for package_name in package_group.split(","):
+            pkg = package_name.strip()
+            if pkg:
+                packages.append(pkg)
+
+    included_files: list[str] = []
+    for include_cmd, include_target in re.findall(r'\\(input|include)\{([^}]+)\}', clean_main):
+        target = include_target.strip()
+        if not target:
+            continue
+        included_files.append(
+            f"{_normalize_latex_file_name(target)} (via \\{include_cmd}{{{target}}})"
+        )
+
+    labels: list[str] = []
+    citation_keys: list[str] = []
+    custom_commands: list[str] = []
+
+    for _, content in files_to_scan:
+        clean_content = _strip_latex_comments(content)
+        labels.extend(match.strip() for match in re.findall(r'\\label\{([^}]+)\}', clean_content) if match.strip())
+
+        for cite_group in re.findall(r'\\cite[a-zA-Z*]*(?:\[[^\]]*\]){0,2}\{([^}]+)\}', clean_content):
+            for cite_key in cite_group.split(","):
+                key = cite_key.strip()
+                if key:
+                    citation_keys.append(key)
+
+        for match in re.finditer(
+            r'\\(?:re)?newcommand\*?\s*(?:\{\\([A-Za-z@]+)\}|\\([A-Za-z@]+))(?:\[(\d+)\])?',
+            clean_content,
+        ):
+            command_name = match.group(1) or match.group(2)
+            argument_count = int(match.group(3) or 0)
+            if command_name:
+                custom_commands.append(
+                    f"\\{command_name}{{...}}" if argument_count > 0 else f"\\{command_name}"
+                )
+
+        for match in re.finditer(r'\\def\s*\\([A-Za-z@]+)((?:#\d+)*)', clean_content):
+            command_name = match.group(1)
+            has_arguments = bool(match.group(2))
+            if command_name:
+                custom_commands.append(
+                    f"\\{command_name}{{...}}" if has_arguments else f"\\{command_name}"
+                )
+
+    packages = _dedupe_preserve_order(packages)
+    included_files = _dedupe_preserve_order(included_files)
+    labels = _dedupe_preserve_order(labels)
+    citation_keys = _dedupe_preserve_order(citation_keys)
+    custom_commands = _dedupe_preserve_order(custom_commands)
+
+    return (
+        "## DOCUMENT STRUCTURE\n"
+        "Root file: main.tex\n"
+        f"Included files: {', '.join(included_files) if included_files else 'None'}\n\n"
+        "## LOADED PACKAGES\n"
+        f"{', '.join(packages) if packages else 'None'}\n\n"
+        "## DEFINED LABELS\n"
+        f"{', '.join(labels) if labels else 'None'}\n\n"
+        "## CITATION KEYS IN USE\n"
+        f"{', '.join(citation_keys) if citation_keys else 'None'}\n\n"
+        "## CUSTOM COMMANDS\n"
+        f"{', '.join(custom_commands) if custom_commands else 'None'}"
+    )
+
+
+def _collect_latex_validation_warnings(edits: Any) -> list[str]:
+    """Collect non-blocking LaTeX validation warnings from propose_edit payloads."""
+    warnings: list[str] = []
+    if not isinstance(edits, list):
+        return warnings
+
+    for edit in edits:
+        if not isinstance(edit, dict):
+            continue
+        proposed = edit.get("proposed")
+        if not isinstance(proposed, str) or not proposed.strip():
+            continue
+
+        file_name = edit.get("file")
+        if not isinstance(file_name, str) or not file_name.strip():
+            file_name = "main.tex"
+        errors = _validate_latex_syntax(proposed)
+        clean_proposed = _strip_latex_comments(proposed)
+        if file_name != "main.tex":
+            if re.search(r'\\documentclass(?:\[[^\]]*\])?\{[^}]+\}', clean_proposed):
+                errors.append("Sub-file should not declare \\documentclass{}")
+            if re.search(r'\\begin\{document\}|\\end\{document\}', clean_proposed):
+                errors.append("Sub-file should not contain \\begin{document} or \\end{document}")
+            if re.search(r'\\usepackage(?:\[[^\]]*\])?\{[^}]+\}', clean_proposed):
+                errors.append("Sub-file should not load packages with \\usepackage{}")
+        if not errors:
+            continue
+        warnings.append(f"{file_name}: {'; '.join(errors)}")
+
+    return warnings
+
+
+def _append_latex_validation_warning(explanation: str, warnings: list[str]) -> str:
+    """Append a single warning block to the propose_edit explanation."""
+    if not warnings:
+        return explanation
+
+    warning_text = "Warning: potential LaTeX issues detected: " + " | ".join(warnings)
+    if warning_text in explanation:
+        return explanation
+    if not explanation:
+        return warning_text
+    return f"{explanation}\n\n{warning_text}"
 
 
 class SmartAgentServiceV2OR:
@@ -438,20 +610,28 @@ class SmartAgentServiceV2OR:
 
         return "=== DOCUMENT FILES ===\n" + "\n\n".join(file_sections), total_chars, available_files
 
-    def _build_system_prompt(self, available_files: Optional[List[str]] = None) -> str:
-        """Add multi-file editing instructions only when extra files are present."""
-        if not available_files or available_files == ["main.tex"]:
-            return SYSTEM_PROMPT
+    def _build_system_prompt(
+        self,
+        available_files: Optional[List[str]] = None,
+        document_context: Optional[str] = None,
+    ) -> str:
+        """Add multi-file editing instructions and extracted document context."""
+        prompt_parts = [SYSTEM_PROMPT]
 
-        file_list = ", ".join(available_files)
-        return (
-            f"{SYSTEM_PROMPT}\n\n"
-            "## MULTI-FILE EDITING\n"
-            "When proposing edits, ALWAYS specify which file to edit using the file field.\n"
-            f"Available files: {file_list}\n"
-            "- Use the exact filename from the available files list.\n"
-            "- Use main.tex for edits to the primary document.\n"
-        )
+        if available_files and available_files != ["main.tex"]:
+            file_list = ", ".join(available_files)
+            prompt_parts.append(
+                "## MULTI-FILE EDITING\n"
+                "When proposing edits, ALWAYS specify which file to edit using the file field.\n"
+                f"Available files: {file_list}\n"
+                "- Use the exact filename from the available files list.\n"
+                "- Use main.tex for edits to the primary document.\n"
+            )
+
+        if document_context:
+            prompt_parts.append(document_context)
+
+        return "\n\n".join(prompt_parts)
 
     def _build_clarification(
         self,
@@ -610,7 +790,13 @@ class SmartAgentServiceV2OR:
 
         elif tool_name == "propose_edit":
             explanation = args.get("explanation", "")
+            if not isinstance(explanation, str):
+                explanation = ""
             edits = args.get("edits", [])
+            if not isinstance(edits, list):
+                edits = []
+            latex_warnings = _collect_latex_validation_warnings(edits)
+            explanation = _append_latex_validation_warning(explanation, latex_warnings)
 
             yield f"{explanation}\n\n"
 
@@ -626,8 +812,12 @@ class SmartAgentServiceV2OR:
                 yield f"{edit.get('start_line', 1)}-{edit.get('end_line', 1)}\n"
                 yield "<<<ANCHOR>>>\n"
                 yield f"{edit.get('anchor', '')}\n"
+                proposed_text = edit.get("proposed", "")
+                if not isinstance(proposed_text, str):
+                    proposed_text = ""
+                _ = _validate_latex_syntax(proposed_text)
                 yield "<<<PROPOSED>>>\n"
-                yield f"{edit.get('proposed', '')}\n"
+                yield f"{proposed_text}\n"
                 yield "<<<END>>>\n\n"
 
         elif tool_name == "review_document":
@@ -1021,7 +1211,13 @@ class SmartAgentServiceV2OR:
             document_excerpt=document_excerpt,
             document_files=document_files,
         )
-        system_prompt = self._build_system_prompt(available_files if document_files else None)
+        extracted_document_context = ""
+        if document_excerpt is not None:
+            extracted_document_context = _extract_document_context(document_excerpt, document_files)
+        system_prompt = self._build_system_prompt(
+            available_files if document_files else None,
+            extracted_document_context,
+        )
 
         if document_context:
             context_parts.append(document_context)
@@ -1164,6 +1360,14 @@ class SmartAgentServiceV2OR:
                     logger.warning(f"[SmartAgentV2OR] Malformed tool args for {tool_name}: {raw_args[:100]}")
                     tool_args = {}
                     raw_args = "{}"  # Ensure valid JSON for multi-turn context
+                if tool_name == "propose_edit":
+                    explanation = tool_args.get("explanation", "")
+                    if not isinstance(explanation, str):
+                        explanation = ""
+                    tool_args["explanation"] = _append_latex_validation_warning(
+                        explanation,
+                        _collect_latex_validation_warnings(tool_args.get("edits", [])),
+                    )
                 self._last_tools_called.append(tool_name)
                 logger.info(f"[SmartAgentV2OR] Turn {turn}: {tool_name}")
 
