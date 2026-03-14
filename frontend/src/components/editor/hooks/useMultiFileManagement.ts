@@ -26,7 +26,13 @@ export function useMultiFileManagement({ realtimeDoc, getYText, getFileList, yTe
     refreshFiles()
     // Listen for doc updates (e.g. when server-bootstrapped files arrive)
     realtimeDoc.on('update', refreshFiles)
-    return () => { realtimeDoc.off('update', refreshFiles) }
+    // Also retry after a short delay — the initial sync from the provider
+    // populates doc.share but may not fire 'update' for pre-existing types
+    const retryTimer = window.setTimeout(refreshFiles, 1500)
+    return () => {
+      realtimeDoc.off('update', refreshFiles)
+      window.clearTimeout(retryTimer)
+    }
   }, [realtimeDoc, getFileList, yTextReady])
 
   const handleCreateFile = useCallback((filename: string) => {
