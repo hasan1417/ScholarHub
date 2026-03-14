@@ -268,6 +268,13 @@ const server = new Server({
       return
     }
 
+    // Safety guard: don't persist if Y.Text('main') contains sub-file content
+    // (no \documentclass means it's not the real main.tex — likely a file-switch race)
+    if (materializedText.length > 10 && !materializedText.includes('\\documentclass')) {
+      log.warn({ document: documentName, length: materializedText.length }, 'Skipping persist: main Y.Text lacks \\documentclass (possible file-switch race)')
+      return
+    }
+
     try {
       const response = await fetch(`${backendBaseUrl}/api/v1/collab/persist/${documentName}`, {
         method: 'POST',
