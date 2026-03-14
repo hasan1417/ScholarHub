@@ -441,8 +441,28 @@ def _extract_document_context(
     )
 
 
+def _sanitize_subfile_proposed(proposed: str) -> str:
+    """Strip preamble-level commands from sub-file edits (they belong in main.tex only)."""
+    lines = proposed.split('\n')
+    cleaned = []
+    for line in lines:
+        stripped = line.strip()
+        # Skip documentclass, usepackage, begin/end document in sub-files
+        if re.match(r'\\documentclass(\[.*?\])?\{', stripped):
+            continue
+        if re.match(r'\\usepackage(\[.*?\])?\{', stripped):
+            continue
+        if stripped in (r'\begin{document}', r'\end{document}'):
+            continue
+        cleaned.append(line)
+    return '\n'.join(cleaned)
+
+
 def _collect_latex_validation_warnings(edits: Any) -> list[str]:
-    """Collect non-blocking LaTeX validation warnings from propose_edit payloads."""
+    """Collect non-blocking LaTeX validation warnings from propose_edit payloads.
+    Also STRIPS sub-file violations (documentclass, usepackage, begin/end document)
+    from the proposed text in-place.
+    """
     warnings: list[str] = []
     if not isinstance(edits, list):
         return warnings
@@ -460,12 +480,19 @@ def _collect_latex_validation_warnings(edits: Any) -> list[str]:
         errors = _validate_latex_syntax(proposed)
         clean_proposed = _strip_latex_comments(proposed)
         if file_name != "main.tex":
+            has_violation = False
             if re.search(r'\\documentclass(?:\[[^\]]*\])?\{[^}]+\}', clean_proposed):
-                errors.append("Sub-file should not declare \\documentclass{}")
+                errors.append("Removed \\documentclass{} from sub-file")
+                has_violation = True
             if re.search(r'\\begin\{document\}|\\end\{document\}', clean_proposed):
-                errors.append("Sub-file should not contain \\begin{document} or \\end{document}")
+                errors.append("Removed \\begin{document}/\\end{document} from sub-file")
+                has_violation = True
             if re.search(r'\\usepackage(?:\[[^\]]*\])?\{[^}]+\}', clean_proposed):
-                errors.append("Sub-file should not load packages with \\usepackage{}")
+                errors.append("Removed \\usepackage{} from sub-file (packages belong in main.tex)")
+                has_violation = True
+            # Strip the violations from the proposed text
+            if has_violation:
+                edit["proposed"] = _sanitize_subfile_proposed(proposed)
         if not errors:
             continue
         warnings.append(f"{file_name}: {'; '.join(errors)}")
