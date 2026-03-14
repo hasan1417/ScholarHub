@@ -268,6 +268,14 @@ const server = new Server({
       return
     }
 
+    // Safety: only persist main.tex content if it looks like a root document.
+    // During file switching, Y.Text('main') can temporarily hold sub-file content.
+    // Sub-files never have \documentclass, so this is a reliable check.
+    if (materializedText.length > 10 && !materializedText.includes('\\documentclass')) {
+      log.warn({ document: documentName, length: materializedText.length }, 'Skipping persist: Y.Text(main) lacks \\documentclass')
+      return
+    }
+
     // Collect ALL extra files from the Yjs doc
     const latexFiles = {}
     try {
