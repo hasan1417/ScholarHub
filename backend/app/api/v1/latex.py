@@ -1068,7 +1068,7 @@ def _plain_text(text: str) -> str:
     return t
 
 
-def _word_count(text: str) -> int:
+def _total_words(text: str) -> int:
     return len(_plain_text(text).split())
 
 
@@ -1080,14 +1080,14 @@ def _analyze_writing(source: str, venue: Optional[str] = None) -> WritingAnalysi
     abstract_text = _extract_abstract(clean)
 
     # --- Stats ---
-    total_words = _word_count(body)
+    total_words = _total_words(body)
     citation_matches = _CITE_RE.findall(clean)
     citation_count = len(citation_matches)
     sections = _SECTION_CMD_RE.findall(clean)
     section_count = len(sections)
     paragraphs = _split_paragraphs(body, body_line_offset)
-    para_word_counts = [_word_count(p[0]) for p in paragraphs]
-    avg_paragraph_length = round(sum(para_word_counts) / max(len(para_word_counts), 1))
+    para_total_wordss = [_total_words(p[0]) for p in paragraphs]
+    avg_paragraph_length = round(sum(para_total_wordss) / max(len(para_total_wordss), 1))
     citations_per_1000 = round(citation_count / max(total_words, 1) * 1000, 1)
 
     stats = {
@@ -1100,7 +1100,7 @@ def _analyze_writing(source: str, venue: Optional[str] = None) -> WritingAnalysi
 
     # --- Citation Density Check ---
     for para_text, para_line in paragraphs:
-        wc = _word_count(para_text)
+        wc = _total_words(para_text)
         if wc <= 50:
             continue
         has_cite = bool(_CITE_RE.search(para_text))
@@ -1170,7 +1170,7 @@ def _analyze_writing(source: str, venue: Optional[str] = None) -> WritingAnalysi
         if venue_lower in _VENUE_ABSTRACT_LIMITS:
             limit = _VENUE_ABSTRACT_LIMITS[venue_lower]
             if abstract_text:
-                abstract_wc = _word_count(abstract_text)
+                abstract_wc = _total_words(abstract_text)
                 if abstract_wc > limit:
                     issues.append(WritingIssue(
                         type="venue",
@@ -1196,11 +1196,11 @@ def _analyze_writing(source: str, venue: Optional[str] = None) -> WritingAnalysi
                         message=f'Nature-style papers typically do not have a separate "{sec_name.title()}" section.',
                         suggestion="Integrate related work discussion into the Introduction.",
                     ))
-            if word_count > 5000:
+            if total_words > 5000:
                 issues.append(WritingIssue(
                     type="venue",
                     severity="warning",
-                    message=f"Paper is {word_count} words. Nature articles are typically under 5,000 words.",
+                    message=f"Paper is {total_words} words. Nature articles are typically under 5,000 words.",
                     suggestion="Consider condensing the text to meet Nature's word limit.",
                 ))
 
@@ -1213,7 +1213,7 @@ def _analyze_writing(source: str, venue: Optional[str] = None) -> WritingAnalysi
                     message="IEEE papers typically include a keywords section.",
                     suggestion="Add \\begin{IEEEkeywords}...\\end{IEEEkeywords} after the abstract.",
                 ))
-            if citations_per_1000 < 5 and word_count > 500:
+            if citations_per_1000 < 5 and total_words > 500:
                 issues.append(WritingIssue(
                     type="venue",
                     severity="warning",
@@ -1250,11 +1250,11 @@ def _analyze_writing(source: str, venue: Optional[str] = None) -> WritingAnalysi
 
         # arXiv: check for appropriate metadata
         if venue_lower == "arxiv":
-            if word_count < 2000:
+            if total_words < 2000:
                 issues.append(WritingIssue(
                     type="venue",
                     severity="info",
-                    message=f"Paper is {word_count} words. arXiv papers are typically longer for full research contributions.",
+                    message=f"Paper is {total_words} words. arXiv papers are typically longer for full research contributions.",
                     suggestion="Consider expanding the paper for a more complete presentation.",
                 ))
 
