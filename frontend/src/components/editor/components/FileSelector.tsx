@@ -1,5 +1,19 @@
-import { useState, useCallback, useRef } from 'react'
-import { Plus, X, FileText } from 'lucide-react'
+import { useState, useCallback, useMemo } from 'react'
+import { Plus, X, FileText, GripVertical } from 'lucide-react'
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  horizontalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 
 interface FileSelectorProps {
   files: string[]
@@ -9,6 +23,69 @@ interface FileSelectorProps {
   onDeleteFile: (filename: string) => void
   onReorderFiles?: (reordered: string[]) => void
   readOnly?: boolean
+}
+
+// Individual sortable tab
+const SortableTab: React.FC<{
+  file: string
+  isActive: boolean
+  readOnly?: boolean
+  onSelect: () => void
+  onDelete: () => void
+}> = ({ file, isActive, readOnly, onSelect, onDelete }) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: file })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 10 : undefined,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`group flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs font-medium transition-colors cursor-pointer select-none ${
+        isActive
+          ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white'
+          : 'text-slate-500 hover:bg-slate-200/80 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700/60 dark:hover:text-slate-300'
+      } ${isDragging ? 'opacity-80 shadow-lg ring-1 ring-indigo-400/50' : ''}`}
+      onClick={onSelect}
+    >
+      {!readOnly && (
+        <span
+          {...attributes}
+          {...listeners}
+          className="cursor-grab rounded p-0.5 text-slate-300 hover:text-slate-500 active:cursor-grabbing dark:text-slate-600 dark:hover:text-slate-400"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <GripVertical className="h-3 w-3" />
+        </span>
+      )}
+      <FileText className="h-3 w-3 flex-shrink-0" />
+      <span className="whitespace-nowrap">{file}</span>
+      {file !== 'main.tex' && !readOnly && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            if (confirm(`Delete ${file}?`)) onDelete()
+          }}
+          className="ml-0.5 hidden rounded p-0.5 text-slate-400 transition-colors hover:bg-rose-100 hover:text-rose-500 group-hover:inline-flex dark:hover:bg-rose-900/30 dark:hover:text-rose-400"
+          title={`Delete ${file}`}
+        >
+          <X className="h-3 w-3" />
+        </button>
+      )}
+    </div>
+  )
 }
 
 export const FileSelector: React.FC<FileSelectorProps> = ({
@@ -23,10 +100,11 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
   const [isCreating, setIsCreating] = useState(false)
   const [newFileName, setNewFileName] = useState('')
 
-  // Drag state
-  const [dragIdx, setDragIdx] = useState<number | null>(null)
-  const [dropIdx, setDropIdx] = useState<number | null>(null)
-  const dragCounterRef = useRef(0)
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  )
+
+  const fileIds = useMemo(() => files, [files])
 
   const handleCreate = useCallback(() => {
     let name = newFileName.trim()
@@ -53,53 +131,20 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
     [handleCreate]
   )
 
-  const handleDragStart = useCallback((e: React.DragEvent, idx: number) => {
-    e.dataTransfer.effectAllowed = 'move'
-    e.dataTransfer.setData('text/plain', String(idx))
-    setDragIdx(idx)
-  }, [])
-
-  const handleDragOver = useCallback((e: React.DragEvent, idx: number) => {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
-    setDropIdx(idx)
-  }, [])
-
-  const handleDragLeave = useCallback(() => {
-    dragCounterRef.current--
-    if (dragCounterRef.current <= 0) {
-      setDropIdx(null)
-      dragCounterRef.current = 0
-    }
-  }, [])
-
-  const handleDragEnter = useCallback(() => {
-    dragCounterRef.current++
-  }, [])
-
-  const handleDrop = useCallback((e: React.DragEvent, targetIdx: number) => {
-    e.preventDefault()
-    const sourceIdx = parseInt(e.dataTransfer.getData('text/plain'), 10)
-    if (isNaN(sourceIdx) || sourceIdx === targetIdx) {
-      setDragIdx(null)
-      setDropIdx(null)
-      dragCounterRef.current = 0
-      return
-    }
-    const reordered = [...files]
-    const [moved] = reordered.splice(sourceIdx, 1)
-    reordered.splice(targetIdx, 0, moved)
-    onReorderFiles?.(reordered)
-    setDragIdx(null)
-    setDropIdx(null)
-    dragCounterRef.current = 0
-  }, [files, onReorderFiles])
-
-  const handleDragEnd = useCallback(() => {
-    setDragIdx(null)
-    setDropIdx(null)
-    dragCounterRef.current = 0
-  }, [])
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event
+      if (!over || active.id === over.id) return
+      const oldIndex = files.indexOf(active.id as string)
+      const newIndex = files.indexOf(over.id as string)
+      if (oldIndex === -1 || newIndex === -1) return
+      const reordered = [...files]
+      const [moved] = reordered.splice(oldIndex, 1)
+      reordered.splice(newIndex, 0, moved)
+      onReorderFiles?.(reordered)
+    },
+    [files, onReorderFiles]
+  )
 
   if (files.length <= 1 && !isCreating) {
     return (
@@ -139,40 +184,20 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
 
   return (
     <div className="flex items-center gap-0.5 overflow-x-auto border-b border-slate-200 bg-slate-100/80 px-2 py-1 dark:border-slate-700 dark:bg-slate-900">
-      {files.map((file, idx) => (
-        <div
-          key={file}
-          draggable={!readOnly}
-          onDragStart={(e) => handleDragStart(e, idx)}
-          onDragOver={(e) => handleDragOver(e, idx)}
-          onDragEnter={handleDragEnter}
-          onDragLeave={handleDragLeave}
-          onDrop={(e) => handleDrop(e, idx)}
-          onDragEnd={handleDragEnd}
-          className={`group flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium transition-colors cursor-pointer ${
-            file === activeFile
-              ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white'
-              : 'text-slate-500 hover:bg-slate-200/80 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700/60 dark:hover:text-slate-300'
-          } ${dragIdx === idx ? 'opacity-40' : ''} ${dropIdx === idx && dragIdx !== idx ? 'border-l-2 border-l-indigo-500' : ''}`}
-          onClick={() => onSelectFile(file)}
-        >
-          <FileText className="h-3 w-3 flex-shrink-0" />
-          <span className="whitespace-nowrap">{file}</span>
-          {file !== 'main.tex' && !readOnly && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                if (confirm(`Delete ${file}?`)) onDeleteFile(file)
-              }}
-              className="ml-0.5 hidden rounded p-0.5 text-slate-400 transition-colors hover:bg-rose-100 hover:text-rose-500 group-hover:inline-flex dark:hover:bg-rose-900/30 dark:hover:text-rose-400"
-              title={`Delete ${file}`}
-            >
-              <X className="h-3 w-3" />
-            </button>
-          )}
-        </div>
-      ))}
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={fileIds} strategy={horizontalListSortingStrategy}>
+          {files.map((file) => (
+            <SortableTab
+              key={file}
+              file={file}
+              isActive={file === activeFile}
+              readOnly={readOnly}
+              onSelect={() => onSelectFile(file)}
+              onDelete={() => onDeleteFile(file)}
+            />
+          ))}
+        </SortableContext>
+      </DndContext>
       {!readOnly && (
         <>
           {isCreating ? (
