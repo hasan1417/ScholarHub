@@ -439,7 +439,7 @@ export const FilePanel: React.FC<FilePanelProps> = ({
                       }}
                       className="hidden rounded p-0.5 text-slate-400 hover:bg-rose-100 hover:text-rose-500 group-hover:inline-flex dark:hover:bg-rose-900/30 dark:hover:text-rose-400"
                     >
-                      <X className="h-3 w-3" />
+                      <Trash2 className="h-3 w-3" />
                     </button>
                   )}
                 </button>
