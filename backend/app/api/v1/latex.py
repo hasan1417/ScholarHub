@@ -1186,7 +1186,7 @@ def _analyze_writing(source: str, venue: Optional[str] = None) -> WritingAnalysi
                     suggestion="Add a \\begin{{abstract}}...\\end{{abstract}} block.",
                 ))
 
-        # Nature: no separate Literature Review
+        # Nature: no separate Literature Review, strict word limits
         if venue_lower == "nature":
             for sec_name in section_names_lower:
                 if sec_name in {"literature review", "related work"}:
@@ -1196,6 +1196,67 @@ def _analyze_writing(source: str, venue: Optional[str] = None) -> WritingAnalysi
                         message=f'Nature-style papers typically do not have a separate "{sec_name.title()}" section.',
                         suggestion="Integrate related work discussion into the Introduction.",
                     ))
+            if word_count > 5000:
+                issues.append(WritingIssue(
+                    type="venue",
+                    severity="warning",
+                    message=f"Paper is {word_count} words. Nature articles are typically under 5,000 words.",
+                    suggestion="Consider condensing the text to meet Nature's word limit.",
+                ))
+
+        # IEEE: check for keywords, specific formatting
+        if venue_lower == "ieee":
+            if "\\begin{IEEEkeywords}" not in clean and "\\begin{keywords}" not in clean:
+                issues.append(WritingIssue(
+                    type="venue",
+                    severity="info",
+                    message="IEEE papers typically include a keywords section.",
+                    suggestion="Add \\begin{IEEEkeywords}...\\end{IEEEkeywords} after the abstract.",
+                ))
+            if citations_per_1000 < 5 and word_count > 500:
+                issues.append(WritingIssue(
+                    type="venue",
+                    severity="warning",
+                    message=f"Citation density is {citations_per_1000:.1f} per 1000 words. IEEE papers typically have higher density.",
+                    suggestion="Consider adding more citations to support technical claims.",
+                ))
+
+        # ACM: check for CCS concepts, keywords
+        if venue_lower == "acm":
+            if "\\begin{CCSXML}" not in clean and "\\ccsdesc" not in clean.lower():
+                issues.append(WritingIssue(
+                    type="venue",
+                    severity="info",
+                    message="ACM papers require CCS (Computing Classification System) concepts.",
+                    suggestion="Add CCS concepts using \\begin{CCSXML} or \\ccsdesc{} commands.",
+                ))
+            if "\\keywords" not in clean and "\\begin{keywords}" not in clean:
+                issues.append(WritingIssue(
+                    type="venue",
+                    severity="info",
+                    message="ACM papers should include keywords.",
+                    suggestion="Add \\keywords{keyword1, keyword2, ...} after the abstract.",
+                ))
+
+        # Springer: check for keywords
+        if venue_lower == "springer":
+            if "\\keywords" not in clean:
+                issues.append(WritingIssue(
+                    type="venue",
+                    severity="info",
+                    message="Springer papers typically include keywords.",
+                    suggestion="Add \\keywords{keyword1 \\and keyword2} after the abstract.",
+                ))
+
+        # arXiv: check for appropriate metadata
+        if venue_lower == "arxiv":
+            if word_count < 2000:
+                issues.append(WritingIssue(
+                    type="venue",
+                    severity="info",
+                    message=f"Paper is {word_count} words. arXiv papers are typically longer for full research contributions.",
+                    suggestion="Consider expanding the paper for a more complete presentation.",
+                ))
 
     # --- Score Calculation ---
     score = 100
@@ -1219,10 +1280,19 @@ async def analyze_writing(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="latex_source is too short to analyze.",
         )
+    # Merge extra files INTO the document body (before \end{document})
+    # so _extract_body() captures them as part of the document content
     combined_source = request.latex_source
     if request.latex_files:
-        for fname in sorted(request.latex_files.keys()):
-            combined_source += f"\n\n{request.latex_files[fname]}"
+        extra_content = "\n\n".join(
+            request.latex_files[fname]
+            for fname in sorted(request.latex_files.keys())
+        )
+        end_doc_idx = combined_source.lower().rfind('\\end{document}')
+        if end_doc_idx != -1:
+            combined_source = combined_source[:end_doc_idx] + "\n\n" + extra_content + "\n\n" + combined_source[end_doc_idx:]
+        else:
+            combined_source += "\n\n" + extra_content
 
     result = _analyze_writing(combined_source, request.venue)
     return result
