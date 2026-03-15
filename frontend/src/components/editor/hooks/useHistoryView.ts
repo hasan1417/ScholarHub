@@ -141,7 +141,6 @@ export function useHistoryView({
     const fetchAndSetFiles = async (sid: string) => {
       const res = await snapshotsAPI.getSnapshot(pid, sid)
       const files = res.data.materialized_files ? Object.keys(res.data.materialized_files) : []
-      console.log('[useHistoryView] fetchAndSetFiles', sid, 'materialized_files:', res.data.materialized_files, 'files:', files)
       setSnapshotFiles(files)
       return res.data
     }
