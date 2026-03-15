@@ -279,11 +279,16 @@ export function useCodeMirrorEditor({
     //    content as initialDoc, since no new sync event will fire the observer.
     let initialDoc: string
     if (realtimeDoc) {
-      // ALWAYS use '' when yCollab is present — let yCollab push Y.Text
-      // content into the editor. Using yText.toString() here causes
-      // doubling: the editor starts with the content, then yCollab
-      // pushes the same content again on init.
-      initialDoc = ''
+      // When provider has NOT synced yet (synced=false): use '' — yCollab
+      // will push Y.Text content when the provider syncs.
+      // When provider HAS synced (synced=true, e.g. file switch): use
+      // Y.Text content directly, since yCollab won't fire a new sync.
+      if (syncedRef.current) {
+        const yText = ySharedText || realtimeDoc.getText('main')
+        initialDoc = yText?.toString() || ''
+      } else {
+        initialDoc = ''
+      }
     } else {
       initialDoc = latestDocRef.current || ''
     }
