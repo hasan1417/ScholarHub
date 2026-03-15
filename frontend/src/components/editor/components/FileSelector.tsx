@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { Plus, X, FileText } from 'lucide-react'
 
 interface FileSelectorProps {
@@ -7,6 +7,7 @@ interface FileSelectorProps {
   onSelectFile: (filename: string) => void
   onCreateFile: (filename: string) => void
   onDeleteFile: (filename: string) => void
+  onReorderFiles?: (reordered: string[]) => void
   readOnly?: boolean
 }
 
@@ -16,16 +17,21 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
   onSelectFile,
   onCreateFile,
   onDeleteFile,
+  onReorderFiles,
   readOnly,
 }) => {
   const [isCreating, setIsCreating] = useState(false)
   const [newFileName, setNewFileName] = useState('')
 
+  // Drag state
+  const [dragIdx, setDragIdx] = useState<number | null>(null)
+  const [dropIdx, setDropIdx] = useState<number | null>(null)
+  const dragCounterRef = useRef(0)
+
   const handleCreate = useCallback(() => {
     let name = newFileName.trim()
     if (!name) return
     if (!name.endsWith('.tex')) name += '.tex'
-    // Prevent duplicates
     if (files.includes(name)) {
       setNewFileName('')
       setIsCreating(false)
@@ -47,8 +53,55 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
     [handleCreate]
   )
 
+  const handleDragStart = useCallback((e: React.DragEvent, idx: number) => {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', String(idx))
+    setDragIdx(idx)
+  }, [])
+
+  const handleDragOver = useCallback((e: React.DragEvent, idx: number) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDropIdx(idx)
+  }, [])
+
+  const handleDragLeave = useCallback(() => {
+    dragCounterRef.current--
+    if (dragCounterRef.current <= 0) {
+      setDropIdx(null)
+      dragCounterRef.current = 0
+    }
+  }, [])
+
+  const handleDragEnter = useCallback(() => {
+    dragCounterRef.current++
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent, targetIdx: number) => {
+    e.preventDefault()
+    const sourceIdx = parseInt(e.dataTransfer.getData('text/plain'), 10)
+    if (isNaN(sourceIdx) || sourceIdx === targetIdx) {
+      setDragIdx(null)
+      setDropIdx(null)
+      dragCounterRef.current = 0
+      return
+    }
+    const reordered = [...files]
+    const [moved] = reordered.splice(sourceIdx, 1)
+    reordered.splice(targetIdx, 0, moved)
+    onReorderFiles?.(reordered)
+    setDragIdx(null)
+    setDropIdx(null)
+    dragCounterRef.current = 0
+  }, [files, onReorderFiles])
+
+  const handleDragEnd = useCallback(() => {
+    setDragIdx(null)
+    setDropIdx(null)
+    dragCounterRef.current = 0
+  }, [])
+
   if (files.length <= 1 && !isCreating) {
-    // Single file mode — show minimal UI with just the add button
     return (
       <div className="flex items-center gap-1 border-b border-slate-200 bg-slate-100/80 px-2 py-1 dark:border-slate-700 dark:bg-slate-900">
         <div className="flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium text-slate-600 dark:text-slate-300">
@@ -86,14 +139,21 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
 
   return (
     <div className="flex items-center gap-0.5 overflow-x-auto border-b border-slate-200 bg-slate-100/80 px-2 py-1 dark:border-slate-700 dark:bg-slate-900">
-      {files.map((file) => (
+      {files.map((file, idx) => (
         <div
           key={file}
+          draggable={!readOnly}
+          onDragStart={(e) => handleDragStart(e, idx)}
+          onDragOver={(e) => handleDragOver(e, idx)}
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
+          onDrop={(e) => handleDrop(e, idx)}
+          onDragEnd={handleDragEnd}
           className={`group flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium transition-colors cursor-pointer ${
             file === activeFile
               ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white'
               : 'text-slate-500 hover:bg-slate-200/80 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700/60 dark:hover:text-slate-300'
-          }`}
+          } ${dragIdx === idx ? 'opacity-40' : ''} ${dropIdx === idx && dragIdx !== idx ? 'border-l-2 border-l-indigo-500' : ''}`}
           onClick={() => onSelectFile(file)}
         >
           <FileText className="h-3 w-3 flex-shrink-0" />

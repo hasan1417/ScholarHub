@@ -124,7 +124,7 @@ function LaTeXEditorImpl(
   })
 
   // Multi-file management
-  const { fileList, handleCreateFile, handleDeleteFile, handleSelectFile } = useMultiFileManagement({
+  const { fileList, handleCreateFile, handleDeleteFile, handleSelectFile, handleReorderFiles } = useMultiFileManagement({
     realtimeDoc: realtime?.doc || null,
     getYText,
     getFileList,
@@ -703,6 +703,7 @@ function LaTeXEditorImpl(
                           onSelectFile={handleSelectFile}
                           onCreateFile={handleCreateFile}
                           onDeleteFile={handleDeleteFile}
+                          onReorderFiles={handleReorderFiles}
                           readOnly={readOnly}
                         />
                       )}

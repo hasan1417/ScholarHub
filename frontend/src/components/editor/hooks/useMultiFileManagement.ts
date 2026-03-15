@@ -56,11 +56,16 @@ export function useMultiFileManagement({ realtimeDoc, getYText, getFileList, yTe
     onActiveFileChange(filename)
   }, [activeFile, onActiveFileChange])
 
+  const handleReorderFiles = useCallback((reordered: string[]) => {
+    setFileList(reordered)
+  }, [])
+
   return {
     activeFile,
     fileList,
     handleCreateFile,
     handleDeleteFile,
     handleSelectFile,
+    handleReorderFiles,
   }
 }
