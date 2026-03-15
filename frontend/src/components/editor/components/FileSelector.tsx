@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from 'react'
-import { Plus, X, FileText, GripVertical } from 'lucide-react'
+import { Plus, FileText, GripVertical } from 'lucide-react'
 import {
   DndContext,
   closestCenter,
@@ -31,8 +31,7 @@ const SortableTab: React.FC<{
   isActive: boolean
   readOnly?: boolean
   onSelect: () => void
-  onDelete: () => void
-}> = ({ file, isActive, readOnly, onSelect, onDelete }) => {
+}> = ({ file, isActive, readOnly, onSelect }) => {
   const {
     attributes,
     listeners,
@@ -71,19 +70,6 @@ const SortableTab: React.FC<{
       )}
       <FileText className="h-3 w-3 flex-shrink-0" />
       <span className="whitespace-nowrap">{file}</span>
-      {file !== 'main.tex' && !readOnly && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation()
-            if (confirm(`Delete ${file}?`)) onDelete()
-          }}
-          className="ml-0.5 hidden rounded p-0.5 text-slate-400 transition-colors hover:bg-rose-100 hover:text-rose-500 group-hover:inline-flex dark:hover:bg-rose-900/30 dark:hover:text-rose-400"
-          title={`Delete ${file}`}
-        >
-          <X className="h-3 w-3" />
-        </button>
-      )}
     </div>
   )
 }
@@ -93,7 +79,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
   activeFile,
   onSelectFile,
   onCreateFile,
-  onDeleteFile,
+  onDeleteFile: _onDeleteFile,
   onReorderFiles,
   readOnly,
 }) => {
@@ -193,7 +179,6 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
               isActive={file === activeFile}
               readOnly={readOnly}
               onSelect={() => onSelectFile(file)}
-              onDelete={() => onDeleteFile(file)}
             />
           ))}
         </SortableContext>
