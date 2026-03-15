@@ -924,6 +924,7 @@ class WritingAnalysisRequest(BaseModel):
     latex_source: str
     paper_id: Optional[str] = None
     venue: Optional[str] = None  # e.g. "ieee", "acm", "springer", "nature", "arxiv"
+    latex_files: Optional[Dict[str, str]] = None
 
 
 class WritingIssue(BaseModel):
@@ -1218,7 +1219,12 @@ async def analyze_writing(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="latex_source is too short to analyze.",
         )
-    result = _analyze_writing(request.latex_source, request.venue)
+    combined_source = request.latex_source
+    if request.latex_files:
+        for fname in sorted(request.latex_files.keys()):
+            combined_source += f"\n\n{request.latex_files[fname]}"
+
+    result = _analyze_writing(combined_source, request.venue)
     return result
 
 

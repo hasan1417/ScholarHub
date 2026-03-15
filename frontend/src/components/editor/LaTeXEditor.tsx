@@ -336,10 +336,12 @@ function LaTeXEditorImpl(
     try {
       flushBufferedChange()
       const source = getLatestSource()
+      const extraFiles = getExtraFiles()
       const resp = await latexAPI.analyzeWriting({
         latex_source: source,
         paper_id: paperId,
         venue,
+        latex_files: extraFiles ?? undefined,
       })
       setWritingAnalysisResult(resp.data)
     } catch (e) {
@@ -348,7 +350,7 @@ function LaTeXEditorImpl(
     } finally {
       setWritingAnalysisLoading(false)
     }
-  }, [flushBufferedChange, getLatestSource, paperId, toast])
+  }, [flushBufferedChange, getLatestSource, getExtraFiles, paperId, toast])
 
 
   // Symbol palette: insert symbol at cursor

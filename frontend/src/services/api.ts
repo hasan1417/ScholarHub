@@ -1494,7 +1494,7 @@ export const latexAPI = {
       responseType: 'blob',
       timeout: 60000,
     }),
-  analyzeWriting: (payload: { latex_source: string; paper_id?: string; venue?: string }) =>
+  analyzeWriting: (payload: { latex_source: string; paper_id?: string; venue?: string; latex_files?: Record<string, string> }) =>
     api.post<{
       issues: Array<{
         type: string
