@@ -4,11 +4,14 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.api.utils.project_access import ensure_project_member, get_project_or_404
 from app.core.encryption import decrypt_api_key
 from app.database import get_db
+from app.models.project import Project
 from app.models.user import User
 from app.models.reference import Reference
 from app.models.project_reference import (
@@ -70,6 +73,23 @@ def _find_duplicate(
         ):
             return ref
     return None
+
+
+def _is_unique_constraint_violation(
+    exc: IntegrityError,
+    *,
+    constraint_name: str,
+    table_name: str,
+    columns: tuple[str, str],
+) -> bool:
+    constraint = getattr(getattr(exc.orig, "diag", None), "constraint_name", None)
+    if constraint == constraint_name:
+        return True
+
+    message = str(exc.orig)
+    return constraint_name in message or (
+        table_name in message and all(column in message for column in columns)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +212,19 @@ async def import_items(
             },
         )
 
+    target_project: Optional[Project] = None
+    if payload.project_id:
+        target_project = get_project_or_404(db, payload.project_id)
+        try:
+            ensure_project_member(db, target_project, current_user)
+        except HTTPException:
+            logger.warning(
+                "Blocked Zotero import into unauthorized project: user_id=%s project_id=%s",
+                current_user.id,
+                target_project.id,
+            )
+            raise
+
     zot = _get_zotero_client(current_user)
 
     # Fetch items by keys
@@ -226,8 +259,8 @@ async def import_items(
             skipped += 1
             reference_ids.append(str(dup.id))
             # Still link to project if requested
-            if payload.project_id:
-                _link_to_project(db, dup, payload.project_id, current_user.id)
+            if target_project:
+                _link_to_project(db, dup, target_project, current_user.id)
             continue
 
         # Check remaining capacity
@@ -250,8 +283,8 @@ async def import_items(
         db.add(ref)
         db.flush()
 
-        if payload.project_id:
-            _link_to_project(db, ref, payload.project_id, current_user.id)
+        if target_project:
+            _link_to_project(db, ref, target_project, current_user.id)
 
         reference_ids.append(str(ref.id))
         imported += 1
@@ -260,15 +293,12 @@ async def import_items(
     return ImportResult(imported=imported, skipped=skipped, reference_ids=reference_ids)
 
 
-def _link_to_project(db: Session, ref: Reference, project_id: str, user_id) -> None:
+def _link_to_project(db: Session, ref: Reference, project: Project, user_id) -> None:
     """Create a ProjectReference link if it doesn't already exist."""
-    import uuid as _uuid
-
-    pid = _uuid.UUID(project_id) if isinstance(project_id, str) else project_id
     exists = (
         db.query(ProjectReference)
         .filter(
-            ProjectReference.project_id == pid,
+            ProjectReference.project_id == project.id,
             ProjectReference.reference_id == ref.id,
         )
         .first()
@@ -276,10 +306,21 @@ def _link_to_project(db: Session, ref: Reference, project_id: str, user_id) -> N
     if exists:
         return
     pr = ProjectReference(
-        project_id=pid,
+        project_id=project.id,
         reference_id=ref.id,
         status=ProjectReferenceStatus.APPROVED,
         origin=ProjectReferenceOrigin.IMPORT,
         added_by_user_id=user_id,
     )
-    db.add(pr)
+    try:
+        with db.begin_nested():
+            db.add(pr)
+            db.flush()
+    except IntegrityError as exc:
+        if not _is_unique_constraint_violation(
+            exc,
+            constraint_name="uq_project_reference",
+            table_name="project_references",
+            columns=("project_id", "reference_id"),
+        ):
+            raise

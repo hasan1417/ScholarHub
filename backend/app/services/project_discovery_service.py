@@ -756,7 +756,7 @@ class ProjectDiscoveryManager:
         user: User,
     ) -> tuple[Optional[Reference], bool]:
         """Return a reference matching the paper, creating it when needed."""
-        query = self.db.query(Reference)
+        query = self.db.query(Reference).filter(Reference.owner_id == user.id)
         reference: Optional[Reference] = None
         normalized_pdf = self._normalize_pdf_url(paper.pdf_url, paper.url)
         if _is_blocked_openalex_pdf(paper.source, normalized_pdf):
@@ -767,11 +767,7 @@ class ProjectDiscoveryManager:
         if paper.doi:
             reference = query.filter(func.lower(Reference.doi) == paper.doi.lower()).first()
         if not reference and paper.title:
-            reference = (
-                self.db.query(Reference)
-                .filter(func.lower(Reference.title) == paper.title.lower())
-                .first()
-            )
+            reference = query.filter(func.lower(Reference.title) == paper.title.lower()).first()
 
         if reference:
             if paper.is_open_access and not reference.is_open_access:

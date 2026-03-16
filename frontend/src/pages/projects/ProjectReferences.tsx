@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertCircle,
   BookOpen,
   Calendar,
+  Check,
   CheckCircle2,
+  ChevronDown,
+  Copy,
   Download,
   ExternalLink,
   FileEdit,
@@ -15,6 +18,7 @@ import {
   MessageSquare,
   MoreVertical,
   Plus,
+  Search,
   ShieldCheck,
   Sparkles,
   Trash2,
@@ -32,6 +36,7 @@ import { PaperChatDrawer } from '../../components/discussion/PaperChatDrawer'
 import CiteInPaperModal from '../../components/references/CiteInPaperModal'
 import { getProjectUrlId } from '../../utils/urlId'
 import { useToast } from '../../hooks/useToast'
+import { makeBibKey } from '../../components/editor/utils/bibKey'
 
 const ProjectReferences = () => {
   const { toast } = useToast()
@@ -71,6 +76,9 @@ const ProjectReferences = () => {
     status?: string | null
   } | null>(null)
   const [citeTarget, setCiteTarget] = useState<ProjectReferenceSuggestion | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [sortBy, setSortBy] = useState<'recent' | 'title-asc' | 'title-desc' | 'year-desc' | 'year-asc'>('recent')
+  const [copiedId, setCopiedId] = useState<string | null>(null)
 
   useEffect(() => {
     usersAPI.getApiKeys().then((res) => {
@@ -107,6 +115,61 @@ const ProjectReferences = () => {
       : (memberRecord?.role || '').toLowerCase()
   const canAddManual = ['admin', 'editor'].includes(normalizedRole)
   const canManageReferences = ['admin', 'editor'].includes(normalizedRole)
+
+  const filteredAndSortedRefs = useMemo(() => {
+    let result = references
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase()
+      result = result.filter((item) => {
+        const ref = item.reference
+        return (
+          ref?.title?.toLowerCase().includes(q) ||
+          ref?.authors?.some((a) => a.toLowerCase().includes(q)) ||
+          ref?.journal?.toLowerCase().includes(q)
+        )
+      })
+    }
+    result = [...result].sort((a, b) => {
+      switch (sortBy) {
+        case 'title-asc':
+          return (a.reference?.title ?? '').localeCompare(b.reference?.title ?? '')
+        case 'title-desc':
+          return (b.reference?.title ?? '').localeCompare(a.reference?.title ?? '')
+        case 'year-desc':
+          return (b.reference?.year ?? 0) - (a.reference?.year ?? 0)
+        case 'year-asc':
+          return (a.reference?.year ?? 0) - (b.reference?.year ?? 0)
+        case 'recent':
+        default:
+          return new Date(b.decided_at ?? b.created_at ?? 0).getTime() - new Date(a.decided_at ?? a.created_at ?? 0).getTime()
+      }
+    })
+    return result
+  }, [references, searchQuery, sortBy])
+
+  const generateBibtex = (ref: ProjectReferenceSuggestion['reference']) => {
+    if (!ref) return ''
+    const key = makeBibKey(ref)
+    const fields: string[] = []
+    if (ref.title) fields.push(`  title={${ref.title}}`)
+    if (ref.authors?.length) fields.push(`  author={${ref.authors.join(' and ')}}`)
+    if (ref.year) fields.push(`  year={${ref.year}}`)
+    if (ref.journal) fields.push(`  journal={${ref.journal}}`)
+    if (ref.doi) fields.push(`  doi={${ref.doi}}`)
+    if (ref.url) fields.push(`  url={${ref.url}}`)
+    return `@article{${key},\n${fields.join(',\n')}\n}`
+  }
+
+  const handleCopyBibtex = async (itemId: string, ref: ProjectReferenceSuggestion['reference']) => {
+    const bibtex = generateBibtex(ref)
+    try {
+      await navigator.clipboard.writeText(bibtex)
+      setCopiedId(itemId)
+      setTimeout(() => setCopiedId((prev) => (prev === itemId ? null : prev)), 2000)
+    } catch {
+      toast.error('Failed to copy to clipboard.')
+    }
+  }
 
   const handleAddReference = async (payload: {
     title: string
@@ -431,6 +494,35 @@ const ProjectReferences = () => {
           </div>
         </div>
 
+        {viewMode === 'list' && references.length > 0 && (
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 max-w-xs">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400 dark:text-slate-500" />
+              <input
+                type="text"
+                placeholder="Search by title, author, or journal..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 bg-white py-1.5 pl-8 pr-3 text-xs text-gray-700 placeholder-gray-400 transition focus:border-indigo-300 focus:outline-none focus:ring-1 focus:ring-indigo-300 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200 dark:placeholder-slate-500 dark:focus:border-indigo-500 dark:focus:ring-indigo-500"
+              />
+            </div>
+            <div className="relative">
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+                className="appearance-none rounded-lg border border-gray-200 bg-white py-1.5 pl-3 pr-7 text-xs text-gray-600 transition focus:border-indigo-300 focus:outline-none focus:ring-1 focus:ring-indigo-300 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300 dark:focus:border-indigo-500 dark:focus:ring-indigo-500"
+              >
+                <option value="recent">Recently added</option>
+                <option value="title-asc">Title A-Z</option>
+                <option value="title-desc">Title Z-A</option>
+                <option value="year-desc">Year (newest)</option>
+                <option value="year-asc">Year (oldest)</option>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-gray-400 dark:text-slate-500" />
+            </div>
+          </div>
+        )}
+
         {viewMode === 'graph' ? (
           <CitationGraph projectId={project.id} />
         ) : references.length === 0 ? (
@@ -439,7 +531,12 @@ const ProjectReferences = () => {
           </div>
         ) : (
           <ul className="space-y-3">
-            {references.map((item) => {
+            {filteredAndSortedRefs.length === 0 && searchQuery && (
+              <li className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-6 text-center text-sm text-gray-500 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-400">
+                No references match "{searchQuery}"
+              </li>
+            )}
+            {filteredAndSortedRefs.map((item) => {
               const ref = item.reference
               // Only show analysis badge for completed statuses, not pending
               const analysisBadge = ref?.status && ref.status !== 'pending'
@@ -662,6 +759,25 @@ const ProjectReferences = () => {
                             Added {decidedAt}
                           </span>
                         )}
+                        {/* Copy BibTeX */}
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 hover:text-indigo-600 dark:hover:text-indigo-300"
+                          onClick={() => handleCopyBibtex(item.id, ref)}
+                          title="Copy BibTeX entry"
+                        >
+                          {copiedId === item.id ? (
+                            <>
+                              <Check className="h-3 w-3 text-emerald-500" />
+                              <span className="text-emerald-500">Copied!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="h-3 w-3" />
+                              BibTeX
+                            </>
+                          )}
+                        </button>
                         {/* Cross-feature navigation */}
                         <button
                           type="button"

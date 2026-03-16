@@ -10,14 +10,16 @@ from uuid import UUID
 import httpx
 import redis
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, Response, UploadFile, File as FastAPIFile, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
-from app.api.utils.project_access import ensure_project_member, get_project_or_404
+from app.api.utils.project_access import _is_valid_uuid, _parse_short_id, ensure_project_member, get_project_or_404
 from app.core.config import settings
 from app.database import get_db
 from app.models import (
     PaperReference,
+    Project,
     ProjectReference,
     ProjectReferenceStatus,
     ProjectRole,
@@ -48,6 +50,169 @@ def _guard_feature() -> None:
 
 class ProjectReferenceResponse(dict):
     """Lightweight serializer to avoid creating a dedicated Pydantic model right now."""
+
+
+def _is_unique_constraint_violation(
+    exc: IntegrityError,
+    *,
+    constraint_name: str,
+    table_name: str,
+    columns: tuple[str, str],
+) -> bool:
+    constraint = getattr(getattr(exc.orig, "diag", None), "constraint_name", None)
+    if constraint == constraint_name:
+        return True
+
+    message = str(exc.orig)
+    return constraint_name in message or (
+        table_name in message and all(column in message for column in columns)
+    )
+
+
+def _log_blocked_reference_access(
+    *,
+    action: str,
+    project: Project,
+    current_user: User,
+    reference_id: UUID,
+) -> None:
+    logger.warning(
+        "Blocked cross-tenant reference access in %s: user_id=%s project_id=%s reference_id=%s",
+        action,
+        current_user.id,
+        project.id,
+        reference_id,
+    )
+
+
+def _reference_belongs_to_project(
+    db: Session,
+    *,
+    project: Project,
+    reference: Reference,
+) -> bool:
+    if reference.paper_id and reference.paper and reference.paper.project_id == project.id:
+        return True
+
+    if (
+        db.query(ProjectReference.id)
+        .filter(
+            ProjectReference.project_id == project.id,
+            ProjectReference.reference_id == reference.id,
+        )
+        .first()
+    ):
+        return True
+
+    return (
+        db.query(PaperReference.id)
+        .join(ResearchPaper, ResearchPaper.id == PaperReference.paper_id)
+        .filter(
+            ResearchPaper.project_id == project.id,
+            PaperReference.reference_id == reference.id,
+        )
+        .first()
+        is not None
+    )
+
+
+def _get_project_accessible_reference(
+    db: Session,
+    *,
+    project: Project,
+    reference_id: UUID,
+    current_user: User,
+    action: str,
+    raise_on_denied: bool = True,
+) -> Optional[Reference]:
+    reference = db.query(Reference).filter(Reference.id == reference_id).first()
+    if not reference:
+        if raise_on_denied:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reference not found")
+        return None
+
+    if reference.owner_id == current_user.id or _reference_belongs_to_project(
+        db,
+        project=project,
+        reference=reference,
+    ):
+        return reference
+
+    _log_blocked_reference_access(
+        action=action,
+        project=project,
+        current_user=current_user,
+        reference_id=reference_id,
+    )
+    if raise_on_denied:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reference not found")
+    return None
+
+
+def _get_or_create_paper_reference(
+    db: Session,
+    *,
+    paper_id: UUID,
+    reference_id: UUID,
+) -> tuple[PaperReference, bool]:
+    existing = (
+        db.query(PaperReference)
+        .filter(
+            PaperReference.paper_id == paper_id,
+            PaperReference.reference_id == reference_id,
+        )
+        .first()
+    )
+    if existing:
+        return existing, False
+
+    link = PaperReference(paper_id=paper_id, reference_id=reference_id)
+    try:
+        with db.begin_nested():
+            db.add(link)
+            db.flush()
+    except IntegrityError as exc:
+        if not _is_unique_constraint_violation(
+            exc,
+            constraint_name="uq_paper_reference",
+            table_name="paper_references",
+            columns=("paper_id", "reference_id"),
+        ):
+            raise
+        existing = (
+            db.query(PaperReference)
+            .filter(
+                PaperReference.paper_id == paper_id,
+                PaperReference.reference_id == reference_id,
+            )
+            .first()
+        )
+        if existing:
+            return existing, False
+        raise
+
+    return link, True
+
+
+def _resolve_project_paper(db: Session, project: Project, paper_id: str) -> ResearchPaper:
+    paper: Optional[ResearchPaper] = None
+    if _is_valid_uuid(paper_id):
+        paper = (
+            db.query(ResearchPaper)
+            .filter(ResearchPaper.id == UUID(paper_id), ResearchPaper.project_id == project.id)
+            .first()
+        )
+    if not paper:
+        short_id = _parse_short_id(paper_id)
+        if short_id:
+            paper = (
+                db.query(ResearchPaper)
+                .filter(ResearchPaper.short_id == short_id, ResearchPaper.project_id == project.id)
+                .first()
+            )
+    if not paper:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found in project")
+    return paper
 
 
 # ──────────────────────────────────────────────────────────────
@@ -319,21 +484,13 @@ def quick_add_reference(
     project = get_project_or_404(db, project_id)
     ensure_project_member(db, project, current_user, roles=[ProjectRole.ADMIN, ProjectRole.EDITOR])
 
-    reference = db.query(Reference).filter(Reference.id == payload.reference_id).first()
-    if not reference:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reference not found")
-
-    # Return existing link if already in project
-    existing = (
-        db.query(ProjectReference)
-        .filter(
-            ProjectReference.project_id == project.id,
-            ProjectReference.reference_id == payload.reference_id,
-        )
-        .first()
+    reference = _get_project_accessible_reference(
+        db,
+        project=project,
+        reference_id=payload.reference_id,
+        current_user=current_user,
+        action="quick-add",
     )
-    if existing:
-        return _serialize_project_reference(existing)
 
     from datetime import datetime
 
@@ -345,8 +502,29 @@ def quick_add_reference(
         decided_by=current_user.id,
     )
     pr.decided_at = datetime.utcnow()
-    db.add(pr)
-    db.flush()
+    try:
+        with db.begin_nested():
+            db.add(pr)
+            db.flush()
+    except IntegrityError as exc:
+        if not _is_unique_constraint_violation(
+            exc,
+            constraint_name="uq_project_reference",
+            table_name="project_references",
+            columns=("project_id", "reference_id"),
+        ):
+            raise
+        existing = (
+            db.query(ProjectReference)
+            .filter(
+                ProjectReference.project_id == project.id,
+                ProjectReference.reference_id == payload.reference_id,
+            )
+            .first()
+        )
+        if existing:
+            return _serialize_project_reference(existing)
+        raise
 
     # Queue embedding job
     try:
@@ -656,7 +834,14 @@ def get_ingestion_status(
         except (ValueError, AttributeError):
             continue
 
-        ref = db.query(Reference).filter(Reference.id == ref_id).first()
+        ref = _get_project_accessible_reference(
+            db,
+            project=project,
+            reference_id=ref_id,
+            current_user=current_user,
+            action="ingestion-status",
+            raise_on_denied=False,
+        )
         if not ref:
             continue
 
@@ -726,23 +911,13 @@ def create_reference_suggestion(
     project = get_project_or_404(db, project_id)
     ensure_project_member(db, project, current_user, roles=[ProjectRole.ADMIN, ProjectRole.EDITOR])
 
-    reference = db.query(Reference).filter(Reference.id == reference_id).first()
-    if not reference:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reference not found")
-
-    existing = (
-        db.query(ProjectReference)
-        .filter(
-            ProjectReference.project_id == project.id,
-            ProjectReference.reference_id == reference_id,
-        )
-        .first()
+    reference = _get_project_accessible_reference(
+        db,
+        project=project,
+        reference_id=reference_id,
+        current_user=current_user,
+        action="create-suggestion",
     )
-    if existing:
-        return {
-            "id": str(existing.id),
-            "status": existing.status.value,
-        }
 
     suggestion = ProjectReference(
         project_id=project.id,
@@ -750,7 +925,33 @@ def create_reference_suggestion(
         status=ProjectReferenceStatus.PENDING,
         confidence=confidence,
     )
-    db.add(suggestion)
+    try:
+        with db.begin_nested():
+            db.add(suggestion)
+            db.flush()
+    except IntegrityError as exc:
+        if not _is_unique_constraint_violation(
+            exc,
+            constraint_name="uq_project_reference",
+            table_name="project_references",
+            columns=("project_id", "reference_id"),
+        ):
+            raise
+        existing = (
+            db.query(ProjectReference)
+            .filter(
+                ProjectReference.project_id == project.id,
+                ProjectReference.reference_id == reference_id,
+            )
+            .first()
+        )
+        if existing:
+            return {
+                "id": str(existing.id),
+                "status": existing.status.value,
+            }
+        raise
+
     db.commit()
     db.refresh(suggestion)
 
@@ -797,21 +998,11 @@ def _update_reference_status(
         paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id, ResearchPaper.project_id == project.id).first()
         if not paper:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found in project")
-        link_exists = (
-            db.query(PaperReference)
-            .filter(
-                PaperReference.paper_id == paper.id,
-                PaperReference.reference_id == project_ref.reference_id,
-            )
-            .first()
+        _get_or_create_paper_reference(
+            db,
+            paper_id=paper.id,
+            reference_id=project_ref.reference_id,
         )
-        if not link_exists:
-            db.add(
-                PaperReference(
-                    paper_id=paper.id,
-                    reference_id=project_ref.reference_id,
-                )
-            )
 
     db.flush()
 
@@ -924,26 +1115,17 @@ def attach_reference_to_paper(
     if not paper:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found in project")
 
-    link_exists = (
-        db.query(PaperReference)
-        .filter(
-            PaperReference.paper_id == paper.id,
-            PaperReference.reference_id == project_ref.reference_id,
-        )
-        .first()
-    )
-    if link_exists:
-        return {
-            "project_reference_id": str(project_ref.id),
-            "paper_reference_id": str(link_exists.id),
-            "attached": True,
-        }
-
-    link = PaperReference(
+    link, created = _get_or_create_paper_reference(
+        db,
         paper_id=paper.id,
         reference_id=project_ref.reference_id,
     )
-    db.add(link)
+    if not created:
+        return {
+            "project_reference_id": str(project_ref.id),
+            "paper_reference_id": str(link.id),
+            "attached": True,
+        }
 
     reference = project_ref.reference
     record_project_activity(
@@ -998,23 +1180,7 @@ def detach_reference_from_paper(
     if not project_ref:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project reference not found")
 
-    paper = None
-    if _is_valid_uuid(paper_id):
-        paper = (
-            db.query(ResearchPaper)
-            .filter(ResearchPaper.id == UUID(paper_id), ResearchPaper.project_id == project.id)
-            .first()
-        )
-    if not paper:
-        short_id = _parse_short_id(paper_id)
-        if short_id:
-            paper = (
-                db.query(ResearchPaper)
-                .filter(ResearchPaper.short_id == short_id, ResearchPaper.project_id == project.id)
-                .first()
-            )
-    if not paper:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found in project")
+    paper = _resolve_project_paper(db, project, paper_id)
 
     link = (
         db.query(PaperReference)

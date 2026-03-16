@@ -7,6 +7,7 @@ Then triggers PDF ingestion if a PDF URL is available.
 
 from __future__ import annotations
 
+from difflib import SequenceMatcher
 import logging
 import re
 
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 CROSSREF_TIMEOUT = 10
 UNPAYWALL_TIMEOUT = 10
 SEMANTIC_SCHOLAR_TIMEOUT = 10
+SEMANTIC_SCHOLAR_TITLE_MATCH_THRESHOLD = 0.8
 
 
 def _needs_enrichment(ref: Reference) -> bool:
@@ -32,6 +34,21 @@ def _needs_enrichment(ref: Reference) -> bool:
     return missing_authors or missing_year or missing_abstract or missing_pdf
 
 
+def _normalize_title_for_match(title: str) -> str:
+    normalized = re.sub(r"[^a-z0-9\s]", " ", (title or "").lower())
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def _title_similarity(left: str, right: str) -> float:
+    normalized_left = _normalize_title_for_match(left)
+    normalized_right = _normalize_title_for_match(right)
+    if not normalized_left or not normalized_right:
+        return 0.0
+    if normalized_left == normalized_right:
+        return 1.0
+    return SequenceMatcher(None, normalized_left, normalized_right).ratio()
+
+
 def _enrich_from_semantic_scholar(title: str) -> dict:
     """Search Semantic Scholar by title and return metadata dict."""
     try:
@@ -41,7 +58,7 @@ def _enrich_from_semantic_scholar(title: str) -> dict:
                 headers["x-api-key"] = settings.SEMANTIC_SCHOLAR_API_KEY
             resp = client.get(
                 "https://api.semanticscholar.org/graph/v1/paper/search",
-                params={"query": title, "limit": "1", "fields": "externalIds,title,authors,year,abstract,isOpenAccess,openAccessPdf,venue"},
+                params={"query": title, "limit": "5", "fields": "externalIds,title,authors,year,abstract,isOpenAccess,openAccessPdf,venue"},
                 headers=headers,
             )
             if resp.status_code != 200:
@@ -50,7 +67,19 @@ def _enrich_from_semantic_scholar(title: str) -> dict:
             papers = data.get("data") or []
             if not papers:
                 return {}
-            paper = papers[0]
+            paper = max(
+                papers,
+                key=lambda candidate: _title_similarity(title, candidate.get("title") or ""),
+            )
+            similarity = _title_similarity(title, paper.get("title") or "")
+            if similarity <= SEMANTIC_SCHOLAR_TITLE_MATCH_THRESHOLD:
+                logger.debug(
+                    "Semantic Scholar enrichment skipped for '%s': best title match '%s' scored %.2f",
+                    title[:80],
+                    (paper.get("title") or "")[:80],
+                    similarity,
+                )
+                return {}
             result = {}
             external_ids = paper.get("externalIds") or {}
             if external_ids.get("DOI"):

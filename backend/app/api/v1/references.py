@@ -19,9 +19,6 @@ from app.services.reference_ingestion_service import ingest_reference_pdf
 from app.services.subscription_service import SubscriptionService
 from pydantic import BaseModel
 from app.schemas.reference import ReferenceResponse, ReferenceList
-import aiohttp
-from urllib.parse import urljoin
-from bs4 import BeautifulSoup
 import re
 
 class PDFResolveRequest(BaseModel):
@@ -390,205 +387,11 @@ async def resolve_pdf_from_url(
     payload: PDFResolveRequest,
     current_user: User = Depends(get_current_user),
 ):
-    """Debug resolver that attempts to extract a PDF link from a generic URL without creating a reference."""
-    if not payload.url:
-        raise HTTPException(status_code=400, detail="url is required")
-
-    import asyncio
-    start_url = payload.url
-    timeout = aiohttp.ClientTimeout(total=8, connect=3)
-    headers = {"User-Agent": "ScholarHub/1.0 (PDF resolver)"}
-
-    async def fetch_html(url: str, referer: Optional[str] = None) -> str:
-        h = headers.copy()
-        if referer:
-            h['Referer'] = referer
-        async with aiohttp.ClientSession(timeout=timeout, headers=h) as s:
-            async with s.get(url, allow_redirects=True) as resp:
-                if resp.status != 200:
-                    raise HTTPException(status_code=400, detail=f"Failed to fetch page: {resp.status}")
-                # Prefer text; if not text/html, still try to read as text for scraping
-                try:
-                    return await resp.text()
-                except Exception:
-                    # Fallback to bytes -> decode best-effort
-                    data = await resp.read()
-                    try:
-                        return data.decode('utf-8', errors='ignore')
-                    except Exception:
-                        raise HTTPException(status_code=400, detail="Unable to read page body")
-
-    def find_pdf_candidates(html: str, base_url: str) -> List[str]:
-        soup = BeautifulSoup(html, 'html.parser')
-        pdfs: List[str] = []
-        meta = soup.find('meta', attrs={'name': 'citation_pdf_url'})
-        if meta and meta.get('content'):
-            pdfs.append(meta['content'])
-        for a in soup.find_all('a', href=True):
-            href = a['href']
-            text = (a.text or '').lower()
-            if href.lower().endswith('.pdf') or '/pdf' in href.lower() or 'pdf=' in href.lower() or 'download=' in href.lower() or 'full text' in text or 'free' in text:
-                pdfs.append(urljoin(base_url, href))
-        # Dedup
-        seen: set[str] = set()
-        out: List[str] = []
-        for u in pdfs:
-            if u not in seen:
-                seen.add(u)
-                out.append(u)
-        return out
-
-    async def _do_resolve() -> PDFResolveResponse:
-        if 'pubmed.ncbi.nlm.nih.gov' in start_url:
-            # Extract PMID early for E-utilities fallback
-            import re as _re
-            m = _re.search(r'pubmed\.ncbi\.nlm\.nih\.gov/(\d+)/?', start_url)
-            pmid_from_url = m.group(1) if m else None
-            html = None
-            try:
-                html = await fetch_html(start_url)
-            except HTTPException as e:
-                # If PubMed blocks fetch, try E-utilities to get PMCID or publisher link from PMID
-                pmcid_via_eutils = None
-                ext_publisher_url = None
-                if pmid_from_url:
-                    try:
-                        elink = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi?dbfrom=pubmed&db=pmc&id={pmid_from_url}&retmode=json"
-                        async with aiohttp.ClientSession(timeout=timeout, headers=headers) as s:
-                            async with s.get(elink, allow_redirects=True) as resp:
-                                if resp.status == 200:
-                                    data = await resp.json()
-                                    # Try to locate a PMCID in linksets
-                                    linksets = (data or {}).get('linksets') or []
-                                    if linksets:
-                                        for db in (linksets[0].get('linksetdbs') or []):
-                                            if (db.get('dbto') or '').lower() == 'pmc':
-                                                links = db.get('links') or []
-                                                if links:
-                                                    val = links[0].get('id') or links[0].get('value')
-                                                    if val:
-                                                        pmcid_via_eutils = ('PMC' + str(val)) if not str(val).startswith('PMC') else str(val)
-                                                        break
-                        # Also attempt prlinks to get publisher full text URL directly
-                        pr = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi?dbfrom=pubmed&id={pmid_from_url}&cmd=prlinks"
-                        async with aiohttp.ClientSession(timeout=timeout, headers=headers) as s:
-                            async with s.get(pr, allow_redirects=True) as resp2:
-                                if resp2.status in (200, 302, 303):
-                                    ext_publisher_url = str(resp2.url)
-                    except Exception:
-                        pmcid_via_eutils = None
-                if pmcid_via_eutils:
-                    pmc_url = f"https://pmc.ncbi.nlm.nih.gov/articles/{pmcid_via_eutils}/"
-                    pdf_guess = pmc_url + 'pdf'
-                    return PDFResolveResponse(url=start_url, pmc_url=pmc_url, pmcid=pmcid_via_eutils, pdf_candidates=[pdf_guess], chosen_pdf=pdf_guess, is_open_access=True, detail=e.detail)
-                if ext_publisher_url:
-                    try:
-                        ext_html = await fetch_html(ext_publisher_url)
-                        pdf_candidates = find_pdf_candidates(ext_html, ext_publisher_url)
-                        if pdf_candidates:
-                            return PDFResolveResponse(url=start_url, pdf_candidates=pdf_candidates, chosen_pdf=pdf_candidates[0])
-                    except Exception:
-                        pass
-                # If prlinks returned XML (no redirect), parse for first external URL
-                if pmid_from_url and not ext_publisher_url:
-                    try:
-                        pr = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi?dbfrom=pubmed&id={pmid_from_url}&cmd=prlinks"
-                        async with aiohttp.ClientSession(timeout=timeout, headers=headers) as s:
-                            async with s.get(pr, allow_redirects=True) as prr:
-                                pr_text = await prr.text()
-                        import xml.etree.ElementTree as ET
-                        root = ET.fromstring(pr_text)
-                        ext = None
-                        for obj in root.findall('.//IdUrlList//IdUrlSet//ObjUrl'):
-                            u = obj.find('Url')
-                            if u is not None and u.text:
-                                ext = u.text.strip(); break
-                        if ext:
-                            ext_html = await fetch_html(ext)
-                            pdf_candidates = find_pdf_candidates(ext_html, ext)
-                            if pdf_candidates:
-                                return PDFResolveResponse(url=start_url, pdf_candidates=pdf_candidates, chosen_pdf=pdf_candidates[0])
-                    except Exception:
-                        pass
-                # No PMCID found; return informative response
-                return PDFResolveResponse(url=start_url, detail=str(e.detail))
-            # Proceed with HTML parsing if available
-            soup = BeautifulSoup(html, 'html.parser')
-            pmc_url = None
-            pmcid = None
-            for a in soup.find_all('a', href=True):
-                if 'Free PMC article' in (a.text or '') or 'pmc/articles' in a['href']:
-                    pmc_url = urljoin(start_url, a['href'])
-                    break
-                if 'pmc.ncbi.nlm.nih.gov/articles/PMC' in a['href']:
-                    pmcid = a['href'].split('/articles/')[1].strip('/').split('/')[0]
-            if not pmcid:
-                meta_kw = soup.find('meta', attrs={'name': 'keywords'})
-                if meta_kw and meta_kw.get('content'):
-                    import re as _re
-                    m = _re.search(r'(PMC\d+)', meta_kw['content'])
-                    if m:
-                        pmcid = m.group(1)
-            pdf_candidates: List[str] = []
-            if pmc_url:
-                try:
-                    pmc_html = await fetch_html(pmc_url, referer=start_url)
-                    pdf_candidates = find_pdf_candidates(pmc_html, pmc_url)
-                    if pdf_candidates:
-                        return PDFResolveResponse(url=start_url, pmc_url=pmc_url, pmcid=pmcid, pdf_candidates=pdf_candidates, chosen_pdf=pdf_candidates[0], is_open_access=True)
-                except HTTPException as e:
-                    # Best-effort fallback: synthesize /pdf
-                    pdf_guess = pmc_url.rstrip('/') + '/pdf'
-                    return PDFResolveResponse(url=start_url, pmc_url=pmc_url, pmcid=pmcid, pdf_candidates=[pdf_guess], chosen_pdf=pdf_guess, is_open_access=True, detail=e.detail)
-            if pmcid:
-                guessed = f"https://pmc.ncbi.nlm.nih.gov/articles/{pmcid}/pdf"
-                return PDFResolveResponse(url=start_url, pmc_url=f"https://pmc.ncbi.nlm.nih.gov/articles/{pmcid}/", pmcid=pmcid, pdf_candidates=[guessed], chosen_pdf=guessed, is_open_access=True)
-            # Fallback on PubMed page itself
-            # Also attempt external "Full text" outlinks
-            pdf_candidates = find_pdf_candidates(html, start_url)
-            # Collect external links that may be full text
-            ext_links: list[str] = []
-            for a in soup.find_all('a', href=True):
-                href = a['href']
-                txt = (a.text or '').lower()
-                ref_attr = (a.get('ref') or '')
-                if href.startswith('http') and 'ncbi.nlm.nih.gov' not in href and 'pubmed.ncbi.nlm.nih.gov' not in href:
-                    if 'full text' in txt or 'fulltext' in txt or 'journal' in txt:
-                        ext_links.append(href)
-                    elif 'fulltext' in ref_attr or 'journal_fulltext' in ref_attr:
-                        ext_links.append(href)
-            for ext in ext_links[:3]:
-                try:
-                    ext_html = await fetch_html(ext, referer=start_url)
-                    cands = find_pdf_candidates(ext_html, ext)
-                    for c in cands:
-                        pdf_candidates.append(c)
-                except Exception:
-                    continue
-            # Dedup candidates
-            seen: set[str] = set(); dedup: list[str] = []
-            for u in pdf_candidates:
-                if u not in seen:
-                    seen.add(u); dedup.append(u)
-            chosen = dedup[0] if dedup else None
-            return PDFResolveResponse(url=start_url, pmc_url=pmc_url, pmcid=pmcid, pdf_candidates=dedup, chosen_pdf=chosen)
-        else:
-            try:
-                html = await fetch_html(start_url)
-                pdf_candidates = find_pdf_candidates(html, start_url)
-                return PDFResolveResponse(url=start_url, pdf_candidates=pdf_candidates, chosen_pdf=pdf_candidates[0] if pdf_candidates else None)
-            except HTTPException as e:
-                # Return detail instead of raising
-                return PDFResolveResponse(url=start_url, detail=str(e.detail))
-    try:
-        # Hard cap the whole resolver to 10 seconds
-        return await asyncio.wait_for(_do_resolve(), timeout=10.0)
-    except asyncio.TimeoutError:
-        return PDFResolveResponse(url=start_url, detail="Resolver timed out")
-    except HTTPException as e:
-        return PDFResolveResponse(url=start_url, detail=str(e.detail))
-    except Exception as e:
-        return PDFResolveResponse(url=start_url, detail=f"Resolver error: {str(e)}")
+    """Disabled debug endpoint kept only for backward-compatible routing."""
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Debug PDF resolver is disabled",
+    )
 
 
 def _ensure_references_schema(db: Session) -> None:
@@ -612,6 +415,7 @@ def _ensure_references_schema(db: Session) -> None:
                 'doi VARCHAR(255),'
                 'url VARCHAR(1000),'
                 'source VARCHAR(100),'
+                'entry_type VARCHAR(100),'
                 'journal VARCHAR(500),'
                 'abstract TEXT,'
                 'is_open_access BOOLEAN DEFAULT FALSE,'
@@ -632,6 +436,8 @@ def _ensure_references_schema(db: Session) -> None:
         cols = {c['name']: c for c in insp.get_columns('references')}
         if 'owner_id' not in cols:
             engine.execute(text('ALTER TABLE "references" ADD COLUMN owner_id uuid'))
+        if 'entry_type' not in cols:
+            engine.execute(text('ALTER TABLE "references" ADD COLUMN entry_type VARCHAR(100)'))
         # Ensure paper_id nullable
         if 'paper_id' in cols and not cols['paper_id'].get('nullable', True):
             engine.execute(text('ALTER TABLE "references" ALTER COLUMN paper_id DROP NOT NULL'))

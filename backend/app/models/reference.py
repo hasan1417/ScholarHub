@@ -1,6 +1,6 @@
 from sqlalchemy import Column, String, Text, DateTime, Boolean, ForeignKey, Integer, Float
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import deferred, relationship
 from sqlalchemy.sql import func
 from app.database import Base
 import uuid
@@ -20,6 +20,7 @@ class Reference(Base):
     doi = Column(String(255))
     url = Column(String(1000))
     source = Column(String(100))
+    entry_type = deferred(Column(String(100)))
     journal = Column(String(500))
     abstract = Column(Text)
 
