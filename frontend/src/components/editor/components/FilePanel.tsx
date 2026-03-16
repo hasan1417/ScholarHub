@@ -574,10 +574,27 @@ export const FilePanel: React.FC<FilePanelProps> = ({
               figures.map(f => (
                 <div
                   key={f.filename}
-                  className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-slate-600 dark:text-slate-300"
+                  className="group flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-slate-600 dark:text-slate-300"
                 >
                   <Image className="h-3 w-3 flex-shrink-0 text-slate-400" />
                   <span className="flex-1 truncate" title={f.filename}>{f.filename}</span>
+                  {!readOnly && editorViewRef && (
+                    <button
+                      type="button"
+                      title="Insert at cursor"
+                      onClick={() => {
+                        const view = editorViewRef.current
+                        if (!view) return
+                        const snippet = `\\begin{figure}[h]\n  \\centering\n  \\includegraphics[width=0.8\\columnwidth]{figures/${f.filename}}\n  \\caption{}\n  \\label{fig:${f.filename.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9]/g, '_')}}\n\\end{figure}`
+                        const sel = view.state.selection.main
+                        view.dispatch({ changes: { from: sel.from, to: sel.to, insert: snippet } })
+                        view.focus()
+                      }}
+                      className="hidden rounded p-0.5 text-slate-400 transition-colors hover:bg-indigo-100 hover:text-indigo-600 group-hover:inline-flex dark:hover:bg-indigo-900/30 dark:hover:text-indigo-400"
+                    >
+                      <Plus className="h-3 w-3" />
+                    </button>
+                  )}
                 </div>
               ))
             )}
