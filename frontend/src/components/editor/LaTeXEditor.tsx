@@ -71,7 +71,7 @@ export interface LaTeXEditorHandle {
 
 // LaTeX editor with CodeMirror and live PDF preview
 function LaTeXEditorImpl(
-  { value, onChange, onSave, templateTitle, paperId, projectId, readOnly = false, disableSave = false, onOpenAiChatWithMessage, realtime, onRenamePaper }: LaTeXEditorProps,
+  { value, onChange, onSave, templateTitle, paperId, projectId, readOnly = false, disableSave = false, onNavigateBack, onOpenAiChatWithMessage, realtime, onRenamePaper }: LaTeXEditorProps,
   ref: React.Ref<LaTeXEditorHandle>
 ) {
   const isMobile = useIsMobile()
@@ -611,6 +611,7 @@ function LaTeXEditorImpl(
             onRenamePaper={onRenamePaper}
             canRename={!readOnly && (realtime?.paperRole === 'admin' || !realtime?.paperRole)}
             onExportSourceZip={handleExportSourceZip}
+            onNavigateBack={onNavigateBack}
           />
 
           {/* Row 2: Main content area */}

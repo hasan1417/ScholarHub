@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useLayoutEffect } from 'react'
-import { History, LayoutGrid, Pen, FileOutput, Check, ChevronDown, Download, Package, Pencil } from 'lucide-react'
+import { History, LayoutGrid, Pen, FileOutput, Check, ChevronDown, Download, Package, Pencil, ArrowLeft } from 'lucide-react'
 import type { EditorView } from '@codemirror/view'
 import { undo, redo, selectAll, toggleComment } from '@codemirror/commands'
 import { openSearchPanel } from '@codemirror/search'
@@ -38,6 +38,7 @@ interface EditorMenuBarProps {
   onRenamePaper?: (newTitle: string) => Promise<void>
   canRename?: boolean
   onExportSourceZip?: () => void
+  onNavigateBack?: () => void
 }
 
 interface MenuItem {
@@ -86,6 +87,7 @@ export const EditorMenuBar: React.FC<EditorMenuBarProps> = ({
   onRenamePaper,
   canRename,
   onExportSourceZip,
+  onNavigateBack,
 }) => {
   const [openMenu, setOpenMenu] = useState<string | null>(null)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
@@ -294,6 +296,16 @@ export const EditorMenuBar: React.FC<EditorMenuBarProps> = ({
         ref={barRef}
         className="relative flex h-7 items-center border-b border-slate-200 bg-slate-100 px-1 text-xs dark:border-slate-700 dark:bg-slate-800"
       >
+        {onNavigateBack && (
+          <button
+            type="button"
+            onClick={onNavigateBack}
+            className="mr-0.5 rounded p-1 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700/60 dark:hover:text-slate-200"
+            title="Back to paper overview"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+          </button>
+        )}
         {menuNames.map(name => (
           <div key={name} className="relative">
             <button
