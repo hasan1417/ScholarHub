@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import {
-  X, ChevronRight, ChevronDown, FileText, Plus, Upload,
+  ChevronRight, ChevronDown, FileText, Plus, Upload,
   Image, Loader2, Trash2, FolderOpen, FileCode, BookTemplate, ListTree,
 } from 'lucide-react'
 import type { EditorView } from '@codemirror/view'

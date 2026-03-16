@@ -248,6 +248,16 @@ export function useCodeMirrorEditor({
         try {
           (update as any).transactions?.forEach((tr: any) => { if (tr.scrollIntoView) tr.scrollIntoView = false })
         } catch {}
+        // In realtime mode, Yjs is the source of truth — don't propagate
+        // editor content changes via onChange. The parent reads main.tex
+        // directly from Y.Text('main') via getLatestSource(). Without this
+        // guard, yCollab's initial sync on file switch triggers onChange
+        // with sub-file content, which the parent incorrectly persists as
+        // main.tex, causing content duplication.
+        if (realtimeDoc) {
+          latestDocRef.current = update.state.doc.toString()
+          return
+        }
         applyingFromEditorRef.current = true
         const doc = update.state.doc.toString()
         latestDocRef.current = doc
