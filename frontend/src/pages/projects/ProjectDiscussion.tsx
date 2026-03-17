@@ -1978,13 +1978,6 @@ const ProjectDiscussion = () => {
                     badgeColor: '',
                     tooltip: 'Iterative source evaluation by Perplexity. Best for current events & multi-domain topics.',
                   },
-                  {
-                    id: 'alibaba/tongyi-deepresearch-30b-a3b',
-                    label: 'Tongyi',
-                    badge: 'Budget',
-                    badgeColor: 'bg-sky-500/20 text-sky-400',
-                    tooltip: 'Ultra-low cost open-source model. 30B params, 131K context. Good for high-volume exploratory searches.',
-                  },
                 ].map((model) => {
                   const isActive = deepResearchModel === model.id
                   return (
