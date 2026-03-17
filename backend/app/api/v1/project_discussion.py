@@ -1643,27 +1643,28 @@ async def run_deep_research(
         }},
     )
 
-    # --- Load library context ---
+    # --- Load library context (only user-selected references, not the whole library) ---
     def _load_library_context():
+        if not payload.reference_ids:
+            return ""  # No context selected — let the model search freely
         q = (
             db.query(Reference)
             .join(ProjectReference, ProjectReference.reference_id == Reference.id)
             .filter(ProjectReference.project_id == project.id)
+            .filter(ProjectReference.reference_id.in_(payload.reference_ids))
         )
-        if payload.reference_ids:
-            q = q.filter(ProjectReference.reference_id.in_(payload.reference_ids))
-        else:
-            q = q.limit(50)
         refs = q.all()
         parts: list[str] = []
         for ref in refs:
             lines = [f"- {ref.title}"]
+            if ref.authors:
+                lines.append(f"  Authors: {', '.join(ref.authors[:5])}")
+            if ref.year:
+                lines.append(f"  Year: {ref.year}")
             if ref.abstract:
-                lines.append(f"  Abstract: {ref.abstract[:500]}")
-            if ref.summary:
-                lines.append(f"  Summary: {ref.summary[:500]}")
+                lines.append(f"  Abstract: {ref.abstract[:300]}")
             if ref.key_findings:
-                lines.append(f"  Key findings: {'; '.join(ref.key_findings[:5])}")
+                lines.append(f"  Key findings: {'; '.join(ref.key_findings[:3])}")
             parts.append("\n".join(lines))
         return "\n".join(parts)
 
