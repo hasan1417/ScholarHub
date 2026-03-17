@@ -1901,7 +1901,7 @@ const ProjectDiscussion = () => {
       {isDeepResearchModalOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setIsDeepResearchModalOpen(false)}>
           <div
-            className="w-full sm:max-w-[560px] max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-slate-900 shadow-2xl shadow-black/40 border border-slate-800/80"
+            className="w-full sm:max-w-[560px] rounded-t-2xl sm:rounded-2xl bg-slate-900 shadow-2xl shadow-black/40 border border-slate-800/80 overflow-visible"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header — minimal, just close button */}
