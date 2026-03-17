@@ -245,6 +245,8 @@ const ProjectDiscussion = () => {
     projectId: project.id,
     activeChannelId,
     setAssistantHistory,
+    userId: user?.id,
+    userName: viewerDisplayName,
   })
 
   const {

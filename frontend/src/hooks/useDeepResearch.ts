@@ -8,10 +8,14 @@ export function useDeepResearch({
   projectId,
   activeChannelId,
   setAssistantHistory,
+  userId,
+  userName,
 }: {
   projectId: string
   activeChannelId: string | null
   setAssistantHistory: React.Dispatch<React.SetStateAction<AssistantExchange[]>>
+  userId?: string
+  userName?: string
 }) {
   const [isRunning, setIsRunning] = useState(false)
   const [progress, setProgress] = useState('')
@@ -43,6 +47,7 @@ export function useDeepResearch({
         statusMessage: 'Starting deep research...',
         isWaitingForTools: true,
         model,
+        author: userId ? { id: userId, name: userName || 'You' } : undefined,
       }
 
       setAssistantHistory((prev) => [...prev, entry])
