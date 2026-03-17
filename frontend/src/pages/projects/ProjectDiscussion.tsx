@@ -144,6 +144,7 @@ const ProjectDiscussion = () => {
   const [deepResearchSelectedRefs, setDeepResearchSelectedRefs] = useState<Set<string>>(new Set())
   const [deepResearchModel, setDeepResearchModel] = useState('openai/o4-mini-deep-research')
   const [deepResearchLibraryOpen, setDeepResearchLibraryOpen] = useState(false)
+  const [deepResearchRefSearch, setDeepResearchRefSearch] = useState('')
 
   // Turn off reasoning when model doesn't support it
   useEffect(() => {
@@ -289,6 +290,7 @@ const ProjectDiscussion = () => {
     setIsDeepResearchModalOpen(false)
     setDeepResearchQuestion('')
     setDeepResearchSelectedRefs(new Set())
+    setDeepResearchRefSearch('')
   }, [deepResearchQuestion, deepResearchSelectedRefs, deepResearchModel, startDeepResearch])
 
   // ========== AUTO SCROLL ==========
@@ -2043,27 +2045,37 @@ const ProjectDiscussion = () => {
               {deepResearchLibraryOpen && (
                 <div className="mt-2 rounded-lg border border-slate-700/60 bg-slate-800/30">
                   {(availableReferencesQuery.data || []).length > 0 && (
-                    <div className="flex items-center justify-end gap-2 border-b border-slate-700/40 px-3 py-1.5">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const allIds = (availableReferencesQuery.data || [])
-                            .filter(r => r.reference_id)
-                            .map(r => r.reference_id)
-                          setDeepResearchSelectedRefs(new Set(allIds))
-                        }}
-                        className="text-[11px] text-indigo-400 hover:text-indigo-300 transition-colors"
-                      >
-                        Select all
-                      </button>
-                      <span className="text-slate-700">|</span>
-                      <button
-                        type="button"
-                        onClick={() => setDeepResearchSelectedRefs(new Set())}
-                        className="text-[11px] text-indigo-400 hover:text-indigo-300 transition-colors"
-                      >
-                        Clear
-                      </button>
+                    <div className="border-b border-slate-700/40">
+                      <div className="flex items-center gap-2 px-3 py-1.5">
+                        <Search className="h-3 w-3 text-slate-500" />
+                        <input
+                          type="text"
+                          placeholder="Search references..."
+                          value={deepResearchRefSearch}
+                          onChange={(e) => setDeepResearchRefSearch(e.target.value)}
+                          className="flex-1 bg-transparent text-xs text-slate-300 placeholder-slate-600 outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const allIds = (availableReferencesQuery.data || [])
+                              .filter(r => r.reference_id)
+                              .map(r => r.reference_id)
+                            setDeepResearchSelectedRefs(new Set(allIds))
+                          }}
+                          className="text-[11px] text-indigo-400 hover:text-indigo-300 transition-colors"
+                        >
+                          All
+                        </button>
+                        <span className="text-slate-700">|</span>
+                        <button
+                          type="button"
+                          onClick={() => setDeepResearchSelectedRefs(new Set())}
+                          className="text-[11px] text-indigo-400 hover:text-indigo-300 transition-colors"
+                        >
+                          Clear
+                        </button>
+                      </div>
                     </div>
                   )}
 
@@ -2077,7 +2089,15 @@ const ProjectDiscussion = () => {
                   ) : (
                     <div className="max-h-44 overflow-y-auto">
                       <div className="divide-y divide-slate-700/30">
-                        {(availableReferencesQuery.data || []).map((ref) => {
+                        {(availableReferencesQuery.data || []).filter((ref) => {
+                          if (!deepResearchRefSearch.trim()) return true
+                          const q = deepResearchRefSearch.toLowerCase()
+                          return (
+                            ref.reference?.title?.toLowerCase().includes(q) ||
+                            ref.reference?.authors?.some((a: string) => a.toLowerCase().includes(q)) ||
+                            ref.reference?.journal?.toLowerCase().includes(q)
+                          )
+                        }).map((ref) => {
                           const isSelected = deepResearchSelectedRefs.has(ref.reference_id)
                           return (
                             <label
