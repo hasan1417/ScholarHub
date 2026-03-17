@@ -660,13 +660,16 @@ const ProjectReferences = () => {
                       )}
                     </div>
 
-                    {/* Authors and Journal */}
-                    {(ref?.authors?.length || ref?.journal) && (
+                    {/* Authors, Journal, and Added date */}
+                    {(ref?.authors?.length || ref?.journal || decidedAt) && (
                       <div className="text-xs text-gray-500 dark:text-slate-400">
                         {ref?.authors && ref.authors.length > 0 && (
                           <p>{ref.authors.join(', ')}</p>
                         )}
                         {ref?.journal && <p className="italic">{ref.journal}</p>}
+                        {decidedAt && (
+                          <p className="text-[10px] text-gray-400 dark:text-slate-500">Added {decidedAt}</p>
+                        )}
                       </div>
                     )}
 
@@ -726,11 +729,6 @@ const ProjectReferences = () => {
                             <ExternalLink className="h-3 w-3" />
                             Source
                           </a>
-                        )}
-                        {decidedAt && (
-                          <span className="inline-flex items-center gap-1 text-gray-400 dark:text-slate-500">
-                            Added {decidedAt}
-                          </span>
                         )}
                         {/* Cross-feature navigation */}
                         <button
