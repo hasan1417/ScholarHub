@@ -1853,9 +1853,19 @@ async def _run_agentic_deep_research(
                 })
             continue
 
-        # No tool calls — final response (strip any leftover XML tool call artifacts)
+        # No structured or text tool calls — check if final text is clean
         final = _strip_tool_call_text(choice.message.content or "")
-        return final if final else choice.message.content or ""
+        # If after stripping, there's substantial text, return it
+        if final and len(final) > 100:
+            return final
+        # Model produced only tool call text or very short output — force synthesis
+        if round_num < _MAX_TOOL_ROUNDS:
+            # Add the text as context and continue
+            if text_content:
+                messages.append({"role": "assistant", "content": text_content})
+                messages.append({"role": "user", "content": "That looks like a tool call but I need a written report. Please write your final synthesis report based on all the information gathered so far."})
+            continue
+        return choice.message.content or ""
 
     # Exhausted rounds — force a final synthesis call without tools
     logger.warning("[deep-research] Exhausted %d tool rounds, forcing final synthesis", _MAX_TOOL_ROUNDS)
