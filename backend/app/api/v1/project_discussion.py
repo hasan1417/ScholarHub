@@ -1683,23 +1683,88 @@ async def _execute_browse_tool(urls: list[str], goal: str = "") -> str:
     return "\n\n".join(results) if results else "No content could be fetched."
 
 
-def _parse_xml_tool_calls(text: str) -> list[dict]:
-    """Parse <tool_call> XML tags that some models emit as text instead of structured tool_calls."""
+def _parse_text_tool_calls(text: str) -> list[dict]:
+    """Parse tool calls from text — handles both <tool_call> XML and raw JSON."""
     import re as _re
     calls = []
+    # Try <tool_call> XML format first
     for match in _re.finditer(r'<tool_call>\s*(.*?)\s*</tool_call>', text, _re.DOTALL):
         try:
             parsed = json.loads(match.group(1))
-            calls.append(parsed)
+            if "name" in parsed:
+                calls.append(parsed)
         except json.JSONDecodeError:
             pass
+    if calls:
+        return calls
+    # Try to find any JSON with "name" or "arguments" containing tool-like data
+    stripped = text.strip()
+    # Try the whole text as JSON
+    for candidate_text in [stripped, '{' + stripped if stripped.startswith('"') else stripped]:
+        try:
+            parsed = json.loads(candidate_text)
+            if isinstance(parsed, dict):
+                if "name" in parsed:
+                    calls.append(parsed)
+                    return calls
+                # No "name" but has "arguments" with "url" or "query" — infer tool name
+                args = parsed.get("arguments", {})
+                if isinstance(args, dict):
+                    if "query" in args:
+                        calls.append({"name": "search", "arguments": args})
+                        return calls
+                    if "url" in args or "urls" in args:
+                        calls.append({"name": "browse", "arguments": args})
+                        return calls
+        except (json.JSONDecodeError, TypeError):
+            pass
+    # Try to find JSON objects with "name" key anywhere in text
+    for match in _re.finditer(r'\{["\']name["\']\s*:', text):
+        try:
+            start = match.start()
+            depth = 0
+            for i in range(start, len(text)):
+                if text[i] == '{': depth += 1
+                elif text[i] == '}': depth -= 1
+                if depth == 0:
+                    parsed = json.loads(text[start:i+1])
+                    if "name" in parsed:
+                        calls.append(parsed)
+                    break
+        except (json.JSONDecodeError, IndexError):
+            pass
+    # Last resort: find "arguments" with url/query patterns
+    if not calls:
+        for match in _re.finditer(r'"arguments"\s*:\s*\{', text):
+            try:
+                start = match.start() - 1
+                if text[start] != '{':
+                    start = text.rfind('{', 0, match.start())
+                depth = 0
+                for i in range(start, len(text)):
+                    if text[i] == '{': depth += 1
+                    elif text[i] == '}': depth -= 1
+                    if depth == 0:
+                        parsed = json.loads(text[start:i+1])
+                        args = parsed.get("arguments", {})
+                        if "query" in args:
+                            calls.append({"name": "search", "arguments": args})
+                        elif "url" in args:
+                            calls.append({"name": "browse", "arguments": args})
+                        break
+            except (json.JSONDecodeError, IndexError):
+                pass
     return calls
 
 
-def _strip_xml_tool_calls(text: str) -> str:
-    """Remove <tool_call>...</tool_call> blocks from text."""
+def _strip_tool_call_text(text: str) -> str:
+    """Remove tool call artifacts from text."""
     import re as _re
-    return _re.sub(r'<tool_call>\s*.*?\s*</tool_call>', '', text, flags=_re.DOTALL).strip()
+    # Remove <tool_call>...</tool_call>
+    cleaned = _re.sub(r'<tool_call>\s*.*?\s*</tool_call>', '', text, flags=_re.DOTALL)
+    # Remove raw JSON tool calls
+    cleaned = _re.sub(r'\{"name"\s*:\s*"(?:search|browse|read|fetch|visit)".*?\}\s*\}', '', cleaned, flags=_re.DOTALL)
+    return cleaned.strip()
 
 
 async def _run_agentic_deep_research(
@@ -1725,14 +1790,17 @@ async def _run_agentic_deep_research(
         )
         choice = response.choices[0]
 
-        # Check for XML tool calls in text content (Tongyi uses this format)
+        # Check for text-based tool calls (Tongyi outputs these as XML or raw JSON)
         text_content = choice.message.content or ""
-        xml_tool_calls = _parse_xml_tool_calls(text_content) if "<tool_call>" in text_content else []
+        text_tool_calls = _parse_text_tool_calls(text_content) if (
+            "<tool_call>" in text_content or
+            '"name"' in text_content and '"arguments"' in text_content
+        ) else []
 
-        if xml_tool_calls:
+        if text_tool_calls:
             # Handle XML-format tool calls
             messages.append({"role": "assistant", "content": text_content})
-            for tc_data in xml_tool_calls:
+            for tc_data in text_tool_calls:
                 fn_name = tc_data.get("name", "")
                 args = tc_data.get("arguments", {})
                 logger.info("[deep-research] XML tool call: %s(%s)", fn_name, str(args)[:100])
@@ -1786,7 +1854,7 @@ async def _run_agentic_deep_research(
             continue
 
         # No tool calls — final response (strip any leftover XML tool call artifacts)
-        final = _strip_xml_tool_calls(choice.message.content or "")
+        final = _strip_tool_call_text(choice.message.content or "")
         return final if final else choice.message.content or ""
 
     # Exhausted rounds — force a final synthesis call without tools
