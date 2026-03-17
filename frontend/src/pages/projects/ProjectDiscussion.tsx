@@ -1947,6 +1947,14 @@ const ProjectDiscussion = () => {
                     badge: '',
                     badgeColor: '',
                   },
+                  {
+                    id: 'alibaba/tongyi-deepresearch-30b-a3b',
+                    name: 'Tongyi DeepResearch',
+                    provider: 'Alibaba',
+                    desc: 'Open-source, ultra-low cost. 30B params, state-of-art on research benchmarks. 131K context.',
+                    badge: 'Budget',
+                    badgeColor: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400',
+                  },
                 ].map((model) => (
                   <button
                     key={model.id}

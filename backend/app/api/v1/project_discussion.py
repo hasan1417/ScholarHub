@@ -1536,6 +1536,7 @@ _ALLOWED_DEEP_RESEARCH_MODELS = {
     "openai/o4-mini-deep-research",
     "openai/o3-deep-research",
     "perplexity/sonar-deep-research",
+    "alibaba/tongyi-deepresearch-30b-a3b",
 }
 
 class DeepResearchRequest(BaseModel):
