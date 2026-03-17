@@ -1762,9 +1762,26 @@ def _strip_tool_call_text(text: str) -> str:
     import re as _re
     # Remove <tool_call>...</tool_call>
     cleaned = _re.sub(r'<tool_call>\s*.*?\s*</tool_call>', '', text, flags=_re.DOTALL)
-    # Remove raw JSON tool calls
+    # Remove raw JSON tool calls with "name"
     cleaned = _re.sub(r'\{"name"\s*:\s*"(?:search|browse|read|fetch|visit)".*?\}\s*\}', '', cleaned, flags=_re.DOTALL)
+    # Remove "arguments": {...} patterns (tool calls without "name" wrapper)
+    cleaned = _re.sub(r'"arguments"\s*:\s*\{.*?\}\s*\}', '', cleaned, flags=_re.DOTALL)
+    # Remove standalone JSON objects with "url" arrays and "goal" strings
+    cleaned = _re.sub(r'\{?\s*"url"\s*:\s*\[.*?\]\s*,\s*"goal"\s*:\s*".*?"\s*\}?\s*\}?', '', cleaned, flags=_re.DOTALL)
     return cleaned.strip()
+
+
+def _is_tool_call_text(text: str) -> bool:
+    """Check if text is primarily a tool call (not a real report)."""
+    stripped = text.strip()
+    if not stripped:
+        return False
+    # If it starts with "arguments" or {"name" or <tool_call>, it's a tool call
+    if stripped.startswith('"arguments"') or stripped.startswith('{"name"') or stripped.startswith('<tool_call>'):
+        return True
+    # If most of the text is JSON-like with urls/queries, it's a tool call
+    clean = _strip_tool_call_text(stripped)
+    return len(clean) < len(stripped) * 0.3  # More than 70% was tool call content
 
 
 async def _run_agentic_deep_research(
@@ -1853,19 +1870,19 @@ async def _run_agentic_deep_research(
                 })
             continue
 
-        # No structured or text tool calls — check if final text is clean
-        final = _strip_tool_call_text(choice.message.content or "")
-        # If after stripping, there's substantial text, return it
-        if final and len(final) > 100:
-            return final
-        # Model produced only tool call text or very short output — force synthesis
-        if round_num < _MAX_TOOL_ROUNDS:
-            # Add the text as context and continue
-            if text_content:
-                messages.append({"role": "assistant", "content": text_content})
-                messages.append({"role": "user", "content": "That looks like a tool call but I need a written report. Please write your final synthesis report based on all the information gathered so far."})
+        # No structured or text tool calls — check if final text is a real report or leaked tool call
+        if _is_tool_call_text(text_content):
+            # Model is still trying to call tools via text — redirect to synthesis
+            logger.info("[deep-research] Round %d: text is tool call, redirecting to synthesis", round_num)
+            messages.append({"role": "assistant", "content": text_content})
+            messages.append({"role": "user", "content": "I cannot execute that tool call. Please write your final comprehensive report NOW based on all the papers and information you have gathered so far. Write it as a structured academic report with sections, findings, and comparisons."})
             continue
-        return choice.message.content or ""
+
+        # Clean text output — return it
+        final = _strip_tool_call_text(text_content)
+        if final and len(final) > 50:
+            return final
+        return text_content or ""
 
     # Exhausted rounds — force a final synthesis call without tools
     logger.warning("[deep-research] Exhausted %d tool rounds, forcing final synthesis", _MAX_TOOL_ROUNDS)
