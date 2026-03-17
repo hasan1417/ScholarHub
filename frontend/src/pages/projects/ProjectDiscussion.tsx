@@ -1953,7 +1953,7 @@ const ProjectDiscussion = () => {
               <div className="flex items-center gap-2 mb-2.5">
                 <span className="text-xs font-medium text-slate-400">Model</span>
               </div>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="relative flex flex-wrap gap-1.5 overflow-visible">
                 {[
                   {
                     id: 'openai/o4-mini-deep-research',
@@ -2003,9 +2003,8 @@ const ProjectDiscussion = () => {
                           </span>
                         )}
                       </button>
-                      <div className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-slate-950 px-3 py-2 text-[11px] text-slate-300 opacity-0 shadow-xl ring-1 ring-slate-700 transition-opacity group-hover:opacity-100">
+                      <div className="pointer-events-none absolute left-0 bottom-full z-50 mb-2 w-56 rounded-lg bg-slate-950 px-3 py-2 text-[11px] leading-relaxed text-slate-300 opacity-0 shadow-xl ring-1 ring-slate-700 transition-opacity group-hover:opacity-100">
                         {model.tooltip}
-                        <div className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-slate-950 ring-1 ring-slate-700 ring-offset-0" style={{ clipPath: 'polygon(0 0, 100% 0, 0 100%)' }} />
                       </div>
                     </div>
                   )
