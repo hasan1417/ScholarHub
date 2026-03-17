@@ -1532,10 +1532,17 @@ def delete_discussion_task(
 # Deep Research
 # ---------------------------------------------------------------------------
 
+_ALLOWED_DEEP_RESEARCH_MODELS = {
+    "openai/o4-mini-deep-research",
+    "openai/o3-deep-research",
+    "perplexity/sonar-deep-research",
+}
+
 class DeepResearchRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=5000)
     context_summary: str = Field("", max_length=2000)
     reference_ids: list[str] = Field(default_factory=list)
+    model: str = Field("openai/o4-mini-deep-research", description="Deep research model to use")
 
 
 @router.post("/projects/{project_id}/discussion-or/channels/{channel_id}/deep-research")
@@ -1586,7 +1593,11 @@ async def run_deep_research(
 
     # --- Credit limit check ---
     from app.services.subscription_service import get_model_credit_cost
-    credit_cost = get_model_credit_cost("openai/o4-mini-deep-research")
+    # Validate model
+    if payload.model not in _ALLOWED_DEEP_RESEARCH_MODELS:
+        raise HTTPException(status_code=400, detail=f"Model {payload.model} is not supported for deep research")
+    deep_research_model = payload.model
+    credit_cost = get_model_credit_cost(deep_research_model)
     allowed, current_usage, limit = SubscriptionService.check_feature_limit(
         db, current_user.id, "discussion_ai_calls"
     )
@@ -1614,8 +1625,6 @@ async def run_deep_research(
             "display": display_name,
         },
     }
-    deep_research_model = "openai/o4-mini-deep-research"
-
     initial_response = {
         "message": "",
         "citations": [],

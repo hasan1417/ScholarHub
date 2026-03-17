@@ -141,6 +141,7 @@ const ProjectDiscussion = () => {
   const [isDeepResearchModalOpen, setIsDeepResearchModalOpen] = useState(false)
   const [deepResearchQuestion, setDeepResearchQuestion] = useState('')
   const [deepResearchSelectedRefs, setDeepResearchSelectedRefs] = useState<Set<string>>(new Set())
+  const [deepResearchModel, setDeepResearchModel] = useState('openai/o4-mini-deep-research')
 
   // Turn off reasoning when model doesn't support it
   useEffect(() => {
@@ -280,11 +281,12 @@ const ProjectDiscussion = () => {
       '',
       Array.from(deepResearchSelectedRefs),
       id,
+      deepResearchModel,
     )
     setIsDeepResearchModalOpen(false)
     setDeepResearchQuestion('')
     setDeepResearchSelectedRefs(new Set())
-  }, [deepResearchQuestion, deepResearchSelectedRefs, startDeepResearch])
+  }, [deepResearchQuestion, deepResearchSelectedRefs, deepResearchModel, startDeepResearch])
 
   // ========== AUTO SCROLL ==========
 
@@ -1911,8 +1913,74 @@ const ProjectDiscussion = () => {
             </div>
 
             <p className="mb-4 text-xs sm:text-sm text-gray-500 dark:text-slate-400">
-              Searches the web comprehensively and synthesises a cited report. Typically takes 5–30 minutes.
+              Searches the web comprehensively and synthesises a cited report. Typically takes 2–15 minutes.
             </p>
+
+            {/* Model selector */}
+            <div className="mb-4">
+              <label className="text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-slate-300">
+                Research model
+              </label>
+              <div className="mt-1.5 grid grid-cols-1 gap-2">
+                {[
+                  {
+                    id: 'openai/o4-mini-deep-research',
+                    name: 'o4 Mini Deep Research',
+                    provider: 'OpenAI',
+                    desc: 'Fast & affordable. Web search + synthesis. Best for most queries.',
+                    badge: 'Recommended',
+                    badgeColor: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+                  },
+                  {
+                    id: 'openai/o3-deep-research',
+                    name: 'o3 Deep Research',
+                    provider: 'OpenAI',
+                    desc: 'Premium reasoning. Deeper analysis, 100K output. For complex multi-step research.',
+                    badge: 'Premium',
+                    badgeColor: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+                  },
+                  {
+                    id: 'perplexity/sonar-deep-research',
+                    name: 'Sonar Deep Research',
+                    provider: 'Perplexity',
+                    desc: 'Iterative source evaluation. Best for current events & multi-domain topics.',
+                    badge: '',
+                    badgeColor: '',
+                  },
+                ].map((model) => (
+                  <button
+                    key={model.id}
+                    type="button"
+                    onClick={() => setDeepResearchModel(model.id)}
+                    className={`flex items-start gap-3 rounded-lg border px-3 py-2 text-left transition-colors ${
+                      deepResearchModel === model.id
+                        ? 'border-indigo-500 bg-indigo-50 dark:border-indigo-400 dark:bg-indigo-900/20'
+                        : 'border-gray-200 hover:border-gray-300 dark:border-slate-700 dark:hover:border-slate-600'
+                    }`}
+                  >
+                    <div className={`mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border ${
+                      deepResearchModel === model.id
+                        ? 'border-indigo-500 bg-indigo-500'
+                        : 'border-gray-300 dark:border-slate-600'
+                    }`}>
+                      {deepResearchModel === model.id && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-gray-900 dark:text-slate-100">{model.name}</span>
+                        <span className="text-[10px] text-gray-400 dark:text-slate-500">{model.provider}</span>
+                        {model.badge && (
+                          <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${model.badgeColor}`}>
+                            {model.badge}
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 text-xs text-gray-500 dark:text-slate-400">{model.desc}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
 
             {/* Research question */}
             <div className="mb-4">

@@ -18,7 +18,7 @@ export function useDeepResearch({
   const abortRef = useRef<AbortController | null>(null)
 
   const startDeepResearch = useCallback(
-    async (question: string, contextSummary: string, referenceIds: string[], exchangeId: string) => {
+    async (question: string, contextSummary: string, referenceIds: string[], exchangeId: string, model: string = 'openai/o4-mini-deep-research') => {
       if (!activeChannelId) return
 
       setIsRunning(true)
@@ -32,7 +32,7 @@ export function useDeepResearch({
           message: '',
           citations: [],
           reasoning_used: false,
-          model: 'openai/o4-mini-deep-research',
+          model,
           usage: undefined,
           suggested_actions: [],
         },
@@ -42,7 +42,7 @@ export function useDeepResearch({
         displayMessage: '',
         statusMessage: 'Starting deep research...',
         isWaitingForTools: true,
-        model: 'openai/o4-mini-deep-research',
+        model,
       }
 
       setAssistantHistory((prev) => [...prev, entry])
@@ -67,7 +67,7 @@ export function useDeepResearch({
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ question, context_summary: contextSummary, reference_ids: referenceIds }),
+          body: JSON.stringify({ question, context_summary: contextSummary, reference_ids: referenceIds, model }),
           signal: controller.signal,
         })
 
