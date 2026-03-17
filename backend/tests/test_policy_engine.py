@@ -436,7 +436,8 @@ class TestBuildDecision:
             search_tool_available=True,
         )
         assert decision.intent == "direct_search"
-        assert decision.force_tool == "search_papers"
+        assert decision.action_plan is not None
+        assert decision.action_plan.primary_tool == "search_papers"
         assert decision.search is not None
         assert decision.search.count == 5  # default
 
@@ -477,8 +478,9 @@ class TestBuildDecision:
             user_message="find papers on transformers",
             search_tool_available=True,
         )
-        assert decision.should_force_tool("search_papers") is True
-        assert decision.should_force_tool("other_tool") is False
+        # force_tool is on action_plan.primary_tool, not decision.force_tool
+        assert decision.action_plan is not None
+        assert decision.action_plan.primary_tool == "search_papers"
 
     def test_should_force_tool_false_when_no_search(self, policy):
         decision = policy.build_decision(

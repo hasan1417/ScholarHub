@@ -53,7 +53,13 @@ def test_policy_replay_cases(case: dict[str, Any]) -> None:
 
     expected = case["expect"]
     assert decision.intent == expected["intent"]
-    assert decision.force_tool == expected.get("force_tool")
+    # force_tool moved to action_plan.primary_tool in current code
+    expected_force = expected.get("force_tool")
+    if expected_force:
+        assert decision.action_plan is not None
+        assert decision.action_plan.primary_tool == expected_force
+    else:
+        assert decision.force_tool is None
 
     expected_search = expected.get("search")
     if expected_search is None:
