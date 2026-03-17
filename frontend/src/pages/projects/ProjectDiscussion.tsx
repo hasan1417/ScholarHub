@@ -20,7 +20,11 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   Search,
+  Zap,
+  Globe,
+  Cpu,
   FolderOpen,
   FlaskConical,
   Puzzle,
@@ -142,6 +146,7 @@ const ProjectDiscussion = () => {
   const [deepResearchQuestion, setDeepResearchQuestion] = useState('')
   const [deepResearchSelectedRefs, setDeepResearchSelectedRefs] = useState<Set<string>>(new Set())
   const [deepResearchModel, setDeepResearchModel] = useState('openai/o4-mini-deep-research')
+  const [deepResearchLibraryOpen, setDeepResearchLibraryOpen] = useState(false)
 
   // Turn off reasoning when model doesn't support it
   useEffect(() => {
@@ -270,6 +275,7 @@ const ProjectDiscussion = () => {
   const handleOpenDeepResearch = useCallback(() => {
     setDeepResearchQuestion('')
     setDeepResearchSelectedRefs(new Set())
+    setDeepResearchLibraryOpen(false)
     setIsDeepResearchModalOpen(true)
   }, [])
 
@@ -1896,213 +1902,237 @@ const ProjectDiscussion = () => {
 
       {/* Deep Research Modal */}
       {isDeepResearchModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-gray-900/40 backdrop-blur-sm dark:bg-black/70">
-          <div className="w-full sm:max-w-md max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white p-4 sm:p-6 shadow-xl transition-colors dark:bg-slate-900/90">
-            <div className="flex items-center justify-between mb-3 sm:mb-4">
-              <div className="flex items-center gap-2">
-                <FlaskConical className="h-5 w-5 text-indigo-500" />
-                <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">Deep Research</h3>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setIsDeepResearchModalOpen(false)}>
+          <div
+            className="w-full sm:max-w-[560px] max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-slate-900 shadow-2xl shadow-black/40 border border-slate-800/80"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header — minimal, just close button */}
+            <div className="flex items-center justify-between px-6 pt-5 pb-0">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500/15">
+                  <FlaskConical className="h-4 w-4 text-indigo-400" />
+                </div>
+                <span className="text-sm font-medium text-slate-400">Deep Research</span>
               </div>
               <button
                 type="button"
                 onClick={() => setIsDeepResearchModalOpen(false)}
-                className="rounded-full p-1 hover:bg-gray-100 dark:hover:bg-slate-800"
+                className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-300"
               >
-                <X className="h-5 w-5 text-gray-500" />
+                <X className="h-4 w-4" />
               </button>
             </div>
 
-            <p className="mb-4 text-xs sm:text-sm text-gray-500 dark:text-slate-400">
-              Searches the web comprehensively and synthesises a cited report. Typically takes 2–15 minutes.
-            </p>
+            {/* Hero — research question front and center */}
+            <div className="px-6 pt-5 pb-2">
+              <h2 className="text-xl font-semibold text-slate-100 leading-tight">
+                What do you want to research?
+              </h2>
+              <p className="mt-1.5 text-sm text-slate-500">
+                AI will search the web comprehensively and synthesize a cited report.
+              </p>
 
-            {/* Model selector */}
-            <div className="mb-4">
-              <label className="text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-slate-300">
-                Research model
-              </label>
-              <div className="mt-1.5 grid grid-cols-1 gap-2">
-                {[
-                  {
-                    id: 'openai/o4-mini-deep-research',
-                    name: 'o4 Mini Deep Research',
-                    provider: 'OpenAI',
-                    desc: 'Fast & affordable. Web search + synthesis. Best for most queries.',
-                    badge: 'Recommended',
-                    badgeColor: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-                  },
-                  {
-                    id: 'openai/o3-deep-research',
-                    name: 'o3 Deep Research',
-                    provider: 'OpenAI',
-                    desc: 'Premium reasoning. Deeper analysis, 100K output. For complex multi-step research.',
-                    badge: 'Premium',
-                    badgeColor: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-                  },
-                  {
-                    id: 'perplexity/sonar-deep-research',
-                    name: 'Sonar Deep Research',
-                    provider: 'Perplexity',
-                    desc: 'Iterative source evaluation. Best for current events & multi-domain topics.',
-                    badge: '',
-                    badgeColor: '',
-                  },
-                  {
-                    id: 'alibaba/tongyi-deepresearch-30b-a3b',
-                    name: 'Tongyi DeepResearch',
-                    provider: 'Alibaba',
-                    desc: 'Open-source, ultra-low cost. 30B params, state-of-art on research benchmarks. 131K context.',
-                    badge: 'Budget',
-                    badgeColor: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400',
-                  },
-                ].map((model) => (
-                  <button
-                    key={model.id}
-                    type="button"
-                    onClick={() => setDeepResearchModel(model.id)}
-                    className={`flex items-start gap-3 rounded-lg border px-3 py-2 text-left transition-colors ${
-                      deepResearchModel === model.id
-                        ? 'border-indigo-500 bg-indigo-50 dark:border-indigo-400 dark:bg-indigo-900/20'
-                        : 'border-gray-200 hover:border-gray-300 dark:border-slate-700 dark:hover:border-slate-600'
-                    }`}
-                  >
-                    <div className={`mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border ${
-                      deepResearchModel === model.id
-                        ? 'border-indigo-500 bg-indigo-500'
-                        : 'border-gray-300 dark:border-slate-600'
-                    }`}>
-                      {deepResearchModel === model.id && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-gray-900 dark:text-slate-100">{model.name}</span>
-                        <span className="text-[10px] text-gray-400 dark:text-slate-500">{model.provider}</span>
-                        {model.badge && (
-                          <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${model.badgeColor}`}>
-                            {model.badge}
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-0.5 text-xs text-gray-500 dark:text-slate-400">{model.desc}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Research question */}
-            <div className="mb-4">
-              <label className="text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-slate-300">
-                Research question
-              </label>
               <textarea
                 value={deepResearchQuestion}
                 onChange={(e) => setDeepResearchQuestion(e.target.value)}
-                rows={3}
+                rows={4}
                 maxLength={5000}
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
-                placeholder="e.g. What are the latest approaches to transformer-based protein folding?"
+                className="mt-4 w-full resize-none rounded-xl border border-slate-700/80 bg-slate-800/60 px-4 py-3 text-[15px] leading-relaxed text-slate-100 placeholder-slate-500 transition-colors focus:border-indigo-500/60 focus:bg-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500/40"
+                placeholder="e.g. What are the latest approaches to transformer-based protein folding and how do they compare to AlphaFold3?"
                 autoFocus
               />
-            </div>
 
-            {/* Paper selection */}
-            <div className="mb-4">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-slate-300">
-                  Library context
-                </label>
-                {(availableReferencesQuery.data || []).length > 0 && (
-                  <div className="flex gap-2 text-xs text-indigo-600 dark:text-indigo-400">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const allIds = (availableReferencesQuery.data || [])
-                          .filter(r => r.reference_id)
-                          .map(r => r.reference_id)
-                        setDeepResearchSelectedRefs(new Set(allIds))
-                      }}
-                    >
-                      Select all
-                    </button>
-                    <span className="text-gray-300 dark:text-slate-600">|</span>
-                    <button type="button" onClick={() => setDeepResearchSelectedRefs(new Set())}>
-                      Clear
-                    </button>
-                  </div>
-                )}
+              <div className="mt-1.5 flex items-center justify-between">
+                <span className="text-xs text-slate-600">
+                  {deepResearchQuestion.length > 0 && `${deepResearchQuestion.length.toLocaleString()} / 5,000`}
+                </span>
+                <span className="text-xs text-slate-600">Typically 2-15 min</span>
               </div>
-              <p className="mt-0.5 mb-2 text-xs text-gray-500 dark:text-slate-400">
-                Choose which references to include as context. Leave empty to skip library context.
-              </p>
+            </div>
 
-              {availableReferencesQuery.isLoading ? (
-                <div className="flex items-center gap-2 py-3 text-sm text-gray-500">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading references…
-                </div>
-              ) : (availableReferencesQuery.data || []).length === 0 ? (
-                <p className="py-2 text-xs text-gray-400 dark:text-slate-500">No approved references in this project yet.</p>
-              ) : (
-                <div className="max-h-52 overflow-y-auto rounded-lg border border-gray-200 dark:border-slate-700">
-                  <div className="divide-y divide-gray-100 dark:divide-slate-700">
-                    {(availableReferencesQuery.data || []).map((ref) => {
-                      const isSelected = deepResearchSelectedRefs.has(ref.reference_id)
-                      return (
-                        <label
-                          key={ref.reference_id}
-                          className="flex cursor-pointer items-start gap-2.5 px-3 py-2 hover:bg-gray-50 dark:hover:bg-slate-800"
-                        >
-                          <div className={`mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border ${
-                            isSelected
-                              ? 'border-indigo-500 bg-indigo-500'
-                              : 'border-gray-300 dark:border-slate-600'
-                          }`}>
-                            {isSelected && <Check className="h-3 w-3 text-white" />}
-                          </div>
-                          <input
-                            type="checkbox"
-                            className="sr-only"
-                            checked={isSelected}
-                            onChange={() =>
-                              setDeepResearchSelectedRefs(prev => {
-                                const next = new Set(prev)
-                                next.has(ref.reference_id) ? next.delete(ref.reference_id) : next.add(ref.reference_id)
-                                return next
-                              })
-                            }
-                          />
-                          <div className="min-w-0">
-                            <p className="truncate text-sm text-gray-700 dark:text-slate-300">
-                              {ref.reference?.title || 'Untitled Reference'}
-                            </p>
-                            {(ref.reference?.authors?.length ?? 0) > 0 && (
-                              <p className="truncate text-xs text-gray-400 dark:text-slate-500">
-                                {ref.reference!.authors!.slice(0, 2).join(', ')}
-                                {ref.reference!.authors!.length > 2 ? ' et al.' : ''}
-                                {ref.reference?.year ? ` · ${ref.reference.year}` : ''}
-                              </p>
-                            )}
-                          </div>
-                        </label>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
+            {/* Compact model selector — horizontal pills */}
+            <div className="px-6 pt-3 pb-1">
+              <div className="flex items-center gap-2 mb-2.5">
+                <Cpu className="h-3.5 w-3.5 text-slate-500" />
+                <span className="text-xs font-medium text-slate-400">Model</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  {
+                    id: 'openai/o4-mini-deep-research',
+                    label: 'o4-mini',
+                    badge: 'Recommended',
+                    badgeColor: 'bg-emerald-500/20 text-emerald-400',
+                    icon: Zap,
+                  },
+                  {
+                    id: 'openai/o3-deep-research',
+                    label: 'o3',
+                    badge: 'Premium',
+                    badgeColor: 'bg-amber-500/20 text-amber-400',
+                    icon: Sparkles,
+                  },
+                  {
+                    id: 'perplexity/sonar-deep-research',
+                    label: 'Sonar',
+                    badge: null,
+                    badgeColor: '',
+                    icon: Globe,
+                  },
+                  {
+                    id: 'alibaba/tongyi-deepresearch-30b-a3b',
+                    label: 'Tongyi',
+                    badge: 'Budget',
+                    badgeColor: 'bg-sky-500/20 text-sky-400',
+                    icon: Cpu,
+                  },
+                ].map((model) => {
+                  const isActive = deepResearchModel === model.id
+                  const Icon = model.icon
+                  return (
+                    <button
+                      key={model.id}
+                      type="button"
+                      onClick={() => setDeepResearchModel(model.id)}
+                      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                        isActive
+                          ? 'bg-indigo-500/15 text-indigo-300 ring-1 ring-indigo-500/40'
+                          : 'bg-slate-800/80 text-slate-400 ring-1 ring-slate-700/60 hover:bg-slate-800 hover:text-slate-300 hover:ring-slate-600'
+                      }`}
+                    >
+                      <Icon className={`h-3 w-3 ${isActive ? 'text-indigo-400' : 'text-slate-500'}`} />
+                      {model.label}
+                      {model.badge && (
+                        <span className={`rounded px-1 py-0.5 text-[10px] leading-none font-medium ${model.badgeColor}`}>
+                          {model.badge}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
 
-              {deepResearchSelectedRefs.size > 0 && (
-                <p className="mt-1.5 text-xs text-indigo-600 dark:text-indigo-400">
-                  {deepResearchSelectedRefs.size} reference{deepResearchSelectedRefs.size !== 1 ? 's' : ''} selected
-                </p>
+            {/* Collapsible library context */}
+            <div className="px-6 pt-4 pb-2">
+              <button
+                type="button"
+                onClick={() => setDeepResearchLibraryOpen(!deepResearchLibraryOpen)}
+                className="flex w-full items-center justify-between rounded-lg bg-slate-800/50 px-3 py-2.5 transition-colors hover:bg-slate-800/80"
+              >
+                <div className="flex items-center gap-2">
+                  <Library className="h-3.5 w-3.5 text-slate-500" />
+                  <span className="text-xs font-medium text-slate-400">
+                    Library context
+                    {deepResearchSelectedRefs.size > 0 && (
+                      <span className="ml-1.5 inline-flex items-center justify-center rounded-full bg-indigo-500/20 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-indigo-400">
+                        {deepResearchSelectedRefs.size}
+                      </span>
+                    )}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-slate-600">Optional</span>
+                  {deepResearchLibraryOpen ? (
+                    <ChevronUp className="h-3.5 w-3.5 text-slate-500" />
+                  ) : (
+                    <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
+                  )}
+                </div>
+              </button>
+
+              {deepResearchLibraryOpen && (
+                <div className="mt-2 rounded-lg border border-slate-700/60 bg-slate-800/30">
+                  {(availableReferencesQuery.data || []).length > 0 && (
+                    <div className="flex items-center justify-end gap-2 border-b border-slate-700/40 px-3 py-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const allIds = (availableReferencesQuery.data || [])
+                            .filter(r => r.reference_id)
+                            .map(r => r.reference_id)
+                          setDeepResearchSelectedRefs(new Set(allIds))
+                        }}
+                        className="text-[11px] text-indigo-400 hover:text-indigo-300 transition-colors"
+                      >
+                        Select all
+                      </button>
+                      <span className="text-slate-700">|</span>
+                      <button
+                        type="button"
+                        onClick={() => setDeepResearchSelectedRefs(new Set())}
+                        className="text-[11px] text-indigo-400 hover:text-indigo-300 transition-colors"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  )}
+
+                  {availableReferencesQuery.isLoading ? (
+                    <div className="flex items-center gap-2 px-3 py-4 text-sm text-slate-500">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading references...
+                    </div>
+                  ) : (availableReferencesQuery.data || []).length === 0 ? (
+                    <p className="px-3 py-4 text-xs text-slate-500">No approved references in this project yet.</p>
+                  ) : (
+                    <div className="max-h-44 overflow-y-auto">
+                      <div className="divide-y divide-slate-700/30">
+                        {(availableReferencesQuery.data || []).map((ref) => {
+                          const isSelected = deepResearchSelectedRefs.has(ref.reference_id)
+                          return (
+                            <label
+                              key={ref.reference_id}
+                              className="flex cursor-pointer items-start gap-2.5 px-3 py-2 transition-colors hover:bg-slate-700/20"
+                            >
+                              <div className={`mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border transition-colors ${
+                                isSelected
+                                  ? 'border-indigo-500 bg-indigo-500'
+                                  : 'border-slate-600 hover:border-slate-500'
+                              }`}>
+                                {isSelected && <Check className="h-3 w-3 text-white" />}
+                              </div>
+                              <input
+                                type="checkbox"
+                                className="sr-only"
+                                checked={isSelected}
+                                onChange={() =>
+                                  setDeepResearchSelectedRefs(prev => {
+                                    const next = new Set(prev)
+                                    next.has(ref.reference_id) ? next.delete(ref.reference_id) : next.add(ref.reference_id)
+                                    return next
+                                  })
+                                }
+                              />
+                              <div className="min-w-0">
+                                <p className="truncate text-sm text-slate-300">
+                                  {ref.reference?.title || 'Untitled Reference'}
+                                </p>
+                                {(ref.reference?.authors?.length ?? 0) > 0 && (
+                                  <p className="truncate text-xs text-slate-500">
+                                    {ref.reference!.authors!.slice(0, 2).join(', ')}
+                                    {ref.reference!.authors!.length > 2 ? ' et al.' : ''}
+                                    {ref.reference?.year ? ` \u00b7 ${ref.reference.year}` : ''}
+                                  </p>
+                                )}
+                              </div>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
 
-            <div className="flex justify-end gap-2 pt-1">
+            {/* Action bar — sticky bottom with visual separation */}
+            <div className="sticky bottom-0 flex items-center justify-between border-t border-slate-800 bg-slate-900/95 px-6 py-4 backdrop-blur-sm">
               <button
                 type="button"
                 onClick={() => setIsDeepResearchModalOpen(false)}
-                className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                className="rounded-lg px-4 py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-300"
               >
                 Cancel
               </button>
@@ -2110,7 +2140,7 @@ const ProjectDiscussion = () => {
                 type="button"
                 onClick={handleStartDeepResearch}
                 disabled={!deepResearchQuestion.trim()}
-                className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300 dark:disabled:bg-indigo-500/40"
+                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/20 transition-all hover:bg-indigo-500 hover:shadow-indigo-500/30 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-500 disabled:shadow-none"
               >
                 <FlaskConical className="h-4 w-4" />
                 Start research
