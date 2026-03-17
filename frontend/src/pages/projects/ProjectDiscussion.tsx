@@ -1986,24 +1986,28 @@ const ProjectDiscussion = () => {
                 ].map((model) => {
                   const isActive = deepResearchModel === model.id
                   return (
-                    <button
-                      key={model.id}
-                      type="button"
-                      onClick={() => setDeepResearchModel(model.id)}
-                      title={model.tooltip}
-                      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
-                        isActive
-                          ? 'bg-indigo-500/15 text-indigo-300 ring-1 ring-indigo-500/40'
-                          : 'bg-slate-800/80 text-slate-400 ring-1 ring-slate-700/60 hover:bg-slate-800 hover:text-slate-300 hover:ring-slate-600'
-                      }`}
-                    >
-                      {model.label}
-                      {model.badge && (
-                        <span className={`rounded px-1 py-0.5 text-[10px] leading-none font-medium ${model.badgeColor}`}>
-                          {model.badge}
-                        </span>
-                      )}
-                    </button>
+                    <div key={model.id} className="group relative">
+                      <button
+                        type="button"
+                        onClick={() => setDeepResearchModel(model.id)}
+                        className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                          isActive
+                            ? 'bg-indigo-500/15 text-indigo-300 ring-1 ring-indigo-500/40'
+                            : 'bg-slate-800/80 text-slate-400 ring-1 ring-slate-700/60 hover:bg-slate-800 hover:text-slate-300 hover:ring-slate-600'
+                        }`}
+                      >
+                        {model.label}
+                        {model.badge && (
+                          <span className={`rounded px-1 py-0.5 text-[10px] leading-none font-medium ${model.badgeColor}`}>
+                            {model.badge}
+                          </span>
+                        )}
+                      </button>
+                      <div className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-slate-950 px-3 py-2 text-[11px] text-slate-300 opacity-0 shadow-xl ring-1 ring-slate-700 transition-opacity group-hover:opacity-100">
+                        {model.tooltip}
+                        <div className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-slate-950 ring-1 ring-slate-700 ring-offset-0" style={{ clipPath: 'polygon(0 0, 100% 0, 0 100%)' }} />
+                      </div>
+                    </div>
                   )
                 })}
               </div>
