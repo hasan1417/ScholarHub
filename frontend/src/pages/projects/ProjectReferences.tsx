@@ -4,10 +4,8 @@ import {
   AlertCircle,
   BookOpen,
   Calendar,
-  Check,
   CheckCircle2,
   ChevronDown,
-  Copy,
   Download,
   ExternalLink,
   FileEdit,
@@ -36,7 +34,6 @@ import { PaperChatDrawer } from '../../components/discussion/PaperChatDrawer'
 import CiteInPaperModal from '../../components/references/CiteInPaperModal'
 import { getProjectUrlId } from '../../utils/urlId'
 import { useToast } from '../../hooks/useToast'
-import { makeBibKey } from '../../components/editor/utils/bibKey'
 
 const ProjectReferences = () => {
   const { toast } = useToast()
@@ -78,8 +75,6 @@ const ProjectReferences = () => {
   const [citeTarget, setCiteTarget] = useState<ProjectReferenceSuggestion | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [sortBy, setSortBy] = useState<'recent' | 'title-asc' | 'title-desc' | 'year-desc' | 'year-asc'>('recent')
-  const [copiedId, setCopiedId] = useState<string | null>(null)
-
   useEffect(() => {
     usersAPI.getApiKeys().then((res) => {
       setZoteroConfigured(res.data.zotero?.configured ?? false)
@@ -147,29 +142,7 @@ const ProjectReferences = () => {
     return result
   }, [references, searchQuery, sortBy])
 
-  const generateBibtex = (ref: ProjectReferenceSuggestion['reference']) => {
-    if (!ref) return ''
-    const key = makeBibKey(ref)
-    const fields: string[] = []
-    if (ref.title) fields.push(`  title={${ref.title}}`)
-    if (ref.authors?.length) fields.push(`  author={${ref.authors.join(' and ')}}`)
-    if (ref.year) fields.push(`  year={${ref.year}}`)
-    if (ref.journal) fields.push(`  journal={${ref.journal}}`)
-    if (ref.doi) fields.push(`  doi={${ref.doi}}`)
-    if (ref.url) fields.push(`  url={${ref.url}}`)
-    return `@article{${key},\n${fields.join(',\n')}\n}`
-  }
 
-  const handleCopyBibtex = async (itemId: string, ref: ProjectReferenceSuggestion['reference']) => {
-    const bibtex = generateBibtex(ref)
-    try {
-      await navigator.clipboard.writeText(bibtex)
-      setCopiedId(itemId)
-      setTimeout(() => setCopiedId((prev) => (prev === itemId ? null : prev)), 2000)
-    } catch {
-      toast.error('Failed to copy to clipboard.')
-    }
-  }
 
   const handleAddReference = async (payload: {
     title: string
@@ -759,25 +732,6 @@ const ProjectReferences = () => {
                             Added {decidedAt}
                           </span>
                         )}
-                        {/* Copy BibTeX */}
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1 hover:text-indigo-600 dark:hover:text-indigo-300"
-                          onClick={() => handleCopyBibtex(item.id, ref)}
-                          title="Copy BibTeX entry"
-                        >
-                          {copiedId === item.id ? (
-                            <>
-                              <Check className="h-3 w-3 text-emerald-500" />
-                              <span className="text-emerald-500">Copied!</span>
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="h-3 w-3" />
-                              BibTeX
-                            </>
-                          )}
-                        </button>
                         {/* Cross-feature navigation */}
                         <button
                           type="button"
