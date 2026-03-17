@@ -311,6 +311,7 @@ def _link_to_project(db: Session, ref: Reference, project: Project, user_id) -> 
         status=ProjectReferenceStatus.APPROVED,
         origin=ProjectReferenceOrigin.IMPORT,
         added_by_user_id=user_id,
+        decided_at=datetime.now(timezone.utc),
     )
     try:
         with db.begin_nested():

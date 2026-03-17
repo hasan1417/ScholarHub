@@ -269,6 +269,7 @@ class LibraryToolsMixin:
                     reference_id=existing_ref.id,
                     status=ProjectReferenceStatus.APPROVED,
                     origin=ProjectReferenceOrigin.AUTO_DISCOVERY,
+                    decided_at=datetime.now(timezone.utc),
                 )
                 self.db.add(project_ref)
 
@@ -1322,6 +1323,7 @@ class LibraryToolsMixin:
                         origin=ProjectReferenceOrigin.AUTO_DISCOVERY,
                         added_via_channel_id=channel.id if channel else None,
                         added_by_user_id=current_user.id if current_user else None,
+                        decided_at=datetime.now(timezone.utc),
                     )
                     self.db.add(project_ref)
                 elif channel and not existing_project_ref.added_via_channel_id:

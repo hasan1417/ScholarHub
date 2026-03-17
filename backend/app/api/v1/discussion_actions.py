@@ -328,7 +328,8 @@ def _handle_add_reference(
         project_id=project.id,
         reference_id=ref.id,
         status=ProjectReferenceStatus.APPROVED,
-        origin=ProjectReferenceOrigin.MANUAL_ADD
+        origin=ProjectReferenceOrigin.MANUAL_ADD,
+        decided_at=datetime.now(timezone.utc),
     )
     db.add(project_ref)
     db.commit()
