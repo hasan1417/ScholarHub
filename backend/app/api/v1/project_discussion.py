@@ -1539,6 +1539,131 @@ _ALLOWED_DEEP_RESEARCH_MODELS = {
     "alibaba/tongyi-deepresearch-30b-a3b",
 }
 
+# Models that need external tool execution (agentic models)
+_AGENTIC_DEEP_RESEARCH_MODELS = {
+    "alibaba/tongyi-deepresearch-30b-a3b",
+}
+
+_DEEP_RESEARCH_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search",
+            "description": "Search academic papers and web sources",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "oneOf": [
+                            {"type": "string"},
+                            {"type": "array", "items": {"type": "string"}},
+                        ],
+                        "description": "Search query or list of queries",
+                    }
+                },
+                "required": ["query"],
+            },
+        },
+    }
+]
+
+_MAX_TOOL_ROUNDS = 5
+_SEMANTIC_SCHOLAR_SEARCH_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
+_SS_FIELDS = "title,authors,year,abstract,url,externalIds"
+
+
+async def _execute_search_tool(queries: list[str]) -> str:
+    """Execute academic paper search via Semantic Scholar API."""
+    all_results: list[str] = []
+    headers: dict[str, str] = {}
+    if settings.SEMANTIC_SCHOLAR_API_KEY:
+        headers["x-api-key"] = settings.SEMANTIC_SCHOLAR_API_KEY
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        for q in queries[:5]:  # Max 5 queries per tool call
+            try:
+                resp = await client.get(
+                    _SEMANTIC_SCHOLAR_SEARCH_URL,
+                    params={"query": q, "limit": "5", "fields": _SS_FIELDS},
+                    headers=headers,
+                )
+                if resp.status_code != 200:
+                    all_results.append(f"Search '{q}': no results (status {resp.status_code})")
+                    continue
+                data = resp.json()
+                papers = data.get("data", [])
+                if not papers:
+                    all_results.append(f"Search '{q}': no results")
+                    continue
+                for p in papers:
+                    title = p.get("title", "Unknown")
+                    authors = ", ".join(a.get("name", "") for a in (p.get("authors") or [])[:3])
+                    year = p.get("year", "")
+                    abstract = (p.get("abstract") or "")[:300]
+                    doi = (p.get("externalIds") or {}).get("DOI", "")
+                    all_results.append(
+                        f"- {title} ({authors}, {year})"
+                        + (f" DOI:{doi}" if doi else "")
+                        + (f"\n  {abstract}" if abstract else "")
+                    )
+                await asyncio.sleep(1)  # Rate limit: 1 req/sec
+            except Exception as e:
+                all_results.append(f"Search '{q}': error ({e})")
+                logger.warning("Deep research search tool error for query '%s': %s", q, e)
+
+    return "\n".join(all_results) if all_results else "No results found."
+
+
+async def _run_agentic_deep_research(
+    client: "openai.AsyncOpenAI",
+    model: str,
+    messages: list[dict],
+) -> str:
+    """Run multi-turn tool execution loop for agentic models. Returns final text."""
+    for round_num in range(1, _MAX_TOOL_ROUNDS + 1):
+        logger.info("[deep-research] Agentic round %d/%d, model=%s", round_num, _MAX_TOOL_ROUNDS, model)
+        response = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            tools=_DEEP_RESEARCH_TOOLS,
+        )
+        choice = response.choices[0]
+
+        # Check for tool calls
+        if choice.message.tool_calls:
+            # Add assistant message with tool calls
+            messages.append(choice.message.model_dump())
+
+            for tc in choice.message.tool_calls:
+                fn_name = tc.function.name
+                try:
+                    args = json.loads(tc.function.arguments)
+                except json.JSONDecodeError:
+                    args = {}
+
+                logger.info("[deep-research] Tool call: %s(%s)", fn_name, str(args)[:100])
+
+                if fn_name == "search":
+                    raw_query = args.get("query", [])
+                    queries = raw_query if isinstance(raw_query, list) else [raw_query]
+                    result = await _execute_search_tool(queries)
+                else:
+                    result = f"Unknown tool: {fn_name}"
+
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": result,
+                })
+            continue
+
+        # No tool calls — final response
+        return choice.message.content or ""
+
+    # Exhausted rounds — return whatever we have
+    logger.warning("[deep-research] Exhausted %d tool rounds", _MAX_TOOL_ROUNDS)
+    return messages[-1].get("content", "") if messages else "Research could not be completed."
+
 class DeepResearchRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=5000)
     context_summary: str = Field("", max_length=2000)
@@ -1723,30 +1848,44 @@ async def run_deep_research(
                     "X-Title": "ScholarHub",
                 },
             )
-            stream = await client.chat.completions.create(
-                model=deep_research_model,
-                messages=messages,
-                stream=True,
-            )
 
-            async for chunk in stream:
-                # Keepalive every 15s
-                now = time.monotonic()
-                if now - last_keepalive >= 15:
-                    yield "data: " + json.dumps({"type": "keepalive"}) + "\n\n"
-                    last_keepalive = now
+            use_agentic = deep_research_model in _AGENTIC_DEEP_RESEARCH_MODELS
 
-                delta = chunk.choices[0].delta if chunk.choices else None
-                if not delta or not delta.content:
-                    continue
+            if use_agentic:
+                # Agentic model: multi-turn tool execution loop
+                yield "data: " + json.dumps({"type": "status", "message": "Searching academic sources..."}) + "\n\n"
+                final_text = await _run_agentic_deep_research(client, deep_research_model, messages)
+                # Stream the final text word-by-word for smooth display
+                for word in final_text.split(" "):
+                    token = word + " "
+                    accumulated += token
+                    yield "data: " + json.dumps({"type": "token", "content": token}) + "\n\n"
+            else:
+                # Standard model: direct streaming (OpenAI/Perplexity handle search internally)
+                stream = await client.chat.completions.create(
+                    model=deep_research_model,
+                    messages=messages,
+                    stream=True,
+                )
 
-                token = delta.content
-                if first_token:
-                    yield "data: " + json.dumps({"type": "status", "message": "Generating report..."}) + "\n\n"
-                    first_token = False
+                async for chunk in stream:
+                    # Keepalive every 15s
+                    now = time.monotonic()
+                    if now - last_keepalive >= 15:
+                        yield "data: " + json.dumps({"type": "keepalive"}) + "\n\n"
+                        last_keepalive = now
 
-                accumulated += token
-                yield "data: " + json.dumps({"type": "token", "content": token}) + "\n\n"
+                    delta = chunk.choices[0].delta if chunk.choices else None
+                    if not delta or not delta.content:
+                        continue
+
+                    token = delta.content
+                    if first_token:
+                        yield "data: " + json.dumps({"type": "status", "message": "Generating report..."}) + "\n\n"
+                        first_token = False
+
+                    accumulated += token
+                    yield "data: " + json.dumps({"type": "token", "content": token}) + "\n\n"
 
             # --- Stream finished: build result ---
             response_dict = {
