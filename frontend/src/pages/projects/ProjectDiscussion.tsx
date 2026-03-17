@@ -22,9 +22,6 @@ import {
   ChevronRight,
   ChevronUp,
   Search,
-  Zap,
-  Globe,
-  Cpu,
   FolderOpen,
   FlaskConical,
   Puzzle,
@@ -1954,7 +1951,6 @@ const ProjectDiscussion = () => {
             {/* Compact model selector — horizontal pills */}
             <div className="px-6 pt-3 pb-1">
               <div className="flex items-center gap-2 mb-2.5">
-                <Cpu className="h-3.5 w-3.5 text-slate-500" />
                 <span className="text-xs font-medium text-slate-400">Model</span>
               </div>
               <div className="flex flex-wrap gap-1.5">
@@ -1964,44 +1960,43 @@ const ProjectDiscussion = () => {
                     label: 'o4-mini',
                     badge: 'Recommended',
                     badgeColor: 'bg-emerald-500/20 text-emerald-400',
-                    icon: Zap,
+                    tooltip: 'Fast & affordable. Web search + synthesis. Best for most research queries.',
                   },
                   {
                     id: 'openai/o3-deep-research',
                     label: 'o3',
                     badge: 'Premium',
                     badgeColor: 'bg-amber-500/20 text-amber-400',
-                    icon: Sparkles,
+                    tooltip: 'Premium reasoning with 100K output. For complex multi-step analysis requiring deeper synthesis.',
                   },
                   {
                     id: 'perplexity/sonar-deep-research',
                     label: 'Sonar',
                     badge: null,
                     badgeColor: '',
-                    icon: Globe,
+                    tooltip: 'Iterative source evaluation by Perplexity. Best for current events & multi-domain topics.',
                   },
                   {
                     id: 'alibaba/tongyi-deepresearch-30b-a3b',
                     label: 'Tongyi',
                     badge: 'Budget',
                     badgeColor: 'bg-sky-500/20 text-sky-400',
-                    icon: Cpu,
+                    tooltip: 'Ultra-low cost open-source model. 30B params, 131K context. Good for high-volume exploratory searches.',
                   },
                 ].map((model) => {
                   const isActive = deepResearchModel === model.id
-                  const Icon = model.icon
                   return (
                     <button
                       key={model.id}
                       type="button"
                       onClick={() => setDeepResearchModel(model.id)}
+                      title={model.tooltip}
                       className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
                         isActive
                           ? 'bg-indigo-500/15 text-indigo-300 ring-1 ring-indigo-500/40'
                           : 'bg-slate-800/80 text-slate-400 ring-1 ring-slate-700/60 hover:bg-slate-800 hover:text-slate-300 hover:ring-slate-600'
                       }`}
                     >
-                      <Icon className={`h-3 w-3 ${isActive ? 'text-indigo-400' : 'text-slate-500'}`} />
                       {model.label}
                       {model.badge && (
                         <span className={`rounded px-1 py-0.5 text-[10px] leading-none font-medium ${model.badgeColor}`}>
