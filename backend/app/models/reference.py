@@ -20,6 +20,7 @@ class Reference(Base):
     doi = Column(String(255))
     url = Column(String(1000))
     source = Column(String(100))
+    entry_type = deferred(Column(String(100)))
     journal = Column(String(500))
     abstract = Column(Text)
 
