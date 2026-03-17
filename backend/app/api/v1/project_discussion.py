@@ -1564,10 +1564,34 @@ _DEEP_RESEARCH_TOOLS = [
                 "required": ["query"],
             },
         },
-    }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browse",
+            "description": "Read content from a URL or list of URLs (academic papers, web pages)",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "oneOf": [
+                            {"type": "string"},
+                            {"type": "array", "items": {"type": "string"}},
+                        ],
+                        "description": "URL or list of URLs to read",
+                    },
+                    "goal": {
+                        "type": "string",
+                        "description": "What information to extract",
+                    },
+                },
+                "required": ["url"],
+            },
+        },
+    },
 ]
 
-_MAX_TOOL_ROUNDS = 5
+_MAX_TOOL_ROUNDS = 8
 _SEMANTIC_SCHOLAR_SEARCH_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
 _SS_FIELDS = "title,authors,year,abstract,url,externalIds"
 
@@ -1614,6 +1638,51 @@ async def _execute_search_tool(queries: list[str]) -> str:
     return "\n".join(all_results) if all_results else "No results found."
 
 
+async def _execute_browse_tool(urls: list[str], goal: str = "") -> str:
+    """Fetch content from URLs for the agentic model. Uses Semantic Scholar paper API for DOIs."""
+    results: list[str] = []
+    headers: dict[str, str] = {}
+    if settings.SEMANTIC_SCHOLAR_API_KEY:
+        headers["x-api-key"] = settings.SEMANTIC_SCHOLAR_API_KEY
+
+    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+        for url in urls[:5]:  # Max 5 URLs per tool call
+            try:
+                # If it's a DOI URL, fetch from Semantic Scholar instead
+                doi = None
+                if "doi.org/" in url:
+                    doi = url.split("doi.org/", 1)[-1].strip()
+                if doi:
+                    resp = await client.get(
+                        f"https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}",
+                        params={"fields": "title,authors,year,abstract,tldr"},
+                        headers=headers,
+                    )
+                    if resp.status_code == 200:
+                        p = resp.json()
+                        title = p.get("title", "Unknown")
+                        authors = ", ".join(a.get("name", "") for a in (p.get("authors") or [])[:5])
+                        year = p.get("year", "")
+                        abstract = p.get("abstract") or ""
+                        tldr = (p.get("tldr") or {}).get("text", "")
+                        results.append(
+                            f"## {title} ({authors}, {year})\n"
+                            + (f"Abstract: {abstract}\n" if abstract else "")
+                            + (f"TLDR: {tldr}\n" if tldr else "")
+                        )
+                    else:
+                        results.append(f"Could not fetch DOI {doi} (status {resp.status_code})")
+                else:
+                    # Non-DOI URL — skip (SSRF risk, not worth fetching arbitrary URLs)
+                    results.append(f"URL {url}: skipped (only DOI URLs are fetched for safety)")
+                await asyncio.sleep(1)  # Rate limit
+            except Exception as e:
+                results.append(f"Error fetching {url}: {e}")
+                logger.warning("Deep research browse tool error for '%s': %s", url, e)
+
+    return "\n\n".join(results) if results else "No content could be fetched."
+
+
 async def _run_agentic_deep_research(
     client: "openai.AsyncOpenAI",
     model: str,
@@ -1622,10 +1691,18 @@ async def _run_agentic_deep_research(
     """Run multi-turn tool execution loop for agentic models. Returns final text."""
     for round_num in range(1, _MAX_TOOL_ROUNDS + 1):
         logger.info("[deep-research] Agentic round %d/%d, model=%s", round_num, _MAX_TOOL_ROUNDS, model)
+
+        # After round 6, nudge the model to stop searching and write the report
+        if round_num >= 6:
+            messages.append({
+                "role": "user",
+                "content": "You have gathered enough information. Please stop searching and write your final comprehensive report now. Synthesize all findings into a structured academic report.",
+            })
+
         response = await client.chat.completions.create(
             model=model,
             messages=messages,
-            tools=_DEEP_RESEARCH_TOOLS,
+            tools=_DEEP_RESEARCH_TOOLS if round_num < 7 else [],  # Remove tools in last round to force text output
         )
         choice = response.choices[0]
 
@@ -1647,8 +1724,13 @@ async def _run_agentic_deep_research(
                     raw_query = args.get("query", [])
                     queries = raw_query if isinstance(raw_query, list) else [raw_query]
                     result = await _execute_search_tool(queries)
+                elif fn_name in ("browse", "read", "fetch", "visit"):
+                    raw_urls = args.get("url", args.get("urls", []))
+                    urls = raw_urls if isinstance(raw_urls, list) else [raw_urls]
+                    goal = args.get("goal", "")
+                    result = await _execute_browse_tool(urls, goal)
                 else:
-                    result = f"Unknown tool: {fn_name}"
+                    result = f"Unknown tool: {fn_name}. Available tools: search, browse."
 
                 messages.append({
                     "role": "tool",
@@ -1660,9 +1742,21 @@ async def _run_agentic_deep_research(
         # No tool calls — final response
         return choice.message.content or ""
 
-    # Exhausted rounds — return whatever we have
-    logger.warning("[deep-research] Exhausted %d tool rounds", _MAX_TOOL_ROUNDS)
-    return messages[-1].get("content", "") if messages else "Research could not be completed."
+    # Exhausted rounds — force a final synthesis call without tools
+    logger.warning("[deep-research] Exhausted %d tool rounds, forcing final synthesis", _MAX_TOOL_ROUNDS)
+    messages.append({
+        "role": "user",
+        "content": "Write your final report now based on all the information you have gathered. Do not make any more tool calls.",
+    })
+    try:
+        final_resp = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+        )
+        return final_resp.choices[0].message.content or "Research could not be completed."
+    except Exception as e:
+        logger.error("[deep-research] Final synthesis failed: %s", e)
+        return "Research could not be completed after exhausting search rounds."
 
 class DeepResearchRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=5000)
