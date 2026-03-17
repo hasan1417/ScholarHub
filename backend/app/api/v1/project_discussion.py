@@ -1683,6 +1683,25 @@ async def _execute_browse_tool(urls: list[str], goal: str = "") -> str:
     return "\n\n".join(results) if results else "No content could be fetched."
 
 
+def _parse_xml_tool_calls(text: str) -> list[dict]:
+    """Parse <tool_call> XML tags that some models emit as text instead of structured tool_calls."""
+    import re as _re
+    calls = []
+    for match in _re.finditer(r'<tool_call>\s*(.*?)\s*</tool_call>', text, _re.DOTALL):
+        try:
+            parsed = json.loads(match.group(1))
+            calls.append(parsed)
+        except json.JSONDecodeError:
+            pass
+    return calls
+
+
+def _strip_xml_tool_calls(text: str) -> str:
+    """Remove <tool_call>...</tool_call> blocks from text."""
+    import re as _re
+    return _re.sub(r'<tool_call>\s*.*?\s*</tool_call>', '', text, flags=_re.DOTALL).strip()
+
+
 async def _run_agentic_deep_research(
     client: "openai.AsyncOpenAI",
     model: str,
@@ -1702,11 +1721,38 @@ async def _run_agentic_deep_research(
         response = await client.chat.completions.create(
             model=model,
             messages=messages,
-            tools=_DEEP_RESEARCH_TOOLS if round_num < 7 else [],  # Remove tools in last round to force text output
+            tools=_DEEP_RESEARCH_TOOLS if round_num < 7 else [],
         )
         choice = response.choices[0]
 
-        # Check for tool calls
+        # Check for XML tool calls in text content (Tongyi uses this format)
+        text_content = choice.message.content or ""
+        xml_tool_calls = _parse_xml_tool_calls(text_content) if "<tool_call>" in text_content else []
+
+        if xml_tool_calls:
+            # Handle XML-format tool calls
+            messages.append({"role": "assistant", "content": text_content})
+            for tc_data in xml_tool_calls:
+                fn_name = tc_data.get("name", "")
+                args = tc_data.get("arguments", {})
+                logger.info("[deep-research] XML tool call: %s(%s)", fn_name, str(args)[:100])
+
+                if fn_name == "search":
+                    raw_query = args.get("query", [])
+                    queries = raw_query if isinstance(raw_query, list) else [raw_query]
+                    result = await _execute_search_tool(queries)
+                elif fn_name in ("browse", "read", "fetch", "visit"):
+                    raw_urls = args.get("url", args.get("urls", []))
+                    urls = raw_urls if isinstance(raw_urls, list) else [raw_urls]
+                    goal = args.get("goal", "")
+                    result = await _execute_browse_tool(urls, goal)
+                else:
+                    result = f"Tool result for {fn_name}: not supported"
+
+                messages.append({"role": "user", "content": f"Tool result:\n{result}"})
+            continue
+
+        # Check for structured tool calls (OpenAI format)
         if choice.message.tool_calls:
             # Add assistant message with tool calls
             messages.append(choice.message.model_dump())
@@ -1739,8 +1785,9 @@ async def _run_agentic_deep_research(
                 })
             continue
 
-        # No tool calls — final response
-        return choice.message.content or ""
+        # No tool calls — final response (strip any leftover XML tool call artifacts)
+        final = _strip_xml_tool_calls(choice.message.content or "")
+        return final if final else choice.message.content or ""
 
     # Exhausted rounds — force a final synthesis call without tools
     logger.warning("[deep-research] Exhausted %d tool rounds, forcing final synthesis", _MAX_TOOL_ROUNDS)
