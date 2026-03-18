@@ -475,6 +475,33 @@ def run_project_discovery(
             for stat in result.source_stats
         ]
 
+    # Auto-ingest PDFs for newly discovered references (background, best-effort)
+    if result.references_created > 0:
+        try:
+            from app.models.reference import Reference
+            recent_refs = (
+                db.query(Reference)
+                .filter(
+                    Reference.owner_id == current_user.id,
+                    Reference.pdf_url.isnot(None),
+                    Reference.document_id.is_(None),
+                )
+                .order_by(Reference.created_at.desc())
+                .limit(result.references_created)
+                .all()
+            )
+            ingested = 0
+            for ref in recent_refs:
+                try:
+                    if ingest_reference_pdf(db, ref, owner_id=str(current_user.id)):
+                        ingested += 1
+                except Exception as exc:
+                    logger.warning("Auto-ingest failed for reference %s: %s", ref.id, exc)
+            if ingested:
+                logger.info("Auto-ingested %d/%d reference PDFs after discovery", ingested, len(recent_refs))
+        except Exception as exc:
+            logger.warning("Post-discovery auto-ingest sweep failed: %s", exc)
+
     return DiscoveryRunResponse(
         run_id=run_id,
         total_found=result.total_found,
