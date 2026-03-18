@@ -224,30 +224,41 @@ class WritingToolsMixin:
             yield f"[error streaming response: {str(e)}]"
 
     def _parse_grammar_response(self, response_text: str, original_text: str) -> Dict[str, Any]:
+        import re
         try:
             corrected_text = original_text
             suggestions = []
             score = 85.0
 
-            lines = response_text.split('\n')
-            for line in lines:
-                if line.startswith('CORRECTED_TEXT:'):
-                    corrected_text = line.replace('CORRECTED_TEXT:', '').strip()
-                elif line.startswith('SUGGESTIONS:'):
-                    suggestion_text = line.replace('SUGGESTIONS:', '').strip()
-                    if suggestion_text:
-                        suggestions = [{"text": s.strip(), "type": "suggestion"} for s in suggestion_text.split(',') if s.strip()]
-                elif line.startswith('SCORE:'):
-                    try:
-                        score_text = line.replace('SCORE:', '').strip()
-                        score = float(score_text)
-                    except ValueError:
-                        score = 85.0
+            # Extract sections using regex for multi-line content
+            ct_match = re.search(r'CORRECTED_TEXT:\s*(.+?)(?=SUGGESTIONS:|SCORE:|$)', response_text, re.DOTALL)
+            if ct_match:
+                corrected_text = ct_match.group(1).strip()
+
+            sg_match = re.search(r'SUGGESTIONS:\s*(.+?)(?=SCORE:|$)', response_text, re.DOTALL)
+            if sg_match:
+                raw = sg_match.group(1).strip()
+                # Parse numbered list items, bullet points, or comma-separated
+                items = re.split(r'\n\s*[-•*\d]+[.)]\s*', raw)
+                if len(items) <= 1:
+                    items = [s.strip() for s in raw.split(',')]
+                for item in items:
+                    text = re.sub(r'^\[?\s*|\s*\]?\s*$', '', item).strip()
+                    if text and len(text) > 1:
+                        suggestions.append({"text": text, "type": "suggestion"})
+
+            sc_match = re.search(r'SCORE:\s*(\d+(?:\.\d+)?)', response_text)
+            if sc_match:
+                score = float(sc_match.group(1))
+
+            # Fallback: if nothing parsed, treat entire response as corrected text
+            if corrected_text == original_text and not suggestions:
+                corrected_text = response_text.strip()
 
             return {
                 'corrected_text': corrected_text,
                 'original_text': original_text,
-                'suggestions': suggestions,
+                'suggestions': suggestions or [{"text": "No specific suggestions", "type": "info"}],
                 'overall_score': score
             }
 
