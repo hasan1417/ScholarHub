@@ -502,7 +502,7 @@ class ProjectDiscoveryManager:
         )
 
         try:
-            fast_mode = run_type == ProjectDiscoveryRunType.MANUAL
+            fast_mode = False  # Always augment PDFs so RAG chat has content
             max_fetch_cap = max(5, min(100, max_results * 4))
             aggregated_results: List[DiscoveredPaper] = []
             service_fingerprints: Set[str] = set()
