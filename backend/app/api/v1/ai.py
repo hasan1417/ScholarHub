@@ -1385,15 +1385,26 @@ async def ai_text_tools(
         )
 
         # Call OpenRouter API with selected model (project-configured if provided)
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": "You are a helpful writing assistant for academic and professional writing. Provide clear, concise, and accurate responses. Follow instructions exactly."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
-            max_tokens=1000
-        )
+        messages = [
+            {"role": "system", "content": "You are a helpful writing assistant for academic and professional writing. Provide clear, concise, and accurate responses. Follow instructions exactly."},
+            {"role": "user", "content": prompt}
+        ]
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0.7,
+                max_tokens=1000
+            )
+        except Exception as e:
+            if "temperature" in str(e).lower() or "unsupported parameter" in str(e).lower():
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    max_tokens=1000
+                )
+            else:
+                raise
 
         result = (response.choices[0].message.content or "").strip()
 
