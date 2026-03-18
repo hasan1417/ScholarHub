@@ -167,6 +167,12 @@ def create_paper(
     Returns:
         The created ResearchPaper instance
     """
+    # Ensure content_json always has authoring_mode=latex
+    if content_json is None:
+        content_json = {"authoring_mode": "latex", "latex_source": ""}
+    elif isinstance(content_json, dict) and "authoring_mode" not in content_json:
+        content_json["authoring_mode"] = "latex"
+
     # Build paper kwargs
     paper_kwargs = {
         "title": title,
