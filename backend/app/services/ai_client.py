@@ -93,7 +93,13 @@ class AIClient:
             payload["reasoning"] = {"effort": reasoning_effort}
         payload.update({k: v for k, v in extra_params.items() if v is not None})
 
-        return self.openai_client.responses.create(**payload)
+        try:
+            return self.openai_client.responses.create(**payload)
+        except Exception as e:
+            if "temperature" in str(e).lower() or "unsupported parameter" in str(e).lower():
+                payload.pop("temperature", None)
+                return self.openai_client.responses.create(**payload)
+            raise
 
     def stream_response(
         self,
