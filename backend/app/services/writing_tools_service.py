@@ -236,7 +236,7 @@ class WritingToolsMixin:
                 elif line.startswith('SUGGESTIONS:'):
                     suggestion_text = line.replace('SUGGESTIONS:', '').strip()
                     if suggestion_text:
-                        suggestions = [s.strip() for s in suggestion_text.split(',')]
+                        suggestions = [{"text": s.strip(), "type": "suggestion"} for s in suggestion_text.split(',') if s.strip()]
                 elif line.startswith('SCORE:'):
                     try:
                         score_text = line.replace('SCORE:', '').strip()
@@ -256,6 +256,6 @@ class WritingToolsMixin:
             return {
                 'corrected_text': original_text,
                 'original_text': original_text,
-                'suggestions': ["Error parsing AI response. Please try again."],
+                'suggestions': [{"text": "Error parsing AI response. Please try again.", "type": "error"}],
                 'overall_score': 85.0
             }
