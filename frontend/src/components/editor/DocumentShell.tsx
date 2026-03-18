@@ -82,24 +82,19 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
   }
   const contentWrapRef = useRef<HTMLDivElement>(null)
   const [containerH, setContainerH] = useState<number>(600)
-  const isLatex = Boolean(initialContentJson && typeof initialContentJson === 'object' && (initialContentJson as any).authoring_mode === 'latex')
+  const isLatex = true
   const initialLatexSource = useMemo(() => {
-    if (!isLatex) return ''
     return typeof initialContentJson?.latex_source === 'string' ? initialContentJson?.latex_source : ''
-  }, [initialContentJson, isLatex])
+  }, [initialContentJson])
   const baseInitialHtml = useMemo(() => {
-    if (isLatex) return initialLatexSource || ''
-    return typeof initialContent === 'string' ? initialContent : ''
-  }, [initialContent, initialLatexSource, isLatex])
+    return initialLatexSource || ''
+  }, [initialLatexSource])
   const latestContentRef = useRef<{ html: string; json: any }>({
     html: (expectingCollab && !collabUnavailable) ? '' : baseInitialHtml,
     json: (expectingCollab && !collabUnavailable) ? undefined : initialContentJson,
   })
   const initialSignature = useMemo(() => {
-    if (initialContentJson && typeof initialContentJson === 'object' && initialContentJson.authoring_mode === 'latex') {
-      return typeof initialContentJson.latex_source === 'string' ? initialContentJson.latex_source : baseInitialHtml
-    }
-    return baseInitialHtml
+    return typeof initialContentJson?.latex_source === 'string' ? initialContentJson.latex_source : baseInitialHtml
   }, [baseInitialHtml, initialContentJson])
   const persistedSignatureRef = useRef<string>((expectingCollab && !collabUnavailable) ? '' : initialSignature)
   const autosaveTimerRef = useRef<number | null>(null)
@@ -110,11 +105,8 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
   const prevCollabEnabledRef = useRef<boolean>(false)
 
   const computeContentSignature = useCallback((html: string, json: any) => {
-    if (json && typeof json === 'object' && json.authoring_mode === 'latex') {
-      const latexSrc = json.latex_source
-      return typeof latexSrc === 'string' ? latexSrc : (html || '')
-    }
-    return html || ''
+    const latexSrc = json?.latex_source
+    return typeof latexSrc === 'string' ? latexSrc : (html || '')
   }, [])
 
   const updateLatestContent = useCallback((html: string, json?: any) => {
@@ -146,13 +138,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
           hasJson: Boolean(json),
         })
       } catch {}
-      const payload: any = {}
-      if (json && typeof json === 'object' && json.authoring_mode === 'latex') {
-        payload.content_json = json
-      } else {
-        payload.content = html || ''
-        if (json) payload.content_json = json
-      }
+      const payload: any = { content_json: json }
       await researchPapersAPI.updatePaperContent(paperId, payload)
       persistedSignatureRef.current = signature
       autosavePendingReasonRef.current = null
@@ -582,26 +568,18 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
       try {
         const resp = await researchPapersAPI.getPaper(paperId)
         const data: any = resp.data || {}
-        const isLatexMode = Boolean(
-          data?.content_json &&
-          typeof data.content_json === 'object' &&
-          data.content_json.authoring_mode === 'latex'
-        )
-        const latexSource: string = isLatexMode ? (data.content_json?.latex_source || '') : ''
-        const richHtml: string = !isLatexMode ? (data.content || '') : ''
+        const latexSource: string = data.content_json?.latex_source || ''
         if (!mounted) return
 
-        const working = isLatexMode ? (latexSource || '') : (richHtml || '')
+        const working = latexSource
         const realtimeActive = collabEnabled && collab.doc
         const realtimeSynced = realtimeActive && collabSynced
         const realtimeDoc = realtimeSynced && collab.doc ? collab.doc.getText('main') : null
         const hasRealtimeContent = Boolean(realtimeDoc && realtimeDoc.length > 0)
         const resolvedContent = hasRealtimeContent ? realtimeDoc!.toString() : working
 
-        const serverJson = isLatexMode ? (data.content_json || { authoring_mode: 'latex', latex_source: working }) : data.content_json
-        const latestJson = isLatexMode
-          ? { ...(serverJson || {}), authoring_mode: 'latex', latex_source: resolvedContent }
-          : serverJson
+        const serverJson = data.content_json || { authoring_mode: 'latex', latex_source: working }
+        const latestJson = { ...(serverJson || {}), authoring_mode: 'latex', latex_source: resolvedContent }
         const serverSignature = computeContentSignature(working, serverJson)
         const resolvedSignature = computeContentSignature(resolvedContent, latestJson)
 
@@ -614,13 +592,13 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
           }
           console.info('[DocumentShell] Hydrating adapter content (realtime disabled for this session)', {
             paperId,
-            mode: isLatex ? 'latex' : 'rich',
+            mode: 'latex',
           })
           await adapterRef.current?.setContent?.(working)
         } else {
           console.info('[DocumentShell] Skipping local content hydrate until realtime bootstrap', {
             paperId,
-            mode: isLatex ? 'latex' : 'rich',
+            mode: 'latex',
             serverLength: working.length,
           })
           updateLatestContent('', null)
@@ -632,7 +610,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
           if (!realtimeSynced) {
             console.info('[DocumentShell] Waiting for realtime sync before hydrating adapter', {
               paperId,
-              mode: isLatex ? 'latex' : 'rich',
+              mode: 'latex',
             })
           } else if (!hasRealtimeContent) {
             console.info('[DocumentShell] Realtime synced but doc empty; deferring to realtime bootstrap', {

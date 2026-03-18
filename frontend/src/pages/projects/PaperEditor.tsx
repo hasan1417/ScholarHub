@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { researchPapersAPI } from '../../services/api'
 import { ResearchPaper } from '../../types'
 import DocumentShell from '../../components/editor/DocumentShell'
-import OOAdapter from '../../components/editor/adapters/OOAdapter'
 import LatexAdapter from '../../components/editor/adapters/LatexAdapter'
 import { useProjectContext } from './ProjectLayout'
 import { getPaperUrlId } from '../../utils/urlId'
@@ -15,16 +14,12 @@ const PaperEditor: React.FC = () => {
   const [paper, setPaper] = useState<ResearchPaper | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const autoSaveStatus: 'idle' | 'saving' | 'success' | 'error' = 'idle'
-
   const navigateBackToProject = () => {
     const id = projectId || paper?.project_id
     navigate(id ? `/projects/${id}` : '/projects')
   }
 
-  // Enhanced state variables for TipTap JSON content
   const [contentJson, setContentJson] = useState<any>(null)
-  const autoSaveTimeoutRef = useRef<number | null>(null)
 
   useEffect(() => {
     if (paperId) {
@@ -47,33 +42,12 @@ const PaperEditor: React.FC = () => {
     // we intentionally include paper so viewers coming from non-project routes still redirect once data loads
   }, [currentRole, paperId, projectId, paper])
 
-  // Cleanup timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (autoSaveTimeoutRef.current) {
-        window.clearTimeout(autoSaveTimeoutRef.current)
-      }
-    }
-  }, [])
-
   // Initialize content from paper data (only when paper changes)
   useEffect(() => {
     if (paper) {
-      // For LaTeX papers, keep JSON as source of truth; for rich, keep JSON null
-      try {
-        const mode = (paper.content_json as any)?.authoring_mode
-        if (mode === 'latex') {
-          setContentJson(paper.content_json)
-        } else {
-          setContentJson(null)
-        }
-      } catch {
-        setContentJson(null)
-      }
+      setContentJson(paper.content_json ?? null)
     }
-  }, [paper]) // Only depend on paper
-
-  // Enhanced content change handler supporting JSON content
+  }, [paper])
 
 
 
@@ -89,16 +63,7 @@ const PaperEditor: React.FC = () => {
         hasJson: Boolean(response?.data?.content_json),
       })
       setPaper(response.data)
-      try {
-        const mode = (response.data.content_json as any)?.authoring_mode
-        if (mode === 'latex') {
-          setContentJson(response.data.content_json)
-        } else {
-          setContentJson(null)
-        }
-      } catch {
-        setContentJson(null)
-      }
+      setContentJson(response.data.content_json ?? null)
     } catch (error) {
       console.error('Error loading paper:', error)
       setError('Failed to load paper')
@@ -168,14 +133,6 @@ const PaperEditor: React.FC = () => {
     )
   }
 
-  // Check if this is a LaTeX paper based on content_json.authoring_mode
-  const isLatexPaper = Boolean(
-    (paper?.content_json && typeof paper.content_json === 'object' && 
-     (paper.content_json as any).authoring_mode === 'latex') ||
-    (contentJson && typeof contentJson === 'object' && 
-     (contentJson as any).authoring_mode === 'latex')
-  )
-
   const defaultPaperRole: 'admin' | 'editor' | 'viewer' = currentRole === 'admin'
     ? 'admin'
     : currentRole === 'editor'
@@ -183,69 +140,17 @@ const PaperEditor: React.FC = () => {
       : 'viewer'
 
   return (
-    <div>
-      {/* Auto-save Status Bar (hide for LaTeX mode; status shown in editor toolbar) */}
-      {!isLatexPaper && autoSaveStatus !== 'idle' && (
-        <div className={`fixed top-4 right-4 z-50 rounded-md border px-4 py-2 shadow-lg transition-all duration-300 ${
-          autoSaveStatus === 'saving'
-            ? 'border-blue-300 bg-blue-100 text-blue-700 dark:border-blue-500/40 dark:bg-blue-500/15 dark:text-blue-200'
-            : autoSaveStatus === 'success'
-              ? 'border-green-300 bg-green-100 text-green-700 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-200'
-              : 'border-red-300 bg-red-100 text-red-700 dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-200'
-        }`}>
-          <div className="flex items-center space-x-2">
-            {autoSaveStatus === 'saving' && (
-              <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent"></div>
-            )}
-            {autoSaveStatus === 'success' && (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-            )}
-            {autoSaveStatus === 'error' && (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            )}
-            <span className="text-sm font-medium">
-              {autoSaveStatus === 'saving' ? 'Auto-saving...' :
-               autoSaveStatus === 'success' ? 'Auto-saved!' :
-               'Auto-save failed'}
-            </span>
-          </div>
-        </div>
-      )}
-      
-      {isLatexPaper ? (
-        /* LaTeX papers now use DocumentShell header via LatexAdapter */
-        <div className="fixed inset-0 bg-white transition-colors dark:bg-slate-950">
-          <DocumentShell
-            paperId={paper.id}
-            projectId={projectId || paper.project_id || undefined}
-            paperTitle={paper.title}
-            initialContent={''}
-            initialContentJson={contentJson || paper.content_json}
-            Adapter={LatexAdapter as any}
-            fullBleed
-            initialPaperRole={defaultPaperRole}
-          />
-        </div>
-      ) : (
-        /* Rich text papers use OnlyOffice standalone (no DocumentShell wrapper) */
-        <div className="fixed inset-0 bg-white transition-colors dark:bg-slate-950">
-          <OOAdapter
-            paperId={paper.id}
-            paperTitle={paper.title}
-            content={paper.content || ''}
-            contentJson={paper.content_json}
-            onContentChange={() => {}}
-            onSelectionChange={() => {}}
-            className="h-full w-full"
-            readOnly={defaultPaperRole === 'viewer'}
-            onNavigateBack={() => navigate(projectId ? `/projects/${projectId}` : '/projects')}
-          />
-        </div>
-      )}
+    <div className="fixed inset-0 bg-white transition-colors dark:bg-slate-950">
+      <DocumentShell
+        paperId={paper.id}
+        projectId={projectId || paper.project_id || undefined}
+        paperTitle={paper.title}
+        initialContent={''}
+        initialContentJson={contentJson || paper.content_json}
+        Adapter={LatexAdapter as any}
+        fullBleed
+        initialPaperRole={defaultPaperRole}
+      />
     </div>
   )
 }

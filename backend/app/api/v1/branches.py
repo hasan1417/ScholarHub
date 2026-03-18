@@ -69,122 +69,6 @@ def _get_paper_or_404(db: Session, paper_id: str) -> ResearchPaper:
     return paper
 
 
-def calculate_changes_from_html(previous_content: str, new_content: str) -> List[dict]:
-    """Calculate changes between two HTML content versions"""
-    from bs4 import BeautifulSoup
-    import re
-    
-    def html_to_text(html: str) -> str:
-        soup = BeautifulSoup(html, 'html.parser')
-        return soup.get_text(strip=True, separator=' ')
-    
-    def extract_sections(html: str) -> List[dict]:
-        soup = BeautifulSoup(html, 'html.parser')
-        sections = []
-        
-        # Extract headings
-        for i, heading in enumerate(soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])):
-            sections.append({
-                'type': f'Heading ({heading.name.upper()})',
-                'content': heading.get_text(strip=True)
-            })
-        
-        # Extract paragraphs
-        for i, p in enumerate(soup.find_all('p')):
-            text = p.get_text(strip=True)
-            if text and len(text) > 10:
-                sections.append({
-                    'type': f'Paragraph {i + 1}',
-                    'content': text[:150] + '...' if len(text) > 150 else text
-                })
-        
-        # If no sections found, return full text
-        if not sections:
-            text = html_to_text(html)
-            if text:
-                sections.append({
-                    'type': 'Content',
-                    'content': text[:200] + '...' if len(text) > 200 else text
-                })
-        
-        return sections
-    
-    changes = []
-    
-    if previous_content != new_content:
-        old_sections = extract_sections(previous_content)
-        new_sections = extract_sections(new_content)
-        
-        if not old_sections and new_sections:
-            # New content added
-            for i, section in enumerate(new_sections):
-                changes.append({
-                    'type': 'insert',
-                    'section': section['type'],
-                    'newContent': section['content'],
-                    'position': i
-                })
-        elif old_sections and not new_sections:
-            # Content deleted
-            for i, section in enumerate(old_sections):
-                changes.append({
-                    'type': 'delete',
-                    'section': section['type'],
-                    'oldContent': section['content'],
-                    'position': i
-                })
-        else:
-            # Content modified
-            max_sections = max(len(old_sections), len(new_sections))
-            
-            for i in range(max_sections):
-                old_section = old_sections[i] if i < len(old_sections) else None
-                new_section = new_sections[i] if i < len(new_sections) else None
-                
-                if not old_section and new_section:
-                    changes.append({
-                        'type': 'insert',
-                        'section': new_section['type'],
-                        'newContent': new_section['content'],
-                        'position': i
-                    })
-                elif old_section and not new_section:
-                    changes.append({
-                        'type': 'delete',
-                        'section': old_section['type'],
-                        'oldContent': old_section['content'],
-                        'position': i
-                    })
-                elif old_section and new_section and old_section['content'] != new_section['content']:
-                    changes.append({
-                        'type': 'update',
-                        'section': new_section['type'],
-                        'oldContent': old_section['content'],
-                        'newContent': new_section['content'],
-                        'position': i
-                    })
-        
-        # If no changes detected, add general update
-        if not changes:
-            old_text = html_to_text(previous_content)
-            new_text = html_to_text(new_content)
-            
-            changes.append({
-                'type': 'update',
-                'section': 'Document Content',
-                'oldContent': old_text[:100] + '...' if len(old_text) > 100 else old_text,
-                'newContent': new_text[:100] + '...' if len(new_text) > 100 else new_text,
-                'position': 0
-            })
-    
-    return changes if changes else [{
-        'type': 'insert',
-        'section': 'Initial Content',
-        'newContent': 'Document created with initial content',
-        'position': 0
-    }]
-
-
 def _display_name(user: User) -> str:
     """Return a safe display name for a user (first + last or email)."""
     first = getattr(user, 'first_name', None) or ''
@@ -277,18 +161,13 @@ def get_branches(
         db.commit()
         db.refresh(main_branch)
         
-        # Create initial commit — respect LaTeX vs Rich
+        # Create initial commit
         pj = getattr(paper, 'content_json', None)
-        is_latex = False
-        try:
-            is_latex = bool(isinstance(pj, dict) and pj.get('authoring_mode') == 'latex')
-        except Exception:
-            is_latex = False
         initial_commit = Commit(
             branch_id=main_branch.id,
             message='Initial commit',
-            content='' if is_latex else (paper.content or ''),
-            content_json=pj if is_latex else getattr(paper, 'content_json', None),
+            content='',
+            content_json=pj,
             author_id=current_user.id,
             changes=[{
                 'type': 'insert',
@@ -330,14 +209,12 @@ def switch_branch(
     if latest_commit:
         try:
             cj = latest_commit.content_json if isinstance(latest_commit.content_json, dict) else None
-            if cj and cj.get('authoring_mode') == 'latex':
+            if cj:
                 content = cj.get('latex_source') or ''
             else:
                 content = latest_commit.content or ''
         except Exception:
             content = latest_commit.content or ''
-    else:
-        content = ''
     
     return BranchSwitchResponse(
         branch=_serialize_branch(branch_obj, author),
@@ -381,19 +258,8 @@ def commit_changes(
     if not branch:
         raise HTTPException(status_code=404, detail="Branch not found")
     
-    # Get previous commit to calculate changes
-    previous_commit = db.query(Commit).filter(
-        Commit.branch_id == branch_id
-    ).order_by(desc(Commit.timestamp)).first()
-    
-    previous_content = previous_commit.content if previous_commit else ''
-    # For LaTeX payloads, do not attempt HTML diff
-    is_latex = False
-    try:
-        is_latex = bool(commit.content_json and isinstance(commit.content_json, dict) and commit.content_json.get('authoring_mode') == 'latex')
-    except Exception:
-        is_latex = False
-    changes = [] if is_latex else calculate_changes_from_html(previous_content, commit.content)
+    # All papers are LaTeX — no HTML diff needed
+    changes = []
     
     # Create the commit
     db_commit = Commit(

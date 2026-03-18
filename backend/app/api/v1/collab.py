@@ -55,17 +55,8 @@ def _assert_membership(db: Session, paper: ResearchPaper, user: User) -> None:
 
 
 def _ensure_latex_authoring(paper: ResearchPaper) -> None:
-    json_mode = None
-    if isinstance(paper.content_json, dict):
-        json_mode = paper.content_json.get("authoring_mode")
-
-    is_latex_format = (paper.format or "").lower() == "latex"
-
-    if not (is_latex_format or json_mode == "latex"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Realtime collaboration is available only for LaTeX papers",
-        )
+    """All papers are LaTeX-only. This is kept as a no-op for future validation."""
+    pass
 
 
 @router.post("/token")

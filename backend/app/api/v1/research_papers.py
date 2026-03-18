@@ -522,7 +522,7 @@ async def update_paper_content(
     if content_update.content is not None:
         paper.content = content_update.content
     if content_update.content_json is not None:
-        # Preserve authoring_mode if caller omitted it (prevents LaTeX→rich flips)
+        # Preserve authoring_mode if caller omitted it
         try:
             incoming = content_update.content_json
             existing = paper.content_json

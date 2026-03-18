@@ -76,7 +76,6 @@ def _handle_create_paper(
 
     title = str(payload.get("title", "Untitled Paper")).strip()
     paper_type = str(payload.get("paper_type", "research")).strip()
-    authoring_mode = str(payload.get("authoring_mode", "latex")).strip()  # Default to latex
     abstract = payload.get("abstract")
     objectives = payload.get("objectives", [])
     keywords = payload.get("keywords", [])
@@ -97,23 +96,15 @@ def _handle_create_paper(
     if paper_type not in valid_types:
         paper_type = "research"
 
-    # Validate authoring_mode
-    if authoring_mode not in {"latex", "rich"}:
-        authoring_mode = "latex"
-
     content = None
     content_json: Dict[str, Any] = {}
 
     # If AI provided initial content, use it directly
     if initial_content:
-        if authoring_mode == "latex":
-            content_json = {
-                "authoring_mode": "latex",
-                "latex_source": initial_content
-            }
-        else:
-            content = initial_content
-            content_json = {"authoring_mode": "rich"}
+        content_json = {
+            "authoring_mode": "latex",
+            "latex_source": initial_content
+        }
     else:
         # Fall back to template
         template = next(
@@ -122,24 +113,16 @@ def _handle_create_paper(
         )
 
         if template:
-            if authoring_mode == "latex":
-                content_json = {
-                    "authoring_mode": "latex",
-                    "latex_source": template.get("latexTemplate", "")
-                }
-            else:
-                content = template.get("richTemplate", "")
-                content_json = {"authoring_mode": "rich"}
+            content_json = {
+                "authoring_mode": "latex",
+                "latex_source": template.get("latexTemplate", "")
+            }
         else:
             # Fallback if no template found
-            if authoring_mode == "latex":
-                content_json = {
-                    "authoring_mode": "latex",
-                    "latex_source": "\\documentclass{article}\n\\begin{document}\n\n\\end{document}"
-                }
-            else:
-                content = "# " + title + "\n\n"
-                content_json = {"authoring_mode": "rich"}
+            content_json = {
+                "authoring_mode": "latex",
+                "latex_source": "\\documentclass{article}\n\\begin{document}\n\n\\end{document}"
+            }
 
     # Use centralized paper service for creation + member + initial snapshot
     from app.services.paper_service import create_paper
@@ -160,14 +143,14 @@ def _handle_create_paper(
     )
 
     logger.info(
-        "Paper created via discussion AI: paper_id=%s title=%s type=%s mode=%s",
-        paper.id, title, paper_type, authoring_mode
+        "Paper created via discussion AI: paper_id=%s title=%s type=%s",
+        paper.id, title, paper_type
     )
 
     return PaperActionResponse(
         success=True,
         paper_id=str(paper.id),
-        message=f"Created '{title}' ({paper_type}, {authoring_mode})"
+        message=f"Created '{title}' ({paper_type})"
     )
 
 
@@ -213,28 +196,22 @@ def _handle_edit_paper(
     if not member and paper.owner_id != user.id:
         return PaperActionResponse(success=False, message="No permission to edit this paper")
 
-    # Apply edit based on authoring mode
-    if isinstance(paper.content_json, dict) and paper.content_json.get("authoring_mode") == "latex":
+    # Apply edit to LaTeX source
+    latex_source = ""
+    if isinstance(paper.content_json, dict):
         latex_source = paper.content_json.get("latex_source", "")
-        if original not in latex_source:
-            return PaperActionResponse(
-                success=False,
-                message="Original text not found in paper. The content may have changed."
-            )
 
-        new_latex = latex_source.replace(original, proposed, 1)
-        paper.content_json = {
-            **paper.content_json,
-            "latex_source": new_latex
-        }
-    else:
-        if not paper.content or original not in paper.content:
-            return PaperActionResponse(
-                success=False,
-                message="Original text not found in paper. The content may have changed."
-            )
+    if original not in latex_source:
+        return PaperActionResponse(
+            success=False,
+            message="Original text not found in paper. The content may have changed."
+        )
 
-        paper.content = paper.content.replace(original, proposed, 1)
+    new_latex = latex_source.replace(original, proposed, 1)
+    paper.content_json = {
+        **paper.content_json,
+        "latex_source": new_latex
+    }
 
     db.commit()
 

@@ -103,8 +103,6 @@ services:
       - DAILY_RAW_TRACKS_S3_PREFIX=${DAILY_RAW_TRACKS_S3_PREFIX:-}
       - TRANSCRIBER_ENABLED=${TRANSCRIBER_ENABLED:-false}
       - TRANSCRIBER_BASE_URL=${TRANSCRIBER_BASE_URL:-http://transcriber:9000}
-      - ONLYOFFICE_DOCSERVER_URL=http://onlyoffice
-      - ONLYOFFICE_JWT_SECRET=${ONLYOFFICE_JWT_SECRET:-}
       - BACKEND_PUBLIC_URL=${BACKEND_PUBLIC_URL:-http://backend:8000}
       - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS:-["http://localhost:3000","http://localhost:8000","http://localhost:8082"]}
       - PROJECT_COLLAB_REALTIME_ENABLED=${PROJECT_COLLAB_REALTIME_ENABLED:-false}
@@ -157,36 +155,6 @@ services:
       - ./frontend:/app
       - /app/node_modules
 
-  # OnlyOffice Document Server
-  onlyoffice:
-    image: onlyoffice/documentserver:9.1.0
-    container_name: scholarhub-onlyoffice
-    depends_on:
-      - backend
-    ports:
-      - "8080:80"
-    environment:
-      - AI_ENABLED=true
-      - JWT_ENABLED=false
-      - JWT_SECRET=
-      - WOPI_ENABLED=false
-      - USE_UNAUTHORIZED_STORAGE=true
-      - ALLOW_PRIVATE_IP_ADDRESS=true
-    volumes:
-      - onlyoffice_data:/var/www/onlyoffice/Data
-      - onlyoffice_logs:/var/log/onlyoffice
-      # Mount custom plugins without overriding native OnlyOffice plugins
-      - ./backend/static/plugins/sh-bridge:/var/www/onlyoffice/documentserver/sdkjs-plugins/sh-bridge
-      - ./backend/static/plugins/sh-refs:/var/www/onlyoffice/documentserver/sdkjs-plugins/sh-refs
-      - ./backend/static/plugins/sch-references:/var/www/onlyoffice/documentserver/sdkjs-plugins/sch-references
-      - ./backend/static/plugins/sch-insert-text:/var/www/onlyoffice/documentserver/sdkjs-plugins/sch-insert-text
-      - ./backend/static/plugins/hello-world:/var/www/onlyoffice/documentserver/sdkjs-plugins/hello-world
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/healthcheck"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
   # Optional Jitsi Meet stack for Sync Space calls
   jitsi-prosody:
@@ -370,8 +338,6 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  onlyoffice_data:
-  onlyoffice_logs:
   marker_models:  # Persist Marker ML models for PDF extraction
 
 networks:

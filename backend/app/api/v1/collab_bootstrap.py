@@ -44,10 +44,9 @@ def _extract_latex_payload(paper: ResearchPaper) -> Dict[str, Any]:
 
     if isinstance(paper.content_json, dict):
         content_json = dict(paper.content_json)
-        if content_json.get("authoring_mode") == "latex":
-            candidate = content_json.get("latex_source")
-            if isinstance(candidate, str):
-                latex_source = candidate
+        candidate = content_json.get("latex_source")
+        if isinstance(candidate, str):
+            latex_source = candidate
     if not latex_source:
         if isinstance(paper.content, str):
             latex_source = paper.content

@@ -14,7 +14,7 @@ if not _app_logger.handlers:
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
-from app.api.v1 import auth, users, research_papers, documents, ai, team, branches, discovery, references, latex, onlyoffice, metrics, comments, section_locks, collab, collab_bootstrap, snapshots, subscription
+from app.api.v1 import auth, users, research_papers, documents, ai, team, branches, discovery, references, latex, metrics, comments, section_locks, collab, collab_bootstrap, snapshots, subscription
 from app.core.config import settings
 from app.core.rate_limiter import init_rate_limiter
 from app.database import engine
@@ -148,7 +148,6 @@ app.include_router(branches.router, prefix="/api/v1/branches", tags=["branch man
 app.include_router(discovery.router, prefix="/api/v1/discovery", tags=["paper discovery & literature review"])
 app.include_router(references.router, prefix="/api/v1/references", tags=["references"])
 app.include_router(latex.router, prefix="/api/v1", tags=["latex"])
-app.include_router(onlyoffice.router, prefix="/onlyoffice", tags=["onlyoffice"])
 app.include_router(metrics.router, prefix="/api/v1", tags=["metrics"])
 app.include_router(comments.router, prefix="/api/v1", tags=["comments"])
 app.include_router(section_locks.router, prefix="/api/v1", tags=["section-locks"])

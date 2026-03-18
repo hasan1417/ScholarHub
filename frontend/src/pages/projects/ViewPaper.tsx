@@ -3,7 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import { researchPapersAPI } from '../../services/api'
 import { ResearchPaper } from '../../types'
-import OOAdapter from '../../components/editor/adapters/OOAdapter'
 import LatexPdfViewer from '../../components/editor/LatexPdfViewer'
 import { getPaperUrlId } from '../../utils/urlId'
 
@@ -28,28 +27,6 @@ const LatexPaperView: React.FC<LatexPaperViewProps> = ({ paper, latexSource, onB
       <div className="w-24" />
     </div>
     <LatexPdfViewer latexSource={latexSource} paperId={paper.id} />
-  </div>
-)
-
-interface OnlyOfficePaperViewProps {
-  paper: ResearchPaper
-  parsedContentJson: any
-  onBack: () => void
-}
-
-const OnlyOfficePaperView: React.FC<OnlyOfficePaperViewProps> = ({ paper, parsedContentJson, onBack }) => (
-  <div className="fixed inset-0">
-    <OOAdapter
-      paperId={paper.id}
-      paperTitle={paper.title}
-      content={paper.content || ''}
-      contentJson={parsedContentJson}
-      onContentChange={() => {}}
-      onSelectionChange={() => {}}
-      className="h-full w-full"
-      readOnly={true}
-      onNavigateBack={onBack}
-    />
   </div>
 )
 
@@ -154,30 +131,13 @@ const ViewPaper: React.FC = () => {
     )
   }
 
-  const isLatexPaper = Boolean(
-    parsedContentJson &&
-    typeof parsedContentJson === 'object' &&
-    (parsedContentJson as any).authoring_mode === 'latex'
-  )
-  const latexSource = isLatexPaper
-    ? String((parsedContentJson as any)?.latex_source || '')
-    : ''
-
-  if (isLatexPaper) {
-    return (
-      <LatexPaperView
-        paper={paper}
-        latexSource={latexSource}
-        onBack={() => navigate(resolveProjectPath(`/papers/${getPaperUrlId(paper)}`))}
-      />
-    )
-  }
+  const latexSource = String((parsedContentJson as any)?.latex_source || '')
 
   return (
-    <OnlyOfficePaperView
+    <LatexPaperView
       paper={paper}
-      parsedContentJson={parsedContentJson}
-      onBack={() => navigate(resolveProjectPath())}
+      latexSource={latexSource}
+      onBack={() => navigate(resolveProjectPath(`/papers/${getPaperUrlId(paper)}`))}
     />
   )
 }

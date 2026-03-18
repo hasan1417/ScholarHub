@@ -8,7 +8,6 @@ import { getProjectUrlId, getPaperUrlId } from '../../utils/urlId'
 
 type SortOption = 'newest' | 'oldest' | 'title-az' | 'title-za'
 type CategoryFilter = 'all' | 'literature_review' | 'research' | 'review' | 'survey' | 'other'
-type EditorFilter = 'all' | 'latex' | 'rich'
 
 const ProjectPapers = () => {
   const { project, currentRole } = useProjectContext()
@@ -17,7 +16,6 @@ const ProjectPapers = () => {
   // Filter & sort state
   const [searchTerm, setSearchTerm] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all')
-  const [editorFilter, setEditorFilter] = useState<EditorFilter>('all')
   const [sortBy, setSortBy] = useState<SortOption>('newest')
 
   const { data, isLoading } = useQuery({
@@ -57,16 +55,6 @@ const ProjectPapers = () => {
       })
     }
 
-    // Editor filter
-    if (editorFilter !== 'all') {
-      filtered = filtered.filter((paper) => {
-        const isLatex = paper.content_json?.authoring_mode === 'latex'
-        if (editorFilter === 'latex') return isLatex
-        if (editorFilter === 'rich') return !isLatex
-        return true
-      })
-    }
-
     // Sort
     filtered.sort((a, b) => {
       switch (sortBy) {
@@ -84,7 +72,7 @@ const ProjectPapers = () => {
     })
 
     return filtered
-  }, [allPapers, searchTerm, categoryFilter, editorFilter, sortBy])
+  }, [allPapers, searchTerm, categoryFilter, sortBy])
 
   const getStatusColor = (status: string) => {
     const normalized = status?.toLowerCase() || 'draft'
@@ -233,20 +221,6 @@ const ProjectPapers = () => {
             <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
           </div>
 
-          {/* Editor Filter */}
-          <div className="relative">
-            <select
-              value={editorFilter}
-              onChange={(e) => setEditorFilter(e.target.value as EditorFilter)}
-              className="h-9 appearance-none rounded-lg border border-gray-200 bg-gray-50 pl-3 pr-8 text-sm font-medium text-gray-700 focus:border-indigo-300 focus:outline-none focus:ring-1 focus:ring-indigo-300 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
-            >
-              <option value="all">All Editors</option>
-              <option value="latex">LaTeX</option>
-              <option value="rich">Rich Text</option>
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-          </div>
-
           {/* Sort */}
           <div className="relative">
             <select
@@ -284,9 +258,6 @@ const ProjectPapers = () => {
       ) : (
         <div className="mt-6 space-y-2">
           {papers.map((paper) => {
-            // Detect editor type from authoring_mode in content_json
-            const authoringMode = paper.content_json?.authoring_mode
-            const isLatex = authoringMode === 'latex'
             const objectiveList = Array.isArray(paper.objectives)
               ? paper.objectives.filter(Boolean)
               : paper.objectives
@@ -303,11 +274,7 @@ const ProjectPapers = () => {
               >
                 {/* Icon - color based on category */}
                 <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg ${categoryStyle.icon}`}>
-                  {isLatex ? (
-                    <FileCode className={`h-5 w-5 ${categoryStyle.iconColor}`} />
-                  ) : (
-                    <FileText className={`h-5 w-5 ${categoryStyle.iconColor}`} />
-                  )}
+                  <FileCode className={`h-5 w-5 ${categoryStyle.iconColor}`} />
                 </div>
 
                 {/* Content - fixed width sections */}
@@ -332,14 +299,6 @@ const ProjectPapers = () => {
                         </span>
                       )}
 
-                      {/* Editor type badge */}
-                      <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                        isLatex
-                          ? 'bg-purple-100 text-purple-700 dark:bg-purple-400/10 dark:text-purple-300'
-                          : 'bg-sky-100 text-sky-700 dark:bg-sky-400/10 dark:text-sky-300'
-                      }`}>
-                        {isLatex ? 'LaTeX' : 'Rich'}
-                      </span>
                     </div>
                   </div>
 
