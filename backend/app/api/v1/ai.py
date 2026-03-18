@@ -1264,7 +1264,7 @@ async def get_paper_references_chat_status(
 # AI Text Tools Models
 class TextToolsRequest(BaseModel):
     text: str
-    action: str  # 'paraphrase', 'tone', 'summarize', 'explain', 'synonyms', 'expand', 'simplify'
+    action: str  # 'paraphrase', 'tone', 'summarize', 'explain', 'synonyms'
     tone: Optional[str] = None  # For tone action: 'formal', 'casual', 'academic', 'friendly', 'professional'
     project_id: Optional[str] = None  # Project ID to use project's configured model
 
@@ -1367,10 +1367,6 @@ async def ai_text_tools(
             prompt = f"Explain the meaning and key concepts in the following text clearly and concisely:\n\n{request.text}"
         elif request.action == "synonyms":
             prompt = f"Provide synonyms and alternative phrasings for key terms in the following text. Format as a brief list:\n\n{request.text}"
-        elif request.action == "expand":
-            prompt = f"Expand the following text, making it more detailed and comprehensive while maintaining the same tone and style. Add relevant examples and context. Return ONLY the expanded text:\n\n{request.text}"
-        elif request.action == "simplify":
-            prompt = f"Simplify the following text to make it clearer and more accessible, while preserving the core meaning. Return ONLY the simplified text:\n\n{request.text}"
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
