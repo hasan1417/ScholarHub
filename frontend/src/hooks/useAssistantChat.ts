@@ -288,9 +288,10 @@ export function useAssistantChat({
       )
 
       try {
+        let gotResult = false
         while (true) {
           const { done, value } = await reader.read()
-          if (done) break
+          if (done || gotResult) break
 
           buffer += decoder.decode(value, { stream: true })
           const lines = buffer.split('\n')
@@ -349,6 +350,8 @@ export function useAssistantChat({
                 )
               } else if (event.type === 'result') {
                 finalResult = event.payload
+                gotResult = true
+                break  // Stop processing lines — we have the final result
               } else if (event.type === 'error') {
                 throw new Error(event.message || 'Stream error')
               }
