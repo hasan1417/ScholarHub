@@ -399,21 +399,25 @@ export function useAssistantChat({
         }
       }
 
-      return { id, result: finalResult }
+      return { id, result: finalResult, previousContent }
     },
-    onSuccess: ({ id, result }) => {
+    onSuccess: ({ id, result, previousContent: prevContent }) => {
       if (!result) return
       setAssistantHistory((prev) =>
         prev.map((entry) => {
           if (entry.id !== id) return entry
           const citationLookup = buildCitationLookup(result.citations ?? [])
           const formattedMessage = formatAssistantMessage(result.message ?? '', citationLookup)
+          // If there was multi-phase content (tool calls), preserve the earlier phases
+          const fullDisplay = prevContent
+            ? prevContent + '\n\n---\n\n' + formattedMessage
+            : formattedMessage
           return {
             ...entry,
             response: result,
             status: 'complete' as const,
             completedAt: new Date(),
-            displayMessage: formattedMessage,
+            displayMessage: fullDisplay,
             isWaitingForTools: false,
             statusMessage: undefined,
           }
