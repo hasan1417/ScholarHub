@@ -312,7 +312,7 @@ api.interceptors.response.use(
         localStorage.removeItem('access_token')
         localStorage.removeItem('user')
         window.location.href = '/login'
-        return Promise.reject(error)
+        return new Promise(() => {})
       }
     }
 
@@ -337,7 +337,9 @@ api.interceptors.response.use(
         localStorage.removeItem('user')
         window.location.href = '/login'
 
-        return Promise.reject(refreshError)
+        // Return a never-resolving promise so the UI stays in loading state
+        // instead of briefly flashing an error before the redirect
+        return new Promise(() => {})
       }
     }
     
