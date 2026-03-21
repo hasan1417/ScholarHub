@@ -280,6 +280,7 @@ export function useAssistantChat({
       const decoder = new TextDecoder()
       let buffer = ''
       let accumulatedContent = ''
+      let previousContent = ''
       let finalResult: DiscussionAssistantResponse | null = null
 
       streamingFlags.current[id] = true
@@ -309,11 +310,18 @@ export function useAssistantChat({
                 const isFirstToken = accumulatedContent === ''
                 accumulatedContent += event.content || ''
 
+                const buildDisplay = () => {
+                  const current = stripActionsBlock(accumulatedContent)
+                  return previousContent
+                    ? previousContent + '\n\n---\n\n' + current
+                    : current
+                }
+
                 if (isFirstToken) {
                   setAssistantHistory((prev) =>
                     prev.map((e) =>
                       e.id === id
-                        ? { ...e, displayMessage: stripActionsBlock(accumulatedContent), isWaitingForTools: false }
+                        ? { ...e, displayMessage: buildDisplay(), isWaitingForTools: false }
                         : e
                     )
                   )
@@ -325,7 +333,7 @@ export function useAssistantChat({
                     setAssistantHistory((prev) =>
                       prev.map((e) =>
                         e.id === id
-                          ? { ...e, displayMessage: stripActionsBlock(accumulatedContent) }
+                          ? { ...e, displayMessage: buildDisplay() }
                           : e
                       )
                     )
@@ -336,12 +344,11 @@ export function useAssistantChat({
                   clearTimeout(typingTimers.current[id])
                   delete typingTimers.current[id]
                 }
+                // Keep previously streamed content visible; new tokens will append after a separator
+                if (accumulatedContent) {
+                  previousContent += (previousContent ? '\n\n---\n\n' : '') + accumulatedContent
+                }
                 accumulatedContent = ''
-                setAssistantHistory((prev) =>
-                  prev.map((e) =>
-                    e.id === id ? { ...e, displayMessage: '' } : e
-                  )
-                )
               } else if (event.type === 'status') {
                 setAssistantHistory((prev) =>
                   prev.map((e) =>
@@ -366,6 +373,19 @@ export function useAssistantChat({
           clearTimeout(typingTimers.current[id])
           delete typingTimers.current[id]
         }
+      }
+
+      // Flush final display so all streamed content is visible before onSuccess formats the result
+      if (accumulatedContent) {
+        const flushed = stripActionsBlock(accumulatedContent)
+        const finalDisplay = previousContent
+          ? previousContent + '\n\n---\n\n' + flushed
+          : flushed
+        setAssistantHistory((prev) =>
+          prev.map((e) =>
+            e.id === id ? { ...e, displayMessage: finalDisplay } : e
+          )
+        )
       }
 
       if (!finalResult) {
