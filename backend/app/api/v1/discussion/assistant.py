@@ -378,6 +378,19 @@ async def invoke_discussion_assistant(
                     elif event.get("type") == "result":
                         final_result = event.get("data", {})
                         response_model = _build_ai_response(final_result, selected_model)
+                        # Persist as "completed" BEFORE yielding to client
+                        # so the DB is correct even if the client disconnects
+                        try:
+                            pdict = response_model.model_dump(mode="json")
+                            cstate = final_result.get("conversation_state", {})
+                            await asyncio.to_thread(
+                                _persist_assistant_exchange,
+                                proj_id, chan_id, user_id, exchange_id,
+                                question_text, pdict, exchange_created_at,
+                                cstate, "completed",
+                            )
+                        except Exception as e:
+                            logger.error(f"Failed to persist completed exchange {exchange_id}: {e}")
                         yield "data: " + json.dumps({"type": "result", "payload": response_model.model_dump(mode="json")}) + "\n\n"
                     elif event.get("type") == "error":
                         yield "data: " + json.dumps({"type": "error", "message": event.get("message", "Error")}) + "\n\n"
@@ -387,16 +400,10 @@ async def invoke_discussion_assistant(
                     _final = final_result
 
                     async def _post_stream_work():
+                        # Persist already done before yield — just broadcast + usage here
                         try:
                             resp = _build_ai_response(_final, selected_model)
                             pdict = resp.model_dump(mode="json")
-                            cstate = _final.get("conversation_state", {})
-                            await asyncio.to_thread(
-                                _persist_assistant_exchange,
-                                proj_id, chan_id, user_id, exchange_id,
-                                question_text, pdict, exchange_created_at,
-                                cstate, "completed",
-                            )
                             await _broadcast_discussion_event(
                                 proj_id, chan_id, "assistant_reply",
                                 {"exchange": {
