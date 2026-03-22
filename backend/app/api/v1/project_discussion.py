@@ -1345,7 +1345,7 @@ def list_discussion_assistant_history(
     )
 
     # Auto-expire exchanges stuck in "processing" for over 2 minutes
-    stale_cutoff = datetime.utcnow() - timedelta(minutes=2)
+    stale_cutoff = datetime.now(timezone.utc) - timedelta(minutes=2)
     for exchange in exchanges:
         if (
             getattr(exchange, "status", None) == "processing"
