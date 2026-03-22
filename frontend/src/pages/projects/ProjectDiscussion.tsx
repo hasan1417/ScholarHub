@@ -206,6 +206,7 @@ const ProjectDiscussion = () => {
     sendAssistantMessage,
     cancelAssistantRequest,
     markActionApplied,
+    aiBusy,
   } = useAssistantChat({
     projectId: project.id,
     activeChannelId,
@@ -860,12 +861,7 @@ const ProjectDiscussion = () => {
         toast.warning('Select a channel before asking Scholar AI.')
         return
       }
-      // Check if AI is still actively generating (not just mutation pending from stream cleanup)
-      const lastEx = assistantHistory[assistantHistory.length - 1]
-      if (lastEx) {
-        const p = lastEx.streamPhase.phase
-        if (p === 'waiting' || p === 'streaming' || p === 'tool_running') return
-      }
+      if (aiBusy) return
 
       const commandBody = trimmed.slice(1).trim()
       if (!commandBody) {
@@ -1496,19 +1492,9 @@ const ProjectDiscussion = () => {
                 isSubmitting={createMessageMutation.isPending || updateMessageMutation.isPending}
                 reasoningEnabled={assistantReasoning}
                 onToggleReasoning={discussionEnabled && hasAnyApiKey ? () => setAssistantReasoning((prev) => !prev) : undefined}
-                reasoningPending={(() => {
-                  const lastEx = assistantHistory[assistantHistory.length - 1]
-                  if (!lastEx) return false
-                  const p = lastEx.streamPhase.phase
-                  return p === 'waiting' || p === 'streaming' || p === 'tool_running'
-                })()}
+                reasoningPending={aiBusy}
                 reasoningSupported={discussionEnabled && hasAnyApiKey && modelSupportsReasoning(selectedModel, openrouterModels)}
-                aiGenerating={(() => {
-                  const lastExchange = assistantHistory[assistantHistory.length - 1]
-                  if (!lastExchange) return false
-                  const p = lastExchange.streamPhase.phase
-                  return p === 'waiting' || p === 'streaming' || p === 'tool_running'
-                })()}
+                aiGenerating={aiBusy}
                 onDeepResearch={discussionEnabled && hasAnyApiKey && canUseDeepResearch && activeChannelId ? handleOpenDeepResearch : undefined}
               />
             </>

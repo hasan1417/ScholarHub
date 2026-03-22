@@ -93,6 +93,7 @@ export function useAssistantChat({
   const STORAGE_PREFIX = `assistantHistory:${projectId}`
 
   const [assistantHistory, setAssistantHistory] = useState<AssistantExchange[]>([])
+  const [aiBusy, setAiBusy] = useState(false)  // Dedicated flag for input blocking
 
   const buildStorageKey = useCallback(
     (channelId: string | null) => {
@@ -117,6 +118,7 @@ export function useAssistantChat({
       assistantAbortController.current.abort()
       assistantAbortController.current = null
     }
+    setAiBusy(false)
     setAssistantHistory((prev) =>
       prev.map((entry) => {
         if (entry.streamPhase.phase !== 'complete' && entry.streamPhase.phase !== 'error') {
@@ -235,6 +237,7 @@ export function useAssistantChat({
       }
 
       setAssistantHistory((prev) => [...prev, entry])
+      setAiBusy(true)
 
       const body = JSON.stringify({
         question,
@@ -315,8 +318,9 @@ export function useAssistantChat({
 
       let gotFinalResult = false
       while (true) {
+        if (gotFinalResult) break  // Check BEFORE blocking on read
         const { done, value } = await reader.read()
-        if (done || gotFinalResult) break
+        if (done) break
 
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
@@ -410,6 +414,7 @@ export function useAssistantChat({
       // Flush final display AND mark as complete immediately
       // This unblocks the input without waiting for onSuccess
       const flushed = accumulatedContent ? stripActionsBlock(accumulatedContent) : ''
+      setAiBusy(false)
       setAssistantHistory((prev) =>
         prev.map((e) =>
           e.id === id
@@ -458,6 +463,7 @@ export function useAssistantChat({
       }
 
       console.error('OpenRouter assistant error:', error)
+      setAiBusy(false)
       setAssistantHistory((prev) =>
         prev.map((entry) => {
           if (entry.id !== variables.id) return entry
@@ -722,5 +728,6 @@ export function useAssistantChat({
     sendAssistantMessage,
     cancelAssistantRequest,
     markActionApplied,
+    aiBusy,
   }
 }
