@@ -11,6 +11,14 @@ import {
 } from '../services/api'
 import discussionWebsocket from '../services/discussionWebsocket'
 
+export type StreamPhase =
+  | { phase: 'idle' }
+  | { phase: 'waiting'; statusMessage?: string }
+  | { phase: 'streaming'; round: number }
+  | { phase: 'tool_running'; tool: string; statusMessage: string; round: number }
+  | { phase: 'complete' }
+  | { phase: 'error'; message: string }
+
 export type AssistantExchange = {
   id: string
   channelId: string
@@ -19,10 +27,8 @@ export type AssistantExchange = {
   createdAt: Date
   completedAt?: Date
   appliedActions: string[]
-  status: 'pending' | 'streaming' | 'complete'
+  streamPhase: StreamPhase
   displayMessage: string
-  statusMessage?: string
-  isWaitingForTools?: boolean
   author?: { id?: string; name?: { display?: string; first?: string; last?: string } | string }
   fromHistory?: boolean
   model?: string
@@ -82,8 +88,6 @@ export function useAssistantChat({
   viewerDisplayName: string
 }) {
   const queryClient = useQueryClient()
-  const typingTimers = useRef<Record<string, number>>({})
-  const streamingFlags = useRef<Record<string, boolean>>({})
   const historyChannelRef = useRef<string | null>(null)
   const assistantAbortController = useRef<AbortController | null>(null)
   const STORAGE_PREFIX = `assistantHistory:${projectId}`
@@ -115,10 +119,10 @@ export function useAssistantChat({
     }
     setAssistantHistory((prev) =>
       prev.map((entry) => {
-        if (entry.status !== 'complete') {
+        if (entry.streamPhase.phase !== 'complete' && entry.streamPhase.phase !== 'error') {
           return {
             ...entry,
-            status: 'complete' as const,
+            streamPhase: { phase: 'complete' } as StreamPhase,
             displayMessage: entry.displayMessage || '(Request cancelled)',
             completedAt: new Date(),
           }
@@ -154,6 +158,15 @@ export function useAssistantChat({
       const isProcessing = item.status === 'processing'
       const isFailed = item.status === 'failed'
 
+      let streamPhase: StreamPhase
+      if (isProcessing) {
+        streamPhase = { phase: 'tool_running', tool: '', statusMessage: item.status_message || 'Thinking', round: 0 }
+      } else if (isFailed) {
+        streamPhase = { phase: 'error', message: item.status_message || 'Processing failed' }
+      } else {
+        streamPhase = { phase: 'complete' }
+      }
+
       return {
         id: item.id,
         channelId: activeChannelId,
@@ -162,12 +175,10 @@ export function useAssistantChat({
         createdAt,
         completedAt: isProcessing ? undefined : createdAt,
         appliedActions: [],
-        status: isProcessing ? 'streaming' : 'complete',
-        statusMessage: isProcessing ? (item.status_message || 'Thinking') : (isFailed ? (item.status_message || 'Processing failed') : undefined),
+        streamPhase,
         displayMessage: isProcessing ? '' : formatAssistantMessage(response.message, lookup),
         author: item.author ?? undefined,
         fromHistory: true,
-        isWaitingForTools: isProcessing,
       }
     })
   }, [assistantHistoryQuery.data, activeChannelId])
@@ -217,7 +228,7 @@ export function useAssistantChat({
         },
         createdAt: new Date(),
         appliedActions: [],
-        status: 'pending',
+        streamPhase: { phase: 'waiting' },
         displayMessage: '',
         model: selectedModel,
         author: { id: userId, name: { display: viewerDisplayName } },
@@ -280,110 +291,115 @@ export function useAssistantChat({
       const decoder = new TextDecoder()
       let buffer = ''
       let accumulatedContent = ''
-      let previousContent = ''
       let finalResult: DiscussionAssistantResponse | null = null
+      let currentPhase = 'waiting'
+      let currentRound = 1
 
-      streamingFlags.current[id] = true
-      setAssistantHistory((prev) =>
-        prev.map((e) => (e.id === id ? { ...e, status: 'streaming' } : e))
-      )
+      // RAF-based display batching
+      let pendingDisplay = ''
+      let rafScheduled = false
 
-      try {
-        let gotResult = false
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done || gotResult) break
+      const scheduleDisplayUpdate = (content: string) => {
+        pendingDisplay = content
+        if (!rafScheduled) {
+          rafScheduled = true
+          requestAnimationFrame(() => {
+            rafScheduled = false
+            setAssistantHistory((prev) =>
+              prev.map((e) =>
+                e.id === id ? { ...e, displayMessage: pendingDisplay } : e
+              )
+            )
+          })
+        }
+      }
 
-          buffer += decoder.decode(value, { stream: true })
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
+      let gotFinalResult = false
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done || gotFinalResult) break
 
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue
-            const jsonStr = line.slice(6).trim()
-            if (!jsonStr || jsonStr === '[DONE]') continue
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
 
-            try {
-              const event = JSON.parse(jsonStr)
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const jsonStr = line.slice(6).trim()
+          if (!jsonStr || jsonStr === '[DONE]') continue
 
-              if (event.type === 'token') {
-                const isFirstToken = accumulatedContent === ''
-                accumulatedContent += event.content || ''
+          try {
+            const event = JSON.parse(jsonStr)
 
-                const buildDisplay = () => {
-                  const current = stripActionsBlock(accumulatedContent)
-                  return previousContent
-                    ? previousContent + '\n\n---\n\n' + current
-                    : current
-                }
+            if (event.type === 'token') {
+              accumulatedContent += event.content || ''
+              const display = stripActionsBlock(accumulatedContent)
 
-                if (isFirstToken) {
-                  setAssistantHistory((prev) =>
-                    prev.map((e) =>
-                      e.id === id
-                        ? { ...e, displayMessage: buildDisplay(), isWaitingForTools: false }
-                        : e
-                    )
-                  )
-                } else {
-                  if (typingTimers.current[id]) {
-                    clearTimeout(typingTimers.current[id])
-                  }
-                  typingTimers.current[id] = window.setTimeout(() => {
-                    setAssistantHistory((prev) =>
-                      prev.map((e) =>
-                        e.id === id
-                          ? { ...e, displayMessage: buildDisplay() }
-                          : e
-                      )
-                    )
-                  }, 30)
-                }
-              } else if (event.type === 'content_reset') {
-                if (typingTimers.current[id]) {
-                  clearTimeout(typingTimers.current[id])
-                  delete typingTimers.current[id]
-                }
-                // Keep previously streamed content visible; new tokens will append after a separator
-                if (accumulatedContent) {
-                  previousContent += (previousContent ? '\n\n---\n\n' : '') + accumulatedContent
-                }
-                accumulatedContent = ''
-              } else if (event.type === 'status') {
+              // Transition to streaming on first token
+              if (currentPhase !== 'streaming') {
                 setAssistantHistory((prev) =>
                   prev.map((e) =>
-                    e.id === id ? { ...e, statusMessage: event.message, isWaitingForTools: true } : e
+                    e.id === id
+                      ? { ...e, streamPhase: { phase: 'streaming', round: currentRound }, displayMessage: display }
+                      : e
                   )
                 )
-              } else if (event.type === 'result') {
-                finalResult = event.payload
-                gotResult = true
-                break  // Stop processing lines — we have the final result
-              } else if (event.type === 'error') {
-                throw new Error(event.message || 'Stream error')
+                currentPhase = 'streaming'
+              } else {
+                scheduleDisplayUpdate(display)
               }
-            } catch (parseError) {
+            } else if (event.type === 'round_separator') {
+              // New round coming -- add separator to accumulated content
+              accumulatedContent += '\n\n---\n\n'
+              currentRound = event.round || currentRound + 1
+            } else if (event.type === 'tool_start') {
+              currentPhase = 'tool_running'
+              setAssistantHistory((prev) =>
+                prev.map((e) =>
+                  e.id === id
+                    ? { ...e, streamPhase: { phase: 'tool_running', tool: event.tool || '', statusMessage: event.message || 'Processing', round: event.round || currentRound } }
+                    : e
+                )
+              )
+            } else if (event.type === 'tool_end') {
+              // Tool finished -- stay in tool_running until next round starts
+            } else if (event.type === 'status') {
+              // Backward compatibility with old backend
+              currentPhase = 'tool_running'
+              setAssistantHistory((prev) =>
+                prev.map((e) =>
+                  e.id === id
+                    ? { ...e, streamPhase: { phase: 'tool_running', tool: event.tool || '', statusMessage: event.message || 'Processing', round: currentRound } }
+                    : e
+                )
+              )
+            } else if (event.type === 'content_reset') {
+              // Backward compatibility -- treat as round_separator
+              accumulatedContent += '\n\n---\n\n'
+              currentRound++
+            } else if (event.type === 'result') {
+              finalResult = event.payload
+              gotFinalResult = true
+              break  // Exit inner loop
+            } else if (event.type === 'error') {
+              throw new Error(event.message || 'Stream error')
+            }
+          } catch (parseError) {
+            if (parseError instanceof Error && parseError.message !== 'Stream error' && !parseError.message.startsWith('Stream error')) {
               console.warn('Failed to parse SSE event:', parseError)
+            } else {
+              throw parseError
             }
           }
-        }
-      } finally {
-        streamingFlags.current[id] = false
-        if (typingTimers.current[id]) {
-          clearTimeout(typingTimers.current[id])
-          delete typingTimers.current[id]
         }
       }
 
       // Flush final display so all streamed content is visible before onSuccess formats the result
       if (accumulatedContent) {
         const flushed = stripActionsBlock(accumulatedContent)
-        const finalDisplay = previousContent
-          ? previousContent + '\n\n---\n\n' + flushed
-          : flushed
         setAssistantHistory((prev) =>
           prev.map((e) =>
-            e.id === id ? { ...e, displayMessage: finalDisplay } : e
+            e.id === id ? { ...e, displayMessage: flushed } : e
           )
         )
       }
@@ -399,27 +415,21 @@ export function useAssistantChat({
         }
       }
 
-      return { id, result: finalResult, previousContent }
+      return { id, result: finalResult }
     },
-    onSuccess: ({ id, result, previousContent: prevContent }) => {
+    onSuccess: ({ id, result }) => {
       if (!result) return
       setAssistantHistory((prev) =>
         prev.map((entry) => {
           if (entry.id !== id) return entry
           const citationLookup = buildCitationLookup(result.citations ?? [])
           const formattedMessage = formatAssistantMessage(result.message ?? '', citationLookup)
-          // If there was multi-phase content (tool calls), preserve the earlier phases
-          const fullDisplay = prevContent
-            ? prevContent + '\n\n---\n\n' + formattedMessage
-            : formattedMessage
           return {
             ...entry,
             response: result,
-            status: 'complete' as const,
+            streamPhase: { phase: 'complete' } as StreamPhase,
             completedAt: new Date(),
-            displayMessage: fullDisplay,
-            isWaitingForTools: false,
-            statusMessage: undefined,
+            displayMessage: formattedMessage,
           }
         })
       )
@@ -439,13 +449,8 @@ export function useAssistantChat({
           if (entry.id !== variables.id) return entry
           return {
             ...entry,
-            status: 'complete' as const,
-            completedAt: new Date(),
-            displayMessage: `Error: ${error.message || 'Request failed'}`,
-            response: {
-              ...entry.response,
-              message: `Error: ${error.message || 'Request failed'}`,
-            },
+            streamPhase: { phase: 'error', message: error.message || 'An error occurred' } as StreamPhase,
+            displayMessage: entry.displayMessage || 'An error occurred while processing your request.',
           }
         })
       )
@@ -466,14 +471,14 @@ export function useAssistantChat({
     setAssistantHistory((prev) => {
       const idsFromServer = new Set(serverAssistantHistory.map((entry) => entry.id))
       const localCompleteIds = new Map(
-        prev.filter((e) => e.status === 'complete').map((e) => [e.id, e])
+        prev.filter((e) => e.streamPhase.phase === 'complete').map((e) => [e.id, e])
       )
 
       // Use server entries, but prefer local version if it's already complete
       // (server may still have stale 'processing' status)
       const serverEntries = serverAssistantHistory.map((serverEntry) => {
         const localEntry = localCompleteIds.get(serverEntry.id)
-        if (localEntry && serverEntry.status !== 'complete') {
+        if (localEntry && serverEntry.streamPhase.phase !== 'complete') {
           return localEntry
         }
         return serverEntry
@@ -481,7 +486,8 @@ export function useAssistantChat({
 
       const localOnlyEntries = prev.filter((entry) => {
         if (idsFromServer.has(entry.id)) return false
-        if (entry.status === 'streaming' || entry.status === 'pending') return true
+        const p = entry.streamPhase.phase
+        if (p === 'streaming' || p === 'waiting' || p === 'tool_running') return true
         return false
       })
 
@@ -551,7 +557,10 @@ export function useAssistantChat({
 
         if (exchange.author?.id && userId && exchange.author.id === userId) {
           setAssistantHistory((prev) => {
-            if (prev.some((entry) => entry.status === 'streaming' || entry.status === 'pending')) return prev
+            if (prev.some((entry) => {
+              const p = entry.streamPhase.phase
+              return p === 'streaming' || p === 'waiting' || p === 'tool_running'
+            })) return prev
             if (prev.some((entry) => entry.id === exchange.id)) return prev
             const entry: AssistantExchange = {
               id: exchange.id,
@@ -560,12 +569,10 @@ export function useAssistantChat({
               response: { message: '', citations: [], reasoning_used: false, model: '', usage: undefined, suggested_actions: [] },
               createdAt: exchange.created_at ? new Date(exchange.created_at) : new Date(),
               appliedActions: [],
-              status: 'streaming',
-              statusMessage: exchange.status_message || 'Thinking',
+              streamPhase: { phase: 'waiting', statusMessage: 'Thinking' },
               displayMessage: '',
               author: exchange.author,
               fromHistory: true,
-              isWaitingForTools: true,
             }
             return [...prev, entry]
           })
@@ -579,11 +586,12 @@ export function useAssistantChat({
         if (!exchangeId || !statusMessage) return
 
         setAssistantHistory((prev) =>
-          prev.map((entry) =>
-            entry.id === exchangeId && entry.status === 'streaming'
-              ? { ...entry, statusMessage, isWaitingForTools: true }
-              : entry
-          )
+          prev.map((entry) => {
+            if (entry.id !== exchangeId) return entry
+            const p = entry.streamPhase.phase
+            if (p === 'complete' || p === 'error') return entry
+            return { ...entry, streamPhase: { phase: 'tool_running', tool: '', statusMessage, round: 0 } }
+          })
         )
 
         queryClient.setQueryData<typeof assistantHistoryQuery.data>(
@@ -622,11 +630,9 @@ export function useAssistantChat({
             updated[existingIndex] = {
               ...updated[existingIndex],
               response,
-              status: 'complete',
-              statusMessage: undefined,
+              streamPhase: { phase: 'complete' },
               displayMessage: formatted,
               completedAt: new Date(),
-              isWaitingForTools: false,
             }
             return updated
           }

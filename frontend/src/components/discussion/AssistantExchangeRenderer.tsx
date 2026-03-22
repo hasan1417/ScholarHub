@@ -67,8 +67,9 @@ export function AssistantExchangeRenderer({
     ? formatDistanceToNow(exchange.completedAt, { addSuffix: true })
     : askedLabel
   const displayedMessage = exchange.displayMessage || formattedMessage
-  const showTyping = !displayedMessage && exchange.status !== 'complete'
-  const isExecutingTools = displayedMessage && exchange.isWaitingForTools && exchange.status !== 'complete'
+  const phase = exchange.streamPhase.phase
+  const showTyping = !displayedMessage && phase !== 'complete' && phase !== 'error'
+  const isExecutingTools = displayedMessage && phase === 'tool_running'
   const avatarText = authorLabel.trim().charAt(0).toUpperCase() || 'U'
   const modelName = exchange.model
     ? openrouterModels.find((m) => m.id === exchange.model)?.name || exchange.model
@@ -123,7 +124,7 @@ export function AssistantExchangeRenderer({
                       <div className="relative">
                         <Loader2 className="h-4 w-4 animate-spin" />
                       </div>
-                      <span>{exchange.statusMessage || 'Thinking'}...</span>
+                      <span>{(exchange.streamPhase.phase === 'tool_running' ? exchange.streamPhase.statusMessage : exchange.streamPhase.phase === 'waiting' ? (exchange.streamPhase.statusMessage || 'Thinking') : 'Thinking')}...</span>
                     </div>
                     <button
                       onClick={onCancelRequest}
@@ -149,7 +150,7 @@ export function AssistantExchangeRenderer({
               {isExecutingTools && (
                 <div className="mt-3 flex items-center gap-2 text-sm text-indigo-600 dark:text-indigo-400">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>{exchange.statusMessage}...</span>
+                  <span>{exchange.streamPhase.phase === 'tool_running' ? exchange.streamPhase.statusMessage : 'Processing'}...</span>
                 </div>
               )}
             </div>
@@ -270,7 +271,7 @@ export function AssistantExchangeRenderer({
         const papers = payload?.papers || []
         const query = payload?.query || ''
         const searchId = payload?.search_id
-        if (papers.length === 0 && exchange.status === 'complete') return null
+        if (papers.length === 0 && phase === 'complete') return null
         if (closedInlineResults?.has(exchange.id)) return null
         const externalUpdates = searchId ? libraryUpdatesBySearchId?.[searchId] : undefined
         return (
@@ -280,7 +281,7 @@ export function AssistantExchangeRenderer({
               query={query}
               projectId={projectId || ''}
               onClose={() => onCloseInlineResult?.(exchange.id)}
-              isSearching={exchange.status !== 'complete'}
+              isSearching={phase !== 'complete' && phase !== 'error'}
               externalUpdates={externalUpdates}
               onDismissPaper={onDismissPaper}
             />

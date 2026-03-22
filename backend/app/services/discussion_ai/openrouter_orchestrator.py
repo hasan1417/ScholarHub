@@ -952,6 +952,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         iteration = 0
         all_tool_results = []
         final_content_chunks = []
+        all_content_chunks = []  # Accumulates ALL text across all tool rounds
         search_tool_executed = False
         recovery_attempted = False
 
@@ -994,8 +995,11 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     and _ACTION_SIGNAL.search(ctx.get("user_message", ""))
                 ):
                     recovery_attempted = True
+                    if iteration_content:
+                        all_content_chunks.extend(iteration_content)
                     if tokens_yielded:
-                        yield {"type": "content_reset"}
+                        all_content_chunks.append("\n\n---\n\n")
+                        yield {"type": "round_separator", "round": iteration}
                         tokens_yielded = False
                     messages.append({
                         "role": "system",
@@ -1013,8 +1017,10 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                         yield {"type": "token", "content": chunk}
                 if iteration_content:
                     final_content_chunks.extend(iteration_content)
+                    all_content_chunks.extend(iteration_content)
                 elif response_content:
                     final_content_chunks.append(response_content)
+                    all_content_chunks.append(response_content)
                     if not stream_directly:
                         yield {"type": "token", "content": response_content}
                 break
@@ -1031,16 +1037,24 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                         yield {"type": "token", "content": chunk}
                 if iteration_content:
                     final_content_chunks.extend(iteration_content)
+                    all_content_chunks.extend(iteration_content)
                 break
 
+            # Accumulate any tokens from this iteration (whether streamed or buffered)
+            if iteration_content:
+                all_content_chunks.extend(iteration_content)
+
             # If we already streamed partial tokens before tool_call_detected,
-            # tell the frontend to clear them — they're not the final response.
+            # emit a round separator so the frontend knows a new round is starting.
             if tokens_yielded:
-                yield {"type": "content_reset"}
+                all_content_chunks.append("\n\n---\n\n")
+                yield {"type": "round_separator", "round": iteration}
 
             for tc in tool_calls:
                 tool_name = tc.get("name", "")
                 status_message = self._get_tool_status_message(tool_name)
+                yield {"type": "tool_start", "tool": tool_name, "message": status_message, "round": iteration}
+                # Keep backward-compatible status event
                 yield {"type": "status", "tool": tool_name, "message": status_message}
 
             # Execute tool calls in thread with progress polling
@@ -1067,6 +1081,11 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     break
             ctx.pop("_progress_callback", None)
             all_tool_results.extend(tool_results)
+
+            # Emit tool_end for each tool that was called
+            for tc in tool_calls:
+                yield {"type": "tool_end", "tool": tc.get("name", ""), "round": iteration}
+
             if any(tr.get("name") in ("search_papers", "batch_search_papers") for tr in tool_results):
                 search_tool_executed = True
 
@@ -1104,7 +1123,12 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     "content": json.dumps(result, default=str),
                 })
 
-        final_message = _strip_internal_tags("".join(final_content_chunks))
+            messages.append({
+                "role": "system",
+                "content": "Continue your response naturally from where you left off. Do not repeat or rephrase what you already said before the tool call.",
+            })
+
+        final_message = _strip_internal_tags("".join(all_content_chunks))
         final_message = self._apply_response_budget(final_message, ctx, all_tool_results)
         logger.debug(f"[OpenRouter Async] Complete. Tools called: {[t['name'] for t in all_tool_results]}")
 

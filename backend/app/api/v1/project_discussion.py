@@ -1174,7 +1174,7 @@ async def invoke_discussion_assistant(
                 ):
                     if event.get("type") == "token":
                         yield "data: " + json.dumps({"type": "token", "content": event.get("content", "")}) + "\n\n"
-                    elif event.get("type") == "status":
+                    elif event.get("type") in ("status", "tool_start"):
                         status_msg = event.get("message", "Processing...")
                         # Update status in DB and broadcast
                         try:
@@ -1196,9 +1196,14 @@ async def invoke_discussion_assistant(
                             )
                         except Exception as e:
                             logger.warning(f"Failed to update status message: {e}")
+                        if event.get("type") == "tool_start":
+                            yield "data: " + json.dumps({"type": "tool_start", "tool": event.get("tool", ""), "message": status_msg, "round": event.get("round", 0)}) + "\n\n"
+                        # Always emit status for backward compatibility
                         yield "data: " + json.dumps({"type": "status", "tool": event.get("tool", ""), "message": status_msg}) + "\n\n"
-                    elif event.get("type") == "content_reset":
-                        yield "data: " + json.dumps({"type": "content_reset"}) + "\n\n"
+                    elif event.get("type") == "tool_end":
+                        yield "data: " + json.dumps({"type": "tool_end", "tool": event.get("tool", ""), "round": event.get("round", 0)}) + "\n\n"
+                    elif event.get("type") == "round_separator":
+                        yield "data: " + json.dumps({"type": "round_separator", "round": event.get("round", 0)}) + "\n\n"
                     elif event.get("type") == "result":
                         final_result = event.get("data", {})
                         response_model = _build_ai_response(final_result, selected_model)

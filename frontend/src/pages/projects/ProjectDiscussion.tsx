@@ -631,7 +631,7 @@ const ProjectDiscussion = () => {
     const latestSearchIdByChannel: Record<string, string> = {}
 
     for (const exchange of assistantHistory) {
-      if (exchange.status !== 'complete') continue
+      if (exchange.streamPhase.phase !== 'complete') continue
       if (!exchange.response?.suggested_actions) continue
       const channelId = exchange.channelId || activeChannelId
       if (!channelId) continue
@@ -647,7 +647,7 @@ const ProjectDiscussion = () => {
     }
 
     for (const exchange of assistantHistory) {
-      if (exchange.status !== 'complete') continue
+      if (exchange.streamPhase.phase !== 'complete') continue
       if (!exchange.response?.suggested_actions) continue
 
       for (let i = 0; i < exchange.response.suggested_actions.length; i++) {
@@ -729,7 +729,7 @@ const ProjectDiscussion = () => {
 
             if (searchId) {
               for (const hist of assistantHistory) {
-                if (hist.status !== 'complete' || !hist.response?.suggested_actions) continue
+                if (hist.streamPhase.phase !== 'complete' || !hist.response?.suggested_actions) continue
                 for (const act of hist.response.suggested_actions) {
                   if (act.action_type === 'search_results') {
                     const srPayload = act.payload as { search_id?: string; papers?: DiscoveredPaper[] } | undefined
@@ -817,7 +817,7 @@ const ProjectDiscussion = () => {
   const libraryUpdatesBySearchId = useMemo(() => {
     const lookup: Record<string, LibraryUpdateItem[]> = {}
     for (const exchange of assistantHistory) {
-      if (exchange.status !== 'complete' || !exchange.response?.suggested_actions) continue
+      if (exchange.streamPhase.phase !== 'complete' || !exchange.response?.suggested_actions) continue
       for (const action of exchange.response.suggested_actions) {
         if (action.action_type === 'library_update') {
           const payload = action.payload as { search_id?: string; updates?: { index: number; reference_id: string; ingestion_status: string }[] } | undefined
@@ -1494,7 +1494,12 @@ const ProjectDiscussion = () => {
                 onToggleReasoning={discussionEnabled && hasAnyApiKey ? () => setAssistantReasoning((prev) => !prev) : undefined}
                 reasoningPending={assistantMutation.isPending}
                 reasoningSupported={discussionEnabled && hasAnyApiKey && modelSupportsReasoning(selectedModel, openrouterModels)}
-                aiGenerating={assistantMutation.isPending}
+                aiGenerating={(() => {
+                  const lastExchange = assistantHistory[assistantHistory.length - 1]
+                  if (!lastExchange) return false
+                  const p = lastExchange.streamPhase.phase
+                  return p === 'waiting' || p === 'streaming' || p === 'tool_running'
+                })()}
                 onDeepResearch={discussionEnabled && hasAnyApiKey && canUseDeepResearch && activeChannelId ? handleOpenDeepResearch : undefined}
               />
             </>

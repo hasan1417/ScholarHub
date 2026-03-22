@@ -42,10 +42,8 @@ export function useDeepResearch({
         },
         createdAt: new Date(),
         appliedActions: [],
-        status: 'streaming',
+        streamPhase: { phase: 'tool_running', tool: '', statusMessage: 'Starting deep research...', round: 1 },
         displayMessage: '',
-        statusMessage: 'Starting deep research...',
-        isWaitingForTools: true,
         model,
         author: userId ? { id: userId, name: userName || 'You' } : undefined,
       }
@@ -115,7 +113,7 @@ export function useDeepResearch({
                 setAssistantHistory((prev) =>
                   prev.map((e) =>
                     e.id === exchangeId
-                      ? { ...e, statusMessage: msg, isWaitingForTools: true }
+                      ? { ...e, streamPhase: { phase: 'tool_running', tool: '', statusMessage: msg, round: 1 } }
                       : e
                   )
                 )
@@ -127,7 +125,7 @@ export function useDeepResearch({
                       ? {
                           ...e,
                           displayMessage: stripActionsBlock(accumulatedContent),
-                          isWaitingForTools: false,
+                          streamPhase: { phase: 'streaming', round: 1 },
                         }
                       : e
                   )
@@ -166,11 +164,9 @@ export function useDeepResearch({
               ? {
                   ...e,
                   response: finalResult!,
-                  status: 'complete' as const,
+                  streamPhase: { phase: 'complete' },
                   completedAt: new Date(),
                   displayMessage: formattedMessage,
-                  isWaitingForTools: false,
-                  statusMessage: undefined,
                 }
               : e
           )
@@ -184,15 +180,8 @@ export function useDeepResearch({
               e.id === exchangeId
                 ? {
                     ...e,
-                    status: 'complete' as const,
-                    completedAt: new Date(),
-                    displayMessage: `Error: ${error?.message || 'Deep research failed'}`,
-                    response: {
-                      ...e.response,
-                      message: `Error: ${error?.message || 'Deep research failed'}`,
-                    },
-                    isWaitingForTools: false,
-                    statusMessage: undefined,
+                    streamPhase: { phase: 'error', message: error?.message || 'Deep research failed' },
+                    displayMessage: e.displayMessage || 'An error occurred while processing your request.',
                   }
                 : e
             )

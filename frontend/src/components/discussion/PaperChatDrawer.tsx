@@ -84,7 +84,10 @@ export function PaperChatDrawer({ isOpen, onClose, projectId, reference }: Paper
     viewerDisplayName,
   })
 
-  const isGenerating = assistantHistory.some((e) => e.status !== 'complete')
+  const isGenerating = assistantHistory.some((e) => {
+    const p = e.streamPhase.phase
+    return p !== 'complete' && p !== 'error' && p !== 'idle'
+  })
 
   // Auto-scroll to bottom
   useEffect(() => {
