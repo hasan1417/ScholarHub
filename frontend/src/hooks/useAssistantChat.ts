@@ -399,6 +399,9 @@ export function useAssistantChat({
         }
       }
 
+      // Close the stream reader immediately so the HTTP connection doesn't linger
+      reader.cancel().catch(() => {})
+
       // Clear any pending display timer and flush final content
       if (displayTimer) {
         clearTimeout(displayTimer)
