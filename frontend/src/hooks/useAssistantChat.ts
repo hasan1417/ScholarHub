@@ -404,14 +404,16 @@ export function useAssistantChat({
         clearTimeout(displayTimer)
         displayTimer = null
       }
-      if (accumulatedContent) {
-        const flushed = stripActionsBlock(accumulatedContent)
-        setAssistantHistory((prev) =>
-          prev.map((e) =>
-            e.id === id ? { ...e, displayMessage: flushed } : e
-          )
+      // Flush final display AND mark as complete immediately
+      // This unblocks the input without waiting for onSuccess
+      const flushed = accumulatedContent ? stripActionsBlock(accumulatedContent) : ''
+      setAssistantHistory((prev) =>
+        prev.map((e) =>
+          e.id === id
+            ? { ...e, displayMessage: flushed || e.displayMessage, streamPhase: { phase: 'complete' } as StreamPhase }
+            : e
         )
-      }
+      )
 
       if (!finalResult) {
         finalResult = {
