@@ -295,22 +295,21 @@ export function useAssistantChat({
       let currentPhase = 'waiting'
       let currentRound = 1
 
-      // RAF-based display batching
+      // Throttled display update — 50ms debounce for smooth text streaming
+      let displayTimer: ReturnType<typeof setTimeout> | null = null
       let pendingDisplay = ''
-      let rafScheduled = false
 
       const scheduleDisplayUpdate = (content: string) => {
         pendingDisplay = content
-        if (!rafScheduled) {
-          rafScheduled = true
-          requestAnimationFrame(() => {
-            rafScheduled = false
+        if (!displayTimer) {
+          displayTimer = setTimeout(() => {
+            displayTimer = null
             setAssistantHistory((prev) =>
               prev.map((e) =>
                 e.id === id ? { ...e, displayMessage: pendingDisplay } : e
               )
             )
-          })
+          }, 50)
         }
       }
 
@@ -335,7 +334,6 @@ export function useAssistantChat({
               accumulatedContent += event.content || ''
               const display = stripActionsBlock(accumulatedContent)
 
-              // Transition to streaming on first token
               if (currentPhase !== 'streaming') {
                 setAssistantHistory((prev) =>
                   prev.map((e) =>
@@ -348,10 +346,21 @@ export function useAssistantChat({
               } else {
                 scheduleDisplayUpdate(display)
               }
-            } else if (event.type === 'round_separator') {
-              // New round coming -- add separator to accumulated content
-              accumulatedContent += '\n\n---\n\n'
+            } else if (event.type === 'round_separator' || event.type === 'content_reset') {
+              // New round starting — clear display, only final round matters
+              // The backend doesn't stream tokens during tool rounds (stream_directly=False),
+              // so any text shown was from BEFORE the tool was detected. Clear it.
+              accumulatedContent = ''
               currentRound = event.round || currentRound + 1
+              currentPhase = 'waiting'
+              if (displayTimer) { clearTimeout(displayTimer); displayTimer = null }
+              setAssistantHistory((prev) =>
+                prev.map((e) =>
+                  e.id === id
+                    ? { ...e, displayMessage: '', streamPhase: { phase: 'waiting', statusMessage: 'Processing' } }
+                    : e
+                )
+              )
             } else if (event.type === 'tool_start') {
               currentPhase = 'tool_running'
               setAssistantHistory((prev) =>
@@ -362,9 +371,9 @@ export function useAssistantChat({
                 )
               )
             } else if (event.type === 'tool_end') {
-              // Tool finished -- stay in tool_running until next round starts
+              // Tool finished — stay in tool_running until next round starts
             } else if (event.type === 'status') {
-              // Backward compatibility with old backend
+              // Backward compatibility
               currentPhase = 'tool_running'
               setAssistantHistory((prev) =>
                 prev.map((e) =>
@@ -373,14 +382,10 @@ export function useAssistantChat({
                     : e
                 )
               )
-            } else if (event.type === 'content_reset') {
-              // Backward compatibility -- treat as round_separator
-              accumulatedContent += '\n\n---\n\n'
-              currentRound++
             } else if (event.type === 'result') {
               finalResult = event.payload
               gotFinalResult = true
-              break  // Exit inner loop
+              break
             } else if (event.type === 'error') {
               throw new Error(event.message || 'Stream error')
             }
@@ -394,7 +399,11 @@ export function useAssistantChat({
         }
       }
 
-      // Flush final display so all streamed content is visible before onSuccess formats the result
+      // Clear any pending display timer and flush final content
+      if (displayTimer) {
+        clearTimeout(displayTimer)
+        displayTimer = null
+      }
       if (accumulatedContent) {
         const flushed = stripActionsBlock(accumulatedContent)
         setAssistantHistory((prev) =>

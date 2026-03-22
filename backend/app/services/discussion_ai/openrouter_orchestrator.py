@@ -952,7 +952,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         iteration = 0
         all_tool_results = []
         final_content_chunks = []
-        all_content_chunks = []  # Accumulates ALL text across all tool rounds
+        all_content_chunks = []  # Only the final round's text (what the user sees)
         search_tool_executed = False
         recovery_attempted = False
 
@@ -995,10 +995,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     and _ACTION_SIGNAL.search(ctx.get("user_message", ""))
                 ):
                     recovery_attempted = True
-                    if iteration_content:
-                        all_content_chunks.extend(iteration_content)
                     if tokens_yielded:
-                        all_content_chunks.append("\n\n---\n\n")
                         yield {"type": "round_separator", "round": iteration}
                         tokens_yielded = False
                     messages.append({
@@ -1040,14 +1037,9 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     all_content_chunks.extend(iteration_content)
                 break
 
-            # Accumulate any tokens from this iteration (whether streamed or buffered)
-            if iteration_content:
-                all_content_chunks.extend(iteration_content)
-
             # If we already streamed partial tokens before tool_call_detected,
             # emit a round separator so the frontend knows a new round is starting.
             if tokens_yielded:
-                all_content_chunks.append("\n\n---\n\n")
                 yield {"type": "round_separator", "round": iteration}
 
             for tc in tool_calls:
