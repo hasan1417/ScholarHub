@@ -880,16 +880,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             final_message = self._build_lite_fallback(ctx)
             yield {"type": "token", "content": final_message}
 
-        # Lightweight memory update (regex only, skip LLM fact extraction)
-        self._lite_memory_update(ctx)
-
-        prompt_tokens = count_messages_tokens(messages, self.model)
-        total_ms = int((time.monotonic() - t_start) * 1000)
-        logger.info(
-            "[TurnMetrics] route=lite prompt_tokens=%d tools_count=0 ttfb_ms=%d total_ms=%d model=%s reason=%s",
-            prompt_tokens, ttfb_ms, total_ms, self.model, ctx.get("route_reason", ""),
-        )
-
+        # Yield result IMMEDIATELY so the frontend can unblock the input.
         yield {
             "type": "result",
             "data": {
@@ -902,6 +893,16 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 "conversation_state": {},
             },
         }
+
+        # Post-result work
+        self._lite_memory_update(ctx)
+
+        prompt_tokens = count_messages_tokens(messages, self.model)
+        total_ms = int((time.monotonic() - t_start) * 1000)
+        logger.info(
+            "[TurnMetrics] route=lite prompt_tokens=%d tools_count=0 ttfb_ms=%d total_ms=%d model=%s reason=%s",
+            prompt_tokens, ttfb_ms, total_ms, self.model, ctx.get("route_reason", ""),
+        )
 
     @staticmethod
     def _build_lite_fallback(ctx: Dict[str, Any]) -> str:
@@ -1139,8 +1140,25 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             final_message = self._build_empty_response_fallback(ctx)
 
         actions = self._extract_actions(final_message, all_tool_results)
+        tools_called_this_turn = [t["name"] for t in all_tool_results] if all_tool_results else []
 
-        contradiction_warning = None
+        # Yield result IMMEDIATELY so the frontend can unblock the input.
+        # Memory updates, metrics, and stage transitions happen AFTER.
+        yield {
+            "type": "result",
+            "data": {
+                "message": final_message,
+                "actions": actions,
+                "citations": [],
+                "model_used": self.model,
+                "reasoning_used": ctx.get("reasoning_mode", False),
+                "tools_called": tools_called_this_turn,
+                "conversation_state": {},
+            }
+        }
+
+        # --- Post-result work (user already has the response) ---
+
         try:
             contradiction_warning = await asyncio.to_thread(
                 self.update_memory_after_exchange,
@@ -1155,23 +1173,23 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         except Exception as mem_err:
             logger.error(f"Failed to update AI memory: {mem_err}")
 
-        # Deterministic stage transition after successful search tools.
-        stage_transition_success = await asyncio.to_thread(
-            self._enforce_finding_papers_stage_after_search,
-            ctx,
-            all_tool_results,
-        )
-        await asyncio.to_thread(
-            self._record_quality_metrics,
-            ctx,
-            policy_decision,
-            all_tool_results,
-            False,
-            stage_transition_success,
-        )
+        try:
+            stage_transition_success = await asyncio.to_thread(
+                self._enforce_finding_papers_stage_after_search,
+                ctx,
+                all_tool_results,
+            )
+            await asyncio.to_thread(
+                self._record_quality_metrics,
+                ctx,
+                policy_decision,
+                all_tool_results,
+                False,
+                stage_transition_success,
+            )
+        except Exception as metrics_err:
+            logger.error(f"Failed to record metrics: {metrics_err}")
 
-        # Persist _last_tools_called for route classifier follow-up detection
-        tools_called_this_turn = [t["name"] for t in all_tool_results] if all_tool_results else []
         try:
             channel = ctx.get("channel")
             if channel:
@@ -1187,20 +1205,6 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             "[TurnMetrics] route=full prompt_tokens=%d tools_count=%d ttfb_ms=%d total_ms=%d model=%s",
             prompt_tokens, len(all_tool_results), ttfb_ms, total_ms, self.model,
         )
-
-        yield {
-            "type": "result",
-            "data": {
-                "message": final_message,
-                "actions": actions,
-                "citations": [],
-                "model_used": self.model,
-                "reasoning_used": ctx.get("reasoning_mode", False),
-                "tools_called": tools_called_this_turn,
-                "conversation_state": {},
-                "memory_warning": contradiction_warning,
-            }
-        }
 
     def _generate_tool_summary_message(self, tool_results: List[Dict]) -> str:
         """Generate a summary message when model returns empty content after tool execution."""
