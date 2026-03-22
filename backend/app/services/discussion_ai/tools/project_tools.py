@@ -22,17 +22,12 @@ UPDATE_PROJECT_INFO_SCHEMA = {
     "function": {
         "name": "update_project_info",
         "description": """Update project description, objectives, and/or keywords.
-The project has exactly three editable fields: "Description", "Objectives", and "Keywords". Always refer to them by these names.
-IMPORTANT RULES:
-1. When the user asks to fill, write, or set project info, FIRST propose your suggested content in your response text and ask the user to confirm or adjust BEFORE calling this tool. Do NOT call this tool until the user approves.
-2. If the user provides EXACT content to set (e.g. 'set description to X'), you may call this tool directly.
-3. For small edits like 'add keyword X' or 'remove objective 2', you may call this tool directly.
-4. Only include parameters the user explicitly asked to change. Omit fields not mentioned.
-5. NEVER ask user about 'replace' vs 'append' modes - infer from intent:
-   - 'add keyword X' or 'also include Y' -> append mode
-   - 'set keywords to X,Y,Z' or 'change to...' -> replace mode
-   - 'remove keyword X' -> remove mode
-6. Use preview=true to show what would change without committing (recommended for large changes).""",
+The project has exactly three editable fields: "Description", "Objectives", and "Keywords".
+RULES:
+1. When the user asks to update, set, or change project info, call this tool DIRECTLY — do NOT preview or ask for confirmation first. Just do it, then summarize what you changed.
+2. Only include parameters the user explicitly asked to change. Omit fields not mentioned.
+3. Infer mode from intent: 'add keyword X' -> append, 'set keywords to X,Y,Z' -> replace, 'remove keyword X' -> remove.
+4. Do NOT stream explanatory text before calling this tool. Call the tool first, then describe what was updated.""",
         "parameters": {
             "type": "object",
             "properties": {
