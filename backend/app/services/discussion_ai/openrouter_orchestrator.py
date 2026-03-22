@@ -809,7 +809,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             call_kwargs: Dict[str, Any] = dict(
                 model=self.model,
                 messages=messages,
-                max_tokens=4096 if is_paper_chat else 50,
+                max_tokens=4096 if is_paper_chat else 512,
             )
             response = self.openrouter_client.chat.completions.create(**call_kwargs)
             raw = response.choices[0].message.content or ""
@@ -856,7 +856,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             lite_kwargs: Dict[str, Any] = dict(
                 model=self.model,
                 messages=messages,
-                max_tokens=4096 if is_paper_chat else 50,
+                max_tokens=4096 if is_paper_chat else 512,
                 stream=True,
             )
             stream = await self.async_openrouter_client.chat.completions.create(**lite_kwargs)
