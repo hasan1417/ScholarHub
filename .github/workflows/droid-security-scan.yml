@@ -11,62 +11,36 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-      issues: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install droid CLI
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Backend dependency audit (pip-audit)
+        working-directory: backend
         run: |
-          curl -fsSL https://app.factory.ai/cli | sh
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          pip install pip-audit
+          echo "## Backend Dependencies" >> "$GITHUB_STEP_SUMMARY"
+          pip-audit -r requirements.txt --format markdown >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+          pip-audit -r requirements.txt
 
-      - name: Configure BYOK (OpenRouter)
+      - name: Frontend dependency audit (npm audit)
+        working-directory: frontend
         run: |
-          mkdir -p ~/.factory
-          cat > ~/.factory/settings.json << 'EOF'
-          {
-            "customModels": [{
-              "model": "anthropic/claude-sonnet-4",
-              "displayName": "Claude Sonnet",
-              "baseUrl": "https://openrouter.ai/api/v1",
-              "apiKey": "${OPENROUTER_API_KEY}",
-              "provider": "generic-chat-completion-api",
-              "maxOutputTokens": 16000
-            }]
-          }
-          EOF
-
-      - name: Run security scan
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          droid exec --auto low --model "custom:Claude-Sonnet-0" --output-format text "$(cat <<'PROMPT'
-          You are auditing the ScholarHub codebase for security vulnerabilities.
-
-          Stack: React+TypeScript frontend, FastAPI+Python backend, PostgreSQL, Redis, Docker.
-
-          Scan the codebase for:
-          1. OWASP Top 10 vulnerabilities (injection, broken auth, XSS, SSRF, etc.)
-          2. Hardcoded secrets, API keys, or credentials (check .env files, config, constants)
-          3. Insecure dependencies (check requirements.txt and package.json for known CVEs)
-          4. Docker security (running as root, exposed ports, missing health checks)
-          5. Auth/session issues (cookie config, CORS, CSRF)
-          6. Input validation gaps at API boundaries
-
-          Focus on backend/app/api/, backend/app/services/, frontend/src/services/api.ts,
-          docker-compose.yml, docker-compose.prod.yml, and nginx config.
-
-          Output a markdown report with:
-          - Critical findings (if any) with file:line references
-          - Medium findings
-          - Low/informational findings
-          - A brief "no issues found" if a category is clean
-
-          If critical issues are found, create a GitHub issue:
-            gh issue create --title "Security: <brief summary>" --body "<details>" --label "security"
-          Otherwise just output the report to stdout.
-          PROMPT
-          )"
+          echo "## Frontend Dependencies" >> "$GITHUB_STEP_SUMMARY"
+          npm audit --omit=dev >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+          npm audit --omit=dev --audit-level=high
