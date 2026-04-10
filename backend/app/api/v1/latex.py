@@ -1125,7 +1125,7 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
                     await asyncio.to_thread(
                         _write_json_atomic,
                         paths["meta"],
-                        {"errorCount": error_count, "errors": structured_errors},
+                        {"errorCount": error_count, "errors": structured_errors, "logs": logs_buf[-5000:]},
                     )
                 except Exception as e:
                     logger.warning("Failed to write compile metadata for %s: %s", content_hash, e)
