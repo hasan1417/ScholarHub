@@ -85,6 +85,8 @@ class FixErrorsRequest(BaseModel):
 
 
 _ENGINE_VERSION = "texlive-pdflatex-v1"
+_COMPILE_META_FILENAME = "compile_meta.json"
+_LATEX_COMPILE_TIMEOUT_SECONDS = 60
 
 
 def _sha256(text: str, extra_files: Optional[Dict[str, str]] = None, paper_id: Optional[str] = None) -> str:
@@ -121,34 +123,214 @@ def _artifact_paths(content_hash: str) -> Dict[str, Path]:
         # latexmk outputs <input_basename>.pdf; we use main.tex → main.pdf
         "pdf": out_dir / "main.pdf",
         "log": out_dir / "compile.log",
+        "meta": out_dir / _COMPILE_META_FILENAME,
     }
+
+
+_LATEXMK_FILE_LINE_RE = re.compile(r'^(?P<file>.+?):(?P<line>\d+):\s(?P<message>.+)$')
+_LATEX_SOURCE_LINE_RE = re.compile(r'^l\.(\d+)\s*(.*)$')
+_LATEX_RERUN_ERROR_LINE_RE = re.compile(r'^error,\s+and then rerun latexmk\.$', re.IGNORECASE)
+_LATEX_ERROR_MESSAGE_RE = re.compile(
+    r"""
+    ^\s*!
+    |(?:LaTeX|Package\s+[^:]+)\s+Error:
+    |\bFatal\ error\b
+    |\bEmergency\ stop\b
+    |\bUndefined\ control\ sequence\b
+    |\bRunaway\ argument\?
+    |\bFile\s+.+\s+not\ found\b
+    |\bMissing\s+.+\s+inserted\b
+    |\bParagraph\ ended\ before\b
+    |\bExtra\s+\},\s+or\ forgotten\b
+    |\bMisplaced\b
+    |\bno\ legal\s+\\end\s+found\b
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _write_json_atomic(path: Path, payload: Dict[str, Any]) -> None:
+    """Write JSON atomically using a temp file in the target directory."""
+    tmp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with tmp_path.open("w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    finally:
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _normalize_structured_errors(raw_errors: Any) -> list[dict]:
+    errors: list[dict] = []
+    if not isinstance(raw_errors, list):
+        return errors
+
+    for item in raw_errors:
+        if not isinstance(item, dict):
+            continue
+        message = item.get("message")
+        if not isinstance(message, str) or not message.strip():
+            continue
+
+        err: dict = {"message": message.strip()}
+        line = item.get("line")
+        if isinstance(line, int) and line > 0:
+            err["line"] = line
+        elif isinstance(line, str) and line.isdigit():
+            err["line"] = int(line)
+
+        context = item.get("context")
+        if isinstance(context, str) and context.strip():
+            err["context"] = context.strip()
+
+        errors.append(err)
+
+    return errors
+
+
+def _is_actual_latex_error_line(line: str) -> bool:
+    stripped = (line or "").strip()
+    if not stripped:
+        return False
+    if stripped.startswith("Running"):
+        return False
+    if _LATEX_RERUN_ERROR_LINE_RE.fullmatch(stripped):
+        return False
+    return bool(_LATEX_ERROR_MESSAGE_RE.search(stripped))
+
+
+def _extract_latex_line_context(log_lines: list[str], start_idx: int) -> tuple[Optional[int], Optional[str]]:
+    for j in range(start_idx + 1, min(start_idx + 6, len(log_lines))):
+        look = (log_lines[j] or "").strip()
+        if not look:
+            continue
+
+        line_match = _LATEX_SOURCE_LINE_RE.match(look)
+        if line_match:
+            context = line_match.group(2).strip() or None
+            return int(line_match.group(1)), context
+
+        file_line_match = _LATEXMK_FILE_LINE_RE.match(look)
+        if file_line_match:
+            return int(file_line_match.group("line")), None
+
+    return None, None
+
+
+def _merge_structured_error(errors: list[dict], candidate: dict) -> None:
+    message = " ".join(candidate.get("message", "").split()).strip()
+    if not message:
+        return
+
+    line = candidate.get("line")
+    context = candidate.get("context")
+    for existing in errors:
+        existing_message = " ".join(existing.get("message", "").split()).strip()
+        existing_line = existing.get("line")
+        if existing_message.lower() != message.lower():
+            continue
+        if existing_line == line or existing_line is None or line is None:
+            if existing_line is None and isinstance(line, int):
+                existing["line"] = line
+            if not existing.get("context") and isinstance(context, str) and context:
+                existing["context"] = context
+            return
+
+    merged = {"message": message}
+    if isinstance(line, int) and line > 0:
+        merged["line"] = line
+    if isinstance(context, str) and context:
+        merged["context"] = context
+    errors.append(merged)
+
+
+def _compile_meta_from_logs(log_lines: list[str]) -> dict:
+    structured_errors = _parse_latex_errors(log_lines)
+    error_count = sum(1 for line in log_lines if _is_actual_latex_error_line(line))
+    return {
+        "errorCount": max(error_count, len(structured_errors)),
+        "errors": structured_errors,
+    }
+
+
+def _read_compile_meta(paths: Dict[str, Path]) -> dict:
+    meta_path = paths["meta"]
+    if meta_path.exists():
+        try:
+            payload = json.loads(meta_path.read_text(encoding="utf-8"))
+            errors = _normalize_structured_errors(payload.get("errors"))
+            error_count = payload.get("errorCount")
+            if not isinstance(error_count, int):
+                error_count = len(errors)
+            return {
+                "errorCount": max(error_count, len(errors)),
+                "errors": errors,
+            }
+        except Exception as e:
+            logger.warning("Failed to read compile metadata from %s: %s", meta_path, e)
+
+    if paths["log"].exists():
+        try:
+            log_lines = paths["log"].read_text(encoding="utf-8", errors="ignore").splitlines()
+            return _compile_meta_from_logs(log_lines)
+        except Exception as e:
+            logger.warning("Failed to rebuild compile metadata from %s: %s", paths["log"], e)
+
+    return {"errorCount": 0, "errors": []}
 
 
 def _parse_latex_errors(log_lines: list[str]) -> list[dict]:
     """Parse LaTeX log lines for structured errors with line numbers.
 
-    Scans for lines starting with `!` (LaTeX error indicator) and looks
-    ahead for `l.NNN` patterns to extract line numbers and context.
+    Supports both raw TeX errors (`! ...`) and latexmk file-line output
+    (`./main.tex:119: LaTeX Error: ...`).
     """
     errors: list[dict] = []
-    i = 0
-    while i < len(log_lines):
-        line = log_lines[i]
+    for i, raw_line in enumerate(log_lines):
+        line = (raw_line or "").strip()
+        if not line:
+            continue
+
+        file_line_match = _LATEXMK_FILE_LINE_RE.match(line)
+        if file_line_match:
+            message = file_line_match.group("message").strip()
+            if _is_actual_latex_error_line(message):
+                err: dict = {
+                    "line": int(file_line_match.group("line")),
+                    "message": message,
+                }
+                _, context = _extract_latex_line_context(log_lines, i)
+                if context:
+                    err["context"] = context
+                _merge_structured_error(errors, err)
+                continue
+
         if line.startswith('!'):
-            message = line[1:].strip()
-            err: dict = {"message": message}
-            # Look ahead up to 5 lines for `l.NNN` pattern (line number)
-            for j in range(i + 1, min(i + 6, len(log_lines))):
-                look = log_lines[j]
-                m = re.match(r'^l\.(\d+)\s*(.*)', look)
-                if m:
-                    err["line"] = int(m.group(1))
-                    ctx = m.group(2).strip()
-                    if ctx:
-                        err["context"] = ctx
-                    break
-            errors.append(err)
-        i += 1
+            err = {"message": line[1:].strip()}
+            line_no, context = _extract_latex_line_context(log_lines, i)
+            if line_no is not None:
+                err["line"] = line_no
+            if context:
+                err["context"] = context
+            _merge_structured_error(errors, err)
+            continue
+
+        if _is_actual_latex_error_line(line):
+            err = {"message": line}
+            line_no, context = _extract_latex_line_context(log_lines, i)
+            if line_no is not None:
+                err["line"] = line_no
+            if context:
+                err["context"] = context
+            _merge_structured_error(errors, err)
+
     return errors
 
 
@@ -266,7 +448,12 @@ def _needs_xelatex(source: str) -> bool:
     return has_arabic or has_fontspec
 
 
-async def _run_latexmk(out_dir: Path, tex_path: Path, use_xelatex: bool = False):
+async def _run_latexmk(
+    out_dir: Path,
+    tex_path: Path,
+    use_xelatex: bool = False,
+    timeout_seconds: int = _LATEX_COMPILE_TIMEOUT_SECONDS,
+):
     """Run latexmk to compile the given tex file, streaming output lines."""
     from shutil import which
     exe = which("latexmk")
@@ -291,14 +478,41 @@ async def _run_latexmk(out_dir: Path, tex_path: Path, use_xelatex: bool = False)
         stderr=asyncio.subprocess.STDOUT,
     )
     assert proc.stdout is not None
+    deadline = time.monotonic() + timeout_seconds
+    timed_out = False
     try:
         while True:
-            line = await proc.stdout.readline()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                timed_out = True
+                if proc.returncode is None:
+                    try:
+                        proc.kill()
+                    except ProcessLookupError:
+                        pass
+                raise asyncio.TimeoutError(f"LaTeX compilation timed out after {timeout_seconds} seconds")
+            try:
+                line = await asyncio.wait_for(proc.stdout.readline(), timeout=remaining)
+            except asyncio.TimeoutError as exc:
+                timed_out = True
+                if proc.returncode is None:
+                    try:
+                        proc.kill()
+                    except ProcessLookupError:
+                        pass
+                    await proc.wait()
+                raise asyncio.TimeoutError(f"LaTeX compilation timed out after {timeout_seconds} seconds") from exc
             if not line:
                 break
             yield line.decode(errors="ignore").rstrip("\n")
     finally:
-        await proc.wait()
+        if proc.returncode is None:
+            if timed_out:
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+            await proc.wait()
 
 
 @router.post("/latex/compile")
@@ -800,6 +1014,9 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
             and not copied_bib
         )
         if cached:
+            compile_meta = await asyncio.to_thread(_read_compile_meta, paths)
+            cached_error_count = int(compile_meta.get("errorCount", 0) or 0)
+            cached_errors = _normalize_structured_errors(compile_meta.get("errors"))
             payload = {"type": "cache", "message": "Cache hit", "hash": content_hash}
             yield f"data: {json.dumps(payload)}\n\n"
             commit_id = None
@@ -819,13 +1036,30 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
                 except Exception as e:
                     logger.warning("Failed to save compiled version (stream cache hit): %s", e)
                     commit_id = None
-            final = {"type": "final", "pdf_url": f"/api/v1/latex/artifacts/{content_hash}/main.pdf", "hash": content_hash, "elapsed": round(time.time()-t0,2), "buildId": build_id, "errorCount": 0, "errors": [], "commitId": commit_id}
+            final = {
+                "type": "final",
+                "pdf_url": f"/api/v1/latex/artifacts/{content_hash}/main.pdf",
+                "hash": content_hash,
+                "elapsed": round(time.time()-t0, 2),
+                "buildId": build_id,
+                "errorCount": cached_error_count,
+                "errors": cached_errors,
+                "commitId": commit_id,
+            }
             yield f"data: {json.dumps(final)}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
             status_str = 'cached'
             if settings.ENABLE_METRICS:
                 try:
-                    logger.info("[metrics] compile buildId=%s payload_size=%d engine=%s status=%s elapsed=%.2f errorCount=0", build_id, payload_size, engine, status_str, round(time.time()-t0, 2))
+                    logger.info(
+                        "[metrics] compile buildId=%s payload_size=%d engine=%s status=%s elapsed=%.2f errorCount=%d",
+                        build_id,
+                        payload_size,
+                        engine,
+                        status_str,
+                        round(time.time()-t0, 2),
+                        cached_error_count,
+                    )
                 except Exception:
                     pass
             return
@@ -833,6 +1067,14 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
         # Compile via latexmk (TeX Live)
         start = time.time()
         try:
+            def _reset_compile_metadata() -> None:
+                for artifact_key in ("log", "meta"):
+                    artifact = paths[artifact_key]
+                    if artifact.exists():
+                        artifact.unlink()
+
+            await asyncio.to_thread(_reset_compile_metadata)
+
             # Optionally write main.bib from user's paper references
             main_bib_path = paths["dir"] / "main.bib"
             main_bib_exists = await asyncio.to_thread(main_bib_path.exists)
@@ -848,7 +1090,12 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
             use_xelatex = _needs_xelatex(effective_source)
 
             # Stream compile logs (latexmk handles bibtex passes automatically)
-            async for line in _run_latexmk(paths["dir"], paths["tex"], use_xelatex=use_xelatex):
+            async for line in _run_latexmk(
+                paths["dir"],
+                paths["tex"],
+                use_xelatex=use_xelatex,
+                timeout_seconds=_LATEX_COMPILE_TIMEOUT_SECONDS,
+            ):
                 try:
                     def _append_log(log_line):
                         with paths["log"].open("a", encoding="utf-8") as lf:
@@ -857,7 +1104,7 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
                 except Exception as e:
                     logger.warning("Failed to write compile log: %s", e)
                 logs_buf.append(line)
-                if 'error' in (line or '').lower():
+                if _is_actual_latex_error_line(line):
                     error_count += 1
                 payload = {"type": "log", "line": line}
                 yield f"data: {json.dumps(payload)}\n\n"
@@ -865,6 +1112,16 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
             # Check result
             if await asyncio.to_thread(paths["pdf"].exists):
                 elapsed = round(time.time() - start, 2)
+                structured_errors = _parse_latex_errors(logs_buf)
+                error_count = max(error_count, len(structured_errors))
+                try:
+                    await asyncio.to_thread(
+                        _write_json_atomic,
+                        paths["meta"],
+                        {"errorCount": error_count, "errors": structured_errors},
+                    )
+                except Exception as e:
+                    logger.warning("Failed to write compile metadata for %s: %s", content_hash, e)
                 commit_id = None
                 if save_version and request.paper_id:
                     try:
@@ -875,7 +1132,6 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
                     except Exception as e:
                         logger.warning("Failed to save compiled version (stream compile): %s", e)
                         commit_id = None
-                structured_errors = _parse_latex_errors(logs_buf)
                 final = {
                     "type": "final",
                     "pdf_url": f"/api/v1/latex/artifacts/{content_hash}/main.pdf",
@@ -892,16 +1148,26 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
             else:
                 err = {"type": "error", "message": "Compilation failed: main.pdf not found"}
                 yield f"data: {json.dumps(err)}\n\n"
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
                 status_str = 'error'
                 error_count += 1
+        except asyncio.TimeoutError as e:
+            err = {"type": "error", "message": str(e)}
+            yield f"data: {json.dumps(err)}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            status_str = 'timeout'
+            exit_code = 'timeout'
+            error_count += 1
         except FileNotFoundError as fe:
             err = {"type": "error", "message": str(fe)}
             yield f"data: {json.dumps(err)}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
             status_str = 'error'
             error_count += 1
         except Exception as e:
             err = {"type": "error", "message": f"Compilation error: {e}"}
             yield f"data: {json.dumps(err)}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
             status_str = 'error'
             error_count += 1
         finally:
