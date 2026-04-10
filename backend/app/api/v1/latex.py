@@ -257,6 +257,7 @@ def _compile_meta_from_logs(log_lines: list[str]) -> dict:
     return {
         "errorCount": max(error_count, len(structured_errors)),
         "errors": structured_errors,
+        "logs": log_lines,
     }
 
 
@@ -272,6 +273,7 @@ def _read_compile_meta(paths: Dict[str, Path]) -> dict:
             return {
                 "errorCount": max(error_count, len(errors)),
                 "errors": errors,
+                "logs": payload.get("logs", []),
             }
         except Exception as e:
             logger.warning("Failed to read compile metadata from %s: %s", meta_path, e)
@@ -1019,6 +1021,11 @@ async def compile_latex_stream(request: CompileRequest, current_user: User = Dep
             cached_errors = _normalize_structured_errors(compile_meta.get("errors"))
             payload = {"type": "cache", "message": "Cache hit", "hash": content_hash}
             yield f"data: {json.dumps(payload)}\n\n"
+            # Replay cached log lines so frontend shows warnings/errors from cache
+            cached_logs = compile_meta.get("logs", [])
+            for log_line in cached_logs:
+                if log_line:
+                    yield f"data: {json.dumps({'type': 'log', 'line': log_line})}\n\n"
             commit_id = None
             if save_version and request.paper_id:
                 try:
