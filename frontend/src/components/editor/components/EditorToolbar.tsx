@@ -100,17 +100,6 @@ const TableSizeGrid: React.FC<{
 }
 
 /* ------------------------------------------------------------------ */
-/*  Responsive toolbar layout constants                                */
-/* ------------------------------------------------------------------ */
-// Collapsible group widths (approximate px, each includes trailing separator)
-// Groups collapse from end: comment → linkref → insert → cite → math → bold
-const GROUP_WIDTHS: number[] = [65, 65, 65, 125, 65, 95]
-//                    0:BI 1:math 2:cite 3:insert 4:linkref 5:comment
-const FIXED_LEFT = 325   // source/visual toggle + undo + redo + sep + heading-dropdown + sep
-const FIXED_RIGHT = 40   // search button area
-const OVERFLOW_BTN_W = 38 // sep + ··· button
-
-/* ------------------------------------------------------------------ */
 /*  Shared styles                                                      */
 /* ------------------------------------------------------------------ */
 const btnCls = 'flex-shrink-0 rounded p-1.5 transition-colors disabled:opacity-30'
@@ -173,39 +162,49 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   const showRow1Tools = viewMode !== 'pdf' && !readOnly
 
   /* ---------------------------------------------------------------- */
-  /*  Responsive: measure row 1 and compute visible groups             */
+  /*  Responsive: IntersectionObserver detects clipped groups          */
   /* ---------------------------------------------------------------- */
   const row1Ref = useRef<HTMLDivElement>(null)
-  const [visibleCount, setVisibleCount] = useState(GROUP_WIDTHS.length)
+  const toolbarContentRef = useRef<HTMLDivElement>(null)
+  const groupRefs = useRef<(HTMLDivElement | null)[]>([])
+  const [hiddenGroups, setHiddenGroups] = useState<Set<number>>(new Set())
 
   useEffect(() => {
-    const el = row1Ref.current
-    if (!el || typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver(([entry]) => {
-      const avail = entry.contentRect.width - FIXED_LEFT - FIXED_RIGHT
-      let used = 0
-      let count = 0
-      for (let i = 0; i < GROUP_WIDTHS.length; i++) {
-        const remaining = GROUP_WIDTHS.length - count - 1
-        const extra = remaining > 0 ? OVERFLOW_BTN_W : 0
-        if (used + GROUP_WIDTHS[i] + extra > avail) break
-        used += GROUP_WIDTHS[i]
-        count++
-      }
-      setVisibleCount(count)
-    })
-    ro.observe(el)
-    return () => ro.disconnect()
+    const container = toolbarContentRef.current
+    if (!container || typeof IntersectionObserver === 'undefined') return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        setHiddenGroups(prev => {
+          const next = new Set(prev)
+          for (const entry of entries) {
+            const idx = Number(entry.target.getAttribute('data-group'))
+            if (!isNaN(idx)) {
+              if (entry.isIntersecting && entry.intersectionRatio > 0.9) {
+                next.delete(idx)
+              } else {
+                next.add(idx)
+              }
+            }
+          }
+          if (next.size === prev.size && [...next].every(v => prev.has(v))) return prev
+          return next
+        })
+      },
+      { root: container, threshold: 0.9 }
+    )
+
+    groupRefs.current.forEach(el => { if (el) observer.observe(el) })
+    return () => observer.disconnect()
   }, [])
 
-  const showG = (idx: number) => visibleCount > idx
-  const hasOverflow = visibleCount < GROUP_WIDTHS.length
+  const hasOverflow = hiddenGroups.size > 0
 
   // Close inline dropdowns if their parent group gets hidden
   useEffect(() => {
-    if (openDropdown === 'math' && !showG(1)) setOpenDropdown(null)
-    if (openDropdown === 'table' && !showG(3)) setOpenDropdown(null)
-  }, [visibleCount]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (openDropdown === 'math' && hiddenGroups.has(1)) setOpenDropdown(null)
+    if (openDropdown === 'table' && hiddenGroups.has(3)) setOpenDropdown(null)
+  }, [hiddenGroups, openDropdown])
 
   /* ---------------------------------------------------------------- */
   /*  Position fixed dropdown menus                                    */
@@ -250,179 +249,174 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         <div className="flex items-center gap-0.5">
           {showRow1Tools && (
             <>
-              {/* Source / Visual toggle */}
-              {onToggleVisualMode && (
-                <div className="mr-1 flex items-center rounded-full bg-slate-300 p-px dark:bg-slate-600">
-                  <button
-                    type="button"
-                    onClick={() => visualMode && onToggleVisualMode()}
-                    className={`whitespace-nowrap rounded-full px-2 py-px text-[11px] font-medium leading-tight transition-colors ${
-                      !visualMode
-                        ? 'bg-emerald-600 text-white'
-                        : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
-                    }`}
-                  >
-                    Code Editor
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => !visualMode && onToggleVisualMode()}
-                    className={`whitespace-nowrap rounded-full px-2 py-px text-[11px] font-medium leading-tight transition-colors ${
-                      visualMode
-                        ? 'bg-emerald-600 text-white'
-                        : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
-                    }`}
-                  >
-                    Visual Editor
-                  </button>
+              {/* Always visible: toggle, undo/redo, heading */}
+              <div className="flex items-center gap-0.5 flex-shrink-0">
+                {/* Source / Visual toggle */}
+                {onToggleVisualMode && (
+                  <div className="mr-1 flex items-center rounded-full bg-slate-300 p-px dark:bg-slate-600">
+                    <button
+                      type="button"
+                      onClick={() => visualMode && onToggleVisualMode()}
+                      className={`whitespace-nowrap rounded-full px-2 py-px text-[11px] font-medium leading-tight transition-colors ${
+                        !visualMode
+                          ? 'bg-emerald-600 text-white'
+                          : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      Code Editor
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => !visualMode && onToggleVisualMode()}
+                      className={`whitespace-nowrap rounded-full px-2 py-px text-[11px] font-medium leading-tight transition-colors ${
+                        visualMode
+                          ? 'bg-emerald-600 text-white'
+                          : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      Visual Editor
+                    </button>
+                  </div>
+                )}
+
+                <span className={sep} />
+
+                {/* Undo / Redo */}
+                <button type="button" onClick={onUndo} disabled={!undoEnabled}
+                  className={btnDefault} title="Undo">
+                  <Undo2 className={iconSz} />
+                </button>
+                <button type="button" onClick={onRedo} disabled={!redoEnabled}
+                  className={btnDefault} title="Redo">
+                  <Redo2 className={iconSz} />
+                </button>
+
+                {!isMobile && (
+                  <>
+                    <span className={sep} />
+                    <SectionHeadingDropdown editorViewRef={editorViewRef} />
+                  </>
+                )}
+              </div>
+
+              {/* Collapsible groups — overflow hidden clips from right */}
+              {!isMobile && (
+                <div ref={toolbarContentRef} className="flex items-center gap-0.5 overflow-hidden flex-1 min-w-0">
+                  {/* Group 0: Bold / Italic */}
+                  <div ref={el => { groupRefs.current[0] = el }} data-group="0" className="flex items-center gap-0.5 flex-shrink-0">
+                    <span className={sep} />
+                    <button type="button" onClick={onInsertBold} disabled={formattingDisabled}
+                      className={boldActive ? btnActive : btnDefault}
+                      title="Bold (\\textbf)">
+                      <Bold className={iconSz} />
+                    </button>
+                    <button type="button" onClick={onInsertItalics} disabled={formattingDisabled}
+                      className={italicActive ? btnActive : btnDefault}
+                      title="Italic (\\textit)">
+                      <Italic className={iconSz} />
+                    </button>
+                  </div>
+
+                  {/* Group 1: Math / Symbol */}
+                  <div ref={el => { groupRefs.current[1] = el }} data-group="1" className="flex items-center gap-0.5 flex-shrink-0">
+                    <span className={sep} />
+                    <button ref={mathBtnRef} type="button" disabled={formattingDisabled}
+                      onClick={() => setOpenDropdown(openDropdown === 'math' ? null : 'math')}
+                      className={openDropdown === 'math' ? btnActive : btnDefault}
+                      title="Insert math">
+                      <Sigma className={iconSz} />
+                    </button>
+                    {onToggleSymbolPalette && (
+                      <button type="button" onClick={onToggleSymbolPalette}
+                        className={symbolPaletteOpen ? btnActive : btnDefault}
+                        title="Symbol palette (Ω)">
+                        <span className="text-sm font-serif leading-none">&#937;</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Group 2: Citation / Library */}
+                  <div ref={el => { groupRefs.current[2] = el }} data-group="2" className="flex items-center gap-0.5 flex-shrink-0">
+                    <span className={sep} />
+                    <button type="button" onClick={onInsertCite} disabled={formattingDisabled}
+                      className={btnDefault} title="Citation (\\cite)">
+                      <Link2 className={iconSz} />
+                    </button>
+                    <button type="button" onClick={onOpenReferences}
+                      className={btnDefault} title="Insert from References">
+                      <Library className={iconSz} />
+                    </button>
+                  </div>
+
+                  {/* Group 3: Figure / Table / Lists */}
+                  <div ref={el => { groupRefs.current[3] = el }} data-group="3" className="flex items-center gap-0.5 flex-shrink-0">
+                    <span className={sep} />
+                    <button type="button" onClick={onInsertFigure} disabled={formattingDisabled}
+                      className={btnDefault} title="Insert figure">
+                      <Image className={iconSz} />
+                    </button>
+                    <button ref={tableBtnRef} type="button" disabled={formattingDisabled}
+                      onClick={() => setOpenDropdown(openDropdown === 'table' ? null : 'table')}
+                      className={openDropdown === 'table' ? btnActive : btnDefault}
+                      title="Insert table">
+                      <Table2 className={iconSz} />
+                    </button>
+                    <button type="button" onClick={onInsertItemize} disabled={formattingDisabled}
+                      className={btnDefault} title="Bullet list">
+                      <List className={iconSz} />
+                    </button>
+                    <button type="button" onClick={onInsertEnumerate} disabled={formattingDisabled}
+                      className={btnDefault} title="Numbered list">
+                      <ListOrdered className={iconSz} />
+                    </button>
+                  </div>
+
+                  {/* Group 4: Link / Cross Reference */}
+                  <div ref={el => { groupRefs.current[4] = el }} data-group="4" className="flex items-center gap-0.5 flex-shrink-0">
+                    <span className={sep} />
+                    <button type="button" onClick={onInsertLink} disabled={formattingDisabled}
+                      className={btnDefault} title="Hyperlink">
+                      <Link className={iconSz} />
+                    </button>
+                    <button type="button" onClick={onInsertRef} disabled={formattingDisabled}
+                      className={btnDefault} title="Cross Reference (\\ref)">
+                      <Hash className={iconSz} />
+                    </button>
+                  </div>
+
+                  {/* Group 5: Comment / Indent */}
+                  <div ref={el => { groupRefs.current[5] = el }} data-group="5" className="flex items-center gap-0.5 flex-shrink-0">
+                    <span className={sep} />
+                    <button type="button" onClick={() => dispatchCmd(toggleComment)} disabled={formattingDisabled}
+                      className={btnDefault} title="Toggle Comment">
+                      <MessageSquare className={iconSz} />
+                    </button>
+                    <button type="button" onClick={() => dispatchCmd(indentLess)} disabled={formattingDisabled}
+                      className={btnDefault} title="Decrease Indent">
+                      <IndentDecrease className={iconSz} />
+                    </button>
+                    <button type="button" onClick={() => dispatchCmd(indentMore)} disabled={formattingDisabled}
+                      className={btnDefault} title="Increase Indent">
+                      <IndentIncrease className={iconSz} />
+                    </button>
+                  </div>
                 </div>
               )}
 
-              <span className={sep} />
-
-              {/* Undo / Redo — always visible */}
-              <button type="button" onClick={onUndo} disabled={!undoEnabled}
-                className={btnDefault} title="Undo">
-                <Undo2 className={iconSz} />
-              </button>
-              <button type="button" onClick={onRedo} disabled={!redoEnabled}
-                className={btnDefault} title="Redo">
-                <Redo2 className={iconSz} />
-              </button>
-
-              {!isMobile && (
-                <>
-                  {/* Section Heading Dropdown — always visible */}
+              {/* Overflow button — outside the overflow container */}
+              {!isMobile && hasOverflow && (
+                <div className="flex items-center gap-0.5 flex-shrink-0">
                   <span className={sep} />
-                  <SectionHeadingDropdown editorViewRef={editorViewRef} />
-
-                  {/* Group 0: Bold / Italic */}
-                  {showG(0) && (
-                    <>
-                      <span className={sep} />
-                      <button type="button" onClick={onInsertBold} disabled={formattingDisabled}
-                        className={boldActive ? btnActive : btnDefault}
-                        title="Bold (\\textbf)">
-                        <Bold className={iconSz} />
-                      </button>
-                      <button type="button" onClick={onInsertItalics} disabled={formattingDisabled}
-                        className={italicActive ? btnActive : btnDefault}
-                        title="Italic (\\textit)">
-                        <Italic className={iconSz} />
-                      </button>
-                    </>
-                  )}
-
-                  {/* Group 1: Math / Symbol */}
-                  {showG(1) && (
-                    <>
-                      <span className={sep} />
-                      <button ref={mathBtnRef} type="button" disabled={formattingDisabled}
-                        onClick={() => setOpenDropdown(openDropdown === 'math' ? null : 'math')}
-                        className={openDropdown === 'math' ? btnActive : btnDefault}
-                        title="Insert math">
-                        <Sigma className={iconSz} />
-                      </button>
-                      {onToggleSymbolPalette && (
-                        <button type="button" onClick={onToggleSymbolPalette}
-                          className={symbolPaletteOpen ? btnActive : btnDefault}
-                          title="Symbol palette (Ω)">
-                          <span className="text-sm font-serif leading-none">&#937;</span>
-                        </button>
-                      )}
-                    </>
-                  )}
-
-                  {/* Group 2: Citation / Library */}
-                  {showG(2) && (
-                    <>
-                      <span className={sep} />
-                      <button type="button" onClick={onInsertCite} disabled={formattingDisabled}
-                        className={btnDefault} title="Citation (\\cite)">
-                        <Link2 className={iconSz} />
-                      </button>
-                      <button type="button" onClick={onOpenReferences}
-                        className={btnDefault} title="Insert from References">
-                        <Library className={iconSz} />
-                      </button>
-                    </>
-                  )}
-
-                  {/* Group 3: Figure / Table / Lists */}
-                  {showG(3) && (
-                    <>
-                      <span className={sep} />
-                      <button type="button" onClick={onInsertFigure} disabled={formattingDisabled}
-                        className={btnDefault} title="Insert figure">
-                        <Image className={iconSz} />
-                      </button>
-                      <button ref={tableBtnRef} type="button" disabled={formattingDisabled}
-                        onClick={() => setOpenDropdown(openDropdown === 'table' ? null : 'table')}
-                        className={openDropdown === 'table' ? btnActive : btnDefault}
-                        title="Insert table">
-                        <Table2 className={iconSz} />
-                      </button>
-                      <button type="button" onClick={onInsertItemize} disabled={formattingDisabled}
-                        className={btnDefault} title="Bullet list">
-                        <List className={iconSz} />
-                      </button>
-                      <button type="button" onClick={onInsertEnumerate} disabled={formattingDisabled}
-                        className={btnDefault} title="Numbered list">
-                        <ListOrdered className={iconSz} />
-                      </button>
-                    </>
-                  )}
-
-                  {/* Group 4: Link / Cross Reference */}
-                  {showG(4) && (
-                    <>
-                      <span className={sep} />
-                      <button type="button" onClick={onInsertLink} disabled={formattingDisabled}
-                        className={btnDefault} title="Hyperlink">
-                        <Link className={iconSz} />
-                      </button>
-                      <button type="button" onClick={onInsertRef} disabled={formattingDisabled}
-                        className={btnDefault} title="Cross Reference (\\ref)">
-                        <Hash className={iconSz} />
-                      </button>
-                    </>
-                  )}
-
-                  {/* Group 5: Comment / Indent */}
-                  {showG(5) && (
-                    <>
-                      <span className={sep} />
-                      <button type="button" onClick={() => dispatchCmd(toggleComment)} disabled={formattingDisabled}
-                        className={btnDefault} title="Toggle Comment">
-                        <MessageSquare className={iconSz} />
-                      </button>
-                      <button type="button" onClick={() => dispatchCmd(indentLess)} disabled={formattingDisabled}
-                        className={btnDefault} title="Decrease Indent">
-                        <IndentDecrease className={iconSz} />
-                      </button>
-                      <button type="button" onClick={() => dispatchCmd(indentMore)} disabled={formattingDisabled}
-                        className={btnDefault} title="Increase Indent">
-                        <IndentIncrease className={iconSz} />
-                      </button>
-                    </>
-                  )}
-
-                  {/* Overflow ··· button (only when items are hidden) */}
-                  {hasOverflow && (
-                    <>
-                      <span className={sep} />
-                      <button
-                        ref={moreBtnRef}
-                        type="button"
-                        onClick={() => setOpenDropdown(openDropdown === 'more' ? null : 'more')}
-                        className={openDropdown === 'more' ? btnActive : btnDefault}
-                        title="More formatting tools"
-                      >
-                        <MoreHorizontal className={iconSz} />
-                      </button>
-                    </>
-                  )}
-                </>
+                  <button
+                    ref={moreBtnRef}
+                    type="button"
+                    onClick={() => setOpenDropdown(openDropdown === 'more' ? null : 'more')}
+                    className={openDropdown === 'more' ? btnActive : btnDefault}
+                    title="More formatting tools"
+                  >
+                    <MoreHorizontal className={iconSz} />
+                  </button>
+                </div>
               )}
             </>
           )}
@@ -471,8 +465,8 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         <div className="fixed inset-0 z-40" onClick={() => setOpenDropdown(null)} />
       )}
 
-      {/* Math dropdown (only when group 1 is inline) */}
-      {openDropdown === 'math' && showG(1) && (
+      {/* Math dropdown (only when group 1 is visible) */}
+      {openDropdown === 'math' && !hiddenGroups.has(1) && (
         <div className="fixed z-50 min-w-[160px] rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800"
           style={{ top: mathMenuPos.top, left: mathMenuPos.left }}>
           <button onClick={closeAndRun(onInsertInlineMath)}
@@ -486,8 +480,8 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         </div>
       )}
 
-      {/* Table dropdown (only when group 3 is inline) */}
-      {openDropdown === 'table' && showG(3) && (
+      {/* Table dropdown (only when group 3 is visible) */}
+      {openDropdown === 'table' && !hiddenGroups.has(3) && (
         <div className="fixed z-50 rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800"
           style={{ top: tableMenuPos.top, left: tableMenuPos.left }}>
           <TableSizeGrid onSelect={(cols, rows) => {
@@ -509,7 +503,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           style={{ top: moreMenuPos.top, left: moreMenuPos.left }}>
 
           {/* Bold/Italic (group 0) */}
-          {!showG(0) && (
+          {hiddenGroups.has(0) && (
             <>
               <button onClick={closeAndRun(onInsertBold)} disabled={formattingDisabled} className={ovItem}>
                 <Bold className={ovIcon} /> Bold
@@ -522,7 +516,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           )}
 
           {/* Math/Symbol (group 1) */}
-          {!showG(1) && (
+          {hiddenGroups.has(1) && (
             <>
               <button onClick={closeAndRun(onInsertInlineMath)} disabled={formattingDisabled} className={ovItem}>
                 <Sigma className={ovIcon} /> Inline Math
@@ -540,7 +534,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           )}
 
           {/* Cite/Library (group 2) */}
-          {!showG(2) && (
+          {hiddenGroups.has(2) && (
             <>
               <button onClick={closeAndRun(onInsertCite)} disabled={formattingDisabled} className={ovItem}>
                 <Link2 className={ovIcon} /> Citation
@@ -553,7 +547,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           )}
 
           {/* Insert (group 3) */}
-          {!showG(3) && (
+          {hiddenGroups.has(3) && (
             <>
               <button onClick={closeAndRun(onInsertFigure)} disabled={formattingDisabled} className={ovItem}>
                 <Image className={ovIcon} /> Figure
@@ -572,7 +566,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           )}
 
           {/* Link/Ref (group 4) */}
-          {!showG(4) && (
+          {hiddenGroups.has(4) && (
             <>
               <button onClick={closeAndRun(onInsertLink)} disabled={formattingDisabled} className={ovItem}>
                 <Link className={ovIcon} /> Hyperlink
@@ -580,14 +574,14 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
               <button onClick={closeAndRun(onInsertRef)} disabled={formattingDisabled} className={ovItem}>
                 <Hash className={ovIcon} /> Cross Reference
               </button>
-              {showG(5) || <div className={ovSep} />}
+              {!hiddenGroups.has(5) || <div className={ovSep} />}
             </>
           )}
 
           {/* Comment/Indent (group 5) */}
-          {!showG(5) && (
+          {hiddenGroups.has(5) && (
             <>
-              {showG(4) && <div className={ovSep} />}
+              {!hiddenGroups.has(4) && <div className={ovSep} />}
               <button onClick={() => { dispatchCmd(toggleComment); setOpenDropdown(null) }} disabled={formattingDisabled} className={ovItem}>
                 <MessageSquare className={ovIcon} /> Toggle Comment
               </button>
