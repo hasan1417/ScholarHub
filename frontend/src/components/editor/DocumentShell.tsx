@@ -969,6 +969,24 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     return appliedIds
   }, [collab.doc, isLatex, readOnly, requestAutosave, showToast, updateLatestContent])
 
+  /** Get live document text — reads from Yjs (realtime) or falls back to lastHtml/latestContentRef */
+  const getLiveDocumentText = useCallback((): string => {
+    // 1. Try Yjs realtime doc (most current)
+    if (collab.doc) {
+      try {
+        const mainText = collab.doc.getText('main')
+        if (mainText && mainText.length > 0) return mainText.toString()
+      } catch {}
+    }
+    // 2. Try lastHtml state
+    if (lastHtml) return lastHtml
+    // 3. Try latestContentRef
+    const refContent = latestContentRef.current
+    if (refContent.json?.latex_source) return refContent.json.latex_source
+    if (refContent.html) return refContent.html
+    return ''
+  }, [collab.doc, lastHtml])
+
   /** Get extra file contents from Yjs for multi-file AI context */
   const getDocumentFiles = useCallback((): Record<string, string> | null => {
     if (!collab.doc) return null
@@ -1222,7 +1240,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
       <EditorAIChatOR
         paperId={paperId}
         projectId={projectId}
-        documentText={lastHtml}
+        documentText={getLiveDocumentText()}
         documentFiles={getDocumentFiles()}
         open={!readOnly && aiChatOpen}
         onOpenChange={(next) => setAiChatOpen(readOnly ? false : next)}
