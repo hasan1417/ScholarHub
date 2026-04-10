@@ -301,9 +301,9 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 
               {/* Collapsible groups — overflow hidden clips from right */}
               {!isMobile && (
-                <div ref={toolbarContentRef} className="flex items-center gap-0.5 overflow-hidden flex-1 min-w-0">
+                <div ref={toolbarContentRef} className="flex items-center gap-0.5 overflow-hidden min-w-0">
                   {/* Group 0: Bold / Italic */}
-                  <div ref={el => { groupRefs.current[0] = el }} data-group="0" className="flex items-center gap-0.5 flex-shrink-0">
+                  <div ref={el => { groupRefs.current[0] = el }} data-group="0" className="flex items-center gap-0.5 flex-shrink-0" style={hiddenGroups.has(0) ? { visibility: 'hidden' } : undefined}>
                     <span className={sep} />
                     <button type="button" onClick={onInsertBold} disabled={formattingDisabled}
                       className={boldActive ? btnActive : btnDefault}
@@ -318,7 +318,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                   </div>
 
                   {/* Group 1: Math / Symbol */}
-                  <div ref={el => { groupRefs.current[1] = el }} data-group="1" className="flex items-center gap-0.5 flex-shrink-0">
+                  <div ref={el => { groupRefs.current[1] = el }} data-group="1" className="flex items-center gap-0.5 flex-shrink-0" style={hiddenGroups.has(1) ? { visibility: 'hidden' } : undefined}>
                     <span className={sep} />
                     <button ref={mathBtnRef} type="button" disabled={formattingDisabled}
                       onClick={() => setOpenDropdown(openDropdown === 'math' ? null : 'math')}
@@ -336,7 +336,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                   </div>
 
                   {/* Group 2: Citation / Library */}
-                  <div ref={el => { groupRefs.current[2] = el }} data-group="2" className="flex items-center gap-0.5 flex-shrink-0">
+                  <div ref={el => { groupRefs.current[2] = el }} data-group="2" className="flex items-center gap-0.5 flex-shrink-0" style={hiddenGroups.has(2) ? { visibility: 'hidden' } : undefined}>
                     <span className={sep} />
                     <button type="button" onClick={onInsertCite} disabled={formattingDisabled}
                       className={btnDefault} title="Citation (\\cite)">
@@ -349,7 +349,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                   </div>
 
                   {/* Group 3: Figure / Table / Lists */}
-                  <div ref={el => { groupRefs.current[3] = el }} data-group="3" className="flex items-center gap-0.5 flex-shrink-0">
+                  <div ref={el => { groupRefs.current[3] = el }} data-group="3" className="flex items-center gap-0.5 flex-shrink-0" style={hiddenGroups.has(3) ? { visibility: 'hidden' } : undefined}>
                     <span className={sep} />
                     <button type="button" onClick={onInsertFigure} disabled={formattingDisabled}
                       className={btnDefault} title="Insert figure">
@@ -372,7 +372,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                   </div>
 
                   {/* Group 4: Link / Cross Reference */}
-                  <div ref={el => { groupRefs.current[4] = el }} data-group="4" className="flex items-center gap-0.5 flex-shrink-0">
+                  <div ref={el => { groupRefs.current[4] = el }} data-group="4" className="flex items-center gap-0.5 flex-shrink-0" style={hiddenGroups.has(4) ? { visibility: 'hidden' } : undefined}>
                     <span className={sep} />
                     <button type="button" onClick={onInsertLink} disabled={formattingDisabled}
                       className={btnDefault} title="Hyperlink">
@@ -385,7 +385,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                   </div>
 
                   {/* Group 5: Comment / Indent */}
-                  <div ref={el => { groupRefs.current[5] = el }} data-group="5" className="flex items-center gap-0.5 flex-shrink-0">
+                  <div ref={el => { groupRefs.current[5] = el }} data-group="5" className="flex items-center gap-0.5 flex-shrink-0" style={hiddenGroups.has(5) ? { visibility: 'hidden' } : undefined}>
                     <span className={sep} />
                     <button type="button" onClick={() => dispatchCmd(toggleComment)} disabled={formattingDisabled}
                       className={btnDefault} title="Toggle Comment">
