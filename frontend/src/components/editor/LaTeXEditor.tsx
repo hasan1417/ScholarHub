@@ -201,11 +201,14 @@ function LaTeXEditorImpl(
     return Object.keys(files).length > 0 ? files : null
   }, [fileList, realtime?.doc, getYText])
 
+  // Content is ready for compilation when Yjs has synced (or no realtime)
+  const contentReady = !realtime?.doc || (!!realtime?.synced && yTextReady > 0)
+
   // LaTeX compilation
   const {
     iframeRef, compileStatus, compileError, compileLogs, compileErrors, lastCompileAt, compileNow, contentHash,
     autoCompileEnabled, toggleAutoCompile, triggerAutoCompile,
-  } = useLatexCompilation({ paperId, readOnly, getLatestSource, flushBufferedChange, getExtraFiles })
+  } = useLatexCompilation({ paperId, readOnly, getLatestSource, flushBufferedChange, getExtraFiles, contentReady })
 
   // SyncTeX: bidirectional PDF <-> source sync
   const { forwardSync, backwardSync } = useSyncTeX({ contentHash, enabled: compileStatus === 'success' })
