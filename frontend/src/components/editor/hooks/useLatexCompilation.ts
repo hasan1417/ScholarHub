@@ -9,8 +9,6 @@ interface UseLatexCompilationOptions {
   getLatestSource: () => string
   flushBufferedChange: () => void
   getExtraFiles?: () => Record<string, string> | null
-  /** When true, the realtime doc is synced and getLatestSource returns current content */
-  contentReady?: boolean
 }
 
 interface UseLatexCompilationReturn {
@@ -33,7 +31,6 @@ export function useLatexCompilation({
   getLatestSource,
   flushBufferedChange,
   getExtraFiles,
-  contentReady = true,
 }: UseLatexCompilationOptions): UseLatexCompilationReturn {
   // Debug helper -- enable with `window.__SH_DEBUG_LTX = true` in DevTools
   const debugLog = useCallback((...args: any[]) => {
@@ -240,10 +237,10 @@ export function useLatexCompilation({
   compileNowRef.current = compileNow
 
   useEffect(() => {
-    if (!readOnly && contentReady) {
+    if (!readOnly) {
       void compileNowRef.current()
     }
-  }, [paperId, readOnly, contentReady])
+  }, [paperId, readOnly])
 
   // Auto-compile: debounced compilation triggered by document changes
   const [autoCompileEnabled, setAutoCompileEnabled] = useState(
