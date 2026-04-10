@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Query
 from app.core.config import settings
 from starlette.responses import StreamingResponse, FileResponse
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Dict, Any
 import asyncio
 import hashlib
@@ -23,6 +23,7 @@ from app.models.user import User
 from app.models.research_paper import ResearchPaper
 from sqlalchemy.orm import Session
 from app.services.compilation_version_manager import compilation_version_manager
+from app.services.subscription_service import SubscriptionService, get_model_credit_cost
 from app.services.submission_builder import (
     get_venue_configs,
     get_venue_config,
@@ -32,7 +33,7 @@ from app.services.submission_builder import (
     VENUE_CONFIGS,
 )
 from app.models.paper_member import PaperMember
-from app.models.project import Project
+from app.api.utils.project_access import ensure_project_member, get_project_or_404
 from app.api.utils.openrouter_access import resolve_openrouter_key_for_user, resolve_openrouter_key_for_project
 from openai import AsyncOpenAI
 
@@ -77,8 +78,8 @@ class CompileRequest(BaseModel):
 
 
 class FixErrorsRequest(BaseModel):
-    latex_source: str
-    error_log: str
+    latex_source: str = Field(..., max_length=500000)
+    error_log: str = Field(..., max_length=50000)
     paper_id: Optional[str] = None
     project_id: Optional[str] = None
 
@@ -1444,6 +1445,7 @@ RULES:
 4. Common fixes: missing packages, undefined references, unmatched braces, environment mismatches, missing \\end{}, wrong command names
 5. For undefined citations: if \\bibliography or \\addbibresource is missing, add it
 6. For missing packages: add the \\usepackage command in the preamble
+7. IMPORTANT: The source code is shown with line numbers (e.g., "42: \\usepackage{...}"). In your <<<ANCHOR>>> and <<<PROPOSED>>> output, use the RAW source text WITHOUT the line number prefix. For example, if you see "42: \\usepackage{amsmath}", your ANCHOR should be "\\usepackage{amsmath}" not "42: \\usepackage{amsmath}".
 
 OUTPUT FORMAT — use this EXACT format for each fix:
 
@@ -1452,15 +1454,13 @@ OUTPUT FORMAT — use this EXACT format for each fix:
 <<<ANCHOR>>> [first line of original text to match]
 <<<PROPOSED>>>
 [the fixed text]
-<<<END>>>
-
-After all fixes, write a brief summary starting with "Summary:" on a new line."""
+<<<END>>>"""
 
 
 @router.post("/latex/fix-errors")
 async def fix_latex_errors(
     request: FixErrorsRequest,
-    model: str = Query("openai/gpt-5.2-20251211"),
+    model: str = Query("openai/gpt-5.4-mini"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1468,12 +1468,8 @@ async def fix_latex_errors(
     # Resolve OpenRouter API key (project-level if project_id provided)
     project = None
     if request.project_id:
-        try:
-            project = db.query(Project).filter(
-                Project.id == uuid.UUID(str(request.project_id))
-            ).first()
-        except (ValueError, AttributeError):
-            pass
+        project = get_project_or_404(db, request.project_id)
+        ensure_project_member(db, project, current_user)
 
     if project:
         discussion_settings = project.discussion_settings or {}
@@ -1499,6 +1495,23 @@ async def fix_latex_errors(
             detail={
                 "error": "no_api_key",
                 "message": "No API key available. Add your OpenRouter key or upgrade to Pro.",
+            },
+        )
+
+    credit_cost = get_model_credit_cost(model)
+    allowed, current, limit = SubscriptionService.check_feature_limit(
+        db, current_user.id, "editor_ai_calls"
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "error": "AI usage limit reached",
+                "current": current,
+                "limit": limit,
+                "message": f"You've used {current}/{limit} editor AI credits this month. "
+                           "Add your OpenRouter API key in Settings for unlimited usage, "
+                           "or upgrade to Pro for more credits.",
             },
         )
 
@@ -1534,6 +1547,7 @@ async def fix_latex_errors(
                     {"role": "user", "content": user_message},
                 ],
                 max_tokens=4096,
+                temperature=0.2,
                 stream=True,
             )
 
@@ -1542,14 +1556,32 @@ async def fix_latex_errors(
                 if delta and delta.content:
                     yield "data: " + json.dumps({"type": "token", "content": delta.content}) + "\n\n"
 
+            try:
+                SubscriptionService.increment_usage(
+                    db, current_user.id, "editor_ai_calls", amount=credit_cost
+                )
+            except Exception as usage_error:
+                logger.error(
+                    "Failed to increment editor AI usage for user %s: %s",
+                    current_user.id,
+                    usage_error,
+                )
+
             yield "data: " + json.dumps({"type": "done"}) + "\n\n"
 
-        except Exception as e:
-            logger.error(f"LaTeX fix errors failed: {e}")
-            yield "data: " + json.dumps({"type": "error", "message": str(e)}) + "\n\n"
+        except Exception:
+            logger.exception("LaTeX fix errors failed for user %s", current_user.id)
+            yield "data: " + json.dumps({
+                "type": "error",
+                "message": "Failed to analyze LaTeX errors. Please try again.",
+            }) + "\n\n"
 
     return StreamingResponse(
         stream_fixes(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
