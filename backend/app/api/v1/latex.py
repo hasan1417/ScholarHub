@@ -32,6 +32,9 @@ from app.services.submission_builder import (
     VENUE_CONFIGS,
 )
 from app.models.paper_member import PaperMember
+from app.models.project import Project
+from app.api.utils.openrouter_access import resolve_openrouter_key_for_user, resolve_openrouter_key_for_project
+from openai import AsyncOpenAI
 
 router = APIRouter()
 
@@ -71,6 +74,13 @@ class CompileRequest(BaseModel):
 
             UUID(v)
         return v
+
+
+class FixErrorsRequest(BaseModel):
+    latex_source: str
+    error_log: str
+    paper_id: Optional[str] = None
+    project_id: Optional[str] = None
 
 
 _ENGINE_VERSION = "texlive-pdflatex-v1"
@@ -1416,3 +1426,130 @@ async def list_templates(
     from app.constants.paper_templates import CONFERENCE_TEMPLATES
     templates = list(CONFERENCE_TEMPLATES.values())
     return {"templates": templates}
+
+
+# ---------------------------------------------------------------------------
+# AI-Powered LaTeX Error Fixer
+# ---------------------------------------------------------------------------
+
+_FIX_ERRORS_SYSTEM_PROMPT = """\
+You are a LaTeX compilation error fixer. You receive a LaTeX document and its compilation error log.
+
+TASK: Analyze the errors and propose minimal fixes to make the document compile successfully.
+
+RULES:
+1. Fix ERRORS first, then WARNINGS only if they prevent compilation
+2. Make MINIMAL changes — only modify what's needed to fix the error
+3. NEVER change the document's meaning or content
+4. Common fixes: missing packages, undefined references, unmatched braces, environment mismatches, missing \\end{}, wrong command names
+5. For undefined citations: if \\bibliography or \\addbibresource is missing, add it
+6. For missing packages: add the \\usepackage command in the preamble
+
+OUTPUT FORMAT — use this EXACT format for each fix:
+
+<<<EDIT>>> [description of the fix]
+<<<LINES>>> [startLine]-[endLine]
+<<<ANCHOR>>> [first line of original text to match]
+<<<PROPOSED>>>
+[the fixed text]
+<<<END>>>
+
+After all fixes, write a brief summary starting with "Summary:" on a new line."""
+
+
+@router.post("/latex/fix-errors")
+async def fix_latex_errors(
+    request: FixErrorsRequest,
+    model: str = Query("openai/gpt-5.2-20251211"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Stream AI-proposed fixes for LaTeX compilation errors."""
+    # Resolve OpenRouter API key (project-level if project_id provided)
+    project = None
+    if request.project_id:
+        try:
+            project = db.query(Project).filter(
+                Project.id == uuid.UUID(str(request.project_id))
+            ).first()
+        except (ValueError, AttributeError):
+            pass
+
+    if project:
+        discussion_settings = project.discussion_settings or {}
+        use_owner_key = bool(discussion_settings.get("use_owner_key_for_team", False))
+        resolution = resolve_openrouter_key_for_project(
+            db, current_user, project, use_owner_key_for_team=use_owner_key,
+        )
+    else:
+        resolution = resolve_openrouter_key_for_user(db, current_user)
+
+    api_key = resolution.get("api_key")
+    if resolution.get("error_status"):
+        raise HTTPException(
+            status_code=int(resolution["error_status"]),
+            detail={
+                "error": "no_api_key" if resolution["error_status"] == 402 else "invalid_api_key",
+                "message": resolution.get("error_detail") or "OpenRouter API key issue.",
+            },
+        )
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "error": "no_api_key",
+                "message": "No API key available. Add your OpenRouter key or upgrade to Pro.",
+            },
+        )
+
+    # Build numbered source and user message
+    numbered_source = "\n".join(
+        f"{i+1}: {line}" for i, line in enumerate(request.latex_source.split("\n"))
+    )
+    user_message = (
+        "## LaTeX Source (with line numbers)\n```\n"
+        + numbered_source
+        + "\n```\n\n## Compilation Error Log\n```\n"
+        + request.error_log
+        + "\n```\n\nAnalyze the errors and propose fixes using the <<<EDIT>>> format."
+    )
+
+    async def stream_fixes():
+        try:
+            client = AsyncOpenAI(
+                api_key=api_key,
+                base_url="https://openrouter.ai/api/v1",
+                default_headers={
+                    "HTTP-Referer": "https://scholarhub.space",
+                    "X-Title": "ScholarHub",
+                },
+            )
+
+            yield "data: " + json.dumps({"type": "status", "message": "Analyzing errors..."}) + "\n\n"
+
+            stream = await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": _FIX_ERRORS_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message},
+                ],
+                max_tokens=4096,
+                stream=True,
+            )
+
+            async for chunk in stream:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if delta and delta.content:
+                    yield "data: " + json.dumps({"type": "token", "content": delta.content}) + "\n\n"
+
+            yield "data: " + json.dumps({"type": "done"}) + "\n\n"
+
+        except Exception as e:
+            logger.error(f"LaTeX fix errors failed: {e}")
+            yield "data: " + json.dumps({"type": "error", "message": str(e)}) + "\n\n"
+
+    return StreamingResponse(
+        stream_fixes(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )

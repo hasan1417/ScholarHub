@@ -13,6 +13,8 @@ export interface EditorAdapterHandle {
   replaceLines?: (fromLine: number, toLine: number, text: string) => Promise<void>
 }
 
+import type { EditProposal } from '../utils/editProposals'
+
 export interface EditorAdapterProps {
   content: string | any
   contentJson?: any
@@ -44,4 +46,11 @@ export interface EditorAdapterProps {
     paperRole?: 'admin' | 'editor' | 'viewer'
   }
   collaborationStatus?: string | null
+  // Fix errors with AI
+  onFixErrors?: (latexSource: string, errorLog: string) => void
+  fixLoading?: boolean
+  fixProposals?: EditProposal[]
+  onApplyFix?: (id: string) => void
+  onRejectFix?: (id: string) => void
+  onApplyAllFixes?: () => void
 }

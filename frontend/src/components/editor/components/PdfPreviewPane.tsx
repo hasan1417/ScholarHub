@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
+import { Check, Loader2, Sparkles, X } from 'lucide-react'
+import type { EditProposal } from '../utils/editProposals'
 
 /* ─── Log entry types ───────────────────────────────────────────── */
 
@@ -87,6 +89,13 @@ interface PdfPreviewPaneProps {
   onExportSourceZip?: () => void
   exportDocxLoading?: boolean
   exportSourceZipLoading?: boolean
+  // Fix errors with AI
+  onFixErrors?: () => void
+  fixLoading?: boolean
+  fixProposals?: EditProposal[]
+  onApplyFix?: (id: string) => void
+  onRejectFix?: (id: string) => void
+  onApplyAllFixes?: () => void
 }
 
 /* ─── Component ─────────────────────────────────────────────────── */
@@ -106,6 +115,12 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
   onExportSourceZip,
   exportDocxLoading,
   exportSourceZipLoading,
+  onFixErrors,
+  fixLoading,
+  fixProposals,
+  onApplyFix,
+  onRejectFix,
+  onApplyAllFixes,
 }) => {
   // --- State ---
   const [logFilter, setLogFilter] = useState<LogFilter>('all')
@@ -575,7 +590,37 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
                 color="text-blue-400"
               />
             </div>
+
+            {/* Fix with AI button */}
+            {onFixErrors && errorCount > 0 && (
+              <>
+                <div className="mx-1 h-4 w-px bg-slate-300 dark:bg-slate-700" />
+                <button
+                  onClick={onFixErrors}
+                  disabled={fixLoading}
+                  className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0"
+                  title="Ask AI to fix compilation errors"
+                >
+                  {fixLoading ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3 w-3" />
+                  )}
+                  {fixLoading ? 'Fixing...' : 'Fix with AI'}
+                </button>
+              </>
+            )}
           </div>
+
+          {/* AI Fix proposals */}
+          {fixProposals && fixProposals.length > 0 && (
+            <FixProposalsPanel
+              proposals={fixProposals}
+              onApply={onApplyFix}
+              onReject={onRejectFix}
+              onApplyAll={onApplyAllFixes}
+            />
+          )}
 
           {/* Log entries */}
           <div className="flex-1 overflow-auto px-2 py-1.5 text-xs">
@@ -719,6 +764,96 @@ const LogEntryCard: React.FC<LogEntryCardProps> = ({ entry, expanded, onToggle }
         <pre className="border-t border-slate-200 bg-slate-900/80 px-2 py-1.5 text-[10px] leading-relaxed text-slate-300 font-mono dark:border-slate-800 overflow-x-auto">
           {entry.fullContext}
         </pre>
+      )}
+    </div>
+  )
+}
+
+/* ─── Fix Proposals Panel ──────────────────────────────────────── */
+
+interface FixProposalsPanelProps {
+  proposals: EditProposal[]
+  onApply?: (id: string) => void
+  onReject?: (id: string) => void
+  onApplyAll?: () => void
+}
+
+const FixProposalsPanel: React.FC<FixProposalsPanelProps> = ({ proposals, onApply, onReject, onApplyAll }) => {
+  const pendingCount = proposals.filter(p => p.status === 'pending').length
+
+  return (
+    <div className="border-b border-slate-200 bg-indigo-50/50 px-2 py-1.5 dark:border-slate-700 dark:bg-indigo-950/20">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
+          AI Fixes ({proposals.length})
+        </span>
+        {pendingCount > 1 && onApplyAll && (
+          <button
+            onClick={onApplyAll}
+            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-indigo-600 text-white hover:bg-indigo-700 transition-colors"
+          >
+            <Check className="h-2.5 w-2.5" />
+            Apply All ({pendingCount})
+          </button>
+        )}
+      </div>
+      <div className="flex flex-col gap-1">
+        {proposals.map(p => (
+          <FixProposalCard key={p.id} proposal={p} onApply={onApply} onReject={onReject} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+interface FixProposalCardProps {
+  proposal: EditProposal
+  onApply?: (id: string) => void
+  onReject?: (id: string) => void
+}
+
+const FixProposalCard: React.FC<FixProposalCardProps> = ({ proposal, onApply, onReject }) => {
+  const isPending = proposal.status === 'pending'
+  const isApproved = proposal.status === 'approved'
+  const isRejected = proposal.status === 'rejected'
+
+  return (
+    <div className={`flex items-start gap-1.5 rounded border px-2 py-1 text-[11px] ${
+      isApproved
+        ? 'border-emerald-300/50 bg-emerald-50/50 dark:border-emerald-700/30 dark:bg-emerald-950/20'
+        : isRejected
+          ? 'border-slate-200/50 bg-slate-50/50 opacity-50 dark:border-slate-700/30 dark:bg-slate-900/20'
+          : 'border-indigo-200/50 bg-white/60 dark:border-indigo-800/30 dark:bg-slate-800/40'
+    }`}>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          {isApproved && <Check className="h-3 w-3 text-emerald-600 dark:text-emerald-400 shrink-0" />}
+          {isRejected && <X className="h-3 w-3 text-slate-400 shrink-0" />}
+          <span className={`leading-4 ${isRejected ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-200'}`}>
+            {proposal.description}
+          </span>
+        </div>
+        <span className="text-[10px] text-slate-400 dark:text-slate-500 tabular-nums">
+          Lines {proposal.startLine}-{proposal.endLine}
+        </span>
+      </div>
+      {isPending && (
+        <div className="flex items-center gap-0.5 shrink-0">
+          <button
+            onClick={() => onApply?.(proposal.id)}
+            className="rounded p-0.5 text-emerald-600 hover:bg-emerald-100 dark:text-emerald-400 dark:hover:bg-emerald-900/30 transition-colors"
+            title="Apply fix"
+          >
+            <Check className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={() => onReject?.(proposal.id)}
+            className="rounded p-0.5 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+            title="Reject fix"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
       )}
     </div>
   )

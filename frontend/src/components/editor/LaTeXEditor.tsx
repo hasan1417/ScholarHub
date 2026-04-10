@@ -38,6 +38,8 @@ import { dispatchTrackedChanges, type TrackedChangeDecoration } from './extensio
 import { setDiagnostics } from '@codemirror/lint'
 import { latexErrorsToDiagnostics } from './extensions/latexErrorMarkers'
 
+import type { EditProposal } from './utils/editProposals'
+
 interface LaTeXEditorProps {
   value: string
   onChange: (next: string) => void
@@ -60,6 +62,13 @@ interface LaTeXEditorProps {
   }
   collaborationStatus?: string | null
   onRenamePaper?: (newTitle: string) => Promise<void>
+  // Fix errors with AI
+  onFixErrors?: (latexSource: string, errorLog: string) => void
+  fixLoading?: boolean
+  fixProposals?: EditProposal[]
+  onApplyFix?: (id: string) => void
+  onRejectFix?: (id: string) => void
+  onApplyAllFixes?: () => void
 }
 
 export interface LaTeXEditorHandle {
@@ -71,7 +80,7 @@ export interface LaTeXEditorHandle {
 
 // LaTeX editor with CodeMirror and live PDF preview
 function LaTeXEditorImpl(
-  { value, onChange, onSave, templateTitle, paperId, projectId, readOnly = false, disableSave = false, onNavigateBack, onOpenAiChatWithMessage, realtime, onRenamePaper }: LaTeXEditorProps,
+  { value, onChange, onSave, templateTitle, paperId, projectId, readOnly = false, disableSave = false, onNavigateBack, onOpenAiChatWithMessage, realtime, onRenamePaper, onFixErrors, fixLoading, fixProposals, onApplyFix, onRejectFix, onApplyAllFixes }: LaTeXEditorProps,
   ref: React.Ref<LaTeXEditorHandle>
 ) {
   const isMobile = useIsMobile()
@@ -477,6 +486,14 @@ function LaTeXEditorImpl(
     return () => window.removeEventListener('keydown', handler)
   }, [readOnly, disableSave, handleSave])
 
+  // Fix errors: gather source + logs and delegate to parent
+  const handleFixErrors = useCallback(() => {
+    if (!onFixErrors) return
+    flushBufferedChange()
+    const source = getLatestSource()
+    const errorLog = compileLogs.join('\n')
+    onFixErrors(source, errorLog)
+  }, [onFixErrors, flushBufferedChange, getLatestSource, compileLogs])
 
   // Snippet / formatting insertion
   const {
@@ -751,6 +768,12 @@ function LaTeXEditorImpl(
                       onExportSourceZip={handleExportSourceZip}
                       exportDocxLoading={exportDocxLoading}
                       exportSourceZipLoading={exportSourceZipLoading}
+                      onFixErrors={onFixErrors ? handleFixErrors : undefined}
+                      fixLoading={fixLoading}
+                      fixProposals={fixProposals}
+                      onApplyFix={onApplyFix}
+                      onRejectFix={onRejectFix}
+                      onApplyAllFixes={onApplyAllFixes}
                     />
                   </div>
                 )}

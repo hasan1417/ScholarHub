@@ -9,7 +9,7 @@ const LatexAdapter = forwardRef(function LatexAdapter(
   props: Props,
   ref: React.Ref<EditorAdapterHandle>
 ) {
-  const { contentJson, onContentChange, onReady, onDirtyChange, className, paperId, projectId, paperTitle, branchName = 'draft', readOnly = false, onNavigateBack, onOpenAiChatWithMessage, realtime, collaborationStatus, theme: _theme } = props
+  const { contentJson, onContentChange, onReady, onDirtyChange, className, paperId, projectId, paperTitle, branchName = 'draft', readOnly = false, onNavigateBack, onOpenAiChatWithMessage, realtime, collaborationStatus, theme: _theme, onFixErrors, fixLoading, fixProposals, onApplyFix, onRejectFix, onApplyAllFixes } = props
   const [displayTitle, setDisplayTitle] = useState(paperTitle)
   useEffect(() => { setDisplayTitle(paperTitle) }, [paperTitle])
   const dbg = (...args: any[]) => { try { if ((window as any).__SH_DEBUG_LTX) console.debug('[LatexAdapter]', ...args) } catch {} }
@@ -299,6 +299,12 @@ const LatexAdapter = forwardRef(function LatexAdapter(
         realtime={realtime}
         collaborationStatus={collaborationStatus}
         onRenamePaper={paperId ? handleRenamePaper : undefined}
+        onFixErrors={onFixErrors}
+        fixLoading={fixLoading}
+        fixProposals={fixProposals}
+        onApplyFix={onApplyFix}
+        onRejectFix={onRejectFix}
+        onApplyAllFixes={onApplyAllFixes}
       />
   </div>
 )

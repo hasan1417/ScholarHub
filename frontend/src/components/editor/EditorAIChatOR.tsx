@@ -7,17 +7,7 @@ import { projectReferencesAPI, projectsAPI, buildApiUrl, buildAuthHeaders } from
 import { useAuth } from '../../contexts/AuthContext'
 import { modelSupportsReasoning, useOpenRouterModels } from '../discussion/ModelSelector'
 
-/** Proposed edit from AI - line-based for reliable matching */
-interface EditProposal {
-  id: string
-  description: string
-  startLine: number
-  endLine: number
-  anchor: string
-  proposed: string
-  status: 'pending' | 'approved' | 'rejected' | 'expired'
-  file?: string  // which file this edit targets (default: main.tex)
-}
+import { EditProposal, parseEditProposals as parseEditProposalsUtil } from './utils/editProposals'
 
 interface Clarification {
   question: string
@@ -283,47 +273,18 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
 
   /** Parse edit proposals from AI response using line-based format */
   const parseEditProposals = useCallback((text: string): { cleanText: string; proposals: EditProposal[] } => {
-    const proposals: EditProposal[] = []
-    // Match line-based format: <<<EDIT>>> description [<<<FILE>>> filename] <<<LINES>>> start-end <<<ANCHOR>>> text <<<PROPOSED>>> text <<<END>>>
-    const editRegex = /<<<EDIT>>>\s*([\s\S]*?)(?:<<<FILE>>>\s*([\s\S]*?))?\s*<<<LINES>>>\s*([\s\S]*?)<<<ANCHOR>>>\s*([\s\S]*?)<<<PROPOSED>>>\s*([\s\S]*?)<<<END>>>/g
-    let match
-    let cleanText = text
-
-    while ((match = editRegex.exec(text)) !== null) {
-      const fullMatch = match[0]
-      const description = match[1]
-      const file = match[2]?.trim() || undefined
-      const linesStr = match[3]
-      const anchor = match[4]
-      const proposed = match[5]
-      // Parse lines like "15-20" or "15"
-      const linesParts = linesStr.trim().split('-')
-      const startLine = parseInt(linesParts[0], 10) || 1
-      const endLine = parseInt(linesParts[1] || linesParts[0], 10) || startLine
-
-      const parsedProposal: EditProposal = {
-        id: `edit-${Date.now()}-${proposals.length}`,
-        description: description.trim(),
-        startLine,
-        endLine,
-        anchor: anchor.trim(),
-        proposed: proposed.trim(),
-        status: 'pending' as const,
-        file,
-      }
+    const result = parseEditProposalsUtil(text)
+    for (const p of result.proposals) {
       console.log('[EditorAIChatOR] Parsed edit proposal:', {
-        startLine,
-        endLine,
-        file: parsedProposal.file,
-        anchor: parsedProposal.anchor,
-        anchorLength: parsedProposal.anchor.length,
-        description: parsedProposal.description.slice(0, 50),
+        startLine: p.startLine,
+        endLine: p.endLine,
+        file: p.file,
+        anchor: p.anchor,
+        anchorLength: p.anchor.length,
+        description: p.description.slice(0, 50),
       })
-      proposals.push(parsedProposal)
-      cleanText = cleanText.replace(fullMatch, '')
     }
-
-    return { cleanText: cleanText.trim(), proposals }
+    return result
   }, [])
 
   /** Handle approving an edit proposal */

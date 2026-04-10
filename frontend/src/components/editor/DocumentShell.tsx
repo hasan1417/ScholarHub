@@ -8,7 +8,8 @@ import VersionsModal from './VersionsModal'
 import ChangesSidebar from './ChangesSidebar'
 import { useAuth } from '../../contexts/AuthContext'
 import { branchService } from '../../services/branchService'
-import { researchPapersAPI, teamAPI } from '../../services/api'
+import { researchPapersAPI, teamAPI, buildApiUrl, buildAuthHeaders } from '../../services/api'
+import { EditProposal, parseEditProposals } from './utils/editProposals'
 import { fetchCollabToken } from '../../services/collabService'
 import { isCollabEnabled } from '../../config/collab'
 import { useCollabProvider } from '../../hooks/useCollabProvider'
@@ -54,6 +55,9 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
   const [isPaperOwner, setIsPaperOwner] = useState(false)
   const [aiChatOpen, setAiChatOpen] = useState(false)
   const [aiChatInitialMessage, setAiChatInitialMessage] = useState<string | null>(null)
+  const [fixLoading, setFixLoading] = useState(false)
+  const [fixProposals, setFixProposals] = useState<EditProposal[]>([])
+  const fixSourceSnapshotRef = useRef<string>('')
   const readOnly = forceReadOnly || paperRole === 'viewer'
   const collabFeatureEnabled = useMemo(() => isCollabEnabled(), [])
   const [collabToken, setCollabToken] = useState<{ token: string; ws_url?: string } | null>(null)
@@ -1006,6 +1010,121 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     return Object.keys(files).length > 0 ? files : null
   }, [collab.doc])
 
+  // --- Fix Errors with AI ---
+  const handleFixErrors = useCallback(async (latexSource: string, errorLog: string) => {
+    if (readOnly || fixLoading) return
+    setFixLoading(true)
+    setFixProposals([])
+    fixSourceSnapshotRef.current = latexSource
+
+    try {
+      const res = await fetch(
+        buildApiUrl('/latex/fix-errors'),
+        {
+          method: 'POST',
+          headers: buildAuthHeaders(),
+          body: JSON.stringify({
+            latex_source: latexSource,
+            error_log: errorLog,
+            paper_id: paperId,
+            project_id: projectId,
+          }),
+        }
+      )
+      if (!res.ok) {
+        console.error('[DocumentShell] fix-errors failed:', res.status)
+        return
+      }
+
+      const reader = res.body?.getReader()
+      if (!reader) return
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let fullText = ''
+
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const json = line.slice(6).trim()
+          if (!json || json === '[DONE]') continue
+          try {
+            const event = JSON.parse(json)
+            if (event.type === 'token') fullText += event.content
+            if (event.type === 'done') break
+          } catch { /* skip malformed SSE */ }
+        }
+      }
+
+      const { proposals } = parseEditProposals(fullText)
+      setFixProposals(proposals)
+    } catch (e) {
+      console.error('[DocumentShell] fix errors failed:', e)
+    } finally {
+      setFixLoading(false)
+    }
+  }, [paperId, projectId, readOnly, fixLoading])
+
+  const handleApplyFix = useCallback((id: string) => {
+    const proposal = fixProposals.find(p => p.id === id)
+    if (!proposal || proposal.status !== 'pending') return
+
+    const success = handleApplyAiEdit(
+      proposal.startLine, proposal.endLine,
+      proposal.anchor, proposal.proposed,
+      fixSourceSnapshotRef.current, proposal.file,
+    )
+
+    setFixProposals(prev => prev.map(p =>
+      p.id === id ? { ...p, status: success ? 'approved' : 'rejected' } : p
+    ))
+
+    // Update snapshot after successful apply so subsequent edits use current state
+    if (success) {
+      const updated = adapterRef.current?.getContent?.() || latestContentRef.current.html || ''
+      fixSourceSnapshotRef.current = updated
+    }
+  }, [fixProposals, handleApplyAiEdit])
+
+  const handleRejectFix = useCallback((id: string) => {
+    setFixProposals(prev => prev.map(p =>
+      p.id === id ? { ...p, status: 'rejected' } : p
+    ))
+  }, [])
+
+  const handleApplyAllFixes = useCallback(() => {
+    const pending = fixProposals.filter(p => p.status === 'pending')
+    if (pending.length === 0) return
+
+    const appliedIds = handleApplyAiEditsBatch(
+      pending.map(p => ({
+        id: p.id,
+        startLine: p.startLine,
+        endLine: p.endLine,
+        anchor: p.anchor,
+        proposed: p.proposed,
+      })),
+      fixSourceSnapshotRef.current,
+    )
+
+    const appliedSet = new Set(appliedIds)
+    setFixProposals(prev => prev.map(p => {
+      if (p.status !== 'pending') return p
+      return { ...p, status: appliedSet.has(p.id) ? 'approved' : 'rejected' }
+    }))
+
+    // Update snapshot
+    if (appliedIds.length > 0) {
+      const updated = adapterRef.current?.getContent?.() || latestContentRef.current.html || ''
+      fixSourceSnapshotRef.current = updated
+    }
+  }, [fixProposals, handleApplyAiEditsBatch])
+
   const rootCls = fullBleed
     ? 'fixed inset-0 flex flex-col overflow-auto bg-slate-100 transition-colors duration-200 dark:bg-slate-900'
     : 'min-h-screen flex flex-col overflow-auto bg-slate-100 transition-colors duration-200 dark:bg-slate-900'
@@ -1095,6 +1214,12 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
               realtime={realtimeContext}
               collaborationStatus={collaborationStatus}
               theme={theme}
+              onFixErrors={readOnly ? undefined : handleFixErrors}
+              fixLoading={fixLoading}
+              fixProposals={fixProposals}
+              onApplyFix={handleApplyFix}
+              onRejectFix={handleRejectFix}
+              onApplyAllFixes={handleApplyAllFixes}
             />
           </div>
         </div>
