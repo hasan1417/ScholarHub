@@ -78,6 +78,7 @@ interface PdfPreviewPaneProps {
   compileStatus: 'idle' | 'compiling' | 'success' | 'error'
   compileError: string | null
   compileLogs: string[]
+  compileErrors?: Array<{ line?: number; message?: string; file?: string; severity?: string }>
   lastCompileAt: number | null
   // Optional compile controls (for compile dropdown)
   onCompile?: () => void
@@ -106,6 +107,7 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
   compileStatus,
   compileError,
   compileLogs,
+  compileErrors: compileErrorsProp,
   lastCompileAt,
   onCompile,
   autoCompileEnabled,
@@ -149,7 +151,21 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
   const compact = toolbarWidth < 380
 
   // --- Parsed logs ---
-  const parsedLogs = useMemo(() => parseCompileLogs(compileLogs), [compileLogs])
+  const parsedLogs = useMemo(() => {
+    const fromLogs = parseCompileLogs(compileLogs)
+    // On cache hit, compileLogs is empty but compileErrors has structured errors.
+    // Merge them so the UI shows error entries even from cached compiles.
+    if (fromLogs.length === 0 && compileErrorsProp && compileErrorsProp.length > 0) {
+      return compileErrorsProp.map((e) => ({
+        type: 'error' as const,
+        message: e.message || 'LaTeX Error',
+        line: e.line,
+        file: e.file,
+        fullContext: e.message || '',
+      }))
+    }
+    return fromLogs
+  }, [compileLogs, compileErrorsProp])
 
   const errorCount = useMemo(() => parsedLogs.filter(e => e.type === 'error').length, [parsedLogs])
   const warningCount = useMemo(() => parsedLogs.filter(e => e.type === 'warning').length, [parsedLogs])

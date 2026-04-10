@@ -759,6 +759,7 @@ function LaTeXEditorImpl(
                       compileStatus={compileStatus}
                       compileError={compileError}
                       compileLogs={compileLogs}
+                      compileErrors={compileErrors}
                       lastCompileAt={lastCompileAt}
                       onCompile={compileNow}
                       autoCompileEnabled={autoCompileEnabled}
