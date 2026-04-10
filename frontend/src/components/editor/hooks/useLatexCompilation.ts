@@ -184,8 +184,14 @@ export function useLatexCompilation({
       const duration = Math.round(performance.now() - t0)
       try { await logEvent('CompileEnd', { buildId, durationMs: duration, projectId, success: producedPdf }) } catch {}
       if (producedPdf) {
-        setCompileStatus('success')
-        setCompileError(null)
+        // PDF was generated, but check if there were actual LaTeX errors
+        if (firstError) {
+          setCompileStatus('error')
+          setCompileError(firstError)
+        } else {
+          setCompileStatus('success')
+          setCompileError(null)
+        }
         setLastCompileAt(Date.now())
       } else {
         setCompileStatus('error')

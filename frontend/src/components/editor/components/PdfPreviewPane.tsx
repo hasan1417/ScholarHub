@@ -612,8 +612,8 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
             )}
           </div>
 
-          {/* AI Fix proposals — hide after successful recompile (no errors) */}
-          {fixProposals && fixProposals.length > 0 && errorCount > 0 && (
+          {/* AI Fix proposals — hide when compiling or after successful recompile */}
+          {fixProposals && fixProposals.length > 0 && compileStatus !== 'compiling' && errorCount > 0 && (
             <FixProposalsPanel
               proposals={fixProposals}
               onApply={onApplyFix}
