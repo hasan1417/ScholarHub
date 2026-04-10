@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useLayoutEffect, useEffect } from 'react'
+import { useState, useCallback, useRef, useLayoutEffect, useEffect, useMemo } from 'react'
 import {
   Undo2, Redo2,
   Bold, Italic, Sigma, Link2, Library,
@@ -23,6 +23,22 @@ interface FormattingItem {
 interface FormattingGroup {
   label: string
   items: FormattingItem[]
+}
+
+/** Flat descriptor for a single toolbar button */
+interface ToolbarItem {
+  id: string
+  icon: React.ReactNode
+  /** Icon shown in overflow menu (defaults to icon) */
+  overflowIcon?: React.ReactNode
+  label: string
+  action: () => void
+  disabled?: boolean
+  active?: boolean
+  /** Show a vertical separator before this item */
+  separator?: boolean
+  /** This item uses a custom render in the toolbar (math/table dropdown trigger) */
+  customRender?: boolean
 }
 
 interface EditorToolbarProps {
@@ -161,13 +177,51 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   const formattingDisabled = readOnly
   const showRow1Tools = viewMode !== 'pdf' && !readOnly
 
+  const dispatchCmd = useCallback((cmd: (view: EditorView) => boolean) => {
+    const view = editorViewRef.current
+    if (view) { cmd(view); view.focus() }
+  }, [editorViewRef])
+
+  const closeAndRun = useCallback((fn: () => void) => () => {
+    fn()
+    setOpenDropdown(null)
+  }, [])
+
   /* ---------------------------------------------------------------- */
-  /*  Responsive: IntersectionObserver detects clipped groups          */
+  /*  Flat toolbar items list                                          */
+  /* ---------------------------------------------------------------- */
+  const items: ToolbarItem[] = useMemo(() => {
+    const list: ToolbarItem[] = [
+      { id: 'bold', icon: <Bold className={iconSz} />, overflowIcon: <Bold className={ovIcon} />, label: 'Bold', action: onInsertBold, disabled: formattingDisabled, active: boldActive, separator: true },
+      { id: 'italic', icon: <Italic className={iconSz} />, overflowIcon: <Italic className={ovIcon} />, label: 'Italic', action: onInsertItalics, disabled: formattingDisabled, active: italicActive },
+      { id: 'math', icon: <Sigma className={iconSz} />, overflowIcon: <Sigma className={ovIcon} />, label: 'Math', action: () => {/* handled via customRender */}, disabled: formattingDisabled, separator: true, customRender: true },
+    ]
+    if (onToggleSymbolPalette) {
+      list.push({ id: 'symbol', icon: <span className="text-sm font-serif leading-none">&#937;</span>, overflowIcon: <span className={`${ovIcon} text-sm font-serif leading-none`}>&#937;</span>, label: 'Symbol Palette', action: onToggleSymbolPalette, active: symbolPaletteOpen })
+    }
+    list.push(
+      { id: 'cite', icon: <Link2 className={iconSz} />, overflowIcon: <Link2 className={ovIcon} />, label: 'Citation', action: onInsertCite, disabled: formattingDisabled, separator: true },
+      { id: 'library', icon: <Library className={iconSz} />, overflowIcon: <Library className={ovIcon} />, label: 'Insert from References', action: () => {/* needs mouse event, handled inline */} },
+      { id: 'figure', icon: <Image className={iconSz} />, overflowIcon: <Image className={ovIcon} />, label: 'Figure', action: onInsertFigure, disabled: formattingDisabled, separator: true },
+      { id: 'table', icon: <Table2 className={iconSz} />, overflowIcon: <Table2 className={ovIcon} />, label: 'Table', action: () => {/* handled via customRender */}, disabled: formattingDisabled, customRender: true },
+      { id: 'itemize', icon: <List className={iconSz} />, overflowIcon: <List className={ovIcon} />, label: 'Bullet List', action: onInsertItemize, disabled: formattingDisabled },
+      { id: 'enumerate', icon: <ListOrdered className={iconSz} />, overflowIcon: <ListOrdered className={ovIcon} />, label: 'Numbered List', action: onInsertEnumerate, disabled: formattingDisabled },
+      { id: 'link', icon: <Link className={iconSz} />, overflowIcon: <Link className={ovIcon} />, label: 'Hyperlink', action: onInsertLink, disabled: formattingDisabled, separator: true },
+      { id: 'ref', icon: <Hash className={iconSz} />, overflowIcon: <Hash className={ovIcon} />, label: 'Cross Reference', action: onInsertRef, disabled: formattingDisabled },
+      { id: 'comment', icon: <MessageSquare className={iconSz} />, overflowIcon: <MessageSquare className={ovIcon} />, label: 'Toggle Comment', action: () => dispatchCmd(toggleComment), disabled: formattingDisabled, separator: true },
+      { id: 'indent-less', icon: <IndentDecrease className={iconSz} />, overflowIcon: <IndentDecrease className={ovIcon} />, label: 'Decrease Indent', action: () => dispatchCmd(indentLess), disabled: formattingDisabled },
+      { id: 'indent-more', icon: <IndentIncrease className={iconSz} />, overflowIcon: <IndentIncrease className={ovIcon} />, label: 'Increase Indent', action: () => dispatchCmd(indentMore), disabled: formattingDisabled },
+    )
+    return list
+  }, [formattingDisabled, boldActive, italicActive, symbolPaletteOpen, onToggleSymbolPalette, onInsertBold, onInsertItalics, onInsertCite, onInsertFigure, onInsertItemize, onInsertEnumerate, onInsertLink, onInsertRef, dispatchCmd])
+
+  /* ---------------------------------------------------------------- */
+  /*  Responsive: IntersectionObserver detects clipped items           */
   /* ---------------------------------------------------------------- */
   const row1Ref = useRef<HTMLDivElement>(null)
   const toolbarContentRef = useRef<HTMLDivElement>(null)
-  const groupRefs = useRef<(HTMLDivElement | null)[]>([])
-  const [hiddenGroups, setHiddenGroups] = useState<Set<number>>(new Set())
+  const itemRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const [hiddenItems, setHiddenItems] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     const container = toolbarContentRef.current
@@ -175,15 +229,15 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 
     const observer = new IntersectionObserver(
       (entries) => {
-        setHiddenGroups(prev => {
+        setHiddenItems(prev => {
           const next = new Set(prev)
           for (const entry of entries) {
-            const idx = Number(entry.target.getAttribute('data-group'))
-            if (!isNaN(idx)) {
+            const id = entry.target.getAttribute('data-item')
+            if (id) {
               if (entry.isIntersecting && entry.intersectionRatio > 0.9) {
-                next.delete(idx)
+                next.delete(id)
               } else {
-                next.add(idx)
+                next.add(id)
               }
             }
           }
@@ -194,17 +248,17 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
       { root: container, threshold: 0.9 }
     )
 
-    groupRefs.current.forEach(el => { if (el) observer.observe(el) })
+    Object.values(itemRefs.current).forEach(el => { if (el) observer.observe(el) })
     return () => observer.disconnect()
-  }, [])
+  }, [items])
 
-  const hasOverflow = hiddenGroups.size > 0
+  const hasOverflow = hiddenItems.size > 0
 
-  // Close inline dropdowns if their parent group gets hidden
+  // Close inline dropdowns if their trigger item gets hidden
   useEffect(() => {
-    if (openDropdown === 'math' && hiddenGroups.has(1)) setOpenDropdown(null)
-    if (openDropdown === 'table' && hiddenGroups.has(3)) setOpenDropdown(null)
-  }, [hiddenGroups, openDropdown])
+    if (openDropdown === 'math' && hiddenItems.has('math')) setOpenDropdown(null)
+    if (openDropdown === 'table' && hiddenItems.has('table')) setOpenDropdown(null)
+  }, [hiddenItems, openDropdown])
 
   /* ---------------------------------------------------------------- */
   /*  Position fixed dropdown menus                                    */
@@ -224,15 +278,50 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
     }
   }, [openDropdown])
 
-  const dispatchCmd = useCallback((cmd: (view: EditorView) => boolean) => {
-    const view = editorViewRef.current
-    if (view) { cmd(view); view.focus() }
-  }, [editorViewRef])
-
-  const closeAndRun = useCallback((fn: () => void) => () => {
-    fn()
-    setOpenDropdown(null)
-  }, [])
+  /* ---------------------------------------------------------------- */
+  /*  Render a single toolbar button                                   */
+  /* ---------------------------------------------------------------- */
+  const renderToolbarButton = (item: ToolbarItem) => {
+    // Math dropdown trigger
+    if (item.id === 'math') {
+      return (
+        <button ref={mathBtnRef} type="button" disabled={item.disabled}
+          onClick={() => setOpenDropdown(openDropdown === 'math' ? null : 'math')}
+          className={openDropdown === 'math' ? btnActive : btnDefault}
+          title="Insert math">
+          {item.icon}
+        </button>
+      )
+    }
+    // Table dropdown trigger
+    if (item.id === 'table') {
+      return (
+        <button ref={tableBtnRef} type="button" disabled={item.disabled}
+          onClick={() => setOpenDropdown(openDropdown === 'table' ? null : 'table')}
+          className={openDropdown === 'table' ? btnActive : btnDefault}
+          title="Insert table">
+          {item.icon}
+        </button>
+      )
+    }
+    // Library button needs mouse event forwarding
+    if (item.id === 'library') {
+      return (
+        <button type="button" onClick={onOpenReferences}
+          className={btnDefault} title="Insert from References">
+          {item.icon}
+        </button>
+      )
+    }
+    // Generic button
+    return (
+      <button type="button" onClick={item.action} disabled={item.disabled}
+        className={item.active ? btnActive : btnDefault}
+        title={item.label}>
+        {item.icon}
+      </button>
+    )
+  }
 
   /* ================================================================ */
   /*  RENDER                                                           */
@@ -299,107 +388,22 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                 )}
               </div>
 
-              {/* Collapsible groups — overflow hidden clips from right */}
+              {/* Collapsible items — overflow hidden clips from right */}
               {!isMobile && (
                 <div ref={toolbarContentRef} className="flex items-center gap-0.5 overflow-hidden min-w-0">
-                  {/* Group 0: Bold / Italic */}
-                  <div ref={el => { groupRefs.current[0] = el }} data-group="0" className="flex items-center gap-0.5 flex-shrink-0" style={hiddenGroups.has(0) ? { visibility: 'hidden' } : undefined}>
-                    <span className={sep} />
-                    <button type="button" onClick={onInsertBold} disabled={formattingDisabled}
-                      className={boldActive ? btnActive : btnDefault}
-                      title="Bold (\\textbf)">
-                      <Bold className={iconSz} />
-                    </button>
-                    <button type="button" onClick={onInsertItalics} disabled={formattingDisabled}
-                      className={italicActive ? btnActive : btnDefault}
-                      title="Italic (\\textit)">
-                      <Italic className={iconSz} />
-                    </button>
-                  </div>
-
-                  {/* Group 1: Math / Symbol */}
-                  <div ref={el => { groupRefs.current[1] = el }} data-group="1" className="flex items-center gap-0.5 flex-shrink-0" style={hiddenGroups.has(1) ? { visibility: 'hidden' } : undefined}>
-                    <span className={sep} />
-                    <button ref={mathBtnRef} type="button" disabled={formattingDisabled}
-                      onClick={() => setOpenDropdown(openDropdown === 'math' ? null : 'math')}
-                      className={openDropdown === 'math' ? btnActive : btnDefault}
-                      title="Insert math">
-                      <Sigma className={iconSz} />
-                    </button>
-                    {onToggleSymbolPalette && (
-                      <button type="button" onClick={onToggleSymbolPalette}
-                        className={symbolPaletteOpen ? btnActive : btnDefault}
-                        title="Symbol palette (Ω)">
-                        <span className="text-sm font-serif leading-none">&#937;</span>
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Group 2: Citation / Library */}
-                  <div ref={el => { groupRefs.current[2] = el }} data-group="2" className="flex items-center gap-0.5 flex-shrink-0" style={hiddenGroups.has(2) ? { visibility: 'hidden' } : undefined}>
-                    <span className={sep} />
-                    <button type="button" onClick={onInsertCite} disabled={formattingDisabled}
-                      className={btnDefault} title="Citation (\\cite)">
-                      <Link2 className={iconSz} />
-                    </button>
-                    <button type="button" onClick={onOpenReferences}
-                      className={btnDefault} title="Insert from References">
-                      <Library className={iconSz} />
-                    </button>
-                  </div>
-
-                  {/* Group 3: Figure / Table / Lists */}
-                  <div ref={el => { groupRefs.current[3] = el }} data-group="3" className="flex items-center gap-0.5 flex-shrink-0" style={hiddenGroups.has(3) ? { visibility: 'hidden' } : undefined}>
-                    <span className={sep} />
-                    <button type="button" onClick={onInsertFigure} disabled={formattingDisabled}
-                      className={btnDefault} title="Insert figure">
-                      <Image className={iconSz} />
-                    </button>
-                    <button ref={tableBtnRef} type="button" disabled={formattingDisabled}
-                      onClick={() => setOpenDropdown(openDropdown === 'table' ? null : 'table')}
-                      className={openDropdown === 'table' ? btnActive : btnDefault}
-                      title="Insert table">
-                      <Table2 className={iconSz} />
-                    </button>
-                    <button type="button" onClick={onInsertItemize} disabled={formattingDisabled}
-                      className={btnDefault} title="Bullet list">
-                      <List className={iconSz} />
-                    </button>
-                    <button type="button" onClick={onInsertEnumerate} disabled={formattingDisabled}
-                      className={btnDefault} title="Numbered list">
-                      <ListOrdered className={iconSz} />
-                    </button>
-                  </div>
-
-                  {/* Group 4: Link / Cross Reference */}
-                  <div ref={el => { groupRefs.current[4] = el }} data-group="4" className="flex items-center gap-0.5 flex-shrink-0" style={hiddenGroups.has(4) ? { visibility: 'hidden' } : undefined}>
-                    <span className={sep} />
-                    <button type="button" onClick={onInsertLink} disabled={formattingDisabled}
-                      className={btnDefault} title="Hyperlink">
-                      <Link className={iconSz} />
-                    </button>
-                    <button type="button" onClick={onInsertRef} disabled={formattingDisabled}
-                      className={btnDefault} title="Cross Reference (\\ref)">
-                      <Hash className={iconSz} />
-                    </button>
-                  </div>
-
-                  {/* Group 5: Comment / Indent */}
-                  <div ref={el => { groupRefs.current[5] = el }} data-group="5" className="flex items-center gap-0.5 flex-shrink-0" style={hiddenGroups.has(5) ? { visibility: 'hidden' } : undefined}>
-                    <span className={sep} />
-                    <button type="button" onClick={() => dispatchCmd(toggleComment)} disabled={formattingDisabled}
-                      className={btnDefault} title="Toggle Comment">
-                      <MessageSquare className={iconSz} />
-                    </button>
-                    <button type="button" onClick={() => dispatchCmd(indentLess)} disabled={formattingDisabled}
-                      className={btnDefault} title="Decrease Indent">
-                      <IndentDecrease className={iconSz} />
-                    </button>
-                    <button type="button" onClick={() => dispatchCmd(indentMore)} disabled={formattingDisabled}
-                      className={btnDefault} title="Increase Indent">
-                      <IndentIncrease className={iconSz} />
-                    </button>
-                  </div>
+                  {items.map(item => (
+                    <div key={item.id} className="contents">
+                      {item.separator && <span className={sep} />}
+                      <div
+                        ref={el => { itemRefs.current[item.id] = el }}
+                        data-item={item.id}
+                        className="flex-shrink-0"
+                        style={hiddenItems.has(item.id) ? { visibility: 'hidden' } : undefined}
+                      >
+                        {renderToolbarButton(item)}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
 
@@ -465,8 +469,8 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         <div className="fixed inset-0 z-40" onClick={() => setOpenDropdown(null)} />
       )}
 
-      {/* Math dropdown (only when group 1 is visible) */}
-      {openDropdown === 'math' && !hiddenGroups.has(1) && (
+      {/* Math dropdown (only when math item is visible in toolbar) */}
+      {openDropdown === 'math' && !hiddenItems.has('math') && (
         <div className="fixed z-50 min-w-[160px] rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800"
           style={{ top: mathMenuPos.top, left: mathMenuPos.left }}>
           <button onClick={closeAndRun(onInsertInlineMath)}
@@ -480,8 +484,8 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         </div>
       )}
 
-      {/* Table dropdown (only when group 3 is visible) */}
-      {openDropdown === 'table' && !hiddenGroups.has(3) && (
+      {/* Table dropdown (only when table item is visible in toolbar) */}
+      {openDropdown === 'table' && !hiddenItems.has('table') && (
         <div className="fixed z-50 rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800"
           style={{ top: tableMenuPos.top, left: tableMenuPos.left }}>
           <TableSizeGrid onSelect={(cols, rows) => {
@@ -497,102 +501,57 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         </div>
       )}
 
-      {/* Dynamic overflow menu — shows items from hidden groups */}
+      {/* Per-item overflow menu */}
       {openDropdown === 'more' && hasOverflow && (
         <div className="fixed z-50 min-w-[190px] rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800"
           style={{ top: moreMenuPos.top, left: moreMenuPos.left }}>
-
-          {/* Bold/Italic (group 0) */}
-          {hiddenGroups.has(0) && (
-            <>
-              <button onClick={closeAndRun(onInsertBold)} disabled={formattingDisabled} className={ovItem}>
-                <Bold className={ovIcon} /> Bold
-              </button>
-              <button onClick={closeAndRun(onInsertItalics)} disabled={formattingDisabled} className={ovItem}>
-                <Italic className={ovIcon} /> Italic
-              </button>
-              <div className={ovSep} />
-            </>
-          )}
-
-          {/* Math/Symbol (group 1) */}
-          {hiddenGroups.has(1) && (
-            <>
-              <button onClick={closeAndRun(onInsertInlineMath)} disabled={formattingDisabled} className={ovItem}>
-                <Sigma className={ovIcon} /> Inline Math
-              </button>
-              <button onClick={closeAndRun(onInsertDisplayMath)} disabled={formattingDisabled} className={ovItem}>
-                <Sigma className={ovIcon} /> Display Math
-              </button>
-              {onToggleSymbolPalette && (
-                <button onClick={() => { onToggleSymbolPalette(); setOpenDropdown(null) }} className={ovItem}>
-                  <span className={`${ovIcon} text-sm font-serif leading-none`}>&#937;</span> Symbol Palette
+          {items.filter(item => hiddenItems.has(item.id)).map((item, i) => {
+            // Math: show expanded inline/display entries
+            if (item.id === 'math') {
+              return (
+                <div key={item.id}>
+                  {item.separator && i > 0 && <div className={ovSep} />}
+                  <button onClick={closeAndRun(onInsertInlineMath)} disabled={formattingDisabled} className={ovItem}>
+                    <Sigma className={ovIcon} /> Inline Math
+                  </button>
+                  <button onClick={closeAndRun(onInsertDisplayMath)} disabled={formattingDisabled} className={ovItem}>
+                    <Sigma className={ovIcon} /> Display Math
+                  </button>
+                </div>
+              )
+            }
+            // Table: show simple insert action
+            if (item.id === 'table') {
+              return (
+                <div key={item.id}>
+                  {item.separator && i > 0 && <div className={ovSep} />}
+                  <button onClick={closeAndRun(onInsertTable)} disabled={formattingDisabled} className={ovItem}>
+                    {item.overflowIcon} {item.label}
+                  </button>
+                </div>
+              )
+            }
+            // Library: needs mouse event forwarding
+            if (item.id === 'library') {
+              return (
+                <div key={item.id}>
+                  {item.separator && i > 0 && <div className={ovSep} />}
+                  <button onClick={(e) => { onOpenReferences(e as React.MouseEvent<HTMLButtonElement>); setOpenDropdown(null) }} className={ovItem}>
+                    {item.overflowIcon} {item.label}
+                  </button>
+                </div>
+              )
+            }
+            // Generic item
+            return (
+              <div key={item.id}>
+                {item.separator && i > 0 && <div className={ovSep} />}
+                <button onClick={() => { item.action(); setOpenDropdown(null) }} disabled={item.disabled} className={ovItem}>
+                  {item.overflowIcon} {item.label}
                 </button>
-              )}
-              <div className={ovSep} />
-            </>
-          )}
-
-          {/* Cite/Library (group 2) */}
-          {hiddenGroups.has(2) && (
-            <>
-              <button onClick={closeAndRun(onInsertCite)} disabled={formattingDisabled} className={ovItem}>
-                <Link2 className={ovIcon} /> Citation
-              </button>
-              <button onClick={(e) => { onOpenReferences(e as any); setOpenDropdown(null) }} className={ovItem}>
-                <Library className={ovIcon} /> Insert from References
-              </button>
-              <div className={ovSep} />
-            </>
-          )}
-
-          {/* Insert (group 3) */}
-          {hiddenGroups.has(3) && (
-            <>
-              <button onClick={closeAndRun(onInsertFigure)} disabled={formattingDisabled} className={ovItem}>
-                <Image className={ovIcon} /> Figure
-              </button>
-              <button onClick={closeAndRun(onInsertTable)} disabled={formattingDisabled} className={ovItem}>
-                <Table2 className={ovIcon} /> Table
-              </button>
-              <button onClick={closeAndRun(onInsertItemize)} disabled={formattingDisabled} className={ovItem}>
-                <List className={ovIcon} /> Bullet List
-              </button>
-              <button onClick={closeAndRun(onInsertEnumerate)} disabled={formattingDisabled} className={ovItem}>
-                <ListOrdered className={ovIcon} /> Numbered List
-              </button>
-              <div className={ovSep} />
-            </>
-          )}
-
-          {/* Link/Ref (group 4) */}
-          {hiddenGroups.has(4) && (
-            <>
-              <button onClick={closeAndRun(onInsertLink)} disabled={formattingDisabled} className={ovItem}>
-                <Link className={ovIcon} /> Hyperlink
-              </button>
-              <button onClick={closeAndRun(onInsertRef)} disabled={formattingDisabled} className={ovItem}>
-                <Hash className={ovIcon} /> Cross Reference
-              </button>
-              {!hiddenGroups.has(5) || <div className={ovSep} />}
-            </>
-          )}
-
-          {/* Comment/Indent (group 5) */}
-          {hiddenGroups.has(5) && (
-            <>
-              {!hiddenGroups.has(4) && <div className={ovSep} />}
-              <button onClick={() => { dispatchCmd(toggleComment); setOpenDropdown(null) }} disabled={formattingDisabled} className={ovItem}>
-                <MessageSquare className={ovIcon} /> Toggle Comment
-              </button>
-              <button onClick={() => { dispatchCmd(indentLess); setOpenDropdown(null) }} disabled={formattingDisabled} className={ovItem}>
-                <IndentDecrease className={ovIcon} /> Decrease Indent
-              </button>
-              <button onClick={() => { dispatchCmd(indentMore); setOpenDropdown(null) }} disabled={formattingDisabled} className={ovItem}>
-                <IndentIncrease className={ovIcon} /> Increase Indent
-              </button>
-            </>
-          )}
+              </div>
+            )
+          })}
         </div>
       )}
 
