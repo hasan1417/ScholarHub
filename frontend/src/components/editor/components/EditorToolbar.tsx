@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import type { EditorView } from '@codemirror/view'
 import { indentMore, indentLess, toggleComment } from '@codemirror/commands'
-import { openSearchPanel } from '@codemirror/search'
+import { openSearchPanel, closeSearchPanel, searchPanelOpen } from '@codemirror/search'
 import { AiToolsMenu } from './AiToolsMenu'
 import { SectionHeadingDropdown } from './SectionHeadingDropdown'
 
@@ -452,7 +452,15 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 
             {viewMode !== 'pdf' && !isMobile && (
               <button type="button"
-                onClick={() => { const v = editorViewRef.current; if (v) openSearchPanel(v) }}
+                onClick={() => {
+                  const v = editorViewRef.current
+                  if (!v) return
+                  if (searchPanelOpen(v.state)) {
+                    closeSearchPanel(v)
+                  } else {
+                    openSearchPanel(v)
+                  }
+                }}
                 className={btnDefault} title="Find and Replace">
                 <Search className={iconSz} />
               </button>

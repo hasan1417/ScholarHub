@@ -79,7 +79,7 @@ function LaTeXEditorImpl(
     window.innerWidth < 640 ? 'pdf' : 'split'
   )
   const [figureDialogOpen, setFigureDialogOpen] = useState(false)
-  const [sideRailPanel, setSideRailPanel] = useState<'files' | 'search' | null>(null)
+  const [sideRailPanel, setSideRailPanel] = useState<'files' | null>(null)
   const [showBreadcrumbs, setShowBreadcrumbs] = useState(true)
   const [exportDocxLoading, setExportDocxLoading] = useState(false)
   const [exportSourceZipLoading, setExportSourceZipLoading] = useState(false)

@@ -1,9 +1,9 @@
 import React from 'react'
-import { Files, Search, ToggleLeft, ToggleRight, FileSearch, Loader2, ClipboardCheck } from 'lucide-react'
+import { Files, ToggleLeft, ToggleRight, FileSearch, Loader2, ClipboardCheck } from 'lucide-react'
 
 interface EditorSideRailProps {
-  activePanel: 'files' | 'search' | null
-  onTogglePanel: (panel: 'files' | 'search') => void
+  activePanel: 'files' | null
+  onTogglePanel: (panel: 'files') => void
   // Track changes
   trackChangesEnabled?: boolean
   onToggleTrackChanges?: () => void
@@ -59,13 +59,6 @@ export const EditorSideRail: React.FC<EditorSideRailProps> = ({
           onClick={() => onTogglePanel('files')}
         >
           <Files className="h-5 w-5" />
-        </RailButton>
-        <RailButton
-          active={activePanel === 'search'}
-          title="Search (coming soon)"
-          onClick={() => onTogglePanel('search')}
-        >
-          <Search className="h-5 w-5" />
         </RailButton>
       </div>
 
