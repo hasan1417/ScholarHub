@@ -309,9 +309,35 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
       const success = onApplyEdit?.(proposal.startLine, proposal.endLine, proposal.anchor, proposal.proposed, msg.sourceDocument, proposal.file) ?? false
 
       if (success) {
-        msg.proposals = msg.proposals.map((p) =>
-          p.id === proposalId ? { ...p, status: 'approved' as const } : p
-        )
+        // Compute line delta so we can shift remaining proposals
+        const oldLineCount = proposal.endLine - proposal.startLine + 1
+        const newLineCount = proposal.proposed.split('\n').length
+        const delta = newLineCount - oldLineCount
+
+        // Update sourceDocument to match the post-edit document state
+        // (mirrors the line splice that handleApplyAiEdit performs on the live doc)
+        if (msg.sourceDocument) {
+          const srcLines = msg.sourceDocument.split('\n')
+          const startIdx = proposal.startLine - 1
+          const endIdx = Math.min(proposal.endLine - 1, srcLines.length - 1)
+          const before = srcLines.slice(0, startIdx)
+          const after = srcLines.slice(endIdx + 1)
+          msg.sourceDocument = [...before, ...proposal.proposed.split('\n'), ...after].join('\n')
+        }
+
+        // Mark this proposal approved, expire overlapping proposals, and shift those that come after
+        msg.proposals = msg.proposals.map((p) => {
+          if (p.id === proposalId) return { ...p, status: 'approved' as const }
+          if (p.status !== 'pending') return p
+          // Overlap: p.startLine <= applied.endLine AND p.endLine >= applied.startLine
+          const overlaps = p.startLine <= proposal.endLine && p.endLine >= proposal.startLine
+          if (overlaps) return { ...p, status: 'expired' as const }
+          // Shift proposals that come entirely after the applied edit
+          if (delta !== 0 && p.startLine > proposal.endLine) {
+            return { ...p, startLine: p.startLine + delta, endLine: p.endLine + delta }
+          }
+          return p
+        })
       } else {
         setError('Could not apply the edit. The document may have changed or the lines are out of range.')
       }
@@ -989,7 +1015,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                                   )}
                                   {proposal.status === 'expired' && (
                                     <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-700 dark:text-slate-400">
-                                      From previous session
+                                      {m.fromHistory ? 'From previous session' : 'Conflict — overlapping edit applied'}
                                     </span>
                                   )}
                                 </div>
