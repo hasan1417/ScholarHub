@@ -309,9 +309,30 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
       const success = onApplyEdit?.(proposal.startLine, proposal.endLine, proposal.anchor, proposal.proposed, msg.sourceDocument, proposal.file) ?? false
 
       if (success) {
-        msg.proposals = msg.proposals.map((p) =>
-          p.id === proposalId ? { ...p, status: 'approved' as const } : p
-        )
+        // Compute line delta so we can shift remaining proposals
+        const oldLineCount = proposal.endLine - proposal.startLine + 1
+        const newLineCount = proposal.proposed.split('\n').length
+        const delta = newLineCount - oldLineCount
+
+        // Update sourceDocument to match the post-edit document state
+        // (mirrors the line splice that handleApplyAiEdit performs on the live doc)
+        if (msg.sourceDocument) {
+          const srcLines = msg.sourceDocument.split('\n')
+          const startIdx = proposal.startLine - 1
+          const endIdx = Math.min(proposal.endLine - 1, srcLines.length - 1)
+          const before = srcLines.slice(0, startIdx)
+          const after = srcLines.slice(endIdx + 1)
+          msg.sourceDocument = [...before, ...proposal.proposed.split('\n'), ...after].join('\n')
+        }
+
+        // Mark this proposal approved and shift line numbers on remaining pending proposals
+        msg.proposals = msg.proposals.map((p) => {
+          if (p.id === proposalId) return { ...p, status: 'approved' as const }
+          if (delta !== 0 && p.status === 'pending' && p.startLine > proposal.endLine) {
+            return { ...p, startLine: p.startLine + delta, endLine: p.endLine + delta }
+          }
+          return p
+        })
       } else {
         setError('Could not apply the edit. The document may have changed or the lines are out of range.')
       }
