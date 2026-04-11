@@ -270,10 +270,17 @@ def _read_compile_meta(paths: Dict[str, Path]) -> dict:
             error_count = payload.get("errorCount")
             if not isinstance(error_count, int):
                 error_count = len(errors)
+            logs = payload.get("logs", [])
+            # Old cache entries may not have logs — fall back to compile.log
+            if not logs and paths["log"].exists():
+                try:
+                    logs = paths["log"].read_text(encoding="utf-8", errors="ignore").splitlines()
+                except Exception:
+                    pass
             return {
                 "errorCount": max(error_count, len(errors)),
                 "errors": errors,
-                "logs": payload.get("logs", []),
+                "logs": logs,
             }
         except Exception as e:
             logger.warning("Failed to read compile metadata from %s: %s", meta_path, e)
