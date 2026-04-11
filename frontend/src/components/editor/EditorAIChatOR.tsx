@@ -325,10 +325,15 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
           msg.sourceDocument = [...before, ...proposal.proposed.split('\n'), ...after].join('\n')
         }
 
-        // Mark this proposal approved and shift line numbers on remaining pending proposals
+        // Mark this proposal approved, expire overlapping proposals, and shift those that come after
         msg.proposals = msg.proposals.map((p) => {
           if (p.id === proposalId) return { ...p, status: 'approved' as const }
-          if (delta !== 0 && p.status === 'pending' && p.startLine > proposal.endLine) {
+          if (p.status !== 'pending') return p
+          // Overlap: p.startLine <= applied.endLine AND p.endLine >= applied.startLine
+          const overlaps = p.startLine <= proposal.endLine && p.endLine >= proposal.startLine
+          if (overlaps) return { ...p, status: 'expired' as const }
+          // Shift proposals that come entirely after the applied edit
+          if (delta !== 0 && p.startLine > proposal.endLine) {
             return { ...p, startLine: p.startLine + delta, endLine: p.endLine + delta }
           }
           return p
@@ -1009,7 +1014,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                                 )}
                                 {proposal.status === 'expired' && (
                                   <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-700 dark:text-slate-400">
-                                    From previous session
+                                    {msg.fromHistory ? 'From previous session' : 'Conflict — overlapping edit applied'}
                                   </span>
                                 )}
                               </div>
