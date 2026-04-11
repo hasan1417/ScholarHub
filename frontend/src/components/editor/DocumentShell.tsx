@@ -662,7 +662,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
   }, [])
 
   /** Handle AI edit approval - replace lines by line numbers (root cause fix) */
-  const handleApplyAiEdit = useCallback((startLine: number, endLine: number, anchor: string, replacement: string, sourceDocument?: string, file?: string): boolean => {
+  const handleApplyAiEdit = useCallback((startLine: number, endLine: number, anchor: string, replacement: string, _sourceDocument?: string, file?: string): boolean => {
     if (readOnly) return false
 
     // Multi-file edit: apply to a different file via Yjs
@@ -718,14 +718,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     // Get current content from the adapter directly for most accurate state
     const currentContent = adapterRef.current?.getContent?.() || latestContentRef.current.html || ''
 
-    // Staleness check: reject if document changed since the AI generated this edit
-    if (sourceDocument) {
-      const normalize = (s: string) => s.replace(/\s+$/, '')
-      if (normalize(currentContent) !== normalize(sourceDocument)) {
-        showToast('Edits are stale: document changed. Please regenerate.', 'error')
-        return false
-      }
-    }
+    // Anchor verification below handles staleness — no strict equality check needed
 
     console.log('[DocumentShell] Applying AI edit (line-based):', {
       startLine,
@@ -861,15 +854,11 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     if (!sourceDocument) return []
 
     const currentContent = adapterRef.current?.getContent?.() || latestContentRef.current.html || ''
-    // Normalize trailing whitespace before comparison — editor/collab can add/remove trailing newlines
-    const normalize = (s: string) => s.replace(/\s+$/, '')
-    if (normalize(currentContent) !== normalize(sourceDocument)) {
-      showToast('Edits are stale: document changed. Please regenerate.', 'error')
-      return []
-    }
+    // Use current content for applying — anchor verification ensures correctness
+    // even if the document changed slightly since the AI generated proposals
 
-    // Apply edits against the sourceDocument snapshot (the version the AI saw)
-    const lines = sourceDocument.split('\n')
+    // Apply edits against the current document content
+    const lines = currentContent.split('\n')
     const totalLines = lines.length
 
     const sorted = [...proposals].sort((a, b) => {
@@ -936,9 +925,9 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     if (collab.doc) {
       const mainYText = collab.doc.getText('main')
       if (mainYText && mainYText.length > 0) {
-        // Re-compute from the original sourceDocument lines for precise char offsets
+        // Re-compute from current content lines for precise char offsets
         // Edits are sorted descending by startLine, so applying in order keeps offsets valid
-        const origLines = sourceDocument.split('\n')
+        const origLines = currentContent.split('\n')
         collab.doc.transact(() => {
           for (const proposal of validProposals) {
             const sIdx = proposal.startLine - 1

@@ -125,6 +125,11 @@ export const FilePanel: React.FC<FilePanelProps> = ({
   const [templates, setTemplates] = useState<ConferenceTemplate[]>([])
   const [templatesLoading, setTemplatesLoading] = useState(false)
 
+  // User templates state
+  const [userTemplates, setUserTemplates] = useState<{ filename: string; name: string; size: number }[]>([])
+  const [userTemplateUploading, setUserTemplateUploading] = useState(false)
+  const templateInputRef = useRef<HTMLInputElement>(null)
+
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{
     visible: boolean
@@ -182,12 +187,50 @@ export const FilePanel: React.FC<FilePanelProps> = ({
     }
   }, [])
 
+  // Fetch user templates
+  const fetchUserTemplates = useCallback(async () => {
+    try {
+      const resp = await researchPapersAPI.listUserTemplates(paperId)
+      setUserTemplates(resp.data.templates)
+    } catch {
+      // Silently fail — user templates are optional
+    }
+  }, [paperId])
+
+  // Upload user template
+  const handleTemplateUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUserTemplateUploading(true)
+    try {
+      await researchPapersAPI.uploadTemplate(paperId, file)
+      await fetchUserTemplates()
+    } catch (err) {
+      console.error('Template upload failed', err)
+    } finally {
+      setUserTemplateUploading(false)
+      if (templateInputRef.current) templateInputRef.current.value = ''
+    }
+  }, [paperId, fetchUserTemplates])
+
+  // Delete user template
+  const handleUserTemplateDelete = useCallback(async (filename: string) => {
+    if (!confirm(`Delete template "${filename}"?`)) return
+    try {
+      await researchPapersAPI.deleteUserTemplate(paperId, filename)
+      setUserTemplates(prev => prev.filter(t => t.filename !== filename))
+    } catch (err) {
+      console.error('Failed to delete template', err)
+    }
+  }, [paperId])
+
   // Load data on mount
   useEffect(() => {
     fetchSupportFiles()
     fetchFigures()
     fetchTemplates()
-  }, [fetchSupportFiles, fetchFigures, fetchTemplates])
+    fetchUserTemplates()
+  }, [fetchSupportFiles, fetchFigures, fetchTemplates, fetchUserTemplates])
 
   // Upload support file
   const handleSupportUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -307,6 +350,39 @@ export const FilePanel: React.FC<FilePanelProps> = ({
       })
     }
   }, [editorViewRef, activeFile, yText])
+
+  // Apply user template — extracts preamble from .tex file and applies
+  // it using the same logic as built-in templates (preserves user body)
+  const handleApplyUserTemplate = useCallback(async (filename: string, name: string) => {
+    try {
+      const resp = await researchPapersAPI.getTemplateContent(paperId, filename)
+      const content = resp.data
+
+      // Extract preamble: everything up to and including \maketitle
+      let preamble: string
+      const maketitleIdx = content.indexOf('\\maketitle')
+      const beginDocIdx = content.indexOf('\\begin{document}')
+      if (maketitleIdx >= 0) {
+        preamble = content.slice(0, maketitleIdx + '\\maketitle'.length)
+      } else if (beginDocIdx >= 0) {
+        preamble = content.slice(0, beginDocIdx + '\\begin{document}'.length) + '\n\\maketitle'
+      } else {
+        preamble = content
+      }
+
+      handleApplyTemplate({
+        id: filename,
+        name,
+        description: 'User template',
+        preamble_example: preamble,
+        sections: [],
+        bib_style: '',
+      } as ConferenceTemplate)
+    } catch (err) {
+      console.error('Failed to apply user template', err)
+      alert('Failed to load template content.')
+    }
+  }, [paperId, handleApplyTemplate])
 
   // Context menu handlers
   const handleContextMenu = useCallback((e: React.MouseEvent, filename: string) => {
@@ -606,21 +682,79 @@ export const FilePanel: React.FC<FilePanelProps> = ({
         {/* Section 4: Templates */}
         <SectionHeader
           title="Templates"
+          count={userTemplates.length}
           expanded={templatesExpanded}
           onToggle={() => setTemplatesExpanded(p => !p)}
+          action={!readOnly ? (
+            <button
+              type="button"
+              onClick={() => templateInputRef.current?.click()}
+              disabled={userTemplateUploading}
+              className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
+              title="Upload .tex template"
+            >
+              {userTemplateUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+            </button>
+          ) : undefined}
+        />
+        <input
+          ref={templateInputRef}
+          type="file"
+          accept=".tex"
+          onChange={handleTemplateUpload}
+          className="hidden"
         />
         {templatesExpanded && (
-          <div className="px-3 pb-2">
+          <div className="px-1 pb-2">
+            {/* User-uploaded templates */}
+            {userTemplates.length > 0 && (
+              <div className="mb-1">
+                <p className="px-2 pb-1 text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">Your templates</p>
+                {userTemplates.map(t => (
+                  <div
+                    key={t.filename}
+                    className="group flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                  >
+                    <FileCode className="h-3 w-3 flex-shrink-0 text-indigo-400" />
+                    <button
+                      type="button"
+                      onClick={() => handleApplyUserTemplate(t.filename, t.name)}
+                      disabled={readOnly}
+                      className="flex-1 min-w-0 text-left disabled:opacity-50"
+                    >
+                      <div className="truncate font-medium">{t.name}</div>
+                      <div className="truncate text-[10px] text-slate-400 dark:text-slate-500">
+                        {(t.size / 1024).toFixed(1)} KB
+                      </div>
+                    </button>
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        onClick={() => handleUserTemplateDelete(t.filename)}
+                        className="hidden rounded p-0.5 text-slate-400 hover:bg-rose-100 hover:text-rose-500 group-hover:inline-flex dark:hover:bg-rose-900/30 dark:hover:text-rose-400"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Built-in templates */}
             {templatesLoading ? (
               <div className="flex items-center justify-center py-3">
                 <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
               </div>
-            ) : templates.length === 0 ? (
-              <p className="py-2 text-[11px] text-slate-400 dark:text-slate-500">
-                No templates available
+            ) : templates.length === 0 && userTemplates.length === 0 ? (
+              <p className="px-2 py-2 text-[11px] text-slate-400 dark:text-slate-500">
+                Upload .tex starter documents. Upload .cls/.sty files under Support Files.
               </p>
-            ) : (
-              <div className="space-y-1">
+            ) : templates.length > 0 ? (
+              <div>
+                {userTemplates.length > 0 && (
+                  <p className="px-2 pb-1 text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">Built-in</p>
+                )}
                 {templates.map(t => (
                   <button
                     key={t.id}
@@ -639,7 +773,7 @@ export const FilePanel: React.FC<FilePanelProps> = ({
                   </button>
                 ))}
               </div>
-            )}
+            ) : null}
           </div>
         )}
       </div>

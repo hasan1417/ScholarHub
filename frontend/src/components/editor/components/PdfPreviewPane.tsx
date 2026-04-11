@@ -25,7 +25,16 @@ function parseCompileLogs(rawLines: string[]): ParsedLogEntry[] {
 
     let type: 'error' | 'warning' | 'info' | null = null
 
-    if (/^!\s/.test(line) || /Error:/i.test(line) || /Fatal error/i.test(line)) {
+    if (
+      /^!\s/.test(line) ||                                  // Traditional: ! Undefined control sequence.
+      /Error:/i.test(line) ||                               // Package/class errors
+      /Fatal error/i.test(line) ||                          // Fatal errors
+      /^\.\/.+:\d+:.*(?:Undefined|Missing|Extra|Runaway|Emergency|Too many)/i.test(line) || // File-line-error mode
+      /Emergency stop/i.test(line) ||                       // Emergency stop
+      /^Latexmk:.*error/i.test(line) ||                     // Latexmk-level errors
+      /==> Fatal error/i.test(line) ||                      // Latexmk fatal
+      /Transcript written on.*\.log/.test(line) && /error/i.test(line)  // Error summary
+    ) {
       type = 'error'
     } else if (/Warning:/i.test(line) || /LaTeX Warning/i.test(line) || /Package\s+\S+\s+Warning/i.test(line)) {
       type = 'warning'
@@ -545,25 +554,11 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
 
       {/* ─── Compile Logs Panel ───────────────────────────── */}
       {logsVisible && (
-        <div className="flex flex-col border-t border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/80" style={{ maxHeight: '40%', minHeight: '120px' }}>
+        <div className="flex flex-col overflow-hidden border-t border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/80" style={{ maxHeight: '40%', minHeight: '120px' }}>
           {/* Status + summary bar */}
-          <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-1.5 dark:border-slate-800">
+          <div className="flex min-w-0 items-center gap-2 border-b border-slate-200 px-3 py-1.5 dark:border-slate-800">
             {/* Compilation status indicator */}
-            {compileStatus === 'success' || (compileStatus !== 'error' && compileStatus !== 'compiling' && errorCount === 0) ? (
-              <span className="flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M8 1a7 7 0 1 1 0 14A7 7 0 0 1 8 1zm3.3 4.3L7 9.6 4.7 7.3l-.7.7L7 11l5-5-.7-.7z" />
-                </svg>
-                {compileStatus === 'idle' ? 'Ready' : 'Compilation successful'}
-              </span>
-            ) : compileStatus === 'error' || errorCount > 0 ? (
-              <span className="flex items-center gap-1 text-xs font-medium text-red-500 dark:text-red-400">
-                <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M8 1a7 7 0 1 1 0 14A7 7 0 0 1 8 1zM5.3 5.3l-.7.7L7.3 8l-2.7 2L5.3 10.7 8 8.7l2 2.6.7-.7L8.7 8l2.6-2-.7-.7L8 7.3 5.3 5.3z" />
-                </svg>
-                Compilation failed
-              </span>
-            ) : (
+            {compileStatus === 'compiling' ? (
               <span className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
                 <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
                   <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
@@ -571,12 +566,26 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
                 </svg>
                 Compiling...
               </span>
+            ) : compileStatus === 'error' || errorCount > 0 ? (
+              <span className="flex items-center gap-1 text-xs font-medium text-red-500 dark:text-red-400">
+                <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M8 1a7 7 0 1 1 0 14A7 7 0 0 1 8 1zM5.3 5.3l-.7.7L7.3 8l-2.7 2L5.3 10.7 8 8.7l2 2.6.7-.7L8.7 8l2.6-2-.7-.7L8 7.3 5.3 5.3z" />
+                </svg>
+                Compiled with errors
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M8 1a7 7 0 1 1 0 14A7 7 0 0 1 8 1zm3.3 4.3L7 9.6 4.7 7.3l-.7.7L7 11l5-5-.7-.7z" />
+                </svg>
+                {compileStatus === 'idle' ? 'Ready' : 'Compilation successful'}
+              </span>
             )}
 
             <div className="mx-2 h-4 w-px bg-slate-300 dark:bg-slate-700" />
 
             {/* Filter tabs */}
-            <div className="flex items-center gap-0.5 text-[11px]">
+            <div className="flex flex-1 min-w-0 items-center gap-0.5 text-[11px] overflow-x-auto">
               <FilterTab
                 label="All logs"
                 count={totalLogCount}
@@ -639,7 +648,7 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
           )}
 
           {/* Log entries */}
-          <div className="flex-1 overflow-auto px-2 py-1.5 text-xs">
+          <div className="flex-1 min-w-0 overflow-auto px-2 py-1.5 text-xs">
             {filteredLogs.length === 0 && (
               <div className="py-4 text-center text-xs text-slate-400 dark:text-slate-500">
                 {compileLogs.length === 0 ? 'No compile output yet' : 'No entries matching this filter'}
@@ -756,13 +765,13 @@ const LogEntryCard: React.FC<LogEntryCardProps> = ({ entry, expanded, onToggle }
         : 'bg-blue-50/50 dark:bg-blue-950/20'
 
   return (
-    <div className={`mb-1 rounded border ${borderColor} ${bgColor} overflow-hidden`}>
+    <div className={`mb-1 min-w-0 rounded border ${borderColor} ${bgColor} overflow-hidden`}>
       <button
         onClick={onToggle}
-        className="flex w-full items-start gap-1.5 px-2 py-1.5 text-left text-xs text-slate-700 hover:bg-white/50 dark:text-slate-200 dark:hover:bg-white/5"
+        className="flex w-full min-w-0 items-start gap-1.5 px-2 py-1.5 text-left text-xs text-slate-700 hover:bg-white/50 dark:text-slate-200 dark:hover:bg-white/5"
       >
         <span className="shrink-0 text-[11px] leading-4">{icon}</span>
-        <span className="flex-1 min-w-0 break-words leading-4">{entry.message}</span>
+        <span className="flex-1 min-w-0 break-all leading-4">{entry.message}</span>
         {(entry.file || entry.line != null) && (
           <span className="shrink-0 text-[10px] text-slate-400 dark:text-slate-500 tabular-nums">
             {entry.file && entry.file}{entry.file && entry.line != null && ':'}{entry.line != null && `l.${entry.line}`}

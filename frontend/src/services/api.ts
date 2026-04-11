@@ -1270,6 +1270,23 @@ export const researchPapersAPI = {
     api.delete(`/research-papers/${paperId}/support-files/${encodeURIComponent(filename)}`),
   listFigures: (paperId: string) =>
     api.get<{ files: { filename: string; size: number }[] }>(`/research-papers/${paperId}/figures`),
+  // User templates
+  uploadTemplate: (paperId: string, file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post<{ filename: string; size: number; name: string }>(
+      `/research-papers/${paperId}/templates/upload`, fd,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    )
+  },
+  listUserTemplates: (paperId: string) =>
+    api.get<{ templates: { filename: string; name: string; size: number; uploaded_at: string }[] }>(
+      `/research-papers/${paperId}/templates`
+    ),
+  deleteUserTemplate: (paperId: string, filename: string) =>
+    api.delete(`/research-papers/${paperId}/templates/${encodeURIComponent(filename)}`),
+  getTemplateContent: (paperId: string, filename: string) =>
+    api.get<string>(`/research-papers/${paperId}/templates/${encodeURIComponent(filename)}/content`),
 }
 
 // Documents API endpoints (for reference documents, not rich text editing)

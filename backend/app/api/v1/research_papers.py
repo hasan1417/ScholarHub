@@ -1438,6 +1438,154 @@ async def delete_support_file(
     return {"success": True}
 
 
+@router.post("/{paper_id}/templates/upload")
+async def upload_template(
+    paper_id: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Upload a .tex template file for a research paper."""
+    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    # Check permissions
+    if paper.owner_id != current_user.id:
+        member = db.query(PaperMember).filter(
+            PaperMember.paper_id == paper.id,
+            PaperMember.user_id == current_user.id,
+            PaperMember.status == "accepted"
+        ).first()
+        if not member or member.role not in {PaperRole.OWNER, PaperRole.ADMIN, PaperRole.EDITOR}:
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    # Validate file type
+    allowed_extensions = {'.tex'}
+    file_ext = Path(file.filename).suffix.lower() if file.filename else ''
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type. Allowed: {', '.join(sorted(allowed_extensions))}"
+        )
+
+    # Validate filename (no path traversal)
+    safe_filename = Path(file.filename).name if file.filename else ''
+    if not safe_filename or '..' in safe_filename or '/' in safe_filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    # Enforce max 2MB
+    contents = await file.read()
+    if len(contents) > 2 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large. Maximum 2MB allowed.")
+
+    # Create upload directory
+    upload_dir = Path("uploads") / "papers" / str(paper_id) / "templates"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    file_path = upload_dir / safe_filename
+
+    try:
+        with file_path.open("wb") as buffer:
+            buffer.write(contents)
+    except Exception as e:
+        logger.error(f"Failed to save template file: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save file")
+
+    return {
+        "filename": safe_filename,
+        "size": file_path.stat().st_size,
+        "name": Path(safe_filename).stem
+    }
+
+
+@router.get("/{paper_id}/templates")
+async def list_templates(
+    paper_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List user-uploaded template files for a research paper."""
+    import os
+    from datetime import datetime, timezone
+
+    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    templates_dir = Path("uploads") / "papers" / str(paper_id) / "templates"
+    templates = []
+    if templates_dir.exists():
+        for f in templates_dir.iterdir():
+            if f.is_file():
+                mtime = os.path.getmtime(f)
+                templates.append({
+                    "filename": f.name,
+                    "name": Path(f.name).stem,
+                    "size": f.stat().st_size,
+                    "uploaded_at": datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
+                })
+
+    return {"templates": templates}
+
+
+@router.delete("/{paper_id}/templates/{filename}")
+async def delete_template(
+    paper_id: str,
+    filename: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a user-uploaded template file from a research paper."""
+    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    # Check permissions
+    if paper.owner_id != current_user.id:
+        member = db.query(PaperMember).filter(
+            PaperMember.paper_id == paper.id,
+            PaperMember.user_id == current_user.id,
+            PaperMember.status == "accepted"
+        ).first()
+        if not member or member.role not in {PaperRole.OWNER, PaperRole.ADMIN, PaperRole.EDITOR}:
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    # Validate filename (no path traversal)
+    if '..' in filename or '/' in filename or '\\' in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    file_path = Path("uploads") / "papers" / str(paper_id) / "templates" / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    file_path.unlink()
+    return {"success": True}
+
+
+@router.get("/{paper_id}/templates/{filename}/content")
+async def get_template_content(
+    paper_id: str,
+    filename: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Return the raw content of a user-uploaded template file."""
+    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    if '..' in filename or '/' in filename or '\\' in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    file_path = Path("uploads") / "papers" / str(paper_id) / "templates" / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(file_path.read_text(encoding="utf-8"))
+
+
 @router.get("/{paper_id}/figures")
 async def list_figures(
     paper_id: str,

@@ -163,7 +163,6 @@ const LATEX_COMMANDS: CmdEntry[] = [
   { label: '\\bibliographystyle', detail: 'Bibliography style', template: '\\bibliographystyle{|}' },
   // Environments
   { label: '\\begin', detail: 'Begin environment', template: '\\begin{|}' },
-  { label: '\\end', detail: 'End environment', template: '\\end{|}' },
   // Floats
   { label: '\\includegraphics', detail: 'Include image', template: '\\includegraphics[width=|\\linewidth]{file}' },
   { label: '\\caption', detail: 'Caption', template: '\\caption{|}' },
@@ -248,6 +247,63 @@ function latexCommandCompletions(context: CompletionContext): CompletionResult |
     options: commandCompletions,
     validFor: /^\\[a-zA-Z]*$/,
   }
+}
+
+// ---------------------------------------------------------------------------
+// 1b. Context-aware \end{} — suggests nearest unclosed environment
+// ---------------------------------------------------------------------------
+
+function findUnclosedEnvs(doc: string, pos: number): string[] {
+  const stack: string[] = []
+  const re = /\\(begin|end)\{([^}]+)\}/g
+  const text = doc.slice(0, pos)
+  let m: RegExpExecArray | null
+  re.lastIndex = 0
+  while ((m = re.exec(text)) !== null) {
+    if (m[1] === 'begin') {
+      stack.push(m[2])
+    } else {
+      const idx = stack.lastIndexOf(m[2])
+      if (idx >= 0) stack.splice(idx, 1)
+    }
+  }
+  return stack.reverse() // nearest unclosed first
+}
+
+function endEnvCompletions(context: CompletionContext): CompletionResult | null {
+  // Case 1: \end{...  — suggest environment names inside braces
+  const braceMatch = context.matchBefore(/\\end\{[a-zA-Z*]*/)
+  if (braceMatch) {
+    const braceIdx = braceMatch.text.indexOf('{')
+    const from = braceMatch.from + braceIdx + 1
+    const unclosed = findUnclosedEnvs(context.state.doc.toString(), braceMatch.from)
+    if (unclosed.length === 0) return null
+
+    const options: Completion[] = unclosed.map((env, i) => ({
+      label: env,
+      detail: 'Close environment',
+      type: 'type',
+      boost: 99 - i,
+    }))
+
+    return { from, options, validFor: /^[a-zA-Z*]*$/ }
+  }
+
+  // Case 2: \end (no brace yet) — suggest full \end{envName}
+  const cmdMatch = context.matchBefore(/\\end/)
+  if (!cmdMatch || cmdMatch.from === cmdMatch.to) return null
+
+  const unclosed = findUnclosedEnvs(context.state.doc.toString(), cmdMatch.from)
+  if (unclosed.length === 0) return null
+
+  const options: Completion[] = unclosed.map((env, i) => ({
+    label: `\\end{${env}}`,
+    detail: 'Close environment',
+    type: 'keyword',
+    boost: 99 - i,
+  }))
+
+  return { from: cmdMatch.from, options, validFor: /^\\end\{?[a-zA-Z*]*\}?$/ }
 }
 
 // ---------------------------------------------------------------------------
@@ -444,6 +500,7 @@ export { completionKeymap }
 export function latexAutocompletion(paperId?: string): Extension {
   return autocompletion({
     override: [
+      endEnvCompletions,
       latexCommandCompletions,
       environmentCompletions,
       citeCompletions(paperId),

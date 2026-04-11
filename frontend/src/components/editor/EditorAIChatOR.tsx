@@ -963,40 +963,44 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                           >
                             {/* Proposal Header */}
                             <div
-                              className="flex cursor-pointer items-center justify-between px-3 py-2"
+                              className="flex cursor-pointer items-start gap-2 px-3 py-2"
                               onClick={() => toggleProposalExpanded(proposal.id)}
                             >
-                              <div className="flex items-center gap-2">
-                                <Edit3 className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                              <Edit3 className="mt-0.5 h-4 w-4 shrink-0 text-indigo-600 dark:text-indigo-400" />
+                              <div className="min-w-0 flex-1">
                                 <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
                                   {proposal.description || 'Suggested Edit'}
                                 </span>
-                                {proposal.file && (
-                                  <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
-                                    {proposal.file}
-                                  </span>
-                                )}
-                                {proposal.status === 'approved' && (
-                                  <span className="rounded-full bg-emerald-200 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-800 dark:bg-emerald-800 dark:text-emerald-200">
-                                    Applied
-                                  </span>
-                                )}
-                                {proposal.status === 'rejected' && (
-                                  <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-600 dark:bg-slate-700 dark:text-slate-400">
-                                    Dismissed
-                                  </span>
-                                )}
-                                {proposal.status === 'expired' && (
-                                  <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-700 dark:text-slate-400">
-                                    From previous session
-                                  </span>
+                                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                  {proposal.file && (
+                                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
+                                      {proposal.file}
+                                    </span>
+                                  )}
+                                  {proposal.status === 'approved' && (
+                                    <span className="rounded-full bg-emerald-200 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-800 dark:bg-emerald-800 dark:text-emerald-200">
+                                      Applied
+                                    </span>
+                                  )}
+                                  {proposal.status === 'rejected' && (
+                                    <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-600 dark:bg-slate-700 dark:text-slate-400">
+                                      Dismissed
+                                    </span>
+                                  )}
+                                  {proposal.status === 'expired' && (
+                                    <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-700 dark:text-slate-400">
+                                      From previous session
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="shrink-0">
+                                {isExpanded ? (
+                                  <ChevronUp className="h-4 w-4 text-slate-500" />
+                                ) : (
+                                  <ChevronDown className="h-4 w-4 text-slate-500" />
                                 )}
                               </div>
-                              {isExpanded ? (
-                                <ChevronUp className="h-4 w-4 text-slate-500" />
-                              ) : (
-                                <ChevronDown className="h-4 w-4 text-slate-500" />
-                              )}
                             </div>
 
                             {/* Expanded Diff View */}
@@ -1019,7 +1023,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                                   </div>
                                 </div>
 
-                                {/* Action Buttons — hide individual Apply when multi-edit (use Apply All instead) */}
+                                {/* Action Buttons */}
                                 {proposal.status === 'pending' && (
                                   <div className="flex items-center justify-end gap-2 pt-2">
                                     <button
@@ -1031,18 +1035,16 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                                     >
                                       Dismiss
                                     </button>
-                                    {m.proposals?.length === 1 && (
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          handleApproveEdit(idx, proposal.id)
-                                        }}
-                                        className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
-                                      >
-                                        <Check className="h-3.5 w-3.5" />
-                                        Apply Edit
-                                      </button>
-                                    )}
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleApproveEdit(idx, proposal.id)
+                                      }}
+                                      className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
+                                    >
+                                      <Check className="h-3.5 w-3.5" />
+                                      Apply
+                                    </button>
                                   </div>
                                 )}
                               </div>

@@ -147,7 +147,7 @@ EDITOR_TOOLS = [
                                 },
                                 "proposed": {
                                     "type": "string",
-                                    "description": "The new VALID LaTeX text"
+                                    "description": "The new VALID LaTeX text. Use empty string to DELETE lines without replacement."
                                 }
                             },
                             "required": ["description", "start_line", "end_line", "anchor", "proposed"]
@@ -232,12 +232,12 @@ SYSTEM_PROMPT = """You are an expert academic writing assistant for the LaTeX ed
 - Convert documents to conference formats
 
 ## CLARIFYING QUESTIONS
-If the user's request is vague or missing a clear target and operation (e.g., "make it better", "fix this"),
-call ask_clarification.
-- Ask only ONE question.
-- Provide 2-4 short options.
+Prefer action over clarification. If you can make a reasonable interpretation, just do it.
+Only call ask_clarification when you truly cannot determine what the user wants (e.g., "change this" with no context).
+- Ask only ONE question with 2-4 short options.
 - Do NOT propose edits until clarified.
 - If the user responds with "Clarification: ...", do NOT ask another clarification.
+- NEVER clarify when the operation is specific: "shorten", "expand", "rewrite", "fix grammar", "proofread".
 
 ## LINE-BASED EDITING
 The document shows line numbers like "  15| content here".
@@ -277,6 +277,16 @@ You can ONLY discuss or cite references shown in the ATTACHED REFERENCES section
 Do NOT invent, fabricate, or guess reference titles, authors, or findings.
 If asked about references not in the attached list, say:
 "I can only work with references attached to this paper. Use the Discussion AI or Discovery page to find and add more."
+
+## EDITING DISCIPLINE
+- To DELETE content, set proposed to empty string — do NOT replace removed content with something new.
+- Before adding or renaming any \\section{}, check the FULL document for existing sections to avoid duplicates.
+- Do exactly what the user asked. If they say "remove X", remove it. Do not add, rename, or reorganize anything they didn't ask for.
+
+## SECTION SCOPE
+A LaTeX section includes ALL content from \\section{Name} until the NEXT \\section{} or \\end{document}.
+This includes multiple paragraphs separated by blank lines. When asked to edit "the introduction" or any section,
+you MUST include ALL paragraphs in that section — scan forward to the next \\section{} to find the boundary.
 
 Be concise and helpful. Focus on academic writing quality."""
 
@@ -699,10 +709,12 @@ class SmartAgentServiceV2OR:
                 ],
             }
 
-        if operation == "fix":
+        # "fix", "shorten", "expand", "rewrite" are specific enough — just do it
+        if operation in ("fix", "shorten", "expand", "rewrite"):
             return None
 
-        if operation in ("improve", "rewrite", "shorten", "expand", "change") and not self._has_constraints(q_lower):
+        # Only "improve" and "change" without constraints are genuinely vague
+        if operation in ("improve", "change") and not self._has_constraints(q_lower):
             return {
                 "question": f"For the {target}, what should I optimize for?",
                 "options": [
