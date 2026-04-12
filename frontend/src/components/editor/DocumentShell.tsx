@@ -662,7 +662,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
   }, [])
 
   /** Handle AI edit approval - replace lines by line numbers (root cause fix) */
-  const handleApplyAiEdit = useCallback((startLine: number, endLine: number, anchor: string, replacement: string, _sourceDocument?: string, file?: string): boolean => {
+  const handleApplyAiEdit = useCallback((startLine: number, endLine: number, anchor: string, replacement: string, sourceDocument?: string, file?: string): boolean => {
     if (readOnly) return false
 
     // Multi-file edit: apply to a different file via Yjs
@@ -746,47 +746,29 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     const startIdx = startLine - 1
     const endIdx = Math.min(endLine - 1, totalLines - 1)
 
-    // Verify anchor matches (required safety check - prevents corrupting wrong lines)
-    if (anchor && anchor.trim()) {
+    // Determine if document changes are AI-originated or user-originated.
+    // When the caller's sourceDocument matches currentContent exactly, only
+    // AI edits from this batch have run — line numbers were already recalculated
+    // by the caller (see EditorAIChatOR.handleApproveEdit), so we trust them
+    // and skip strict anchor verification.
+    const normalize = (s: string) => s.replace(/\s+$/, '')
+    const aiOnly = sourceDocument != null && normalize(sourceDocument) === normalize(currentContent)
+
+    if (!aiOnly && anchor && anchor.trim()) {
+      // User typed something since the AI generated these proposals.
+      // Anchor must match at the target line — otherwise reject.
       const actualLineStart = lines[startIdx] || ''
       const normalizedAnchor = anchor.trim().slice(0, 40).toLowerCase()
       const normalizedActual = actualLineStart.trim().slice(0, 40).toLowerCase()
-
-      // Log for debugging
-      console.log('[DocumentShell] Anchor verification:', {
-        line: startLine,
-        expectedAnchor: normalizedAnchor,
-        actualContent: normalizedActual,
-        actualLineRaw: actualLineStart.slice(0, 60),
-      })
-
-      // Check if anchor matches - require significant overlap
       const substringMatch =
         normalizedActual.includes(normalizedAnchor.slice(0, 15)) ||
         normalizedAnchor.includes(normalizedActual.slice(0, 15))
-
-      const wordMatch = normalizedAnchor.split(/\s+/).filter(w => w.length > 2).slice(0, 3)
-        .every((word) => normalizedActual.includes(word))
-
-      const anchorMatches = substringMatch || wordMatch
-
-      console.log('[DocumentShell] Anchor match result:', {
-        substringMatch,
-        wordMatch,
-        anchorMatches,
-      })
-
-      if (!anchorMatches) {
-        console.error('[DocumentShell] Anchor mismatch - edit REJECTED to prevent document corruption:', {
-          line: startLine,
-          expectedAnchor: normalizedAnchor,
-          actualContent: normalizedActual,
-        })
+      const words = normalizedAnchor.split(/\s+/).filter(w => w.length > 2).slice(0, 3)
+      const wordMatch = words.length > 0 && words.every((w) => normalizedActual.includes(w))
+      if (!substringMatch && !wordMatch) {
         showToast(`Edit rejected: document changed at line ${startLine}. Please regenerate.`, 'error')
         return false
       }
-    } else {
-      console.warn('[DocumentShell] No anchor provided - skipping verification')
     }
 
     // Apply the edit by replacing lines
