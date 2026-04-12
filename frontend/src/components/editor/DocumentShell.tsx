@@ -662,7 +662,69 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
   }, [])
 
   /** Handle AI edit approval - replace lines by line numbers (root cause fix) */
-  const handleApplyAiEdit = useCallback((startLine: number, endLine: number, anchor: string, replacement: string, sourceDocument?: string, file?: string): boolean => {
+  // Resolve an AI edit's target location in the current document by matching
+  // the anchor. Line numbers are treated as a HINT for where to start searching,
+  // not as authoritative coordinates. This is the root-cause fix for line-drift
+  // corruption: the anchor (a fingerprint of the starting line) is the real
+  // locator — we search for it starting from the hinted line and expanding
+  // outward. Returns null if no confident match is found.
+  const resolveEditLocation = useCallback((
+    lines: string[],
+    hintStartLine: number,
+    hintEndLine: number,
+    anchor: string,
+  ): { startIdx: number; endIdx: number } | null => {
+    const totalLines = lines.length
+    if (totalLines === 0) return null
+    if (hintEndLine < hintStartLine) return null
+
+    const lineSpan = hintEndLine - hintStartLine
+    const normalizedAnchor = (anchor || '').trim().slice(0, 40).toLowerCase()
+
+    // Anchor-less edits: trust line numbers exactly (legacy behavior).
+    if (!normalizedAnchor) {
+      if (hintStartLine < 1 || hintStartLine > totalLines) return null
+      const startIdx = hintStartLine - 1
+      return { startIdx, endIdx: Math.min(hintEndLine - 1, totalLines - 1) }
+    }
+
+    const matchesLine = (idx: number): boolean => {
+      if (idx < 0 || idx >= totalLines) return false
+      const line = (lines[idx] || '').trim().slice(0, 40).toLowerCase()
+      if (!line) return false
+      // Strong match: substring overlap of the first 15 chars either direction
+      if (line.includes(normalizedAnchor.slice(0, 15))) return true
+      if (normalizedAnchor.includes(line.slice(0, 15))) return true
+      // Weaker match: 3 significant words all present (safety net for
+      // whitespace/punctuation drift)
+      const words = normalizedAnchor.split(/\s+/).filter(w => w.length > 2).slice(0, 3)
+      if (words.length >= 2 && words.every(w => line.includes(w))) return true
+      return false
+    }
+
+    // Try the hinted start first — fast path when AI line numbers are correct
+    const hintIdx = hintStartLine - 1
+    if (hintIdx >= 0 && hintIdx < totalLines && matchesLine(hintIdx)) {
+      return { startIdx: hintIdx, endIdx: Math.min(hintIdx + lineSpan, totalLines - 1) }
+    }
+
+    // Search expanding outward from the hint (±20 lines)
+    const searchRadius = 20
+    for (let offset = 1; offset <= searchRadius; offset++) {
+      const down = hintIdx + offset
+      if (down < totalLines && matchesLine(down)) {
+        return { startIdx: down, endIdx: Math.min(down + lineSpan, totalLines - 1) }
+      }
+      const up = hintIdx - offset
+      if (up >= 0 && matchesLine(up)) {
+        return { startIdx: up, endIdx: Math.min(up + lineSpan, totalLines - 1) }
+      }
+    }
+
+    return null
+  }, [])
+
+  const handleApplyAiEdit = useCallback((startLine: number, endLine: number, anchor: string, replacement: string, _sourceDocument?: string, file?: string): boolean => {
     if (readOnly) return false
 
     // Multi-file edit: apply to a different file via Yjs
@@ -674,33 +736,14 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
       }
       const fileContent = yText.toString()
       const lines = fileContent.split('\n')
-      const totalLines = lines.length
 
-      if (startLine < 1 || endLine < startLine || startLine > totalLines) {
-        showToast('Edit line range is out of bounds', 'error')
+      const loc = resolveEditLocation(lines, startLine, endLine, anchor)
+      if (!loc) {
+        showToast(`Edit rejected: could not locate anchor in ${file}. Please regenerate.`, 'error')
         return false
       }
 
-      const startIdx = startLine - 1
-      const endIdx = Math.min(endLine - 1, totalLines - 1)
-
-      // Verify anchor
-      if (anchor && anchor.trim()) {
-        const actualLine = lines[startIdx] || ''
-        const anchorNorm = anchor.trim().slice(0, 40).toLowerCase()
-        const actualNorm = actualLine.trim().slice(0, 40).toLowerCase()
-        const substringMatch =
-          actualNorm.includes(anchorNorm.slice(0, 15)) ||
-          anchorNorm.includes(actualNorm.slice(0, 15))
-        const wordMatch = anchorNorm.split(/\s+/).filter(w => w.length > 2).slice(0, 3)
-          .every((word) => actualNorm.includes(word))
-        if (!substringMatch && !wordMatch) {
-          showToast(`Edit rejected: anchor mismatch in ${file} at line ${startLine}. Please regenerate.`, 'error')
-          return false
-        }
-      }
-
-      // Surgical Yjs edit: only modify the changed lines (track-changes compatible)
+      const { startIdx, endIdx } = loc
       const charStart = lines.slice(0, startIdx).reduce((sum, l) => sum + l.length + 1, 0)
       const oldText = lines.slice(startIdx, endIdx + 1).join('\n')
 
@@ -715,61 +758,18 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     }
 
     // Main file edit (file is undefined or 'main.tex')
-    // Get current content from the adapter directly for most accurate state
     const currentContent = adapterRef.current?.getContent?.() || latestContentRef.current.html || ''
-
-    // Anchor verification below handles staleness — no strict equality check needed
-
-    console.log('[DocumentShell] Applying AI edit (line-based):', {
-      startLine,
-      endLine,
-      anchor: anchor.slice(0, 50),
-      replacementLen: replacement.length,
-      contentLen: currentContent.length,
-    })
-
-    // Split content into lines (1-indexed in UI, 0-indexed in array)
     const lines = currentContent.split('\n')
-    const totalLines = lines.length
 
-    // Validate line numbers
-    if (startLine < 1 || endLine < startLine || startLine > totalLines) {
-      console.warn('[DocumentShell] Invalid line range:', {
-        startLine,
-        endLine,
-        totalLines,
-      })
+    // Resolve target location via anchor — line numbers are just a hint.
+    // This is content-based addressing: we find WHERE the anchor lives in
+    // the current document, not where the AI thought it was.
+    const loc = resolveEditLocation(lines, startLine, endLine, anchor)
+    if (!loc) {
+      showToast(`Edit rejected: anchor not found near line ${startLine}. Please regenerate.`, 'error')
       return false
     }
-
-    // Convert to 0-indexed
-    const startIdx = startLine - 1
-    const endIdx = Math.min(endLine - 1, totalLines - 1)
-
-    // Determine if document changes are AI-originated or user-originated.
-    // When the caller's sourceDocument matches currentContent exactly, only
-    // AI edits from this batch have run — line numbers were already recalculated
-    // by the caller (see EditorAIChatOR.handleApproveEdit), so we trust them
-    // and skip strict anchor verification.
-    const normalize = (s: string) => s.replace(/\s+$/, '')
-    const aiOnly = sourceDocument != null && normalize(sourceDocument) === normalize(currentContent)
-
-    if (!aiOnly && anchor && anchor.trim()) {
-      // User typed something since the AI generated these proposals.
-      // Anchor must match at the target line — otherwise reject.
-      const actualLineStart = lines[startIdx] || ''
-      const normalizedAnchor = anchor.trim().slice(0, 40).toLowerCase()
-      const normalizedActual = actualLineStart.trim().slice(0, 40).toLowerCase()
-      const substringMatch =
-        normalizedActual.includes(normalizedAnchor.slice(0, 15)) ||
-        normalizedAnchor.includes(normalizedActual.slice(0, 15))
-      const words = normalizedAnchor.split(/\s+/).filter(w => w.length > 2).slice(0, 3)
-      const wordMatch = words.length > 0 && words.every((w) => normalizedActual.includes(w))
-      if (!substringMatch && !wordMatch) {
-        showToast(`Edit rejected: document changed at line ${startLine}. Please regenerate.`, 'error')
-        return false
-      }
-    }
+    const { startIdx, endIdx } = loc
 
     // Apply the edit by replacing lines
     const before = lines.slice(0, startIdx)
@@ -777,18 +777,9 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     const newLines = [...before, replacement, ...after]
     const newContent = newLines.join('\n')
 
-    // Check if content actually changed
     if (newContent === currentContent) {
-      console.warn('[DocumentShell] No change after line replacement')
       return false
     }
-
-    console.log('[DocumentShell] Line edit applied:', {
-      removedLines: endIdx - startIdx + 1,
-      beforeLen: currentContent.length,
-      afterLen: newContent.length,
-      diff: newContent.length - currentContent.length,
-    })
 
     // Use surgical Yjs edit when collab is active (track-changes compatible)
     if (collab.doc) {
@@ -821,7 +812,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     updateLatestContent(newContent, nextJson)
     requestAutosave('ai-edit-applied')
     return true
-  }, [collab.doc, isLatex, readOnly, requestAutosave, showToast, updateLatestContent])
+  }, [collab.doc, isLatex, readOnly, requestAutosave, showToast, updateLatestContent, resolveEditLocation])
 
   type BatchEdit = {
     id: string
@@ -829,52 +820,51 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     endLine: number
     anchor: string
     proposed: string
+    description?: string
+    file?: string
   }
 
-  const handleApplyAiEditsBatch = useCallback((proposals: BatchEdit[], sourceDocument: string): string[] => {
+  const handleApplyAiEditsBatch = useCallback((proposals: BatchEdit[], _sourceDocument: string): string[] => {
     if (readOnly) return []
-    if (!sourceDocument) return []
 
     const currentContent = adapterRef.current?.getContent?.() || latestContentRef.current.html || ''
-    // Use current content for applying — anchor verification ensures correctness
-    // even if the document changed slightly since the AI generated proposals
-
-    // Apply edits against the current document content
     const lines = currentContent.split('\n')
-    const totalLines = lines.length
 
-    const sorted = [...proposals].sort((a, b) => {
-      if (b.startLine !== a.startLine) return b.startLine - a.startLine
-      return b.endLine - a.endLine
-    })
+    // Track skipped edits by reason for better user feedback
+    const skipped: { id: string; reason: string; description: string }[] = []
 
-    // Pass 1: Validate anchors against ORIGINAL unmodified lines
-    const anchorValid: typeof sorted = []
-    for (const proposal of sorted) {
-      const { startLine, endLine, anchor } = proposal
-      if (startLine < 1 || endLine < startLine || startLine > totalLines) continue
-
-      const startIdx = startLine - 1
-      if (anchor && anchor.trim()) {
-        const actualLineStart = lines[startIdx] || ''
-        const normalizedAnchor = anchor.trim().slice(0, 40).toLowerCase()
-        const normalizedActual = actualLineStart.trim().slice(0, 40).toLowerCase()
-        const substringMatch =
-          normalizedActual.includes(normalizedAnchor.slice(0, 15)) ||
-          normalizedAnchor.includes(normalizedActual.slice(0, 15))
-        const wordMatch = normalizedAnchor.split(/\s+/).filter(w => w.length > 2).slice(0, 3)
-          .every((word) => normalizedActual.includes(word))
-        const anchorMatches = substringMatch || wordMatch
-        if (!anchorMatches) continue // skip instead of abort
+    // Pass 1: Resolve each proposal's target via anchor matching (line numbers are hints)
+    type Resolved = BatchEdit & { resolvedStartIdx: number; resolvedEndIdx: number }
+    const resolved: Resolved[] = []
+    for (const proposal of proposals) {
+      const desc = proposal.description || `lines ${proposal.startLine}-${proposal.endLine}`
+      const loc = resolveEditLocation(lines, proposal.startLine, proposal.endLine, proposal.anchor)
+      if (!loc) {
+        skipped.push({ id: proposal.id, reason: `anchor not found near line ${proposal.startLine}`, description: desc })
+        continue
       }
-      anchorValid.push(proposal)
+      resolved.push({ ...proposal, resolvedStartIdx: loc.startIdx, resolvedEndIdx: loc.endIdx })
     }
 
-    // Pass 1.5: Discard overlapping ranges (sorted descending, so check if current endLine >= prev startLine)
-    const validProposals: typeof sorted = []
-    for (const proposal of anchorValid) {
+    // Sort by resolved position DESCENDING — apply bottom-up so earlier edits
+    // don't shift line numbers for later edits.
+    resolved.sort((a, b) => {
+      if (b.resolvedStartIdx !== a.resolvedStartIdx) return b.resolvedStartIdx - a.resolvedStartIdx
+      return b.resolvedEndIdx - a.resolvedEndIdx
+    })
+
+    // Pass 2: Discard overlapping ranges using RESOLVED positions (not AI hints)
+    const validProposals: Resolved[] = []
+    for (const proposal of resolved) {
       const prev = validProposals[validProposals.length - 1]
-      if (prev && proposal.endLine >= prev.startLine) continue // overlap — skip
+      if (prev && proposal.resolvedEndIdx >= prev.resolvedStartIdx) {
+        skipped.push({
+          id: proposal.id,
+          reason: `overlaps with another edit`,
+          description: proposal.description || `lines ${proposal.startLine}-${proposal.endLine}`,
+        })
+        continue
+      }
       validProposals.push(proposal)
     }
 
@@ -883,18 +873,19 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
       return []
     }
 
-    // Pass 2: Apply all valid edits in reverse order (already sorted descending)
+    // Pass 3: Apply all valid edits using RESOLVED positions, in reverse order
     const appliedIds: string[] = []
     for (const proposal of validProposals) {
-      const startIdx = proposal.startLine - 1
-      const endIdx = Math.min(proposal.endLine - 1, totalLines - 1)
-      lines.splice(startIdx, endIdx - startIdx + 1, ...proposal.proposed.split('\n'))
+      const { resolvedStartIdx, resolvedEndIdx } = proposal
+      lines.splice(resolvedStartIdx, resolvedEndIdx - resolvedStartIdx + 1, ...proposal.proposed.split('\n'))
       appliedIds.push(proposal.id)
     }
 
-    if (appliedIds.length < proposals.length) {
-      const skipped = proposals.length - appliedIds.length
-      showToast(`Applied ${appliedIds.length}/${proposals.length} edits. ${skipped} skipped.`, 'success')
+    if (skipped.length > 0) {
+      console.warn('[DocumentShell] Skipped edits:', skipped)
+      // Group by reason for concise toast
+      const reasons = skipped.map(s => `• "${s.description.slice(0, 50)}${s.description.length > 50 ? '…' : ''}" — ${s.reason}`).join('\n')
+      showToast(`Applied ${appliedIds.length}/${proposals.length}. ${skipped.length} skipped:\n${reasons}`, 'success')
     }
 
     const newContent = lines.join('\n')
@@ -907,18 +898,17 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     if (collab.doc) {
       const mainYText = collab.doc.getText('main')
       if (mainYText && mainYText.length > 0) {
-        // Re-compute from current content lines for precise char offsets
-        // Edits are sorted descending by startLine, so applying in order keeps offsets valid
+        // Use RESOLVED indices (anchor-matched) instead of AI-provided line numbers.
+        // validProposals are sorted descending by resolvedStartIdx, so applying in
+        // order keeps char offsets valid for earlier (lower-line) edits.
         const origLines = currentContent.split('\n')
         collab.doc.transact(() => {
           for (const proposal of validProposals) {
-            const sIdx = proposal.startLine - 1
-            const eIdx = Math.min(proposal.endLine - 1, origLines.length - 1)
+            const { resolvedStartIdx: sIdx, resolvedEndIdx: eIdx } = proposal
             const charStart = origLines.slice(0, sIdx).reduce((sum, l) => sum + l.length + 1, 0)
             const oldText = origLines.slice(sIdx, eIdx + 1).join('\n')
             mainYText.delete(charStart, oldText.length)
             mainYText.insert(charStart, proposal.proposed)
-            // Update origLines in-place so subsequent (earlier line) offsets remain correct
             origLines.splice(sIdx, eIdx - sIdx + 1, ...proposal.proposed.split('\n'))
           }
         })
@@ -942,7 +932,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     updateLatestContent(newContent, nextJson)
     requestAutosave('ai-edit-applied-batch')
     return appliedIds
-  }, [collab.doc, isLatex, readOnly, requestAutosave, showToast, updateLatestContent])
+  }, [collab.doc, isLatex, readOnly, requestAutosave, showToast, updateLatestContent, resolveEditLocation])
 
   /** Get live document text — reads from Yjs (realtime) or falls back to lastHtml/latestContentRef */
   const getLiveDocumentText = useCallback((): string => {
