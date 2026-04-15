@@ -242,8 +242,9 @@ class GptRanker(PaperRanker):
 
     def __init__(self, config: DiscoveryConfig):
         self.config = config
-        # Use gpt-5-mini by default - supports temperature and is cost-effective
-        self.model_name = os.getenv("OPENROUTER_RERANK_MODEL", "openai/gpt-5-mini")
+        # gpt-4o-mini is 3-5x faster than gpt-5-mini for structured JSON ranking,
+        # and quality is sufficient for a 0-1 relevance score. Override via env.
+        self.model_name = os.getenv("OPENROUTER_RERANK_MODEL", "openai/gpt-4o-mini")
 
         # Scoring weights for post-processing bonuses
         self.recency_weight = 0.05  # Max 5% bonus for recent papers
@@ -262,14 +263,36 @@ class GptRanker(PaperRanker):
         api_key = settings.OPENROUTER_API_KEY
         if not api_key:
             logger.info("No OPENROUTER_API_KEY, falling back to SimpleRanker")
-            return await SimpleRanker(self.config).rank(papers, query, target_text, target_keywords)
+            return await SimpleRanker(self.config).rank(papers, query, target_text, target_keywords, **kwargs)
+
+        # Pre-rank with SimpleRanker when there are many papers — keeps GPT latency bounded
+        # and focuses AI attention on the top candidates. Bottom candidates keep their
+        # lexical scores and get sorted in after the GPT-scored ones.
+        TOP_K_FOR_GPT = 80
+        deferred: List[DiscoveredPaper] = []
+        if len(papers) > TOP_K_FOR_GPT:
+            try:
+                pre_ranked = await SimpleRanker(self.config).rank(
+                    list(papers), query, target_text, target_keywords, **kwargs
+                )
+                candidates = pre_ranked[:TOP_K_FOR_GPT]
+                deferred = pre_ranked[TOP_K_FOR_GPT:]
+                logger.info(
+                    "GPT Ranker: pre-ranked %d papers, scoring top %d with GPT",
+                    len(papers), len(candidates),
+                )
+            except Exception as exc:
+                logger.warning("GPT Ranker: pre-rank failed, scoring all papers: %s", exc)
+                candidates = list(papers)
+        else:
+            candidates = list(papers)
 
         try:
-            # Prepare concise items for scoring — score ALL papers
+            # Prepare concise items for scoring
             items = []
             current_year = datetime.now().year
 
-            for idx, p in enumerate(papers):
+            for idx, p in enumerate(candidates):
                 item = {
                     "id": idx,
                     "title": (p.title or "")[:200],
@@ -286,7 +309,7 @@ class GptRanker(PaperRanker):
                 from openai import AsyncOpenAI  # type: ignore
             except Exception as exc:
                 logger.info("OpenAI SDK unavailable: %s", exc)
-                return await SimpleRanker(self.config).rank(papers, query, target_text, target_keywords)
+                return await SimpleRanker(self.config).rank(papers, query, target_text, target_keywords, **kwargs)
 
             client = AsyncOpenAI(
                 api_key=api_key,
@@ -338,6 +361,9 @@ class GptRanker(PaperRanker):
 
             logger.info(f"GPT Ranker: scoring {len(items)} papers with {self.model_name}")
 
+            # Timeout scales with paper count. gpt-5-mini needs ~0.5-1s per item;
+            # 45s accommodates 80 items with buffer. Endpoint budget is 180s.
+            gpt_timeout = 45
             try:
                 resp = await asyncio.wait_for(
                     client.chat.completions.create(
@@ -349,11 +375,11 @@ class GptRanker(PaperRanker):
                         max_completion_tokens=8000,
                         temperature=0.0,
                     ),
-                    timeout=12,
+                    timeout=gpt_timeout,
                 )
             except asyncio.TimeoutError:
-                logger.warning("GPT Ranker timed out after 12s, falling back to SimpleRanker")
-                return await SimpleRanker(self.config).rank(papers, query, target_text, target_keywords)
+                logger.warning("GPT Ranker timed out after %ds, falling back to SimpleRanker", gpt_timeout)
+                return await SimpleRanker(self.config).rank(papers, query, target_text, target_keywords, **kwargs)
             finish_reason = resp.choices[0].finish_reason
             content = (resp.choices[0].message.content or "[]").strip()
             logger.info("GPT Ranker response (%d chars, finish=%s): %s", len(content), finish_reason, content[:300])
@@ -390,8 +416,8 @@ class GptRanker(PaperRanker):
             logger.info("GPT Ranker: parsed %d scores, sample: %s",
                         len(scores_map), dict(list(scores_map.items())[:3]))
 
-            # Apply GPT scores + bonuses to all papers
-            for idx, p in enumerate(papers):
+            # Apply GPT scores + bonuses to candidates that GPT scored
+            for idx, p in enumerate(candidates):
                 base_score = scores_map.get(idx, 0.0)
 
                 if base_score > 0:
@@ -417,13 +443,22 @@ class GptRanker(PaperRanker):
 
                 p.relevance_score = max(0.0, min(1.0, float(base_score)))
 
-            ranked = sorted(papers, key=lambda p: p.relevance_score, reverse=True)
-            logger.info(f"GPT Ranker: ranked {len(papers)} papers, top score: {ranked[0].relevance_score if ranked else 0}")
+            # Deferred papers (not sent to GPT) keep their SimpleRanker scores.
+            # Scale down so they rank below GPT-scored papers that had any real signal.
+            for p in deferred:
+                p.relevance_score = float(p.relevance_score) * 0.5
+
+            all_ranked = candidates + deferred
+            ranked = sorted(all_ranked, key=lambda p: p.relevance_score, reverse=True)
+            logger.info(
+                f"GPT Ranker: ranked {len(candidates)} (GPT) + {len(deferred)} (deferred), "
+                f"top score: {ranked[0].relevance_score if ranked else 0}"
+            )
             return ranked
 
         except Exception as exc:
             logger.warning(f"GPT ranking failed, falling back to SimpleRanker: {exc}")
-            return await SimpleRanker(self.config).rank(papers, query, target_text, target_keywords)
+            return await SimpleRanker(self.config).rank(papers, query, target_text, target_keywords, **kwargs)
 
     
 

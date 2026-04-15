@@ -160,7 +160,7 @@ async def understand_query(query: str) -> QueryIntent:
                         max_completion_tokens=512,
                         temperature=0.0,
                     ),
-                    timeout=8.0,
+                    timeout=20.0,
                 )
                 break
             except asyncio.TimeoutError:
