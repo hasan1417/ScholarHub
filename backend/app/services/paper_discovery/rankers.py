@@ -580,11 +580,17 @@ class SemanticRanker(PaperRanker):
         # Try semantic reranking
         try:
             reranker = self._get_reranker()
+            # Score ALL papers with cross-encoder. The bi-encoder stage uses titles +
+            # short abstracts for embedding similarity, which is unreliable for papers
+            # whose titles don't carry the query concepts (e.g. seminal surveys whose
+            # titles say "State of the Art" but whose abstracts contain the actual
+            # subject matter). Filtering at the bi-encoder stage caused those papers
+            # to silently fall back to their lexical-only score.
             reranked = await reranker.rerank(
                 query=query,
                 papers=paper_dicts,
-                top_k_bi_encoder=min(50, len(papers)),
-                top_k_final=len(papers),  # Keep all, just reorder
+                top_k_bi_encoder=len(papers),
+                top_k_final=len(papers),
                 title_key="title",
                 abstract_key="abstract",
                 id_key="id"

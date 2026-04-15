@@ -46,7 +46,10 @@ from app.services.paper_discovery.searchers import (
 )
 
 from app.services.paper_discovery.enrichers import (
+    CacheAbstractEnricher,
     CrossrefEnricher,
+    LandingAbstractEnricher,
+    PdfAbstractEnricher,
     UnpaywallEnricher,
 )
 
@@ -385,12 +388,40 @@ class SearchOrchestrator:
 
         all_papers = deduped
 
-        # Phase 2: Enrichment
+        # Phase 2: Enrichment — split by dependency
+        # 2a: metadata enrichers (Crossref, Unpaywall) run in parallel — independent
+        # 2b: abstract fallback enrichers (Landing, Pdf) run after — depend on the
+        #     existing abstract still being missing, and PdfAbstractEnricher needs the
+        #     pdf_url that Unpaywall populates
         await _notify({"type": "phase", "phase": "enriching", "message": "Enriching paper metadata..."})
-        enrichment_tasks = [
-            enricher.enrich(all_papers) for enricher in self.enrichers
-        ]
-        await asyncio.gather(*enrichment_tasks, return_exceptions=True)
+        abstract_fallback_types = (CacheAbstractEnricher, LandingAbstractEnricher, PdfAbstractEnricher)
+        primary_enrichers = [e for e in self.enrichers if not isinstance(e, abstract_fallback_types)]
+        fallback_enrichers = [e for e in self.enrichers if isinstance(e, abstract_fallback_types)]
+        if primary_enrichers:
+            await asyncio.gather(
+                *[e.enrich(all_papers) for e in primary_enrichers],
+                return_exceptions=True,
+            )
+        # Run fallbacks sequentially so LandingAbstractEnricher (cheap, ~1s) populates first;
+        # PdfAbstractEnricher then only attempts papers still missing abstracts.
+        for enricher in fallback_enrichers:
+            try:
+                await enricher.enrich(all_papers)
+            except Exception as exc:
+                logger.debug("Abstract fallback enricher failed: %s", exc)
+
+        # Write-back: persist any abstracts populated by Landing/PDF into the cache,
+        # so future searches return them instantly without re-scraping.
+        try:
+            from app.database import SessionLocal
+            from app.services.paper_discovery.abstract_cache import write_back
+            db = SessionLocal()
+            try:
+                write_back(db, all_papers, source_label="enricher_fallback")
+            finally:
+                db.close()
+        except Exception as exc:
+            logger.debug("Abstract cache write-back failed: %s", exc)
 
         # Phase 2.5: Deterministic hard filters (provider-agnostic safety net).
         # This prevents recency/OA leaks when any upstream source ignores filters.
@@ -622,13 +653,17 @@ class PaperDiscoveryServiceFactory:
         
         # Purged advanced ranking flags: no-op
 
-        # Create enrichers
+        # Create enrichers. Order of fallback enrichers (run after Crossref/Unpaywall
+        # in Phase 2b) is: cache (instant) → landing (Springer, ~1s) → PDF (slow).
         enrichers: List[PaperEnricher] = [
             CrossrefEnricher(session, config),
         ]
         if unpaywall_email:
             enrichers.append(UnpaywallEnricher(session, config, unpaywall_email))
-        
+        enrichers.append(CacheAbstractEnricher(session, config))
+        enrichers.append(LandingAbstractEnricher(session, config))
+        enrichers.append(PdfAbstractEnricher(session, config))
+
         # Create ranker based on environment configuration
         # Priority: SemanticRanker (if enabled) > GptRanker (if API key) > SimpleRanker
         service_ranker: PaperRanker
@@ -737,6 +772,9 @@ class PaperDiscoveryService:
             email = unpaywall_email or os.getenv("UNPAYWALL_EMAIL")
             if email:
                 enrichers.append(UnpaywallEnricher(self.session, self.config, email))
+            enrichers.append(CacheAbstractEnricher(self.session, self.config))
+            enrichers.append(LandingAbstractEnricher(self.session, self.config))
+            enrichers.append(PdfAbstractEnricher(self.session, self.config))
 
             # Create ranker per env
             # Priority: SemanticRanker (if enabled) > GptRanker (if API key) > SimpleRanker
