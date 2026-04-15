@@ -203,34 +203,96 @@ async def _fetch_semantic_scholar(
     return None, None
 
 
+async def _fetch_serpapi_snippet(
+    session: aiohttp.ClientSession, doi: str, title: Optional[str], api_key: str
+) -> tuple[Optional[str], Optional[str]]:
+    """Google Scholar snippet via SerpAPI — metered (250/mo free).
+
+    Each organic_result carries a snippet that is the first paragraph of the
+    paper's abstract, even when the publisher elides it from Crossref/S2.
+    We only call this as a last resort and cache the result permanently, so
+    each DOI costs at most 1 quota unit across the lifetime of the system.
+
+    Matching: we search by quoted title when available (higher precision) and
+    verify the first organic result's inline link contains the DOI before
+    accepting the snippet, to avoid picking up an unrelated paper's text.
+    """
+    if not api_key:
+        return None, None
+    query = f'"{title}"' if title and len(title) >= 10 else doi
+    try:
+        params = {
+            "engine": "google_scholar",
+            "q": query,
+            "num": "3",
+            "api_key": api_key,
+        }
+        timeout = aiohttp.ClientTimeout(total=PER_FETCH_TIMEOUT + 3)  # Scholar is slower
+        async with session.get(
+            "https://serpapi.com/search.json", params=params, timeout=timeout
+        ) as resp:
+            if resp.status != 200:
+                logger.debug("SerpAPI status %s for %s", resp.status, doi)
+                return None, None
+            data = await resp.json()
+        results = data.get("organic_results") or []
+        if not results:
+            return None, None
+        # Prefer a result whose link mentions this DOI; otherwise take the first.
+        chosen = None
+        doi_needle = doi.lower()
+        for r in results:
+            link = (r.get("link") or "").lower()
+            if doi_needle in link:
+                chosen = r
+                break
+        chosen = chosen or results[0]
+        snippet = re.sub(r'\s+', ' ', str(chosen.get("snippet") or "")).strip()
+        # Strip leading ellipses Scholar sometimes prepends
+        snippet = re.sub(r'^[\s\u2026.]+', '', snippet)
+        if len(snippet) >= MIN_ABSTRACT_LEN:
+            return snippet, "serpapi_snippet"
+    except Exception as e:
+        logger.debug("SerpAPI fetch failed for %s: %s", doi, e)
+    return None, None
+
+
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
 
 
 async def fetch_one(
-    session: aiohttp.ClientSession, doi: str
+    session: aiohttp.ClientSession, doi: str, title: Optional[str] = None
 ) -> tuple[Optional[str], Optional[str]]:
-    """Try each configured source; return first non-empty result."""
+    """Try each configured source; return first non-empty result.
+
+    Tier 1 (free, fast): Elsevier, CORE, Semantic Scholar — fired in parallel.
+    Tier 2 (metered): SerpAPI Google Scholar snippet — only if Tier 1 finds nothing.
+    """
     elsevier_key = os.getenv("SCIENCEDIRECT_API_KEY")  # same key used for ScienceDirect
     core_key = os.getenv("CORE_API_KEY")
     s2_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
+    serpapi_key = os.getenv("SERPAPI_KEY")
 
-    tasks = []
+    # --- Tier 1: free sources in parallel ---
+    tier1_tasks = []
     if elsevier_key:
-        tasks.append(_fetch_elsevier(session, doi, elsevier_key))
+        tier1_tasks.append(_fetch_elsevier(session, doi, elsevier_key))
     if core_key:
-        tasks.append(_fetch_core(session, doi, core_key))
-    tasks.append(_fetch_semantic_scholar(session, doi, s2_key))
+        tier1_tasks.append(_fetch_core(session, doi, core_key))
+    tier1_tasks.append(_fetch_semantic_scholar(session, doi, s2_key))
 
-    if not tasks:
-        return None, None
+    if tier1_tasks:
+        results = await asyncio.gather(*tier1_tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, tuple) and r[0]:
+                return r  # type: ignore[return-value]
 
-    # Fire all in parallel, return the first non-empty
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    for r in results:
-        if isinstance(r, tuple) and r[0]:
-            return r  # type: ignore[return-value]
+    # --- Tier 2: metered SerpAPI (only if free sources found nothing) ---
+    if serpapi_key and title:
+        return await _fetch_serpapi_snippet(session, doi, title, serpapi_key)
+
     return None, None
 
 
@@ -283,12 +345,17 @@ async def fetch_missing(
     if not to_fetch:
         return
 
-    # 2. Fetch misses with bounded parallelism
+    # 2. Fetch misses with bounded parallelism.
+    # We pass the paper title through so SerpAPI Tier-2 fallback can match by
+    # title when free sources come up empty.
+    title_by_doi: Dict[str, Optional[str]] = {
+        nd: (by_doi[nd][0].title if by_doi.get(nd) else None) for nd in to_fetch
+    }
     sem = asyncio.Semaphore(MAX_PARALLEL_PER_SOURCE)
 
     async def run_one(doi: str) -> tuple[str, Optional[str], Optional[str]]:
         async with sem:
-            abstract, source = await fetch_one(session, doi)
+            abstract, source = await fetch_one(session, doi, title_by_doi.get(doi))
             return doi, abstract, source
 
     results = await asyncio.gather(
