@@ -245,28 +245,12 @@ class SearchOrchestrator:
 
         tasks = [asyncio.create_task(limited_search(s)) for s in active_searchers]
 
-        # Flatten and deduplicate results as they arrive
-        # Keep track of papers by key, preferring papers with more complete metadata
-        papers_by_key: Dict[str, DiscoveredPaper] = {}
+        # Collect raw results first; deduplicate at the end as a single pass so
+        # cross-source duplicates (arXiv preprint + published record) collapse
+        # correctly regardless of arrival order.
+        collected: List[DiscoveredPaper] = []
         sources_with_papers = 0
         collection_start = time.monotonic()
-
-        def _paper_completeness_score(p: DiscoveredPaper) -> int:
-            """Score paper by metadata completeness. Higher = better."""
-            score = 0
-            if p.doi:
-                score += 10  # DOI is very valuable
-            if p.pdf_url:
-                score += 5   # PDF URL is valuable
-            if p.abstract and len(p.abstract) > 50:
-                score += 3   # Good abstract
-            if p.year:
-                score += 1
-            if p.authors and len(p.authors) > 0:
-                score += 1
-            if p.is_open_access:
-                score += 2
-            return score
 
         try:
             for fut in asyncio.as_completed(tasks):
@@ -291,33 +275,20 @@ class SearchOrchestrator:
                     logger.error("Discovery task failed: %s", exc)
                     papers = []
 
-                # Fix #8: Only count sources that actually returned papers
                 if isinstance(papers, list) and len(papers) > 0:
                     sources_with_papers += 1
-                    for paper in papers:
-                        key = paper.get_unique_key()
-                        if key not in papers_by_key:
-                            papers_by_key[key] = paper
-                        else:
-                            # Keep the paper with more complete metadata
-                            existing = papers_by_key[key]
-                            if _paper_completeness_score(paper) > _paper_completeness_score(existing):
-                                papers_by_key[key] = paper
-                                logger.debug(
-                                    "Replaced duplicate paper '%s' from %s with version from %s (better metadata)",
-                                    paper.title[:50], existing.source, paper.source
-                                )
+                    collected.extend(papers)
 
-                # Fix #1: Early exit requires >=3 sources with papers, enough results,
-                # and at least 3s elapsed to give slower diverse sources time to respond
+                # Early exit for fast_mode: enough raw hits from >=3 sources
+                # after 3s. Dedup happens at the end regardless.
                 elapsed = time.monotonic() - collection_start
                 if (fast_mode
                         and sources_with_papers >= 3
-                        and len(papers_by_key) >= max_results
+                        and len(collected) >= max_results * 2  # overshoot to absorb merges
                         and elapsed >= 3.0):
                     logger.info(
-                        "Early exit: %d papers from %d sources in %.1fs, needed %d",
-                        len(papers_by_key), sources_with_papers, elapsed, max_results,
+                        "Early exit: %d raw papers from %d sources in %.1fs",
+                        len(collected), sources_with_papers, elapsed,
                     )
                     break
         finally:
@@ -333,17 +304,14 @@ class SearchOrchestrator:
                     source_stats_map[source_name].error = error
                     source_stats_map[source_name].elapsed_ms = elapsed_ms
                 if isinstance(papers, list):
-                    for paper in papers:
-                        key = paper.get_unique_key()
-                        if key not in papers_by_key:
-                            papers_by_key[key] = paper
+                    collected.extend(papers)
 
         # Phase 1.5: Supplementary searches using query-understanding search_terms.
         # These catch papers indexed under variant terms (e.g., "CharacterBERT" vs "Character BERT").
         if query_intent and query_intent.search_terms:
             fast_sources = [s for s in active_searchers
                             if s.get_source_name() in ('semantic_scholar', 'openalex', 'arxiv')]
-            pre_count = len(papers_by_key)
+            pre_count = len(collected)
             supp_tasks = []
             for term in query_intent.search_terms[:2]:
                 for searcher in fast_sources:
@@ -354,39 +322,24 @@ class SearchOrchestrator:
             for res in supp_results:
                 if isinstance(res, Exception) or not isinstance(res, list):
                     continue
-                for paper in res:
-                    key = paper.get_unique_key()
-                    if key not in papers_by_key:
-                        papers_by_key[key] = paper
-            if len(papers_by_key) > pre_count:
+                collected.extend(res)
+            if len(collected) > pre_count:
                 logger.info(
-                    "[Search] Supplementary search_terms added %d papers (total %d)",
-                    len(papers_by_key) - pre_count, len(papers_by_key),
+                    "[Search] Supplementary search_terms added %d raw papers (total %d)",
+                    len(collected) - pre_count, len(collected),
                 )
 
-        # Fix #7: Secondary title-based dedup to catch cross-key duplicates
-        # (e.g., arXiv paper with title-hash key + CrossRef paper with DOI key)
-        seen_titles: Dict[str, int] = {}
-        deduped: List[DiscoveredPaper] = []
-        for paper in papers_by_key.values():
-            norm_title = _normalize_title(paper.title)
-            if not norm_title:
-                deduped.append(paper)
-                continue
-            title_hash = hashlib.md5(norm_title.encode()).hexdigest()
-            if title_hash in seen_titles:
-                idx = seen_titles[title_hash]
-                if _paper_completeness_score(paper) > _paper_completeness_score(deduped[idx]):
-                    logger.debug(
-                        "Title-dedup: replaced '%s' from %s with %s (better metadata)",
-                        paper.title[:50], deduped[idx].source, paper.source,
-                    )
-                    deduped[idx] = paper
-            else:
-                seen_titles[title_hash] = len(deduped)
-                deduped.append(paper)
-
-        all_papers = deduped
+        # Single-pass deduplication: groups papers that share any identity key
+        # (DOI / arXiv id / normalized title+year), picks the published version
+        # as the winner, and merges loser fields (abstract, PDF URL, sources).
+        from app.services.paper_discovery.dedup import dedupe_papers
+        raw_count = len(collected)
+        all_papers, collapsed = dedupe_papers(collected)
+        if collapsed:
+            logger.info(
+                "[Search] Dedup: %d raw -> %d unique (%d duplicates merged)",
+                raw_count, len(all_papers), collapsed,
+            )
 
         # Phase 2: Enrichment — split by dependency
         # 2a: metadata enrichers (Crossref, Unpaywall) run in parallel — independent

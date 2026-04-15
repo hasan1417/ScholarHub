@@ -29,12 +29,23 @@ def _normalize_doi(doi: Optional[str]) -> Optional[str]:
     if not doi:
         return None
     doi = doi.strip().lower()
-    # Remove common URL prefixes
-    for prefix in ['https://doi.org/', 'http://doi.org/', 'doi:', 'doi.org/']:
-        if doi.startswith(prefix):
-            doi = doi[len(prefix):]
-    doi = doi.strip()
+    # Strip URL prefixes possibly layered multiple times (seen in OpenAlex responses)
+    changed = True
+    while changed:
+        changed = False
+        for prefix in ['https://doi.org/', 'http://doi.org/', 'doi:', 'doi.org/']:
+            if doi.startswith(prefix):
+                doi = doi[len(prefix):].strip()
+                changed = True
     return doi if doi else None
+
+
+def _is_arxiv_doi(doi: Optional[str]) -> bool:
+    """True for arXiv-assigned DOIs (preprint identifiers), not publisher DOIs."""
+    if not doi:
+        return False
+    nd = _normalize_doi(doi) or ""
+    return nd.startswith("10.48550/arxiv")
 
 
 def _normalize_title(title: str) -> str:
@@ -45,6 +56,8 @@ def _normalize_title(title: str) -> str:
     title = title.lower().strip()
     title = unicodedata.normalize('NFKD', title)
     title = ''.join(c for c in title if not unicodedata.combining(c))
+    # Drop trailing arXiv version markers (" v1", " v2", "-v2") before other cleanup
+    title = re.sub(r'[\s\-_]+v\d+\s*$', '', title)
     # Remove punctuation and special characters, keep only alphanumeric and spaces
     title = re.sub(r'[^\w\s]', '', title)
     # Normalize whitespace to single spaces
@@ -71,6 +84,11 @@ class DiscoveredPaper:
     is_open_access: bool = False
     open_access_url: Optional[str] = None
     pdf_url: Optional[str] = None
+    # Populated by ArxivSearcher; lets us merge preprint vs published records
+    # even when the preprint doesn't carry the published DOI yet.
+    arxiv_id: Optional[str] = None
+    # Populated by the dedup step; records every source that returned this work.
+    merged_sources: List[str] = field(default_factory=list)
 
     def get_unique_key(self) -> str:
         """Return a key used to deduplicate entries across sources.
@@ -91,3 +109,28 @@ class DiscoveredPaper:
         # Last resort: use original title
         digest = hashlib.md5(self.title.encode()).hexdigest()
         return f"title:{digest}"
+
+    def match_keys(self) -> List[str]:
+        """All keys under which this paper can collide with a duplicate.
+
+        A paper is considered the same as another if they share ANY match key.
+        Order isn't meaningful; uniqueness across keys is.
+        """
+        keys: List[str] = []
+        nd = _normalize_doi(self.doi)
+        if nd:
+            keys.append(f"doi:{nd}")
+        if self.arxiv_id:
+            keys.append(f"arxiv:{self.arxiv_id.lower()}")
+        nt = _normalize_title(self.title)
+        if nt and self.year:
+            # Title + year is stronger than title alone: distinct papers sometimes
+            # share a title but almost never a title+year.
+            digest = hashlib.md5(f"{nt}|{self.year}".encode()).hexdigest()
+            keys.append(f"ty:{digest}")
+        elif nt:
+            # No year — fall back to pure title hash (less precise but necessary
+            # for sources that don't return a year).
+            digest = hashlib.md5(nt.encode()).hexdigest()
+            keys.append(f"t:{digest}")
+        return keys or [f"title:{hashlib.md5(self.title.encode()).hexdigest()}"]

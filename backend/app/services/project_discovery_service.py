@@ -674,6 +674,11 @@ class ProjectDiscoveryManager:
                 payload['source_url'] = paper.url
             if paper.journal:
                 payload['journal'] = paper.journal
+            # Preserve dedup provenance so the UI can optionally show "also indexed in X, Y"
+            if getattr(paper, 'merged_sources', None):
+                payload['merged_sources'] = list(paper.merged_sources)
+            if getattr(paper, 'arxiv_id', None):
+                payload['arxiv_id'] = paper.arxiv_id
 
             if existing_result:
                 existing_result.run_id = run.id

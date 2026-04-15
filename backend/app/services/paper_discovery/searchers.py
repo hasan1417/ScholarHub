@@ -111,7 +111,7 @@ class ArxivSearcher(SearcherBase):
                     if 'arxiv.org/abs/' in href:
                         url = href
                         break
-                
+
                 pdf_url = None
                 if url and 'arxiv.org/abs/' in url:
                     pdf_url = url.replace('/abs/', '/pdf/') + '.pdf'
@@ -124,17 +124,36 @@ class ArxivSearcher(SearcherBase):
                     if term:
                         primary_category = f"arXiv:{term}"
 
+                # arXiv atom entries include <arxiv:doi> when the preprint has been
+                # published. That is the *published* DOI, not an arXiv-assigned one,
+                # and it should be the canonical identifier so dedup collapses this
+                # record with the published version from Crossref/OpenAlex/etc.
+                arxiv_ns = '{http://arxiv.org/schemas/atom}'
+                doi_elem = entry.find(f'{arxiv_ns}doi')
+                published_doi = None
+                if doi_elem is not None and doi_elem.text:
+                    published_doi = doi_elem.text.strip() or None
+
+                # arXiv ID for secondary matching (v-less form, e.g. "2509.01401")
+                arxiv_id = None
+                id_elem = entry.find('atom:id', namespace)
+                if id_elem is not None and id_elem.text:
+                    # e.g. "http://arxiv.org/abs/2509.01401v1"
+                    tail = id_elem.text.rsplit('/', 1)[-1]
+                    arxiv_id = re.sub(r'v\d+$', '', tail) or None
+
                 papers.append(DiscoveredPaper(
                     title=title,
                     authors=authors,
                     abstract=abstract,
                     year=year,
-                    doi=None,
+                    doi=published_doi,  # None when still preprint-only
                     url=url,
                     source=self.get_source_name(),
                     is_open_access=True,
                     pdf_url=pdf_url,
                     journal=primary_category,
+                    arxiv_id=arxiv_id,
                 ))
         except Exception as e:
             logger.error(f"Error parsing ArXiv response: {e}")
