@@ -179,7 +179,7 @@ class PaperDiscoveryRequest(BaseModel):
     max_results: int = Field(20, ge=5, le=100, description="Maximum number of results")
     sources: Optional[List[str]] = Field(
         default=None,
-        description="Sources to search: arxiv, semantic_scholar, crossref, pubmed, openalex, sciencedirect"
+        description="Sources to search: arxiv, semantic_scholar, google_scholar, crossref, pubmed, openalex, sciencedirect"
     )
     include_breakdown: bool = Field(default=False, description="Include per-source result counts for debugging")
 
@@ -328,7 +328,7 @@ async def discover_papers(
         logger.info(f"Paper discovery request from user {current_user.id}: '{request.query}'")
         
         # Validate sources
-        valid_sources = ['arxiv', 'semantic_scholar', 'crossref', 'pubmed', 'openalex', 'sciencedirect']
+        valid_sources = ['arxiv', 'semantic_scholar', 'google_scholar', 'crossref', 'pubmed', 'openalex', 'sciencedirect']
         if request.sources:
             invalid_sources = set(request.sources) - set(valid_sources)
             if invalid_sources:
@@ -442,7 +442,7 @@ async def discover_papers(
                     effective_query = ''
 
         # Perform discovery
-        async with PaperDiscoveryService() as discovery_service:
+        async with PaperDiscoveryService(is_manual=True) as discovery_service:
             result = await discovery_service.discover_papers(
                 query=effective_query,
                 max_results=request.max_results,
@@ -575,7 +575,7 @@ async def debug_test_source(
     current_user: User = Depends(get_current_user)
 ):
     try:
-        async with PaperDiscoveryService() as svc:
+        async with PaperDiscoveryService(is_manual=True) as svc:
             result = await svc.debug_source(request.source, request.query, request.limit)
             if 'error' in result and not result.get('status'):
                 # Normalize error-only cases
@@ -726,7 +726,7 @@ async def discover_papers_stream(
             logger.info(f"🎯 Discovery stream called with query='{request.query}', research_topic='{request.research_topic}', sources={request.sources}, mode={request.mode}")
             logger.info(f"📋 Sources breakdown: {', '.join(request.sources) if request.sources else 'NO SOURCES'}")
 
-            async with PaperDiscoveryService() as svc:
+            async with PaperDiscoveryService(is_manual=True) as svc:
                 discovery_result = await svc.discover_papers(
                     query=effective_query,
                     max_results=request.max_results,
@@ -865,7 +865,7 @@ async def score_debug(
                     effective_query = ''
 
     # Run discovery (non-stream)
-    async with PaperDiscoveryService() as svc:
+    async with PaperDiscoveryService(is_manual=True) as svc:
         discovery_result = await svc.discover_papers(
             query=effective_query,
             max_results=request.max_results,
@@ -1046,7 +1046,7 @@ async def deep_rescore_pdfs(
     if not items:
         return DeepRescoreResponse(items=[i.dict() for i in request.items], rescored=0, method="lexical")
 
-    async with PaperDiscoveryService() as svc:
+    async with PaperDiscoveryService(is_manual=True) as svc:
         # Build target embedding if available
         target_vec = None
         if getattr(svc, 'openai_client', None) and (target_text or effective_query):

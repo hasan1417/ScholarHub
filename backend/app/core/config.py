@@ -65,6 +65,9 @@ class Settings(BaseSettings):
     # Semantic Scholar API (optional, improves reliability and quotas)
     SEMANTIC_SCHOLAR_API_KEY: Optional[str] = None
 
+    # SerpAPI for Google Scholar (optional)
+    SERPAPI_KEY: Optional[str] = None
+
     # ScienceDirect / Elsevier API (optional)
     SCIENCEDIRECT_API_KEY: Optional[str] = None
 

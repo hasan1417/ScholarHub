@@ -15,6 +15,7 @@ class PaperSource(Enum):
 
     ARXIV = "arxiv"
     SEMANTIC_SCHOLAR = "semantic_scholar"
+    GOOGLE_SCHOLAR = "google_scholar"
     CROSSREF = "crossref"
     PUBMED = "pubmed"
     OPENALEX = "openalex"

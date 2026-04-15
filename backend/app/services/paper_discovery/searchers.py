@@ -396,6 +396,195 @@ class SemanticScholarSearcher(SearcherBase):
         return f"https://arxiv.org/pdf/{candidate_id}.pdf"
 
 
+class GoogleScholarSearcher(SearcherBase):
+    """Google Scholar searcher backed by SerpAPI."""
+
+    SERPAPI_URL = "https://serpapi.com/search"
+
+    def __init__(self, session: aiohttp.ClientSession, config: DiscoveryConfig, api_key: str | None = None):
+        super().__init__(session, config)
+        self.api_key = api_key
+
+    def get_source_name(self) -> str:
+        return PaperSource.GOOGLE_SCHOLAR.value
+
+    async def search(
+        self,
+        query: str,
+        max_results: int,
+        *,
+        year_from: int | None = None,
+        year_to: int | None = None,
+        open_access_only: bool = False,
+    ) -> List[DiscoveredPaper]:
+        if not self.api_key:
+            logger.warning("Google Scholar requested but SERPAPI_KEY is not configured; skipping search")
+            return []
+
+        try:
+            params: Dict[str, Any] = {
+                "engine": "google_scholar",
+                "q": query,
+                "api_key": self.api_key,
+                "num": min(max_results, 20),
+            }
+
+            if year_from is not None or year_to is not None:
+                start = year_from
+                end = year_to
+                if start is not None and end is not None and start > end:
+                    start, end = end, start
+                if start is not None:
+                    params["as_ylo"] = start
+                if end is not None:
+                    params["as_yhi"] = end
+
+            async with self.session.get(self.SERPAPI_URL, params=params) as response:
+                if response.status == 429:
+                    logger.warning("Google Scholar rate limited")
+                    raise RateLimitError("google_scholar")
+                if response.status != 200:
+                    text = await response.text()
+                    logger.error("Google Scholar error: %s - %s", response.status, text[:200])
+                    return []
+
+                data = await response.json()
+                if data.get("error"):
+                    logger.error("Google Scholar API error: %s", data.get("error"))
+                    return []
+                papers = self._parse_response(data)
+                if open_access_only:
+                    return [paper for paper in papers if paper.pdf_url]
+                return papers
+
+        except RateLimitError:
+            raise
+        except Exception as exc:
+            logger.error("Error searching Google Scholar: %s", exc)
+            return []
+
+    def _parse_response(self, data: Dict[str, Any]) -> List[DiscoveredPaper]:
+        papers: List[DiscoveredPaper] = []
+
+        for item in data.get("organic_results", []):
+            try:
+                title = (item.get("title") or "").strip()
+                if not title:
+                    continue
+
+                publication_info = item.get("publication_info") or {}
+                summary = str(publication_info.get("summary") or "").strip()
+                inline_links = item.get("inline_links") or {}
+                versions = inline_links.get("versions") or {}
+
+                pdf_url = self._extract_pdf_url(item.get("resources"))
+                citations_count = self._coerce_int((inline_links.get("cited_by") or {}).get("total"))
+                url = (item.get("link") or "").strip() or (versions.get("link") or "").strip() or None
+
+                papers.append(
+                    DiscoveredPaper(
+                        title=title,
+                        authors=self._extract_authors(publication_info, summary),
+                        abstract=(item.get("snippet") or "").strip(),
+                        year=self._extract_year(summary),
+                        doi=None,
+                        url=url,
+                        source=self.get_source_name(),
+                        citations_count=citations_count,
+                        journal=self._extract_journal(summary),
+                        raw_data=item,
+                        is_open_access=bool(pdf_url),
+                        pdf_url=pdf_url,
+                    )
+                )
+            except Exception as exc:
+                logger.debug("Error parsing Google Scholar result: %s", exc)
+                continue
+
+        return papers
+
+    @staticmethod
+    def _extract_authors(publication_info: Dict[str, Any], summary: str) -> List[str]:
+        authors = [
+            str(author.get("name")).strip()
+            for author in publication_info.get("authors", [])
+            if isinstance(author, dict) and author.get("name")
+        ]
+        if authors:
+            return authors
+
+        if not summary:
+            return []
+
+        author_segment = summary.split(" - ", 1)[0]
+        parsed_authors = []
+        for author in re.split(r"[,;]", author_segment):
+            normalized = author.replace("…", "").strip()
+            if normalized:
+                parsed_authors.append(normalized)
+        return parsed_authors
+
+    @staticmethod
+    def _extract_year(summary: str) -> int | None:
+        if not summary:
+            return None
+
+        current_year = datetime.now(timezone.utc).year + 1
+        years = [
+            int(match)
+            for match in re.findall(r"\b(?:18|19|20)\d{2}\b", summary)
+            if 1800 <= int(match) <= current_year
+        ]
+        return years[-1] if years else None
+
+    @classmethod
+    def _extract_journal(cls, summary: str) -> str | None:
+        if not summary:
+            return None
+
+        segments = [segment.strip() for segment in summary.split(" - ") if segment.strip()]
+        if len(segments) >= 3:
+            candidate = " - ".join(segments[1:-1])
+        elif len(segments) == 2:
+            candidate = segments[1]
+        else:
+            return None
+
+        year = cls._extract_year(summary)
+        if year is not None:
+            candidate = re.sub(rf",?\s*{year}\b.*$", "", candidate).strip()
+
+        candidate = candidate.strip(" ,;.-")
+        return candidate or None
+
+    @staticmethod
+    def _extract_pdf_url(resources: Any) -> str | None:
+        if not isinstance(resources, list):
+            return None
+
+        for resource in resources:
+            if not isinstance(resource, dict):
+                continue
+            resource_type = str(
+                resource.get("type") or resource.get("file_format") or resource.get("title") or ""
+            ).strip().upper()
+            if "PDF" not in resource_type:
+                continue
+            link = str(resource.get("link") or "").strip()
+            if link:
+                return link
+        return None
+
+    @staticmethod
+    def _coerce_int(value: Any) -> int | None:
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+
 class CrossrefSearcher(SearcherBase):
     """Crossref searcher to fetch papers by query."""
 

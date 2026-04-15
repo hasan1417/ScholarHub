@@ -12,7 +12,7 @@ import pytest
 from app.services.paper_discovery.config import DiscoveryConfig
 from app.services.paper_discovery.interfaces import PaperEnricher, PaperRanker, PaperSearcher
 from app.services.paper_discovery.models import DiscoveredPaper
-from app.services.paper_discovery_service import SearchOrchestrator
+from app.services.paper_discovery_service import PaperDiscoveryService, SearchOrchestrator
 
 
 def _paper(
@@ -131,3 +131,19 @@ async def test_hard_open_access_filter_removes_non_oa_results():
 
     assert [p.title for p in result.papers] == ["OA with PDF", "OA with URL"]
     assert all(bool(p.is_open_access or p.pdf_url or p.open_access_url) for p in result.papers)
+
+
+@pytest.mark.asyncio
+async def test_google_scholar_searcher_is_manual_only():
+    manual_service = PaperDiscoveryService(config=DiscoveryConfig(), is_manual=True)
+    auto_service = PaperDiscoveryService(config=DiscoveryConfig(), is_manual=False)
+
+    try:
+        manual_sources = [searcher.get_source_name() for searcher in manual_service.orchestrator.searchers]
+        auto_sources = [searcher.get_source_name() for searcher in auto_service.orchestrator.searchers]
+    finally:
+        await manual_service.close()
+        await auto_service.close()
+
+    assert "google_scholar" in manual_sources
+    assert "google_scholar" not in auto_sources

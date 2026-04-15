@@ -32,7 +32,7 @@ import {
 import { useProjectContext } from './ProjectLayout'
 import { DiscoveryResultCard } from '../../components/discovery/DiscoveryResultCard'
 
-const AVAILABLE_SOURCES: Array<{ label: string; value: string }> = [
+const AVAILABLE_SOURCES: Array<{ label: string; value: string; metered?: boolean; manualOnly?: boolean }> = [
   { label: 'Semantic Scholar', value: 'semantic_scholar' },
   { label: 'arXiv', value: 'arxiv' },
   { label: 'Crossref', value: 'crossref' },
@@ -41,11 +41,16 @@ const AVAILABLE_SOURCES: Array<{ label: string; value: string }> = [
   { label: 'ScienceDirect', value: 'sciencedirect' },
   { label: 'CORE', value: 'core' },
   { label: 'Europe PMC', value: 'europe_pmc' },
+  { label: 'Google Scholar', value: 'google_scholar', metered: true, manualOnly: true },
 ]
 
-const DEFAULT_SOURCES = AVAILABLE_SOURCES.map((source) => source.value)
-const MIN_REFRESH_INTERVAL_MINUTES = 360
+// Default sources exclude manual-only (metered) sources
+const DEFAULT_SOURCES = AVAILABLE_SOURCES.filter((s) => !s.manualOnly).map((source) => source.value)
+// Sources that can be used in auto-refresh (excludes manual-only sources like Google Scholar)
+const AUTO_REFRESH_ELIGIBLE_SOURCES = new Set(AVAILABLE_SOURCES.filter((s) => !s.manualOnly).map((s) => s.value))
+const MIN_REFRESH_INTERVAL_MINUTES = 24 * 60
 const DEFAULT_REFRESH_INTERVAL_MINUTES = 24 * 60
+const MINUTES_PER_DAY = 24 * 60
 
 const toRefreshIntervalHours = (value: string): number | null => {
   if (!value) return null
@@ -1054,6 +1059,7 @@ const ProjectDiscovery = () => {
                     key={source.value}
                     type="button"
                     onClick={() => handleManualSourceToggle(source.value)}
+                    title={source.metered ? 'Metered source — uses limited API quota' : undefined}
                     className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs transition-all ${
                       checked
                         ? 'bg-indigo-100 text-indigo-700 ring-1 ring-indigo-200 dark:bg-indigo-500/20 dark:text-indigo-200 dark:ring-indigo-500/40'
@@ -1062,6 +1068,11 @@ const ProjectDiscovery = () => {
                   >
                     {checked && <Check className="h-3 w-3" />}
                     {source.label}
+                    {source.metered && (
+                      <span className="ml-0.5 rounded-sm bg-amber-100 px-1 text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
+                        metered
+                      </span>
+                    )}
                   </button>
                 )
               })}
@@ -1677,20 +1688,27 @@ const ProjectDiscovery = () => {
                   <span className="text-xs text-gray-500 dark:text-slate-400">Every</span>
                   <input
                     type="number"
-                    min={MIN_REFRESH_INTERVAL_MINUTES}
-                    step={5}
-                    value={activeFormState.refreshIntervalMinutes}
-                    onChange={(event) =>
+                    min={1}
+                    step={1}
+                    value={
+                      activeFormState.refreshIntervalMinutes === ''
+                        ? ''
+                        : String(Math.max(1, Math.round(Number(activeFormState.refreshIntervalMinutes) / MINUTES_PER_DAY)))
+                    }
+                    onChange={(event) => {
+                      const rawDays = event.target.value
+                      if (rawDays === '') {
+                        updateActiveForm((prev) => ({ ...prev, refreshIntervalMinutes: '' }))
+                        return
+                      }
+                      const days = Math.max(1, Math.floor(Number(rawDays)))
                       updateActiveForm((prev) => ({
                         ...prev,
-                        refreshIntervalMinutes: event.target.value,
+                        refreshIntervalMinutes: String(days * MINUTES_PER_DAY),
                       }))
-                    }
+                    }}
                     onBlur={(event) => {
-                      const rawValue = event.target.value
-                      if (rawValue === '') return
-                      const minutes = Number(rawValue)
-                      if (Number.isFinite(minutes) && minutes < MIN_REFRESH_INTERVAL_MINUTES) {
+                      if (event.target.value === '') {
                         updateActiveForm((prev) => ({
                           ...prev,
                           refreshIntervalMinutes: String(MIN_REFRESH_INTERVAL_MINUTES),
@@ -1699,7 +1717,7 @@ const ProjectDiscovery = () => {
                     }}
                     className="w-20 rounded-md border border-gray-200 px-2 py-1 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                   />
-                  <span className="text-xs text-gray-500 dark:text-slate-400">minutes</span>
+                  <span className="text-xs text-gray-500 dark:text-slate-400">days</span>
                 </div>
               )}
             </div>
@@ -1727,13 +1745,13 @@ const ProjectDiscovery = () => {
               })()}
             </div>
 
-            {/* Compact source chips */}
+            {/* Compact source chips — exclude manual-only (metered) sources from auto-refresh */}
             <div>
               <label className="text-xs font-medium text-gray-700 dark:text-slate-300">
-                Sources ({activeFormState.sources.length} selected)
+                Sources ({activeFormState.sources.filter((v) => AUTO_REFRESH_ELIGIBLE_SOURCES.has(v)).length} selected)
               </label>
               <div className="mt-2 flex flex-wrap gap-1.5">
-                {AVAILABLE_SOURCES.map((source) => {
+                {AVAILABLE_SOURCES.filter((s) => !s.manualOnly).map((source) => {
                   const checked = activeFormState.sources.includes(source.value)
                   return (
                     <button

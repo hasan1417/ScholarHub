@@ -272,7 +272,7 @@ async def generate_auto_query(project: Project, db: Session) -> str:
 class ProjectDiscoveryManager:
     """Discover related papers for a project and enqueue them as suggestions."""
 
-    DEFAULT_SOURCES = ['semantic_scholar', 'arxiv', 'crossref', 'openalex', 'pubmed', 'sciencedirect', 'core', 'europe_pmc']
+    DEFAULT_SOURCES = ['semantic_scholar', 'google_scholar', 'arxiv', 'crossref', 'openalex', 'pubmed', 'sciencedirect', 'core', 'europe_pmc']
 
     def __init__(self, db: Session):
         self.db = db
@@ -287,9 +287,10 @@ class ProjectDiscoveryManager:
         *,
         fast_mode: bool = False,
         progress_callback: Optional[Callable[..., Any]] = None,
+        is_manual: bool = False,
     ) -> DiscoveryResult:
         """Execute the async discovery search across upstream providers."""
-        async with PaperDiscoveryService() as service:
+        async with PaperDiscoveryService(is_manual=is_manual) as service:
             return await service.discover_papers(
                 query=query,
                 sources=sources,
@@ -430,7 +431,19 @@ class ProjectDiscoveryManager:
         if not query:
             raise ValueError("Discovery query cannot be empty")
 
-        sources = preferences.sources or self.DEFAULT_SOURCES
+        sources = list(preferences.sources or self.DEFAULT_SOURCES)
+        if run_type != ProjectDiscoveryRunType.MANUAL:
+            filtered_sources = [
+                source
+                for source in sources
+                if source != PaperSource.GOOGLE_SCHOLAR.value
+            ]
+            if len(filtered_sources) != len(sources):
+                logger.info(
+                    "Dropping google_scholar from auto discovery sources for project %s",
+                    project.id,
+                )
+            sources = filtered_sources
         keywords = preferences.keywords or project.keywords or []
         max_results = max(1, preferences.max_results or max_results)
 
@@ -513,7 +526,15 @@ class ProjectDiscoveryManager:
             novel_estimate = 0
             attempts = 0
 
+            if not sources:
+                logger.info(
+                    "No eligible discovery sources for project %s after source filtering",
+                    project.id,
+                )
+
             while attempts < max_attempts and novel_estimate < max_results:
+                if not sources:
+                    break
                 discovery_result: DiscoveryResult = await self._discover_async(
                     query=query,
                     sources=sources,
@@ -521,6 +542,7 @@ class ProjectDiscoveryManager:
                     max_results=fetch_cap,
                     fast_mode=fast_mode,
                     progress_callback=progress_callback,
+                    is_manual=run_type == ProjectDiscoveryRunType.MANUAL,
                 )
 
                 discovered_batch = discovery_result.papers

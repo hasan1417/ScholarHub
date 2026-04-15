@@ -36,3 +36,4 @@ class DiscoveryConfig:
 
     ncbi_email: Optional[str] = None
     sciencedirect_api_key: Optional[str] = None
+    serpapi_key: Optional[str] = None

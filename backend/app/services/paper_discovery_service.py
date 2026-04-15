@@ -37,6 +37,7 @@ from app.services.paper_discovery.searchers import (
     CoreSearcher,
     CrossrefSearcher,
     EuropePmcSearcher,
+    GoogleScholarSearcher,
     OpenAlexSearcher,
     PubMedSearcher,
     RateLimitError,
@@ -57,6 +58,38 @@ from app.services.paper_discovery.rankers import (
 )
 
 from dataclasses import dataclass, field
+
+
+def _build_default_searchers(
+    session: aiohttp.ClientSession,
+    config: DiscoveryConfig,
+    *,
+    semantic_scholar_api_key: Optional[str] = None,
+    ncbi_email: Optional[str] = None,
+    sciencedirect_api_key: Optional[str] = None,
+    serpapi_key: Optional[str] = None,
+    is_manual: bool = False,
+) -> List[PaperSearcher]:
+    """Build the default searcher set for the requested discovery mode."""
+
+    core_api_key = os.getenv("CORE_API_KEY")
+    searchers: List[PaperSearcher] = [
+        ArxivSearcher(session, config),
+        SemanticScholarSearcher(session, config, semantic_scholar_api_key),
+    ]
+    if is_manual:
+        searchers.append(GoogleScholarSearcher(session, config, api_key=serpapi_key))
+    searchers.extend(
+        [
+            CrossrefSearcher(session, config),
+            PubMedSearcher(session, config, email=ncbi_email),
+            ScienceDirectSearcher(session, config, api_key=sciencedirect_api_key),
+            OpenAlexSearcher(session, config),
+            CoreSearcher(session, config, api_key=core_api_key),
+            EuropePmcSearcher(session, config),
+        ]
+    )
+    return searchers
 
 
 @dataclass
@@ -136,13 +169,14 @@ class SearchOrchestrator:
         if fast_mode:
             priority_order = {
                 'semantic_scholar': 0,
-                'openalex': 1,
-                'arxiv': 2,
-                'crossref': 3,
-                'pubmed': 4,
-                'sciencedirect': 5,
-                'core': 6,
-                'europe_pmc': 7,
+                'google_scholar': 1,
+                'openalex': 2,
+                'arxiv': 3,
+                'crossref': 4,
+                'pubmed': 5,
+                'sciencedirect': 6,
+                'core': 7,
+                'europe_pmc': 8,
             }
             active_searchers = sorted(
                 active_searchers,
@@ -537,6 +571,7 @@ class PaperDiscoveryServiceFactory:
         semantic_scholar_api_key: Optional[str] = None,
         unpaywall_email: Optional[str] = None,
         ncbi_email: Optional[str] = None,
+        is_manual: bool = False,
     ) -> 'PaperDiscoveryService':
         """Create a configured discovery service"""
         
@@ -561,24 +596,29 @@ class PaperDiscoveryServiceFactory:
         )
         sciencedirect_api_key = (
             config.sciencedirect_api_key
+            or settings.SCIENCEDIRECT_API_KEY
             or os.getenv('SCIENCEDIRECT_API_KEY')
         )
         if config.sciencedirect_api_key is None and sciencedirect_api_key is not None:
             config.sciencedirect_api_key = sciencedirect_api_key
 
-        # Get CORE API key from environment
-        core_api_key = os.getenv("CORE_API_KEY")
+        serpapi_key = (
+            config.serpapi_key
+            or settings.SERPAPI_KEY
+            or os.getenv("SERPAPI_KEY")
+        )
+        if config.serpapi_key is None and serpapi_key is not None:
+            config.serpapi_key = serpapi_key
 
-        searchers = [
-            ArxivSearcher(session, config),
-            SemanticScholarSearcher(session, config, semantic_scholar_api_key),
-            CrossrefSearcher(session, config),
-            PubMedSearcher(session, config, email=resolved_ncbi_email),
-            ScienceDirectSearcher(session, config, api_key=sciencedirect_api_key),
-            OpenAlexSearcher(session, config),
-            CoreSearcher(session, config, api_key=core_api_key),
-            EuropePmcSearcher(session, config),
-        ]
+        searchers = _build_default_searchers(
+            session,
+            config,
+            semantic_scholar_api_key=semantic_scholar_api_key,
+            ncbi_email=resolved_ncbi_email,
+            sciencedirect_api_key=sciencedirect_api_key,
+            serpapi_key=serpapi_key,
+            is_manual=is_manual,
+        )
         
         # Purged advanced ranking flags: no-op
 
@@ -610,7 +650,8 @@ class PaperDiscoveryServiceFactory:
             config=config,
             ncbi_email=resolved_ncbi_email,
             unpaywall_email=unpaywall_email,
-            owns_session=True
+            owns_session=True,
+            is_manual=is_manual,
         )
 
 
@@ -628,6 +669,7 @@ class PaperDiscoveryService:
         unpaywall_email: Optional[str] = None,
         ncbi_email: Optional[str] = None,
         owns_session: Optional[bool] = None,
+        is_manual: bool = False,
     ):
         """Initialize discovery service.
 
@@ -640,6 +682,7 @@ class PaperDiscoveryService:
         self.config = config or DiscoveryConfig()
         self.unpaywall_email = unpaywall_email or os.getenv('UNPAYWALL_EMAIL')
         self._unpaywall_cache: Dict[str, Optional[str]] = {}
+        self.is_manual = is_manual
 
         # HTTP session management
         self._owns_session = owns_session if owns_session is not None else session is None
@@ -662,31 +705,31 @@ class PaperDiscoveryService:
 
         sciencedirect_api_key = (
             self.config.sciencedirect_api_key
+            or settings.SCIENCEDIRECT_API_KEY
             or os.getenv('SCIENCEDIRECT_API_KEY')
         )
         if self.config.sciencedirect_api_key is None and sciencedirect_api_key is not None:
             self.config.sciencedirect_api_key = sciencedirect_api_key
 
-        # Get CORE API key
-        core_api_key = os.getenv("CORE_API_KEY")
+        serpapi_key = (
+            self.config.serpapi_key
+            or settings.SERPAPI_KEY
+            or os.getenv("SERPAPI_KEY")
+        )
+        if self.config.serpapi_key is None and serpapi_key is not None:
+            self.config.serpapi_key = serpapi_key
 
         # Orchestrator with default searchers/enrichers/ranker
         if orchestrator is None:
-            searchers: List[PaperSearcher] = [
-                ArxivSearcher(self.session, self.config),
-                SemanticScholarSearcher(
-                    self.session,
-                    self.config,
-                    api_key=semantic_scholar_api_key or os.getenv("SEMANTIC_SCHOLAR_API_KEY"),
-                ),
-                # Ensure Crossref is available when filtering to sources=['crossref']
-                CrossrefSearcher(self.session, self.config),
-                PubMedSearcher(self.session, self.config, email=resolved_ncbi_email),
-                ScienceDirectSearcher(self.session, self.config, api_key=sciencedirect_api_key),
-                OpenAlexSearcher(self.session, self.config),
-                CoreSearcher(self.session, self.config, api_key=core_api_key),
-                EuropePmcSearcher(self.session, self.config),
-            ]
+            searchers = _build_default_searchers(
+                self.session,
+                self.config,
+                semantic_scholar_api_key=semantic_scholar_api_key or settings.SEMANTIC_SCHOLAR_API_KEY or os.getenv("SEMANTIC_SCHOLAR_API_KEY"),
+                ncbi_email=resolved_ncbi_email,
+                sciencedirect_api_key=sciencedirect_api_key,
+                serpapi_key=serpapi_key,
+                is_manual=self.is_manual,
+            )
 
             enrichers: List[PaperEnricher] = [
                 CrossrefEnricher(self.session, self.config),
