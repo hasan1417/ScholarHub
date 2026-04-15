@@ -20,6 +20,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Module-level cache so the cross-encoder model survives across requests.
+# Without this, each new SemanticRanker instance reloads the model from disk (~5-10s).
+_CROSS_ENCODER_CACHE: Dict[str, Any] = {}
+
 
 @dataclass
 class RerankedResult:
@@ -72,13 +76,20 @@ class CrossEncoderReranker:
         self._lock = asyncio.Lock()
 
     def _load_cross_encoder(self):
-        """Lazy load the cross-encoder model."""
-        if self._cross_encoder is None:
-            from sentence_transformers import CrossEncoder
-            logger.info(f"[Reranker] Loading cross-encoder: {self.CROSS_ENCODER_MODEL}")
-            self._cross_encoder = CrossEncoder(self.CROSS_ENCODER_MODEL)
-            logger.info("[Reranker] Cross-encoder loaded")
-        return self._cross_encoder
+        """Lazy load the cross-encoder model (module-level cached across requests)."""
+        if self._cross_encoder is not None:
+            return self._cross_encoder
+        cached = _CROSS_ENCODER_CACHE.get(self.CROSS_ENCODER_MODEL)
+        if cached is not None:
+            self._cross_encoder = cached
+            return cached
+        from sentence_transformers import CrossEncoder
+        logger.info(f"[Reranker] Loading cross-encoder: {self.CROSS_ENCODER_MODEL}")
+        model = CrossEncoder(self.CROSS_ENCODER_MODEL)
+        _CROSS_ENCODER_CACHE[self.CROSS_ENCODER_MODEL] = model
+        self._cross_encoder = model
+        logger.info("[Reranker] Cross-encoder loaded and cached")
+        return model
 
     async def rerank(
         self,
