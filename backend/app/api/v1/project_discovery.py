@@ -365,6 +365,14 @@ def update_discovery_settings(
     project = get_project_or_404(db, project_id)
     ensure_project_member(db, project, current_user, roles=[ProjectRole.ADMIN, ProjectRole.EDITOR])
 
+    # Prevent corrupting preferences with an empty sources list — subsequent
+    # auto-discovery runs would silently skip every source.
+    if payload.sources is not None and len(payload.sources) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one source must be selected. Omit 'sources' to keep the current selection.",
+        )
+
     manager = ProjectDiscoveryManager(db)
     current_preferences = manager.as_preferences(
         project.discovery_preferences

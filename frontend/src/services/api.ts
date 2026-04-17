@@ -309,10 +309,9 @@ api.interceptors.response.use(
       const noToken = !localStorage.getItem('access_token')
 
       if (isAuthRelated && (noToken || isRefreshing)) {
-        localStorage.removeItem('access_token')
-        localStorage.removeItem('user')
-        window.location.href = '/login'
-        return new Promise(() => {})
+        const willRedirect = handleSessionExpired()
+        if (willRedirect) return new Promise(() => {})
+        // Already on an auth route — fall through and reject.
       }
     }
 
