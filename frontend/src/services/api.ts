@@ -317,6 +317,13 @@ api.interceptors.response.use(
     }
 
     if (error?.response?.status === 401 && !originalRequest._retry && !isAuthEndpoint) {
+      // No access token ever existed on this client — don't try to refresh.
+      // This handles first-time visits (or logged-out users hitting protected
+      // endpoints) where /refresh has no cookie to work with and would just
+      // 401 again. Without this guard, a cold load on /login would loop.
+      if (typeof window !== 'undefined' && !localStorage.getItem('access_token')) {
+        return Promise.reject(error)
+      }
       originalRequest._retry = true
 
       try {
@@ -332,10 +339,15 @@ api.interceptors.response.use(
         // Retry the original request with new token
         return api(originalRequest as any)
       } catch (refreshError) {
-        handleSessionExpired()
-        // Return a never-resolving promise so the UI stays in loading state
-        // instead of briefly flashing an error before the redirect
-        return new Promise(() => {})
+        const willRedirect = handleSessionExpired()
+        if (willRedirect) {
+          // Return a never-resolving promise so the UI stays in loading state
+          // instead of briefly flashing an error before the redirect.
+          return new Promise(() => {})
+        }
+        // Already on an auth route — reject normally so callers can finish their
+        // loading states instead of hanging forever.
+        return Promise.reject(error)
       }
     }
 
@@ -347,11 +359,23 @@ api.interceptors.response.use(
 // login page can show a toast after the hard redirect, and preserves the attempted
 // URL as a returnTo query param.
 const SESSION_EXPIRED_FLAG = 'sh:session-expired'
-const handleSessionExpired = () => {
+const handleSessionExpired = (): boolean => {
   localStorage.removeItem('access_token')
   localStorage.removeItem('user')
 
-  if (typeof window === 'undefined') return
+  if (typeof window === 'undefined') return false
+
+  const isAuthRoute =
+    window.location.pathname.startsWith('/login') ||
+    window.location.pathname.startsWith('/register') ||
+    window.location.pathname.startsWith('/forgot-password') ||
+    window.location.pathname.startsWith('/reset-password') ||
+    window.location.pathname.startsWith('/verify-email')
+
+  // Already on an auth route — don't redirect (would cause an infinite reload
+  // loop when /refresh fails on cold page loads). Credentials are cleared above;
+  // the existing page will re-render its unauthenticated state.
+  if (isAuthRoute) return false
 
   try {
     sessionStorage.setItem(SESSION_EXPIRED_FLAG, 'Your session has expired. Please sign in again.')
@@ -360,15 +384,9 @@ const handleSessionExpired = () => {
   }
 
   const currentPath = window.location.pathname + window.location.search
-  const isAuthRoute =
-    window.location.pathname.startsWith('/login') ||
-    window.location.pathname.startsWith('/register') ||
-    window.location.pathname.startsWith('/forgot-password') ||
-    window.location.pathname.startsWith('/reset-password') ||
-    window.location.pathname.startsWith('/verify-email')
-
-  const returnTo = !isAuthRoute && currentPath !== '/' ? `?returnTo=${encodeURIComponent(currentPath)}` : ''
+  const returnTo = currentPath !== '/' ? `?returnTo=${encodeURIComponent(currentPath)}` : ''
   window.location.href = `/login${returnTo}`
+  return true
 }
 
 export const consumeSessionExpiredMessage = (): string | null => {
