@@ -1,9 +1,10 @@
-import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { ArrowLeft, Mail, Lock, Loader2 } from 'lucide-react'
 import { Logo } from '../../components/brand/Logo'
 import GoogleSignInButton from '../../components/auth/GoogleSignInButton'
+import { consumeSessionExpiredMessage } from '../../services/api'
 
 type LoginErrors = {
   general?: string
@@ -11,22 +12,39 @@ type LoginErrors = {
   password?: string
 }
 
+const sanitizeReturnTo = (raw: string | null): string | null => {
+  if (!raw) return null
+  // Only accept same-origin paths that start with "/" and don't contain a protocol
+  // or backslash. This blocks open-redirect attempts like //evil.com or https://…
+  if (!raw.startsWith('/') || raw.startsWith('//') || raw.includes('\\')) return null
+  return raw
+}
+
 const Login = () => {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [formErrors, setFormErrors] = useState<LoginErrors>({})
+  const [notice, setNotice] = useState<string | null>(null)
   const { login } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+
+  useEffect(() => {
+    const message = consumeSessionExpiredMessage()
+    if (message) setNotice(message)
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
     setFormErrors({})
+    setNotice(null)
 
     try {
       await login(email, password)
-      navigate('/projects')
+      const returnTo = sanitizeReturnTo(new URLSearchParams(location.search).get('returnTo'))
+      navigate(returnTo ?? '/projects')
     } catch (error: any) {
       console.error('Login error:', error)
       const detail = error?.response?.data?.detail
@@ -79,6 +97,15 @@ const Login = () => {
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Welcome back</h1>
               <p className="mt-2 text-gray-600 dark:text-slate-400">Sign in to continue to your workspace</p>
             </div>
+
+            {notice && !formErrors.general && (
+              <div
+                role="status"
+                className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800/50 dark:bg-amber-500/10 dark:text-amber-200"
+              >
+                {notice}
+              </div>
+            )}
 
             {formErrors.general && (
               <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-500/10 dark:text-red-300">

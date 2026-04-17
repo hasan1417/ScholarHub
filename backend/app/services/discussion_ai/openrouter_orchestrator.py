@@ -596,6 +596,9 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             "messages": messages,
             "tools": tools,
             "tool_choice": "auto",
+            # Explicit cap so non-streaming tool-chain responses don't get
+            # silently clipped at provider defaults.
+            "max_tokens": self._get_model_output_token_cap(ctx),
         }
 
         # Add reasoning params (always includes exclude or effort)
@@ -694,6 +697,10 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             "tools": tools,
             "tool_choice": "auto",
             "stream": True,
+            # Hard cap so composite tool-chain turns don't get truncated
+            # mid-word by provider defaults. 4096 is roomy for chat-style
+            # responses; tune per-model in _get_model_output_token_cap.
+            "max_tokens": self._get_model_output_token_cap(ctx),
         }
 
         reasoning_params = self._get_reasoning_params()
@@ -947,6 +954,20 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         conversation_history = ctx.get("conversation_history")
         policy_decision = self._classify_and_build_policy(ctx, conversation_history)
 
+        # Fill the ~6s silence between "Processing your request" and the
+        # first tool status with an intent-aware hint, so the user sees
+        # progress while the model decides what to do.
+        intent = getattr(policy_decision, "intent", "general")
+        _intent_filler = {
+            "direct_search": "Planning paper search",
+            "project_update": "Preparing project updates",
+            "analysis": "Preparing analysis",
+            "library": "Checking your library",
+            "writing": "Planning writing task",
+            "clarify": "Reviewing what you said",
+        }.get(intent, "Drafting response")
+        yield {"type": "status", "tool": "", "message": _intent_filler}
+
         mutating_calls_seen: set = set()
 
         max_iterations = 8
@@ -1079,16 +1100,29 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             for tc in tool_calls:
                 yield {"type": "tool_end", "tool": tc.get("name", ""), "round": iteration}
 
-            if any(tr.get("name") in ("search_papers", "batch_search_papers") for tr in tool_results):
+            # Only mark "search executed" when a search actually produced results.
+            # Blocked/errored searches must loop back to the model so it can
+            # explain the situation instead of silently emitting "Results will
+            # appear shortly" when nothing ran.
+            if any(
+                tr.get("name") in ("search_papers", "batch_search_papers")
+                and (tr.get("result") or {}).get("status") not in ("error", "blocked")
+                for tr in tool_results
+            ):
                 search_tool_executed = True
 
-            # If only search tools ran, skip re-querying the model — the response
-            # will be the short confirmation from _apply_response_budget anyway.
+            # Skip re-querying only when every tool was a successful search.
+            # Any blocked/error result requires another round so the model
+            # can produce an honest correction for the user.
             search_only = all(
                 tr.get("name") in ("search_papers", "batch_search_papers")
                 for tr in tool_results
             )
-            if search_only and search_tool_executed:
+            search_has_problem = any(
+                (tr.get("result") or {}).get("status") in ("error", "blocked")
+                for tr in tool_results
+            )
+            if search_only and search_tool_executed and not search_has_problem:
                 break
 
             formatted_tool_calls = [

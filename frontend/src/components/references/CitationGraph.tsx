@@ -175,17 +175,45 @@ const CitationGraph: React.FC<Props> = ({ projectId }) => {
     },
   })
 
-  // Measure container
+  // Measure container — use ResizeObserver so the simulation re-initializes when
+  // the graph becomes visible (e.g. after a tab switch or when the parent flex
+  // container finishes its first layout pass with a non-zero width/height).
   useEffect(() => {
-    const measure = () => {
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect()
-        setDimensions({ width: rect.width || 800, height: Math.max(rect.height, 500) })
-      }
+    const element = containerRef.current
+    if (!element) return
+
+    const apply = (width: number, height: number) => {
+      // Guard against 0x0 on first paint — keep the current (or default) dims
+      // until the browser reports a real size.
+      if (width <= 0 || height <= 0) return
+      setDimensions((prev) => {
+        const nextWidth = width
+        const nextHeight = Math.max(height, 500)
+        if (prev.width === nextWidth && prev.height === nextHeight) return prev
+        return { width: nextWidth, height: nextHeight }
+      })
     }
-    measure()
-    window.addEventListener('resize', measure)
-    return () => window.removeEventListener('resize', measure)
+
+    const rect = element.getBoundingClientRect()
+    apply(rect.width, rect.height)
+
+    if (typeof ResizeObserver === 'undefined') {
+      const handler = () => {
+        const r = element.getBoundingClientRect()
+        apply(r.width, r.height)
+      }
+      window.addEventListener('resize', handler)
+      return () => window.removeEventListener('resize', handler)
+    }
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect
+        apply(width, height)
+      }
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
   }, [])
 
   // Initialize simulation when data changes

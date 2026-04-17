@@ -162,20 +162,12 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
 
   const openSelectPaperModal = async () => {
     try {
-      const resp = await fetch(buildApiUrl('/research-papers/?skip=0&limit=100'), {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
-      })
-      if (resp.ok) {
-        const data = await resp.json()
-        const items = (data.papers || []).map((p: any) => ({ id: p.id, title: p.title }))
-        setMyPapers(items)
-        setShowSelectPaper(true)
-      } else {
-        setMyPapers([])
-        setShowSelectPaper(true)
-      }
+      const resp = await researchPapersAPI.getPapers({ skip: 0, limit: 100 })
+      const items = (resp.data.papers || []).map((p: any) => ({ id: p.id, title: p.title }))
+      setMyPapers(items)
     } catch {
       setMyPapers([])
+    } finally {
       setShowSelectPaper(true)
     }
   }
@@ -621,18 +613,15 @@ const PaperDiscovery: React.FC<PaperDiscoveryProps> = ({ onAddPaper, onClose, pa
                         setSelectedSourcePaperTemp(sourcePaperId)
                         setSelectedSourcePaperTitleTemp(sourcePaperTitle)
                         try {
-                          const resp = await fetch(buildApiUrl('/research-papers/?skip=0&limit=100'), {
-                            headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
-                          })
-                          if (resp.ok) {
-                            const data = await resp.json()
-                            const items = (data.papers || []).map((p: any) => ({ id: p.id, title: p.title, year: p.year, status: p.status }))
-                            setSourcePapers(items)
-                          } else {
-                            setSourcePapers([])
-                            setSourceError('Failed to load your papers.')
-                          }
-                        } catch (e) {
+                          const resp = await researchPapersAPI.getPapers({ skip: 0, limit: 100 })
+                          const items = (resp.data.papers || []).map((p: any) => ({
+                            id: p.id,
+                            title: p.title,
+                            year: p.year,
+                            status: p.status,
+                          }))
+                          setSourcePapers(items)
+                        } catch {
                           setSourceError('Failed to load your papers.')
                           setSourcePapers([])
                         } finally {

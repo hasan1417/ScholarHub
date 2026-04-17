@@ -43,8 +43,6 @@ const ProjectFormModal = ({
   const [keywords, setKeywords] = useState<string[]>([])
   const [keywordInput, setKeywordInput] = useState('')
   const [objectives, setObjectives] = useState<string[]>([''])
-  const [editingTitle, setEditingTitle] = useState(false)
-  const [editingDescription, setEditingDescription] = useState(false)
 
   const sanitizedObjectives = useMemo(
     () => objectives.map((objective) => objective.trim()).filter(Boolean),
@@ -58,8 +56,6 @@ const ProjectFormModal = ({
       setKeywords([])
       setKeywordInput('')
       setObjectives([''])
-      setEditingTitle(false)
-      setEditingDescription(false)
       return
     }
 
@@ -147,25 +143,15 @@ const ProjectFormModal = ({
                 <label className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-slate-400">
                   Project Title
                 </label>
-                {editingTitle || mode === 'create' ? (
-                  <input
-                    type="text"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    onBlur={() => mode === 'edit' && setEditingTitle(false)}
-                    className="mt-1 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-base font-medium text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
-                    placeholder="e.g. Neural Interface Study"
-                    autoFocus={mode === 'create'}
-                    required
-                  />
-                ) : (
-                  <p
-                    onClick={() => setEditingTitle(true)}
-                    className="mt-1 cursor-pointer rounded-lg px-3 py-2 text-base font-medium text-gray-900 hover:bg-gray-50 dark:text-slate-100 dark:hover:bg-slate-700"
-                  >
-                    {title || 'Click to add title'}
-                  </p>
-                )}
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-base font-medium text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                  placeholder="e.g. Neural Interface Study"
+                  autoFocus={mode === 'create'}
+                  required
+                />
               </div>
             </div>
           </div>
@@ -180,23 +166,13 @@ const ProjectFormModal = ({
                 <label className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-slate-400">
                   Description
                 </label>
-                {editingDescription || mode === 'create' ? (
-                  <textarea
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    onBlur={() => mode === 'edit' && setEditingDescription(false)}
-                    rows={3}
-                    className="mt-1 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
-                    placeholder="Summarize the project vision or problem statement"
-                  />
-                ) : (
-                  <p
-                    onClick={() => setEditingDescription(true)}
-                    className="mt-1 cursor-pointer rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 dark:text-slate-300 dark:hover:bg-slate-700"
-                  >
-                    {description || 'Click to add description'}
-                  </p>
-                )}
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={3}
+                  className="mt-1 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                  placeholder="Summarize the project vision or problem statement"
+                />
               </div>
             </div>
           </div>
@@ -271,6 +247,23 @@ const ProjectFormModal = ({
                             next[index] = value
                             return next
                           })
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            if (!objective.trim()) return
+                            setObjectives((prev) => {
+                              const next = [...prev]
+                              next.splice(index + 1, 0, '')
+                              return next
+                            })
+                            requestAnimationFrame(() => {
+                              const inputs = (e.currentTarget.closest('form')?.querySelectorAll(
+                                'input[placeholder="Describe this objective"]',
+                              ) ?? []) as NodeListOf<HTMLInputElement>
+                              inputs[index + 1]?.focus()
+                            })
+                          }
                         }}
                         className="flex-1 bg-transparent text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none dark:text-slate-200 dark:placeholder:text-slate-500"
                         placeholder="Describe this objective"

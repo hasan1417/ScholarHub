@@ -26,6 +26,7 @@ from app.services.discussion_ai.token_utils import (
     RESPONSE_TOKEN_RESERVE,
     TOOL_OUTPUT_RESERVE,
 )
+from app.services.ai_guardrails import GUARDRAIL_PROMPT, LATEX_EDITOR_GUARDRAILS
 
 logger = logging.getLogger(__name__)
 
@@ -288,7 +289,8 @@ A LaTeX section includes ALL content from \\section{Name} until the NEXT \\secti
 This includes multiple paragraphs separated by blank lines. When asked to edit "the introduction" or any section,
 you MUST include ALL paragraphs in that section — scan forward to the next \\section{} to find the boundary.
 
-Be concise and helpful. Focus on academic writing quality."""
+Be concise and helpful. Focus on academic writing quality.
+""" + GUARDRAIL_PROMPT + LATEX_EDITOR_GUARDRAILS
 
 
 # Tool for searching attached references (RAG)
@@ -468,6 +470,35 @@ def _sanitize_subfile_proposed(proposed: str) -> str:
     return '\n'.join(cleaned)
 
 
+def _collect_unknown_cite_keys(edits: Any, known_keys: set[str]) -> list[str]:
+    """Return \\cite{...} keys referenced in proposed edits that aren't in the
+    document's existing bibkey set.
+
+    The system prompt forbids inventing citation keys, but that is a soft,
+    prompt-level constraint — this is the backend enforcement companion.
+    """
+    warnings: list[str] = []
+    if not isinstance(edits, list):
+        return warnings
+    seen: set[str] = set()
+    for idx, edit in enumerate(edits, start=1):
+        if not isinstance(edit, dict):
+            continue
+        proposed = edit.get("proposed")
+        if not isinstance(proposed, str) or not proposed.strip():
+            continue
+        clean = _strip_latex_comments(proposed)
+        for group in re.findall(r'\\cite[a-zA-Z*]*(?:\[[^\]]*\]){0,2}\{([^}]+)\}', clean):
+            for raw in group.split(","):
+                key = raw.strip()
+                if not key or key in known_keys or key in seen:
+                    continue
+                seen.add(key)
+                file_name = edit.get("file") if isinstance(edit.get("file"), str) and edit.get("file").strip() else "main.tex"
+                warnings.append(f"Edit {idx} ({file_name}): \\cite{{{key}}} — key not found in document bibkeys.")
+    return warnings
+
+
 def _collect_latex_validation_warnings(edits: Any) -> list[str]:
     """Collect non-blocking LaTeX validation warnings from propose_edit payloads.
     Also STRIPS sub-file violations (documentclass, usepackage, begin/end document)
@@ -543,7 +574,8 @@ class SmartAgentServiceV2OR:
         "Respond concisely and warmly. If the user greets you, greet them back briefly. "
         "If they thank you or acknowledge something, confirm briefly. "
         "If they seem to need editing help, let them know you're ready. "
-        "Keep responses under 2 sentences."
+        "Keep responses under 2 sentences.\n"
+        + GUARDRAIL_PROMPT
     )
 
     _EDITOR_ACTION_VERBS = re.compile(
@@ -837,9 +869,92 @@ class SmartAgentServiceV2OR:
             latex_warnings = _collect_latex_validation_warnings(edits)
             explanation = _append_latex_validation_warning(explanation, latex_warnings)
 
+            # Validate line-number bounds against the actual document. The
+            # model occasionally emits out-of-range ends (e.g. end_line=999999
+            # for "to end of file"), which the frontend then mis-applies.
+            doc_files = getattr(self, "_doc_files_for_turn", {}) or {}
+            bounds_warnings: List[str] = []
+            valid_edits: List[Dict[str, Any]] = []
+            for idx, edit in enumerate(edits, start=1):
+                file_name = edit.get("file") if isinstance(edit.get("file"), str) and edit.get("file").strip() else "main.tex"
+                try:
+                    sl = int(edit.get("start_line", 1))
+                    el = int(edit.get("end_line", sl))
+                except (TypeError, ValueError):
+                    bounds_warnings.append(f"Edit {idx} ({file_name}): non-integer line numbers — skipped.")
+                    continue
+                source = doc_files.get(file_name)
+                total_lines = source.count("\n") + 1 if source else None
+                if sl < 1:
+                    bounds_warnings.append(f"Edit {idx} ({file_name}): start_line {sl} < 1 — skipped.")
+                    continue
+                if el < sl:
+                    bounds_warnings.append(f"Edit {idx} ({file_name}): end_line {el} < start_line {sl} — skipped.")
+                    continue
+                if total_lines is not None and sl > total_lines:
+                    bounds_warnings.append(
+                        f"Edit {idx} ({file_name}): start_line {sl} is past the last line ({total_lines}) — skipped."
+                    )
+                    continue
+                if total_lines is not None and el > total_lines:
+                    bounds_warnings.append(
+                        f"Edit {idx} ({file_name}): end_line {el} clipped to document length ({total_lines})."
+                    )
+                    edit = {**edit, "end_line": total_lines}
+                valid_edits.append(edit)
+
+            if bounds_warnings:
+                explanation = _append_latex_validation_warning(
+                    explanation,
+                    ["Line-range check:"] + [f"  - {w}" for w in bounds_warnings],
+                )
+
+            # Citation-key integrity: scan the proposed text for \cite{...}
+            # and warn when the model inserts keys that aren't in the
+            # document's current bibkey set (hallucinated citations).
+            known_cite_keys: set[str] = set()
+            for _src in doc_files.values():
+                if not _src:
+                    continue
+                for _group in re.findall(r'\\cite[a-zA-Z*]*(?:\[[^\]]*\]){0,2}\{([^}]+)\}', _strip_latex_comments(_src)):
+                    for _raw in _group.split(","):
+                        _k = _raw.strip()
+                        if _k:
+                            known_cite_keys.add(_k)
+            cite_warnings = _collect_unknown_cite_keys(valid_edits, known_cite_keys)
+            if cite_warnings:
+                explanation = _append_latex_validation_warning(
+                    explanation,
+                    ["Citation-key check (keys not in your document):"] + [f"  - {w}" for w in cite_warnings],
+                )
+
+            # Edit-size indicator — soft UX signal so the user sees how much
+            # of each file an edit touches before hitting Apply. Not a block.
+            size_notes: List[str] = []
+            for idx, edit in enumerate(valid_edits, start=1):
+                file_name = edit.get("file") if isinstance(edit.get("file"), str) and edit.get("file").strip() else "main.tex"
+                try:
+                    sl = int(edit.get("start_line", 1))
+                    el = int(edit.get("end_line", sl))
+                except (TypeError, ValueError):
+                    continue
+                replaced = max(1, el - sl + 1)
+                source = doc_files.get(file_name)
+                if source:
+                    total = source.count("\n") + 1
+                    pct = int(round(replaced / max(total, 1) * 100))
+                    size_notes.append(f"Edit {idx} ({file_name}): {replaced} line{'s' if replaced != 1 else ''} of {total} ({pct}%)")
+                else:
+                    size_notes.append(f"Edit {idx} ({file_name}): {replaced} line{'s' if replaced != 1 else ''}")
+            if size_notes:
+                explanation = _append_latex_validation_warning(
+                    explanation,
+                    ["Edit scope:"] + [f"  - {n}" for n in size_notes],
+                )
+
             yield f"{explanation}\n\n"
 
-            for edit in edits:
+            for edit in valid_edits:
                 file_name = edit.get("file")
                 if not isinstance(file_name, str) or not file_name.strip():
                     file_name = "main.tex"
@@ -1018,11 +1133,11 @@ class SmartAgentServiceV2OR:
         # Tool-specific status emission (once, when tool name is known)
         _tool_status_emitted = False
         _TOOL_STATUS_LABELS = {
-            "propose_edit": "Preparing edits",
-            "apply_template": "Loading template",
-            "search_references": "Searching references",
-            "review_document": "Reviewing document",
-            "answer_question": "Generating answer",
+            "propose_edit": "Drafting edits to your document",
+            "apply_template": "Applying template",
+            "search_references": "Searching attached references",
+            "review_document": "Reviewing your document",
+            "answer_question": "Drafting answer",
         }
 
         # answer_question arg-live streaming state
@@ -1215,16 +1330,23 @@ class SmartAgentServiceV2OR:
         self._user_name = user_name
         self._paper_id = paper_id
         self._last_tools_called: List[str] = []
+        # Keep the document files around so tool-response formatting can
+        # validate proposed edits against actual file line counts (bounds check).
+        self._doc_files_for_turn: Dict[str, str] = {}
+        if document_files:
+            self._doc_files_for_turn.update({k: v for k, v in document_files.items() if isinstance(v, str)})
+        if document_excerpt and "main.tex" not in self._doc_files_for_turn:
+            self._doc_files_for_turn["main.tex"] = document_excerpt
 
         t_start = time.monotonic()
         self._first_content_time = None
 
-        yield self._emit_status("Classifying request")
+        yield self._emit_status("Reading your request")
 
         # Lite route: greetings, acks, short messages — streaming lightweight LLM, no tools/document
         history_for_route = self._get_recent_history(db, paper_id, project_id, limit=4)
         if self._is_lite_route(query, history_for_route):
-            yield self._emit_status("Generating response")
+            yield self._emit_status("Drafting reply")
             lite_text = ""
             for token in self._execute_lite_streaming(query, history_for_route):
                 if not lite_text and token.strip():
@@ -1241,7 +1363,7 @@ class SmartAgentServiceV2OR:
             logger.info("[SmartAgentV2OR][paper=%s] ttfb_ms=%d total_ms=%d turns=0 tool_calls=none (lite)", paper_id, ttfb, total)
             return
 
-        yield self._emit_status("Loading references")
+        yield self._emit_status("Loading attached references")
         ref_context = self._get_reference_context(db, user_id, paper_id, query)
 
         # Build context with line numbers
@@ -1270,7 +1392,7 @@ class SmartAgentServiceV2OR:
 
         logger.info(f"[SmartAgentV2OR] model={self.model}, reasoning={use_reasoning}, doc_size={doc_size}")
 
-        yield self._emit_status("Building context")
+        yield self._emit_status("Preparing editor context")
         history_messages, summary_block = self._build_context_with_budget(
             db=db,
             paper_id=paper_id,
@@ -1308,7 +1430,7 @@ class SmartAgentServiceV2OR:
                         response_text += clean
                     yield chunk
 
-            yield self._emit_status("Analyzing request")
+            yield self._emit_status("Deciding how to help")
             clarification = self._build_clarification(effective_query, document_excerpt, document_files)
             if clarification:
                 yield from _collect_and_yield(self._format_tool_response("ask_clarification", clarification))
@@ -1327,7 +1449,7 @@ class SmartAgentServiceV2OR:
             while turn < max_turns:
                 turn += 1
 
-                yield self._emit_status("Generating response" if turn == 1 else "Processing results")
+                yield self._emit_status("Drafting reply" if turn == 1 else "Incorporating tool results")
 
                 # Budget check: truncate tool results if messages exceed context limit
                 if turn > 1:
@@ -1377,7 +1499,7 @@ class SmartAgentServiceV2OR:
                             "[SmartAgentV2OR] Attempt %d/%d failed (%s). Retrying in %.1fs",
                             attempt + 1, self._MAX_RETRIES, str(e)[:100], backoff,
                         )
-                        yield self._emit_status("Retrying...")
+                        yield self._emit_status("Retrying — network hiccup")
                         time.sleep(backoff)
 
                 tool_calls = self._last_stream_tool_calls
@@ -1424,7 +1546,7 @@ class SmartAgentServiceV2OR:
                 # Intermediate tools — execute and loop back.
                 # Remove intermediate tools after use to prevent repeat calls.
                 if tool_name == "search_references":
-                    yield self._emit_status("Searching references")
+                    yield self._emit_status("Searching attached references")
                     search_results = self._search_references_for_tool(
                         tool_args.get("query", ""), tool_args.get("max_results", 10),
                     )
@@ -1468,7 +1590,7 @@ class SmartAgentServiceV2OR:
                     continue
 
                 elif tool_name == "review_document":
-                    yield self._emit_status("Reviewing document")
+                    yield self._emit_status("Reviewing your document")
                     review_output = "".join(self._format_tool_response(tool_name, tool_args))
                     messages.append(assistant_msg)
                     messages.append({"role": "tool", "tool_call_id": tc["id"], "content": review_output})

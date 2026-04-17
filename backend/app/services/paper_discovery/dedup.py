@@ -172,6 +172,26 @@ def _merge_into(winner: DiscoveredPaper, loser: DiscoveredPaper) -> None:
 # Public entry point
 # ---------------------------------------------------------------------------
 
+def _fuzzy_title_similarity(a: str, b: str) -> float:
+    """Fast, dependency-free similarity score for two normalized titles.
+
+    Uses Jaccard on word sets — close enough for the "same work, different
+    venue" case we want to catch (e.g. *"Protein language model supervised
+    motif-scaffolding design with GPDL"* vs *"Protein Language Model
+    Supervised Scalable Approach for Diverse and Designable Protein
+    Motif-Scaffolding with GPDL"*). Avoids bringing in Levenshtein/rapidfuzz.
+    """
+    if not a or not b:
+        return 0.0
+    wa = set(a.split())
+    wb = set(b.split())
+    if not wa or not wb:
+        return 0.0
+    inter = wa & wb
+    union = wa | wb
+    return len(inter) / len(union)
+
+
 def dedupe_papers(papers: List[DiscoveredPaper]) -> Tuple[List[DiscoveredPaper], int]:
     """Group duplicate papers, merge them, and return the deduped list.
 
@@ -196,6 +216,35 @@ def dedupe_papers(papers: List[DiscoveredPaper]) -> Tuple[List[DiscoveredPaper],
             first = indices[0]
             for j in indices[1:]:
                 uf.union(first, j)
+
+    # Fuzzy fallback — catches "same work, different venue" where titles have
+    # been rephrased (e.g. preprint vs published) or doubled with a subtitle.
+    # Only apply to papers that still have unique match keys (didn't already
+    # unify via DOI/arxiv/title+year) and whose years agree within ±1. The
+    # O(n^2) scan is bounded at typical n ~ 200 results per search.
+    from app.services.paper_discovery.models import _normalize_title
+    _FUZZY_THRESHOLD = 0.75
+    normalized_titles: List[str] = [_normalize_title(p.title or "") for p in papers]
+    for i in range(n):
+        ti = normalized_titles[i]
+        if not ti or len(ti) < 15:
+            continue
+        yi = papers[i].year
+        for j in range(i + 1, n):
+            tj = normalized_titles[j]
+            if not tj or len(tj) < 15:
+                continue
+            if uf.find(i) == uf.find(j):
+                continue  # already unified
+            yj = papers[j].year
+            if yi and yj and abs(yi - yj) > 1:
+                continue
+            if _fuzzy_title_similarity(ti, tj) >= _FUZZY_THRESHOLD:
+                uf.union(i, j)
+                logger.debug(
+                    "dedup fuzzy-title union: '%s' == '%s'",
+                    (papers[i].title or "")[:60], (papers[j].title or "")[:60],
+                )
 
     # Collect groups
     groups: Dict[int, List[int]] = {}

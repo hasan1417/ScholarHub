@@ -220,9 +220,21 @@ const ZoteroImportModal: React.FC<ZoteroImportModalProps> = ({
                 ))}
 
                 {collections.length === 0 && !loadingCollections && !error && (
-                  <p className="py-8 text-center text-sm text-gray-500 dark:text-slate-400">
-                    No collections found. Select "All Items" to browse your library.
-                  </p>
+                  <div className="py-8 text-center text-sm text-gray-500 dark:text-slate-400">
+                    <p>You haven&rsquo;t set up any collections in Zotero yet.</p>
+                    <p className="mt-2">
+                      Select &ldquo;All Items&rdquo; above to browse your whole library, or{' '}
+                      <a
+                        href="https://www.zotero.org/mylibrary"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-indigo-600 underline-offset-2 hover:underline dark:text-indigo-400"
+                      >
+                        open Zotero
+                      </a>{' '}
+                      to create one.
+                    </p>
+                  </div>
                 )}
               </div>
             )
@@ -290,9 +302,25 @@ const ZoteroImportModal: React.FC<ZoteroImportModalProps> = ({
                 })}
 
                 {items.length === 0 && !loadingItems && !error && (
-                  <p className="py-8 text-center text-sm text-gray-500 dark:text-slate-400">
-                    No items found in this collection.
-                  </p>
+                  <div className="py-8 text-center text-sm text-gray-500 dark:text-slate-400">
+                    <p>
+                      {selectedCollectionName === 'All Items'
+                        ? 'Your Zotero library is empty.'
+                        : `&ldquo;${selectedCollectionName}&rdquo; has no items yet.`}
+                    </p>
+                    <p className="mt-2">
+                      Add references in{' '}
+                      <a
+                        href="https://www.zotero.org/mylibrary"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-indigo-600 underline-offset-2 hover:underline dark:text-indigo-400"
+                      >
+                        Zotero
+                      </a>{' '}
+                      and come back to sync them.
+                    </p>
+                  </div>
                 )}
               </div>
             )

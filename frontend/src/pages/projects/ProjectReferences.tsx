@@ -449,9 +449,13 @@ const ProjectReferences = () => {
                   }
                 }}
                 className="inline-flex items-center gap-1 rounded-full border border-emerald-200 px-3 py-2 sm:py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:border-emerald-400/40 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                aria-label="Import from Zotero"
               >
                 <BookOpen className="h-3.5 w-3.5" />
-                <span className="hidden xs:inline">Import from</span><span className="xs:hidden">From</span> Zotero
+                {/* Responsive label — one span at a time so the DOM text doesn't
+                    read as "Import fromFrom Zotero" to screen readers. */}
+                <span aria-hidden="true" className="hidden xs:inline">Import from Zotero</span>
+                <span aria-hidden="true" className="xs:hidden">From Zotero</span>
               </button>
             )}
             {canAddManual && viewMode === 'list' && (
@@ -526,10 +530,6 @@ const ProjectReferences = () => {
 
               const documentDownloadPath = ref?.document_download_url || null
               const decidedAt = formatDate(item.decided_at)
-              const confidencePercent =
-                typeof item.confidence === 'number'
-                  ? Math.round(Math.min(Math.max(item.confidence, 0), 1) * 100)
-                  : null
               const summary = ref?.summary || ref?.abstract
               const referenceId = ref?.id || item.reference_id || null
               const hasDocument = Boolean(ref?.document_id)
@@ -694,15 +694,8 @@ const ProjectReferences = () => {
                       {analysisBadge && ref?.status === 'processing' && (
                         <Badge label={analysisBadge.label} tone={analysisBadge.tone} icon={analysisBadge.icon} />
                       )}
-                      {confidencePercent !== null && (
-                        <Badge
-                          label={`${confidencePercent}% match`}
-                          tone="purple"
-                          icon={<Sparkles className="h-3 w-3" />}
-                        />
-                      )}
                       {/* Divider */}
-                      {((analysisBadge && ref?.status === 'processing') || confidencePercent !== null) && (ref?.doi || ref?.url || decidedAt) && (
+                      {analysisBadge && ref?.status === 'processing' && (ref?.doi || ref?.url || decidedAt) && (
                         <span className="text-gray-300 dark:text-slate-700">|</span>
                       )}
 

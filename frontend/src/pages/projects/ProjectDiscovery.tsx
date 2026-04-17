@@ -607,11 +607,26 @@ const ProjectDiscovery = () => {
         next.delete(resultId)
         return next
       })
+      // Confirm the promote — a visible success banner matters because
+      // PDF ingestion runs in the background and the user otherwise has
+      // no signal that the paper landed in their library.
+      setActiveStatusMessage('Added to library — ingesting PDF in the background.')
+      setManualStatusMessage('Added to library — ingesting PDF in the background.')
+      setActiveErrorMessage(null)
+      setManualErrorMessage(null)
+      window.setTimeout(() => {
+        setActiveStatusMessage((cur) => (cur?.startsWith('Added to library') ? null : cur))
+        setManualStatusMessage((cur) => (cur?.startsWith('Added to library') ? null : cur))
+      }, 4000)
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryResults'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingCount'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingAutoCount'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'referenceSuggestions'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoverySettings'] })
+      // References list + tab-count badge rely on these keys. Invalidating here
+      // ensures the "References N" tab reflects the new paper immediately.
+      queryClient.invalidateQueries({ queryKey: ['project', project.id, 'relatedReferences'] })
+      queryClient.invalidateQueries({ queryKey: ['projectReferences', project.id] })
     },
     onError: (error, resultId) => {
       setPromotingIds((prev) => {
@@ -647,6 +662,13 @@ const ProjectDiscovery = () => {
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryResults'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingCount'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingAutoCount'] })
+      // Tell the user the paper isn't gone — it's in the Dismissed filter.
+      setActiveStatusMessage("Dismissed — change the filter to 'Dismissed' to see or restore it.")
+      setManualStatusMessage("Dismissed — change the filter to 'Dismissed' to see or restore it.")
+      window.setTimeout(() => {
+        setActiveStatusMessage((cur) => (cur?.startsWith('Dismissed') ? null : cur))
+        setManualStatusMessage((cur) => (cur?.startsWith('Dismissed') ? null : cur))
+      }, 4000)
     },
     onError: (_error, resultId) => {
       setDismissingIds((prev) => {
@@ -684,6 +706,8 @@ const ProjectDiscovery = () => {
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoveryPendingAutoCount'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'referenceSuggestions'] })
       queryClient.invalidateQueries({ queryKey: ['project', project.id, 'discoverySettings'] })
+      queryClient.invalidateQueries({ queryKey: ['project', project.id, 'relatedReferences'] })
+      queryClient.invalidateQueries({ queryKey: ['projectReferences', project.id] })
     },
   })
 

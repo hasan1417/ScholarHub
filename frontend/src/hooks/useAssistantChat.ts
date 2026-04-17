@@ -375,7 +375,19 @@ export function useAssistantChat({
                 )
               )
             } else if (event.type === 'tool_end') {
-              // Tool finished — stay in tool_running until next round starts
+              // Tool finished — stay in tool_running until next round starts.
+              // Some tools mutate data the rest of the UI reads from cache
+              // (e.g. update_project_info writes the description / objectives /
+              // keywords that the Overview tab renders). Invalidate any project
+              // query so the next render picks up fresh data. The prefix match
+              // covers both URL-slug keyed queries (ProjectLayout) and
+              // UUID keyed queries (papers, references, etc).
+              const finishedTool = event.tool || ''
+              if (finishedTool === 'update_project_info') {
+                queryClient.invalidateQueries({
+                  predicate: (query) => query.queryKey[0] === 'project',
+                })
+              }
             } else if (event.type === 'status') {
               // Backward compatibility
               currentPhase = 'tool_running'

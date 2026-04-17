@@ -96,6 +96,7 @@ const ProjectsHome = () => {
     isLoading,
     isFetching,
     isError,
+    error,
     refetch,
   } = useQuery({
     queryKey: ['projects'],
@@ -104,6 +105,39 @@ const ProjectsHome = () => {
       return response.data
     },
   })
+
+  const projectsErrorInfo = (() => {
+    if (!isError) return null
+    const axiosLike = error as { response?: { status?: number; data?: { detail?: string } }; message?: string }
+    const status = axiosLike?.response?.status
+    const detail = axiosLike?.response?.data?.detail
+    if (status && status >= 500) {
+      return {
+        title: 'Our server hit a snag loading your projects.',
+        body: 'This is on us — we\u2019ve been notified. Please try again in a moment.',
+        showRetry: true,
+      }
+    }
+    if (status === 403) {
+      return {
+        title: 'You don\u2019t have access to load projects.',
+        body: detail ?? 'Sign out and back in, or contact support if this keeps happening.',
+        showRetry: false,
+      }
+    }
+    if (!status) {
+      return {
+        title: 'Can\u2019t reach the server.',
+        body: 'Check your internet connection and retry.',
+        showRetry: true,
+      }
+    }
+    return {
+      title: 'We couldn\u2019t load your projects.',
+      body: detail ?? 'Try refreshing or check back in a moment.',
+      showRetry: true,
+    }
+  })()
 
   const createProject = useMutation({
     mutationFn: async (payload: ProjectCreateInput) => {
@@ -549,17 +583,22 @@ const ProjectsHome = () => {
       ) : null}
 
       {/* Main Content */}
-      {isError ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-500/10 dark:text-red-300">
-          <p className="font-medium">We couldn&apos;t load your projects.</p>
-          <p className="mt-1">Try refreshing or check back in a moment.</p>
-          <button
-            type="button"
-            onClick={() => refetch()}
-            className="mt-4 inline-flex items-center gap-2 rounded-md border border-transparent bg-red-600 px-3 py-2 text-xs font-medium text-white hover:bg-red-700"
-          >
-            <RefreshCcw className="h-4 w-4" /> Retry
-          </button>
+      {projectsErrorInfo ? (
+        <div
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-500/10 dark:text-red-300"
+        >
+          <p className="font-medium">{projectsErrorInfo.title}</p>
+          <p className="mt-1">{projectsErrorInfo.body}</p>
+          {projectsErrorInfo.showRetry && (
+            <button
+              type="button"
+              onClick={() => refetch()}
+              className="mt-4 inline-flex items-center gap-2 rounded-md border border-transparent bg-red-600 px-3 py-2 text-xs font-medium text-white hover:bg-red-700"
+            >
+              <RefreshCcw className="h-4 w-4" /> Retry
+            </button>
+          )}
         </div>
       ) : isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

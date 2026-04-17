@@ -41,7 +41,13 @@ _slug_regex = re.compile(r"[^a-z0-9]+")
 
 
 def slugify(value: str) -> str:
-    base = _slug_regex.sub("-", value.lower()).strip("-")
+    # Transliterate accented Latin characters so "Réunion" becomes "reunion"
+    # instead of "r-union"; non-Latin scripts collapse and fall through to the
+    # "channel" default.
+    import unicodedata
+    normalized = unicodedata.normalize("NFKD", value)
+    ascii_only = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    base = _slug_regex.sub("-", ascii_only.lower()).strip("-")
     return base or "channel"
 
 

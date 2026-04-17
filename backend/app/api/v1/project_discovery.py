@@ -276,6 +276,14 @@ class DiscoveryRunResponse(BaseModel):
     project_suggestions_created: int
     last_run_at: datetime
     source_stats: list[SourceStatsItem] | None = None
+    # Surface PDF ingestion outcomes so the UI can warn the user when some
+    # references landed without full text (instead of silently logging and
+    # continuing). None means the ingest pass didn't run.
+    pdf_ingest_attempted: int | None = None
+    pdf_ingest_succeeded: int | None = None
+    pdf_ingest_failed: int | None = None
+    # Number of older auto-pending results trimmed by the rolling window.
+    rolling_window_pruned: int | None = None
 
 
 class DiscoveryResultItem(BaseModel):
@@ -403,6 +411,12 @@ def run_project_discovery(
     project = get_project_or_404(db, project_id)
     ensure_project_member(db, project, current_user, roles=[ProjectRole.ADMIN, ProjectRole.EDITOR])
 
+    if payload.sources is not None and len(payload.sources) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one source must be selected. Omit 'sources' to use defaults.",
+        )
+
     manager = ProjectDiscoveryManager(db)
     stored_preferences = manager.as_preferences(project.discovery_preferences)
     effective_preferences = ProjectDiscoveryPreferences.model_validate(
@@ -441,6 +455,15 @@ def run_project_discovery(
             detail="Discovery search failed due to external service issues. Please try again later."
         ) from exc
 
+    # Concurrent-run guard inside the service may skip the run; surface that
+    # as a 409 Conflict so the UI can show a useful toast instead of an empty
+    # success response.
+    if result.skipped_reason:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=result.skipped_reason,
+        )
+
     updated_preferences = manager.as_preferences(project.discovery_preferences)
 
     restored_preferences = stored_preferences.model_dump(mode="json")
@@ -476,6 +499,9 @@ def run_project_discovery(
         ]
 
     # Auto-ingest PDFs for newly discovered references (background, best-effort)
+    pdf_attempted: Optional[int] = None
+    pdf_succeeded: Optional[int] = None
+    pdf_failed: Optional[int] = None
     if result.references_created > 0:
         try:
             from app.models.reference import Reference
@@ -490,17 +516,27 @@ def run_project_discovery(
                 .limit(result.references_created)
                 .all()
             )
-            ingested = 0
+            pdf_attempted = len(recent_refs)
+            pdf_succeeded = 0
+            pdf_failed = 0
             for ref in recent_refs:
                 try:
                     if ingest_reference_pdf(db, ref, owner_id=str(current_user.id)):
-                        ingested += 1
+                        pdf_succeeded += 1
+                    else:
+                        pdf_failed += 1
                 except Exception as exc:
                     logger.warning("Auto-ingest failed for reference %s: %s", ref.id, exc)
-            if ingested:
-                logger.info("Auto-ingested %d/%d reference PDFs after discovery", ingested, len(recent_refs))
+                    pdf_failed += 1
+            logger.info("Auto-ingested %d/%d reference PDFs after discovery (%d failed)",
+                        pdf_succeeded, pdf_attempted, pdf_failed)
         except Exception as exc:
+            # Don't let the sweep crash the whole response, but record the fact
+            # that the sweep itself failed so the user sees a warning.
             logger.warning("Post-discovery auto-ingest sweep failed: %s", exc)
+            pdf_attempted = pdf_attempted if pdf_attempted is not None else 0
+            pdf_succeeded = pdf_succeeded if pdf_succeeded is not None else 0
+            pdf_failed = (pdf_failed if pdf_failed is not None else 0) or 1
 
     return DiscoveryRunResponse(
         run_id=run_id,
@@ -510,6 +546,10 @@ def run_project_discovery(
         project_suggestions_created=result.project_suggestions_created,
         last_run_at=last_run_dt,
         source_stats=source_stats_items,
+        pdf_ingest_attempted=pdf_attempted,
+        pdf_ingest_succeeded=pdf_succeeded,
+        pdf_ingest_failed=pdf_failed,
+        rolling_window_pruned=result.rolling_window_pruned or None,
     )
 
 
@@ -525,6 +565,12 @@ async def run_project_discovery_stream(
     _ensure_discovery_schema(db)
     project = get_project_or_404(db, project_id)
     ensure_project_member(db, project, current_user, roles=[ProjectRole.ADMIN, ProjectRole.EDITOR])
+
+    if payload.sources is not None and len(payload.sources) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one source must be selected. Omit 'sources' to use defaults.",
+        )
 
     # Build effective preferences (same logic as non-streaming endpoint)
     manager = ProjectDiscoveryManager(db)

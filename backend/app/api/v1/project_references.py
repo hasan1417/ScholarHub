@@ -1416,6 +1416,25 @@ def import_bibtex(
     valid_refs: list[dict] = []
 
     for entry in entries:
+        # Validate required metadata up front. The minimal parser accepts any
+        # entry that has a non-empty title even when other fields are garbled
+        # (see bug report: "Missing braces" imports with author/year dropped).
+        # Treat any entry without an author OR a year as a rejection with a
+        # descriptive error instead of silently ingesting partial data.
+        missing: list[str] = []
+        if not entry.get("authors"):
+            missing.append("author")
+        if entry.get("year") is None:
+            missing.append("year")
+        if missing:
+            title_preview = (entry.get("title") or "untitled")[:80]
+            errors.append(
+                f"'{title_preview}' rejected — missing required field(s): "
+                + ", ".join(missing)
+            )
+            skipped += 1
+            continue
+
         # Check for duplicate by DOI within the project
         if entry.get("doi"):
             existing = (

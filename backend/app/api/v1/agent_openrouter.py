@@ -22,6 +22,7 @@ from app.schemas.editor_chat_message import EditorChatMessageResponse
 from app.services.smart_agent_service_v2_or import SmartAgentServiceV2OR
 from app.services.subscription_service import SubscriptionService, get_model_credit_cost
 from app.services.discussion_ai.openrouter_orchestrator import get_available_models, get_available_models_with_meta
+from app.services.ai_guardrails import check_message_size, GuardrailViolation
 from app.api.utils.openrouter_access import resolve_openrouter_key_for_user, resolve_openrouter_key_for_project
 from app.models.project import Project
 
@@ -119,6 +120,12 @@ async def agent_chat_stream_or(
         document_files: Optional additional LaTeX files keyed by filename
         reasoning_mode: Enable reasoning mode for supported models
     """
+    # Guardrail: reject oversized user input before spending tokens.
+    try:
+        check_message_size(request.query, field_name="query")
+    except GuardrailViolation as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
     # Resolve API key — use project-level resolution (supports owner key sharing)
     project = None
     if request.project_id:

@@ -206,9 +206,15 @@ class SemanticScholarSearcher(SearcherBase):
                 if response.status == 429:
                     logger.warning("Semantic Scholar rate limited")
                     raise RateLimitError("Semantic Scholar API rate limited")
+                elif response.status == 403:
+                    # 403 = auth/quota rejection. Raise as rate-limited so the
+                    # orchestrator marks the source as degraded instead of
+                    # reporting silent "0 found".
+                    logger.warning("Semantic Scholar 403 (quota/auth rejected)")
+                    raise RateLimitError("Semantic Scholar API quota exhausted (403)")
                 elif response.status != 200:
                     logger.error(f"Semantic Scholar error: {response.status}")
-                    return []
+                    raise RuntimeError(f"Semantic Scholar returned HTTP {response.status}")
 
                 data = await response.json()
                 return await self._parse_response(data)
@@ -439,6 +445,31 @@ class GoogleScholarSearcher(SearcherBase):
         if not self.api_key:
             logger.warning("Google Scholar requested but SERPAPI_KEY is not configured; skipping search")
             return []
+
+        # Weekly SerpAPI quota kill-switch — refuse to burn budget until the
+        # configured renewal date passes. We raise RateLimitError so the
+        # source-stats card shows a clear "Rate limited" chip rather than a
+        # silent zero-result success.
+        from datetime import date
+        from app.core.config import settings as _settings
+        disabled_until_raw = (_settings.GOOGLE_SCHOLAR_DISABLED_UNTIL or "").strip()
+        if disabled_until_raw:
+            try:
+                disabled_until = date.fromisoformat(disabled_until_raw)
+            except ValueError:
+                logger.warning(
+                    "GOOGLE_SCHOLAR_DISABLED_UNTIL=%s is not ISO format; ignoring",
+                    disabled_until_raw,
+                )
+            else:
+                if date.today() < disabled_until:
+                    logger.info(
+                        "Google Scholar search skipped — manual quota kill-switch active until %s",
+                        disabled_until,
+                    )
+                    raise RateLimitError(
+                        f"Google Scholar disabled — weekly SerpAPI quota exhausted, renews {disabled_until.isoformat()}"
+                    )
 
         try:
             params: Dict[str, Any] = {

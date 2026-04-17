@@ -23,6 +23,8 @@ from sqlalchemy import text
 from typing import Dict
 from app.services.latex_warmup import warmup_latex_cache
 from app.services.latex_cache_cleanup import start_cache_cleanup_task
+from app.services.project_discovery_scheduler import start_auto_discovery_task
+from app.services.paper_discovery.warmup import warmup_semantic_models
 try:
     import redis as redis_lib
 except Exception:  # pragma: no cover
@@ -177,8 +179,15 @@ async def startup_warmup_event() -> None:
     if settings.LATEX_WARMUP_ON_STARTUP:
         asyncio.create_task(warmup_latex_cache())
 
+    # Preload bi-encoder + cross-encoder so the first paper search in a
+    # process doesn't eat the 15s cold-start. Non-blocking — runs in threads.
+    asyncio.create_task(warmup_semantic_models())
+
     # LaTeX cache cleanup (periodic background task)
     asyncio.create_task(start_cache_cleanup_task())
+
+    # Project auto discovery scheduler (periodic background task)
+    asyncio.create_task(start_auto_discovery_task())
 
     # Start embedding worker for semantic search (background thread)
     try:

@@ -352,7 +352,11 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
       const msg = copy[messageIdx]
       if (!msg?.proposals || msg.proposals.length === 0 || !msg.sourceDocument) return prev
 
-      const appliedIds = new Set(onApplyEditsBatch?.(msg.proposals, msg.sourceDocument) ?? [])
+      // Only submit pending proposals — already-applied ones shouldn't be re-applied
+      const pending = msg.proposals.filter((p) => p.status === 'pending')
+      if (pending.length === 0) return prev
+
+      const appliedIds = new Set(onApplyEditsBatch?.(pending, msg.sourceDocument) ?? [])
       if (appliedIds.size > 0) {
         msg.proposals = msg.proposals.map((p) => ({
           ...p,

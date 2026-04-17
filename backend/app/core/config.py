@@ -1,4 +1,7 @@
+"""Application settings loaded from environment variables."""
+
 from pydantic_settings import BaseSettings
+from pydantic import Field
 from typing import List, Optional
 import os
 
@@ -67,6 +70,11 @@ class Settings(BaseSettings):
 
     # SerpAPI for Google Scholar (optional)
     SERPAPI_KEY: Optional[str] = None
+    # Manual kill-switch for the Google Scholar source while the weekly SerpAPI
+    # quota is exhausted. Set to an ISO date (YYYY-MM-DD) — searches are
+    # short-circuited with a "rate limited" status until that date passes.
+    # Example: GOOGLE_SCHOLAR_DISABLED_UNTIL=2026-05-09
+    GOOGLE_SCHOLAR_DISABLED_UNTIL: Optional[str] = None
 
     # ScienceDirect / Elsevier API (optional)
     SCIENCEDIRECT_API_KEY: Optional[str] = None
@@ -100,6 +108,8 @@ class Settings(BaseSettings):
     PROJECTS_API_ENABLED: bool = False
     PROJECT_FIRST_NAV_ENABLED: bool = False
     PROJECT_REFERENCE_SUGGESTIONS_ENABLED: bool = True
+    AUTO_DISCOVERY_ENABLED: bool = True
+    AUTO_DISCOVERY_POLL_SECONDS: int = Field(default=300, ge=1)
     PROJECT_AI_ORCHESTRATION_ENABLED: bool = False
     PROJECT_COLLAB_REALTIME_ENABLED: bool = False
     PROJECT_MEETINGS_ENABLED: bool = False
@@ -170,6 +180,7 @@ class Settings(BaseSettings):
 settings = Settings()
 
 def _validate_security_settings() -> None:
+    """Fail fast when required security-sensitive settings are unset."""
     if not settings.SECRET_KEY or settings.SECRET_KEY == DEFAULT_SECRET_KEY:
         raise RuntimeError(
             "SECRET_KEY must be explicitly set and must not use the default placeholder value."

@@ -5,6 +5,7 @@ Utility functions for generating URL-friendly slugs and short IDs.
 import re
 import secrets
 import string
+import unicodedata
 from typing import Optional
 
 
@@ -27,22 +28,39 @@ def slugify(text: str, max_length: int = 50) -> str:
     """
     Convert text to a URL-friendly slug.
 
+    - Transliterates accented Latin characters (é → e, ñ → n, …)
     - Converts to lowercase
     - Replaces spaces and special chars with hyphens
     - Removes consecutive hyphens
     - Strips leading/trailing hyphens
     - Truncates to max_length
+
+    Non-Latin scripts (Arabic, CJK, Cyrillic, …) cannot be meaningfully
+    transliterated here; they are stripped and the caller should rely on the
+    short_id suffix for a unique URL.
     """
     if not text:
         return ""
 
+    # Normalize to decomposed form so combining marks become separate codepoints,
+    # then drop the marks. This turns "Étude" into "Etude" and "déjà" into "deja".
+    normalized = unicodedata.normalize('NFKD', text)
+    slug = ''.join(ch for ch in normalized if not unicodedata.combining(ch))
+
     # Convert to lowercase
-    slug = text.lower()
+    slug = slug.lower()
 
     # Replace common special characters
     slug = slug.replace('&', 'and')
     slug = slug.replace('@', 'at')
     slug = slug.replace('+', 'plus')
+    slug = slug.replace('ß', 'ss')
+    slug = slug.replace('æ', 'ae')
+    slug = slug.replace('œ', 'oe')
+    slug = slug.replace('ø', 'o')
+    slug = slug.replace('ð', 'd')
+    slug = slug.replace('þ', 'th')
+    slug = slug.replace('ł', 'l')
 
     # Replace any non-alphanumeric character with hyphen
     slug = re.sub(r'[^a-z0-9]+', '-', slug)

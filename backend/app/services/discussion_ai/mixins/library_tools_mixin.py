@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from sqlalchemy.exc import IntegrityError
@@ -88,12 +89,12 @@ class LibraryToolsMixin:
         self,
         ctx: Dict[str, Any],
         paper_id: str,
-        latex_content: str,
+        latex_source: str,
     ) -> Dict[str, Any]:
         r"""
-        Parse citations from LaTeX content and link matching references to the paper.
+        Parse citations from LaTeX source and link matching references to the paper.
 
-        1. Extract \cite{} keys from content
+        1. Extract \cite{} keys from source
         2. Match keys to recent_search_results AND project library references
         3. Create Reference entries (if not exist)
         4. Add to project library (ProjectReference)
@@ -141,7 +142,7 @@ class LibraryToolsMixin:
             return {"linked": 0, "message": "No references available to match against (no recent search results and no project library references)"}
 
         # Extract all citation keys from \cite{key1, key2} commands
-        cite_matches = _CITE_PATTERN.findall(latex_content)
+        cite_matches = _CITE_PATTERN.findall(latex_source)
 
         # Flatten and clean citation keys
         citation_keys = set()

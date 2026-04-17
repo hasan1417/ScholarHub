@@ -153,6 +153,8 @@ def deterministic_full_convert(source: str, template_id: str) -> ConvertResult:
                     edit_blocks.append((line_num, (
                         f"<<<EDIT>>>\n"
                         f"Replace IEEEkeywords begin\n"
+                        f"<<<FILE>>>\n"
+                        f"main.tex\n"
                         f"<<<LINES>>>\n"
                         f"{line_num}-{line_num}\n"
                         f"<<<ANCHOR>>>\n"
@@ -170,6 +172,8 @@ def deterministic_full_convert(source: str, template_id: str) -> ConvertResult:
                     edit_blocks.append((line_num, (
                         f"<<<EDIT>>>\n"
                         f"Replace IEEEkeywords end\n"
+                        f"<<<FILE>>>\n"
+                        f"main.tex\n"
                         f"<<<LINES>>>\n"
                         f"{line_num}-{line_num}\n"
                         f"<<<ANCHOR>>>\n"
@@ -195,6 +199,8 @@ def deterministic_full_convert(source: str, template_id: str) -> ConvertResult:
                         edit_blocks.append((line_num, (
                             f"<<<EDIT>>>\n"
                             f"Update bibliographystyle to {target_bib_style}\n"
+                            f"<<<FILE>>>\n"
+                            f"main.tex\n"
                             f"<<<LINES>>>\n"
                             f"{line_num}-{line_num}\n"
                             f"<<<ANCHOR>>>\n"
@@ -224,6 +230,8 @@ def deterministic_full_convert(source: str, template_id: str) -> ConvertResult:
         edit_blocks.append((1, (
             f"<<<EDIT>>>\n"
             f"Replace preamble with {template_id.upper()} format\n"
+            f"<<<FILE>>>\n"
+            f"main.tex\n"
             f"<<<LINES>>>\n"
             f"1-{maketitle_line}\n"
             f"<<<ANCHOR>>>\n"

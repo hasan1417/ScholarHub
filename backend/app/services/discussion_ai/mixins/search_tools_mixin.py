@@ -931,11 +931,21 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 if len(topic_papers) >= max_res:
                     break
 
-                # Cross-topic dedup using unique key
-                unique_key = p.get_unique_key() if hasattr(p, 'get_unique_key') else (p.doi or p.title or "")
-                if unique_key in seen_keys:
-                    continue
-                seen_keys.add(unique_key)
+                # Cross-topic dedup: check every identity key the paper carries
+                # (DOI, arXiv ID, normalized title+year, title). Using all keys
+                # catches duplicates where topic A returned the arXiv record and
+                # topic B returned the OpenAlex record of the same work — they
+                # differ on DOI but share title+year.
+                if hasattr(p, 'match_keys'):
+                    paper_keys = p.match_keys()
+                    if any(k in seen_keys for k in paper_keys):
+                        continue
+                    seen_keys.update(paper_keys)
+                else:
+                    unique_key = p.doi or p.title or ""
+                    if unique_key in seen_keys:
+                        continue
+                    seen_keys.add(unique_key)
 
                 # Library dedup
                 if p.doi and p.doi.lower().replace("https://doi.org/", "").strip() in library_dois:

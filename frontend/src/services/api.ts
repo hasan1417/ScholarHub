@@ -332,20 +332,55 @@ api.interceptors.response.use(
         // Retry the original request with new token
         return api(originalRequest as any)
       } catch (refreshError) {
-        // Redirect to login on refresh failure
-        localStorage.removeItem('access_token')
-        localStorage.removeItem('user')
-        window.location.href = '/login'
-
+        handleSessionExpired()
         // Return a never-resolving promise so the UI stays in loading state
         // instead of briefly flashing an error before the redirect
         return new Promise(() => {})
       }
     }
-    
+
     return Promise.reject(error)
   }
 )
+
+// Shared session-expired handler: persists an explanation in sessionStorage so the
+// login page can show a toast after the hard redirect, and preserves the attempted
+// URL as a returnTo query param.
+const SESSION_EXPIRED_FLAG = 'sh:session-expired'
+const handleSessionExpired = () => {
+  localStorage.removeItem('access_token')
+  localStorage.removeItem('user')
+
+  if (typeof window === 'undefined') return
+
+  try {
+    sessionStorage.setItem(SESSION_EXPIRED_FLAG, 'Your session has expired. Please sign in again.')
+  } catch {
+    // Private mode or quota failure — silently skip the toast.
+  }
+
+  const currentPath = window.location.pathname + window.location.search
+  const isAuthRoute =
+    window.location.pathname.startsWith('/login') ||
+    window.location.pathname.startsWith('/register') ||
+    window.location.pathname.startsWith('/forgot-password') ||
+    window.location.pathname.startsWith('/reset-password') ||
+    window.location.pathname.startsWith('/verify-email')
+
+  const returnTo = !isAuthRoute && currentPath !== '/' ? `?returnTo=${encodeURIComponent(currentPath)}` : ''
+  window.location.href = `/login${returnTo}`
+}
+
+export const consumeSessionExpiredMessage = (): string | null => {
+  if (typeof window === 'undefined') return null
+  try {
+    const value = sessionStorage.getItem(SESSION_EXPIRED_FLAG)
+    if (value) sessionStorage.removeItem(SESSION_EXPIRED_FLAG)
+    return value
+  } catch {
+    return null
+  }
+}
 
 // Auth API endpoints
 export const authAPI = {

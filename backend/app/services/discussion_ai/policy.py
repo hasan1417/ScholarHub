@@ -94,9 +94,21 @@ class DiscussionPolicy:
         r"(?:\s+\d+)?(?:\s+(?:papers?|articles?|references?|studies?|results?))?\s*$",
         re.IGNORECASE,
     )
+    # Match only when a metadata-field keyword (description / objectives /
+    # keywords / scope) appears in the SAME sentence as an update verb.
+    # The previous pattern matched any "add ... project ..." pair, which
+    # misfired on phrases like "add to the project library" (a search request,
+    # not a metadata edit) and routed genuine search turns to project_update,
+    # silently blocking batch_search_papers.
+    _PROJECT_UPDATE_FIELDS = r"(?:description|objectives?|keywords?|scope|goals?|aims?)"
+    _PROJECT_UPDATE_VERBS = (
+        r"(?:update|change|set|add|remove|edit|modify|fill|populate|draft|"
+        r"write|generate|create)"
+    )
     _PROJECT_UPDATE_PATTERN = re.compile(
-        r"\b(?:project|keywords?|objectives?|scope|description)\b.*\b(?:update|change|set|add|remove|edit|modify)\b|"
-        r"\b(?:update|change|set|add|remove|edit|modify)\b.*\b(?:project|keywords?|objectives?|scope|description)\b",
+        rf"\b{_PROJECT_UPDATE_FIELDS}\b[^.?!]{{0,120}}\b{_PROJECT_UPDATE_VERBS}\b"
+        rf"|"
+        rf"\b{_PROJECT_UPDATE_VERBS}\b[^.?!]{{0,120}}\b{_PROJECT_UPDATE_FIELDS}\b",
         re.IGNORECASE,
     )
     _DIRECT_SEARCH_PATTERNS = (

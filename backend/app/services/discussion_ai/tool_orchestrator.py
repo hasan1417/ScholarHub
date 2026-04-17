@@ -40,6 +40,8 @@ DISCUSSION_TOOLS = DISCUSSION_TOOL_REGISTRY.get_schema_list()  # Full list for r
 # Role-based permissions (permissions.py) handle access control.
 # No intent-based filtering — modern models handle 28 tools fine (~5K tokens).
 
+from app.services.ai_guardrails import GUARDRAIL_PROMPT
+
 # System prompt with adaptive workflow based on request clarity
 BASE_SYSTEM_PROMPT = r"""You are a research assistant helping with academic papers for researchers and scholars.
 Prioritize research quality: precision, traceability to sources, and academically rigorous outputs over broad but noisy results.
@@ -120,7 +122,7 @@ Only quote findings that appear in the context you have. When summarizing across
 - Use hedging language: "findings suggest", "results indicate", "evidence supports"
 - Every factual claim MUST be backed by \cite{{}} — aim for 1-2 citations per paragraph minimum
 - Structure sections with clear topic sentences and logical transitions
-
+""" + GUARDRAIL_PROMPT + r"""
 Project: {project_title} | Channel: {channel_name}
 {context_summary}"""
 
@@ -140,7 +142,7 @@ Answer questions about this paper in depth. Use the full text provided below. Wh
 - Reference papers not in the provided text
 - Invent statistics or findings
 - Answer questions unrelated to this paper
-
+""" + GUARDRAIL_PROMPT + r"""
 Paper: {paper_title} | Project: {project_title}
 
 {context_summary}"""
@@ -151,7 +153,8 @@ If the user greets you, greet them back warmly.
 If they acknowledge something, confirm briefly. If they ask a research question
 or need papers/analysis, let them know you're ready to help and ask what they need.
 If a request is clearly unrelated to research, briefly explain you're a research assistant.
-Keep responses under 3 sentences for simple exchanges."""
+Keep responses under 3 sentences for simple exchanges.
+""" + GUARDRAIL_PROMPT
 
 # Reminder injected after conversation history to reinforce key rules
 HISTORY_REMINDER = (
@@ -179,7 +182,9 @@ class ToolOrchestrator(MemoryMixin, SearchToolsMixin, LibraryToolsMixin, Analysi
     """
     # Safety-net token cap — generous enough to never truncate useful responses.
     # Primary length control is via the system prompt guidance, not this cap.
-    DEFAULT_MAX_OUTPUT_TOKENS = 2048
+    # 4096 handles composite tool-chain turns (e.g. get_project_references +
+    # get_related_papers ×2 + final synthesis) that 2048 was truncating.
+    DEFAULT_MAX_OUTPUT_TOKENS = 4096
 
     def __init__(self, ai_service: "AIService", db: "Session"):
         self.ai_service = ai_service
@@ -278,7 +283,9 @@ class ToolOrchestrator(MemoryMixin, SearchToolsMixin, LibraryToolsMixin, Analysi
         from app.services.discussion_ai.route_classifier import classify_route
 
         try:
-            yield {"type": "status", "tool": "", "message": "Understanding your message"}
+            # First visible status — reflects what actually happens next:
+            # route classifier + memory context build + system prompt assembly.
+            yield {"type": "status", "tool": "", "message": "Processing your request"}
 
             ctx = self._build_request_context(
                 project,
@@ -614,10 +621,15 @@ If asked to perform write actions, explain that editor/admin access is required.
         if not search_results:
             return None
 
-        if any((tr.get("result") or {}).get("status") == "error" for tr in search_results):
+        # Fall back to the model's own text on error or policy-blocked searches —
+        # the canned "Results will appear shortly" message would be a lie.
+        if any((tr.get("result") or {}).get("status") in ("error", "blocked") for tr in search_results):
             return None
 
-        return "Searching for papers now. Results will appear in the UI shortly."
+        # Past-tense, action-oriented copy so the message body doesn't read
+        # like a loading status (the search has already finished by the time
+        # this text renders).
+        return "Found matching papers — open the Discoveries panel to review and add any to your library."
 
     def _generate_tool_summary_message(self, tool_results: List[Dict[str, Any]]) -> str:
         """Generate deterministic fallback text when model returns empty content."""
@@ -627,7 +639,9 @@ If asked to perform write actions, explain that editor/admin access is required.
             if name in ("search_papers", "batch_search_papers"):
                 if result.get("status") == "error":
                     return "Search failed due to a temporary issue. Please retry."
-                return "Searching for papers now. Results will appear in the UI shortly."
+                if result.get("status") == "blocked":
+                    return result.get("message") or "Search was blocked by the current conversation policy."
+                return "Found matching papers — open the Discoveries panel to review and add any to your library."
 
         tools_called = [tr.get("name", "tool") for tr in tool_results]
         if not tools_called:
@@ -725,16 +739,25 @@ If asked to perform write actions, explain that editor/admin access is required.
                 # Execute tool calls
                 tool_results = self._execute_tool_calls(tool_calls, ctx)
                 all_tool_results.extend(tool_results)
-                if any(tr.get("name") in ("search_papers", "batch_search_papers") for tr in tool_results):
+                # Only mark "search executed" for searches that actually produced
+                # results. Blocked/errored searches must loop back to the model.
+                if any(
+                    tr.get("name") in ("search_papers", "batch_search_papers")
+                    and (tr.get("result") or {}).get("status") not in ("error", "blocked")
+                    for tr in tool_results
+                ):
                     search_tool_executed = True
 
-                # If only search tools ran, skip re-querying the model — the response
-                # will be the short confirmation from _apply_response_budget anyway.
+                # Skip re-querying only when every tool was a successful search.
                 search_only = all(
                     tr.get("name") in ("search_papers", "batch_search_papers")
                     for tr in tool_results
                 )
-                if search_only and search_tool_executed:
+                search_has_problem = any(
+                    (tr.get("result") or {}).get("status") in ("error", "blocked")
+                    for tr in tool_results
+                )
+                if search_only and search_tool_executed and not search_has_problem:
                     break
 
                 # Add assistant message with tool calls
@@ -1178,7 +1201,9 @@ If asked to perform write actions, explain that editor/admin access is required.
             logger.debug(f"Context summary DB queries skipped: {e}")
             lines.append("## Available Resources")
 
-        # Recent search results - show prominently
+        # Recent search results - show prominently. Each entry is wrapped
+        # with an explicit boundary so the model can't confuse "paper N" with
+        # "paper N+1" even if a title/author field contains punctuation.
         if recent_search_results:
             lines.append(f"\n**RECENT SEARCH RESULTS** (user's 'first paper', 'paper 2', etc. refer to these!):")
             for i, p in enumerate(recent_search_results, 1):
@@ -1187,7 +1212,11 @@ If asked to perform write actions, explain that editor/admin access is required.
                 authors = p.get("authors", "")
                 if isinstance(authors, list):
                     authors = ", ".join(authors[:2]) + ("..." if len(authors) > 2 else "")
-                lines.append(f"  {i}. \"{title}{'...' if len(p.get('title', '')) > 80 else ''}\" ({authors}, {year})")
+                lines.append(f"--- Paper {i} ---")
+                lines.append(f"  title: \"{title}{'...' if len(p.get('title', '')) > 80 else ''}\"")
+                lines.append(f"  authors: {authors}")
+                lines.append(f"  year: {year}")
+            lines.append("--- end search results ---")
 
         try:
             from app.models import ProjectReference, Reference, ProjectDiscussionChannelResource

@@ -69,6 +69,13 @@ class ProjectDiscoveryOutcome:
     references_created: int = 0
     project_suggestions_created: int = 0
     source_stats: Optional[List[SourceStats]] = None
+    # When the run was skipped by the concurrent-run guard, this is set so the
+    # API layer can surface a 409 instead of a misleading 200+empty response.
+    skipped_reason: Optional[str] = None
+    # Pruning note — set when the rolling window drops older pending items so
+    # the UI can show "N older auto results archived" rather than silently
+    # losing state.
+    rolling_window_pruned: int = 0
 
 
 _AUTO_QUERY_SYSTEM = (
@@ -348,9 +355,41 @@ class ProjectDiscoveryManager:
         progress_callback: Optional[Callable[..., Any]] = None,
     ) -> ProjectDiscoveryOutcome:
         """Perform a discovery run and persist the resulting artifacts."""
-        # Guard against concurrent auto runs (e.g. multiple browser tabs)
-        if run_type != ProjectDiscoveryRunType.MANUAL:
-            from datetime import timedelta as _td
+        # Guard against concurrent runs. Auto runs get a 5 min window (cron
+        # shouldn't re-fire that fast); manual runs catch both a truly in-flight
+        # RUNNING peer and any COMPLETED run in the past 5 seconds, so a
+        # rapid double-click or duplicate API call can't spawn two heavy
+        # searches. We set `skipped_reason` on the outcome so the API layer
+        # can return a meaningful 409 instead of pretending the run succeeded.
+        from datetime import timedelta as _td
+        if run_type == ProjectDiscoveryRunType.MANUAL:
+            # Two windows: RUNNING peer at any age vs COMPLETED peer < 5s ago.
+            running_cutoff = datetime.now(timezone.utc) - _td(minutes=10)
+            completed_cutoff = datetime.now(timezone.utc) - _td(seconds=5)
+            concurrent_run = (
+                self.db.query(ProjectDiscoveryRun.id)
+                .filter(
+                    ProjectDiscoveryRun.project_id == project.id,
+                    (
+                        (ProjectDiscoveryRun.status == ProjectDiscoveryRunStatus.RUNNING)
+                        & (ProjectDiscoveryRun.started_at >= running_cutoff)
+                    )
+                    | (
+                        (ProjectDiscoveryRun.status == ProjectDiscoveryRunStatus.COMPLETED)
+                        & (ProjectDiscoveryRun.started_at >= completed_cutoff)
+                    ),
+                )
+                .first()
+            )
+            if concurrent_run:
+                logger.info(
+                    "Skipping manual discovery for project %s — concurrent/rapid-repeat run detected",
+                    project.id,
+                )
+                return ProjectDiscoveryOutcome(
+                    skipped_reason="A discovery run is already in progress for this project.",
+                )
+        else:
             recent_cutoff = datetime.now(timezone.utc) - _td(minutes=5)
             concurrent_run = (
                 self.db.query(ProjectDiscoveryRun.id)
@@ -367,10 +406,10 @@ class ProjectDiscoveryManager:
             )
             if concurrent_run:
                 logger.info(
-                    "Skipping auto discovery for project %s — recent run exists within 5 min",
+                    "Skipping auto discovery for project %s — recent auto run exists",
                     project.id,
                 )
-                return ProjectDiscoveryOutcome()
+                return ProjectDiscoveryOutcome(skipped_reason="auto_recent_run_exists")
 
         # Rolling window: trim oldest pending auto results to keep feed fresh
         if run_type != ProjectDiscoveryRunType.MANUAL:
@@ -395,16 +434,20 @@ class ProjectDiscoveryManager:
                 self.db.query(ProjectDiscoveryResultModel).filter(
                     ProjectDiscoveryResultModel.id.in_(trim_ids),
                 ).delete(synchronize_session=False)
+                trimmed_count = len(trim_ids)
                 logger.info(
                     "Trimmed %d oldest pending auto results for project %s",
-                    len(trim_ids), project.id,
+                    trimmed_count, project.id,
                 )
                 self.db.flush()
                 # Store trim count so the frontend can show a notification
                 prefs = dict(project.discovery_preferences or {})
-                prefs["auto_trimmed_count"] = len(trim_ids)
+                prefs["auto_trimmed_count"] = trimmed_count
                 project.discovery_preferences = prefs
                 self.db.flush()
+                # Remember on the outcome so the API response can tell the
+                # user immediately instead of relying on the preferences poll.
+                self._rolling_window_pruned_this_run = trimmed_count
 
             # Housekeeping: purge dismissed results older than 30 days
             from datetime import timedelta
@@ -505,7 +548,13 @@ class ProjectDiscoveryManager:
                 logger.info(f"Cleared {deleted_count} previous discovery results for project {project.id}")
             self.db.flush()
 
-        outcome = ProjectDiscoveryOutcome(run_id=run.id)
+        outcome = ProjectDiscoveryOutcome(
+            run_id=run.id,
+            rolling_window_pruned=getattr(self, "_rolling_window_pruned_this_run", 0),
+        )
+        # Reset the one-shot counter so subsequent runs in the same process
+        # don't inherit it.
+        self._rolling_window_pruned_this_run = 0
         start_time = time.perf_counter()
 
         include_unpromoted = run_type != ProjectDiscoveryRunType.MANUAL
