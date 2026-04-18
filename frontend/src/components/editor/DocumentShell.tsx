@@ -55,6 +55,61 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
   const [isPaperOwner, setIsPaperOwner] = useState(false)
   const [aiChatOpen, setAiChatOpen] = useState(false)
   const [aiChatInitialMessage, setAiChatInitialMessage] = useState<string | null>(null)
+  // AI chat column width — persisted to localStorage so the user's choice
+  // survives reloads. Clamped to [320, 800] so the editor+PDF always have
+  // enough room to be useful.
+  const AI_CHAT_WIDTH_MIN = 320
+  const AI_CHAT_WIDTH_MAX = 800
+  const AI_CHAT_WIDTH_DEFAULT = 400
+  const [aiChatWidth, setAiChatWidth] = useState<number>(() => {
+    if (typeof window === 'undefined') return AI_CHAT_WIDTH_DEFAULT
+    const stored = Number(localStorage.getItem('sh:aiChatWidth'))
+    if (Number.isFinite(stored) && stored >= AI_CHAT_WIDTH_MIN && stored <= AI_CHAT_WIDTH_MAX) {
+      return stored
+    }
+    return AI_CHAT_WIDTH_DEFAULT
+  })
+  const [aiChatDragging, setAiChatDragging] = useState(false)
+
+  const handleAiChatDragStart = useCallback((e: React.MouseEvent | React.PointerEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startWidth = aiChatWidth
+    setAiChatDragging(true)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    const handleMove = (ev: PointerEvent) => {
+      const delta = startX - ev.clientX
+      const next = Math.max(
+        AI_CHAT_WIDTH_MIN,
+        Math.min(AI_CHAT_WIDTH_MAX, startWidth + delta),
+      )
+      setAiChatWidth(next)
+    }
+    const handleUp = () => {
+      setAiChatDragging(false)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      window.removeEventListener('pointermove', handleMove)
+      window.removeEventListener('pointerup', handleUp)
+      window.removeEventListener('pointercancel', handleUp)
+    }
+    // Use pointer events so capture works over iframes too. Without this, the
+    // PDF iframe swallows mousemove/mouseup as soon as the cursor enters it,
+    // making the drag "stick" or reset to the original width.
+    window.addEventListener('pointermove', handleMove)
+    window.addEventListener('pointerup', handleUp)
+    window.addEventListener('pointercancel', handleUp)
+  }, [aiChatWidth])
+
+  // Persist width on every commit (in case drag ends via keyboard or edge case)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      localStorage.setItem('sh:aiChatWidth', String(aiChatWidth))
+    } catch {}
+  }, [aiChatWidth])
   const [fixLoading, setFixLoading] = useState(false)
   const [fixProposals, setFixProposals] = useState<EditProposal[]>([])
   const fixSourceSnapshotRef = useRef<string>('')
@@ -1199,24 +1254,60 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
             Docked AI chat column — pushes the Adapter when open.
             Hidden below md (<768px); on narrow screens EditorAIChatOR falls
             back to a bottom overlay (handled inside that component).
+            Width is draggable via the handle on its left edge; the resulting
+            size persists across reloads.
           */}
           {!readOnly && aiChatOpen && (
-            <div className="hidden shrink-0 border-l border-slate-200 md:flex md:w-[400px] md:flex-col dark:border-slate-700 dark:bg-slate-900">
-              <EditorAIChatOR
-                paperId={paperId}
-                projectId={projectId}
-                documentText={getLiveDocumentText()}
-                documentFiles={getDocumentFiles()}
-                open={true}
-                onOpenChange={(next) => setAiChatOpen(readOnly ? false : next)}
-                onApplyEdit={handleApplyAiEdit}
-                onApplyEditsBatch={handleApplyAiEditsBatch}
-                initialMessage={aiChatInitialMessage || undefined}
-                onInitialMessageConsumed={() => setAiChatInitialMessage(null)}
-                isOwner={isPaperOwner}
-                layout="docked"
-              />
-            </div>
+            <>
+              {/*
+                Drag handle. Container is 8px wide for a comfortable hit
+                target; the visible rule is a 2px centered strip. The flex
+                wrapper makes that trivial and keeps the cursor feedback
+                across the full hit area.
+              */}
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize AI chat panel"
+                onPointerDown={handleAiChatDragStart}
+                onDoubleClick={() => setAiChatWidth(AI_CHAT_WIDTH_DEFAULT)}
+                title="Drag to resize · double-click to reset"
+                className="group hidden shrink-0 cursor-col-resize items-center justify-center md:flex md:w-[8px]"
+              >
+                <div className={`h-full w-[2px] transition-colors ${aiChatDragging ? 'bg-indigo-500' : 'bg-slate-200 group-hover:bg-indigo-400 dark:bg-slate-700 dark:group-hover:bg-indigo-500'}`} />
+              </div>
+              <div
+                className="hidden shrink-0 flex-col md:flex dark:bg-slate-900"
+                style={{ width: aiChatWidth }}
+              >
+                <EditorAIChatOR
+                  paperId={paperId}
+                  projectId={projectId}
+                  documentText={getLiveDocumentText()}
+                  documentFiles={getDocumentFiles()}
+                  open={true}
+                  onOpenChange={(next) => setAiChatOpen(readOnly ? false : next)}
+                  onApplyEdit={handleApplyAiEdit}
+                  onApplyEditsBatch={handleApplyAiEditsBatch}
+                  initialMessage={aiChatInitialMessage || undefined}
+                  onInitialMessageConsumed={() => setAiChatInitialMessage(null)}
+                  isOwner={isPaperOwner}
+                  layout="docked"
+                />
+              </div>
+              {/*
+                During drag, a fixed full-viewport overlay intercepts pointer
+                events so the PDF iframe (and any other child iframes) can't
+                swallow them. pointer-events: all is implicit on a div. The
+                col-resize cursor keeps the affordance obvious while dragging.
+              */}
+              {aiChatDragging && (
+                <div
+                  className="fixed inset-0 z-[100] cursor-col-resize"
+                  style={{ touchAction: 'none' }}
+                />
+              )}
+            </>
           )}
         </div>
       </div>
