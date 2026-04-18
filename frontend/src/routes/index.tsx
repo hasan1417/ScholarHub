@@ -6,7 +6,6 @@ import Landing from '../pages/Landing'
 import OverviewShowcase from '../pages/OverviewShowcase'
 import DesignShowcase from '../pages/DesignShowcase'
 import EditDetailsShowcase from '../pages/EditDetailsShowcase'
-import AskAiButtonGallery from '../pages/AskAiButtonGallery'
 import Pricing from '../pages/Pricing'
 import PrivacyPolicy from '../pages/PrivacyPolicy'
 import TermsOfService from '../pages/TermsOfService'
@@ -71,10 +70,6 @@ export const appRouteConfig: RouteObject[] = [
       {
         path: 'edit-details-showcase',
         element: <EditDetailsShowcase />,
-      },
-      {
-        path: 'ask-ai-gallery',
-        element: <AskAiButtonGallery />,
       },
       ...referenceRoutes,
       // discoveryRoutes removed - discovery only within project context
