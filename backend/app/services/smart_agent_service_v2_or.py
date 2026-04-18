@@ -542,7 +542,12 @@ def _collect_latex_validation_warnings(edits: Any) -> list[str]:
 
 
 def _append_latex_validation_warning(explanation: str, warnings: list[str]) -> str:
-    """Append a single warning block to the propose_edit explanation."""
+    """Append a validation-warning block to the propose_edit explanation.
+
+    Used for real issues — bounds problems, unknown citation keys, malformed
+    LaTeX — where the user needs to be warned before applying. The "Warning:"
+    prefix is intentional: it renders as a red banner on the client.
+    """
     if not warnings:
         return explanation
 
@@ -552,6 +557,25 @@ def _append_latex_validation_warning(explanation: str, warnings: list[str]) -> s
     if not explanation:
         return warning_text
     return f"{explanation}\n\n{warning_text}"
+
+
+def _append_edit_scope_note(explanation: str, size_notes: list[str]) -> str:
+    """Append a neutral edit-scope note (NOT a warning).
+
+    Size/scope information is metadata, not a problem. Using the same red
+    "Warning:" prefix for it — as the old code did — made small, clean edits
+    look like they had broken LaTeX. This separate prefix lets the client
+    render scope as a muted gray pill instead.
+    """
+    if not size_notes:
+        return explanation
+
+    scope_text = "Edit scope: " + " | ".join(size_notes)
+    if scope_text in explanation:
+        return explanation
+    if not explanation:
+        return scope_text
+    return f"{explanation}\n\n{scope_text}"
 
 
 class SmartAgentServiceV2OR:
@@ -966,10 +990,9 @@ class SmartAgentServiceV2OR:
                 else:
                     size_notes.append(f"Edit {idx} ({file_name}): {replaced} line{'s' if replaced != 1 else ''}")
             if size_notes:
-                explanation = _append_latex_validation_warning(
-                    explanation,
-                    ["Edit scope:"] + [f"  - {n}" for n in size_notes],
-                )
+                # Scope notes are informational, not validation failures —
+                # keep them out of the red "Warning:" block.
+                explanation = _append_edit_scope_note(explanation, size_notes)
 
             yield f"{explanation}\n\n"
 

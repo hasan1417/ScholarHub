@@ -46,11 +46,16 @@ export default {
           '0%': { transform: 'translateX(-100%)' },
           '100%': { transform: 'translateX(0)' },
         },
+        'ai-shimmer': {
+          '0%': { transform: 'translateX(-100%)' },
+          '100%': { transform: 'translateX(400%)' },
+        },
       },
       animation: {
         gleam: 'gleam 3s ease-in-out infinite',
         'toast-in': 'toast-in 0.2s ease-out',
         'slide-in-left': 'slide-in-left 0.25s ease-out',
+        'ai-shimmer': 'ai-shimmer 1.6s ease-in-out infinite',
       },
     },
   },

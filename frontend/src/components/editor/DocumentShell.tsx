@@ -1136,10 +1136,12 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
       {!readOnly && !aiChatOpen && (
         <button
           onClick={() => setAiChatOpen(true)}
-          className="fixed bottom-6 left-1/2 z-40 flex h-14 w-14 -translate-x-1/2 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/30 transition-all duration-300 hover:scale-110 hover:shadow-xl hover:shadow-indigo-500/40 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 active:scale-95 dark:shadow-indigo-500/20 dark:hover:shadow-indigo-500/30"
-          title="AI Assistant"
+          className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 py-2.5 pl-3 pr-4 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-indigo-500/40 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 active:translate-y-0 dark:shadow-indigo-500/20 dark:hover:shadow-indigo-500/30"
+          title="Open AI Assistant (⌘J)"
+          aria-label="Open AI Assistant"
         >
-          <Sparkles className="h-6 w-6 animate-pulse" />
+          <Sparkles className="h-4 w-4" />
+          <span>Ask AI</span>
         </button>
       )}
 

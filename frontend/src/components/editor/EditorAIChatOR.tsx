@@ -89,6 +89,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [statusMessage, setStatusMessage] = useState<string>('Thinking')
+  const [elapsedMs, setElapsedMs] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [references, setReferences] = useState<ReferenceItem[]>([])
   const [reasoningMode, setReasoningMode] = useState(false)
@@ -129,6 +130,19 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
     enabled: Boolean(paperId) && open,
     staleTime: 30000,
   })
+
+  // Elapsed-time counter for the working state. Ticks every 500ms so the user
+  // sees a live "12s" next to the status — resets when a turn starts and
+  // freezes when it finishes so the final number stays readable briefly.
+  useEffect(() => {
+    if (!sending) return
+    const start = Date.now()
+    setElapsedMs(0)
+    const id = window.setInterval(() => {
+      setElapsedMs(Date.now() - start)
+    }, 500)
+    return () => window.clearInterval(id)
+  }, [sending])
 
   // Populate messages from history on first load
   useEffect(() => {
@@ -860,55 +874,68 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
 
   if (!open) return null
 
+  // Compact "provider · model" label. Falls back gracefully during load.
+  // Example: "openai · GPT-5.2". Keeps the model name prominent without
+  // splitting into two text runs that read like a label + value pair.
+  const modelDisplayName = currentModel?.name || 'Loading…'
+  const providerShort = (currentModel?.provider || '').toLowerCase()
+
   return (
-    <div className="fixed bottom-24 left-1/2 z-40 w-[min(960px,95vw)] -translate-x-1/2 rounded-2xl border border-slate-200 bg-white/95 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
-      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-700">
-        <div className="flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 text-white">
+    // Anchor the panel to the LEFT side so it overlays the LaTeX editor (where
+    // the user is asking the AI to change things) instead of the PDF preview
+    // (where the user needs to see the compiled result). Fixed width 440px,
+    // fills most of the vertical height with a small inset.
+    <div className="fixed bottom-4 left-4 top-[112px] z-40 flex w-[440px] max-w-[calc(100vw-2rem)] flex-col rounded-2xl border border-slate-200 bg-white/95 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
+      <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 text-white">
             <Bot className="h-5 w-5" />
           </div>
-          <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI Assistant</span>
+          <div className="flex min-w-0 flex-col leading-tight">
+            <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI Assistant</span>
+            {/* Merged model pill — one text run, provider as a muted prefix. */}
+            <span
+              className="truncate text-[11px] text-slate-500 dark:text-slate-400"
+              title={`Model configured in Project Settings — ${modelDisplayName}`}
+            >
+              {providerShort ? `${providerShort} · ` : ''}
+              {modelDisplayName}
+            </span>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1">
+          {/* Reasoning Mode Toggle — icon-only pill, title describes mode. */}
+          {supportsReasoning && (
+            <button
+              onClick={() => setReasoningMode(!reasoningMode)}
+              className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${
+                reasoningMode
+                  ? 'bg-purple-100 text-purple-700 ring-1 ring-purple-300 dark:bg-purple-900/50 dark:text-purple-300 dark:ring-purple-700'
+                  : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200'
+              }`}
+              title={reasoningMode ? 'Reasoning mode ON (slower, more accurate) — click to turn off' : 'Turn on reasoning mode (slower, more accurate)'}
+              aria-label={reasoningMode ? 'Reasoning mode enabled' : 'Enable reasoning mode'}
+              aria-pressed={reasoningMode}
+            >
+              <Brain className="h-4 w-4" />
+            </button>
+          )}
           {/* Clear History (owner only) */}
           {isOwner && messages.length > 0 && (
             <button
               onClick={() => void handleClearHistory()}
-              className="rounded-full p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-900/30 dark:hover:text-rose-400"
+              className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-900/30 dark:hover:text-rose-400"
               title="Clear chat history for all collaborators"
+              aria-label="Clear chat history"
             >
               <Trash2 className="h-4 w-4" />
             </button>
           )}
-          {/* Model Display (read-only, configured in Project Settings) */}
-          <div
-            className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium dark:border-slate-700 dark:bg-slate-800"
-            title="Model is configured in Project Settings"
-          >
-            <Sparkles className="h-4 w-4 text-indigo-500 dark:text-indigo-400" />
-            <span className="max-w-[120px] truncate text-gray-700 dark:text-slate-200">{currentModel?.name || 'Loading...'}</span>
-            <span className="text-xs text-gray-400 dark:text-slate-500">{currentModel?.provider}</span>
-          </div>
-
-          {/* Reasoning Mode Toggle - only show for supported models */}
-          {supportsReasoning && (
-            <button
-              onClick={() => setReasoningMode(!reasoningMode)}
-              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-                reasoningMode
-                  ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'
-              }`}
-              title={reasoningMode ? 'Reasoning mode enabled (slower, more accurate)' : 'Enable reasoning mode'}
-            >
-              <Brain className="h-3.5 w-3.5" />
-              {reasoningMode ? 'Reasoning' : 'Reason'}
-            </button>
-          )}
           <button
             onClick={() => onOpenChange(false)}
-            className="rounded-full p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
             aria-label="Close AI chat"
+            title="Close"
           >
             <X className="h-4 w-4" />
           </button>
@@ -930,10 +957,10 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
         </div>
       )}
 
-      <div className="px-4 py-3">
+      <div className="flex min-h-0 flex-1 flex-col px-4 py-3">
         <div
           ref={listRef}
-          className="h-64 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-800/80 dark:text-slate-100"
+          className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-800/80 dark:text-slate-100"
         >
           {messages.length === 0 && !historyQuery.isLoading && (
             <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-slate-500 dark:text-slate-400">
@@ -965,11 +992,57 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
               </div>
               {m.role === 'assistant' ? (
                 <>
-                  {m.content && (
-                    <div className="prose prose-sm prose-slate dark:prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:font-semibold prose-headings:text-slate-900 dark:prose-headings:text-slate-100 prose-h3:text-sm prose-strong:text-slate-900 dark:prose-strong:text-white prose-code:rounded prose-code:bg-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:text-indigo-700 prose-code:before:content-none prose-code:after:content-none dark:prose-code:bg-slate-700 dark:prose-code:text-indigo-300 prose-blockquote:border-indigo-300 dark:prose-blockquote:border-indigo-500 prose-a:text-indigo-600 dark:prose-a:text-indigo-400 prose-a:no-underline hover:prose-a:underline">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
-                    </div>
-                  )}
+                  {m.content && (() => {
+                    // Split backend blocks into three buckets so the UI can
+                    // render each with appropriate weight:
+                    //  • main prose (explanation)
+                    //  • red "Warning:" banner for real validation failures
+                    //  • muted gray "Edit scope:" pill for size metadata
+                    const raw = m.content
+                    const warningMatch = raw.match(/\n?\n?Warning: potential LaTeX issues detected: ([^\n]+)/)
+                    const scopeMatch = raw.match(/\n?\n?Edit scope: ([^\n]+)/)
+                    let mainText = raw
+                    if (warningMatch) mainText = mainText.replace(warningMatch[0], '')
+                    if (scopeMatch) mainText = mainText.replace(scopeMatch[0], '')
+                    mainText = mainText.trim()
+
+                    const warningEntries = warningMatch
+                      ? warningMatch[1].split('|').map(s => s.trim()).filter(Boolean)
+                      : []
+                    const scopeEntries = scopeMatch
+                      ? scopeMatch[1].split('|').map(s => s.trim()).filter(Boolean)
+                      : []
+
+                    return (
+                      <>
+                        {mainText && (
+                          <div className="prose prose-sm prose-slate dark:prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:font-semibold prose-headings:text-slate-900 dark:prose-headings:text-slate-100 prose-h3:text-sm prose-strong:text-slate-900 dark:prose-strong:text-white prose-code:rounded prose-code:bg-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:text-indigo-700 prose-code:before:content-none prose-code:after:content-none dark:prose-code:bg-slate-700 dark:prose-code:text-indigo-300 prose-blockquote:border-indigo-300 dark:prose-blockquote:border-indigo-500 prose-a:text-indigo-600 dark:prose-a:text-indigo-400 prose-a:no-underline hover:prose-a:underline">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{mainText}</ReactMarkdown>
+                          </div>
+                        )}
+                        {warningEntries.length > 0 && (
+                          <div className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] text-rose-800 dark:border-rose-400/50 dark:bg-rose-900/30 dark:text-rose-100">
+                            <div className="font-semibold">Potential issues detected</div>
+                            <ul className="mt-0.5 list-disc pl-4 space-y-0.5">
+                              {warningEntries.map((w, i) => <li key={i}>{w}</li>)}
+                            </ul>
+                          </div>
+                        )}
+                        {scopeEntries.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {scopeEntries.map((s, i) => (
+                              <span
+                                key={i}
+                                className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                              >
+                                {s}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()}
                   {m.content && isReviewMessage(m.content) && (!m.proposals || m.proposals.length === 0) && !appliedReviewMsgs.has(idx) && (
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <button
@@ -1020,7 +1093,6 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="text-xs font-semibold text-slate-600 dark:text-slate-300">
                           {m.proposals.length} proposed edit{m.proposals.length > 1 ? 's' : ''}
-                          {m.fromHistory && <span className="ml-1 text-slate-400">(from history)</span>}
                         </div>
                         {!m.fromHistory && (() => {
                           const hasPending = m.proposals?.some(p => p.status === 'pending')
@@ -1169,39 +1241,38 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
               <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 Assistant
               </div>
-              <div className="space-y-2">
+              <div className="mt-1 space-y-2">
                 <div className="flex items-center gap-2.5">
-                  <div className="flex items-center gap-2 text-sm font-medium text-purple-600 dark:text-purple-300">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span>{statusMessage}...</span>
+                  <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-purple-600 dark:text-purple-300">
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                    <span className="truncate">{statusMessage}</span>
                   </div>
-                  <button
-                    onClick={handleCancel}
-                    className="ml-auto flex h-6 w-6 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
-                    title="Cancel request"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
+                  <span className="ml-auto font-mono text-[11px] tabular-nums text-slate-500 dark:text-slate-400">
+                    {Math.floor(elapsedMs / 1000)}s
+                  </span>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="h-1 w-1 animate-pulse rounded-full bg-purple-400 dark:bg-purple-500" style={{ animationDelay: '0ms' }} />
-                  <div className="h-1 w-1 animate-pulse rounded-full bg-purple-400 dark:bg-purple-500" style={{ animationDelay: '150ms' }} />
-                  <div className="h-1 w-1 animate-pulse rounded-full bg-purple-400 dark:bg-purple-500" style={{ animationDelay: '300ms' }} />
+                {/* Indeterminate shimmer bar — the Send button toggles to Stop
+                    in the input area, so we no longer need an inline X. */}
+                <div className="h-[3px] overflow-hidden rounded-full bg-purple-100 dark:bg-purple-900/40">
+                  <div className="animate-ai-shimmer h-full w-1/3 rounded-full bg-gradient-to-r from-purple-400 to-indigo-500 dark:from-purple-500 dark:to-indigo-400" />
                 </div>
               </div>
             </div>
           )}
           {sending && messages.length > 0 && messages[messages.length - 1].role === 'assistant' && (
-            <div className="flex items-center gap-2 py-1">
-              <Loader2 className="h-3 w-3 animate-spin text-purple-500 dark:text-purple-400" />
-              <span className="text-xs font-medium text-purple-600 dark:text-purple-300">{statusMessage}...</span>
-              <button
-                onClick={handleCancel}
-                className="ml-auto flex h-5 w-5 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
-                title="Cancel request"
-              >
-                <X className="h-3 w-3" />
-              </button>
+            <div className="space-y-1 py-1">
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-3 w-3 shrink-0 animate-spin text-purple-500 dark:text-purple-400" />
+                <span className="min-w-0 truncate text-xs font-medium text-purple-600 dark:text-purple-300">
+                  {statusMessage}
+                </span>
+                <span className="ml-auto font-mono text-[10px] tabular-nums text-slate-400 dark:text-slate-500">
+                  {Math.floor(elapsedMs / 1000)}s
+                </span>
+              </div>
+              <div className="h-[2px] overflow-hidden rounded-full bg-purple-100 dark:bg-purple-900/40">
+                <div className="animate-ai-shimmer h-full w-1/3 rounded-full bg-gradient-to-r from-purple-400 to-indigo-500 dark:from-purple-500 dark:to-indigo-400" />
+              </div>
             </div>
           )}
         </div>
@@ -1221,16 +1292,28 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
           />
           <div className="mt-2 flex items-center justify-between">
             <div className="text-[11px] text-slate-500 dark:text-slate-400">
-              Enter to send | Shift+Enter for newline
+              Enter to send · Shift+Enter for newline
             </div>
-            <button
-              onClick={() => void handleSend()}
-              disabled={sending || !input.trim()}
-              className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-purple-600 to-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:from-purple-700 hover:to-indigo-700 disabled:cursor-not-allowed disabled:from-slate-400 disabled:to-slate-400"
-            >
-              {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              Send
-            </button>
+            {sending ? (
+              <button
+                onClick={handleCancel}
+                className="inline-flex items-center gap-2 rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-rose-700 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
+                title="Stop the current request"
+                aria-label="Stop"
+              >
+                <X className="h-4 w-4" />
+                Stop
+              </button>
+            ) : (
+              <button
+                onClick={() => void handleSend()}
+                disabled={!input.trim()}
+                className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-purple-600 to-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow transition-all hover:from-purple-700 hover:to-indigo-700 disabled:cursor-not-allowed disabled:from-slate-400 disabled:to-slate-400"
+              >
+                <Send className="h-4 w-4" />
+                Send
+              </button>
+            )}
           </div>
         </div>
       </div>
