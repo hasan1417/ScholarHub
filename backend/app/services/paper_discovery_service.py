@@ -308,7 +308,12 @@ class SearchOrchestrator:
 
         # Phase 1.5: Supplementary searches using query-understanding search_terms.
         # These catch papers indexed under variant terms (e.g., "CharacterBERT" vs "Character BERT").
-        if query_intent and query_intent.search_terms:
+        # Skip entirely when the primary fan-out already overshot 2x the target —
+        # spending 3s on 6 extra HTTP calls for marginal recall is a bad trade
+        # when we already have more than enough candidates for dedup + rerank.
+        if (query_intent
+                and query_intent.search_terms
+                and len(collected) < max_results * 2):
             fast_sources = [s for s in active_searchers
                             if s.get_source_name() in ('semantic_scholar', 'openalex', 'arxiv')]
             pre_count = len(collected)

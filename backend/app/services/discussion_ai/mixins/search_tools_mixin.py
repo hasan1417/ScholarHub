@@ -520,23 +520,30 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             }
 
             def _source_progress(event):
-                # The discover_papers pipeline emits {"type": "source_complete",
-                # "source": ..., "count": ..., "elapsed_ms": ...}. Turn those
-                # into a ticker so the user sees sources land one-by-one
-                # instead of staring at "Searching for papers" for 10s.
+                # The discover_papers pipeline emits two event shapes:
+                #   - {"type": "source_complete", "source": ..., "count": ...}
+                #     — fires once per source as it finishes
+                #   - {"type": "phase", "phase": "enriching"|"ranking", "message": ...}
+                #     — fires between pipeline stages
+                # Both get turned into visible status ticks so the user never
+                # stares at the same label for more than a few seconds.
                 if not isinstance(event, dict):
                     return
-                if event.get("type") != "source_complete":
-                    return
-                source = str(event.get("source") or "")
-                label = source_labels.get(source, source.replace("_", " ").title())
-                if not label:
-                    return
-                count = event.get("count")
-                if isinstance(count, int) and count > 0:
-                    _emit_progress(ctx, f"{label}: {count} results")
-                else:
-                    _emit_progress(ctx, f"{label}: 0 results")
+                etype = event.get("type")
+                if etype == "source_complete":
+                    source = str(event.get("source") or "")
+                    label = source_labels.get(source, source.replace("_", " ").title())
+                    if not label:
+                        return
+                    count = event.get("count")
+                    if isinstance(count, int) and count > 0:
+                        _emit_progress(ctx, f"{label}: {count} results")
+                    else:
+                        _emit_progress(ctx, f"{label}: 0 results")
+                elif etype == "phase":
+                    message = event.get("message")
+                    if message:
+                        _emit_progress(ctx, str(message))
 
             async def _run_search():
                 discovery_service = PaperDiscoveryService()
