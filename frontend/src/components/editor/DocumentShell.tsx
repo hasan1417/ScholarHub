@@ -1260,10 +1260,9 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
           {!readOnly && aiChatOpen && (
             <>
               {/*
-                Drag handle. Container is 8px wide for a comfortable hit
-                target; the visible rule is a 2px centered strip. The flex
-                wrapper makes that trivial and keeps the cursor feedback
-                across the full hit area.
+                Drag handle — visually identical to the editor/PDF split
+                handle inside LaTeXEditor (w-1 rail with a hoverable dot-
+                grip pill) so the two resize affordances match.
               */}
               <div
                 role="separator"
@@ -1272,9 +1271,15 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
                 onPointerDown={handleAiChatDragStart}
                 onDoubleClick={() => setAiChatWidth(AI_CHAT_WIDTH_DEFAULT)}
                 title="Drag to resize · double-click to reset"
-                className="group hidden shrink-0 cursor-col-resize items-center justify-center md:flex md:w-[8px]"
+                className={`group relative z-10 hidden shrink-0 cursor-col-resize items-center justify-center transition-colors md:flex md:w-1 ${aiChatDragging ? 'bg-indigo-500 dark:bg-indigo-400' : 'bg-slate-200 hover:bg-indigo-400 dark:bg-slate-700 dark:hover:bg-indigo-500'}`}
               >
-                <div className={`h-full w-[2px] transition-colors ${aiChatDragging ? 'bg-indigo-500' : 'bg-slate-200 group-hover:bg-indigo-400 dark:bg-slate-700 dark:group-hover:bg-indigo-500'}`} />
+                <div className={`absolute flex h-8 w-4 items-center justify-center rounded bg-slate-300 transition-opacity dark:bg-slate-600 ${aiChatDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                  <div className="flex flex-col gap-0.5">
+                    <div className="h-0.5 w-1 rounded-full bg-slate-500 dark:bg-slate-400" />
+                    <div className="h-0.5 w-1 rounded-full bg-slate-500 dark:bg-slate-400" />
+                    <div className="h-0.5 w-1 rounded-full bg-slate-500 dark:bg-slate-400" />
+                  </div>
+                </div>
               </div>
               <div
                 className="hidden shrink-0 flex-col md:flex dark:bg-slate-900"
