@@ -8,7 +8,11 @@ from typing import Dict, Optional
 class DiscoveryConfig:
     """Centralized configuration for discovery behaviour and limits."""
 
-    max_concurrent_searches: int = 5
+    # 9 sources total (semantic_scholar, google_scholar, arxiv, crossref, openalex,
+    # pubmed, sciencedirect, core, europe_pmc) — all pure I/O on asyncio. Throttling
+    # to 5 was wasting 2-4s of wall-clock per search turn while the slowest
+    # sources waited for earlier ones. Let them all race.
+    max_concurrent_searches: int = 12
     max_concurrent_enrichments: int = 10
     max_concurrent_pdf_checks: int = 8
     search_timeout: float = 60.0

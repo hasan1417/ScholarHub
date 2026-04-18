@@ -302,6 +302,46 @@ export function useAssistantChat({
       let displayTimer: ReturnType<typeof setTimeout> | null = null
       let pendingDisplay = ''
 
+      // Idle "still working" ticker — if the backend goes silent while a tool
+      // is executing (e.g. a 10s paper-discovery fan-out), swap in a fresher
+      // status so the user sees the UI hasn't frozen. The backend already
+      // streams source-complete events during search, so this only fires in
+      // the genuine tail cases (cold LLM round, slow external API).
+      let idleTimer: ReturnType<typeof setTimeout> | null = null
+      let currentBaseStatus = ''
+      let currentTool = ''
+      const clearIdleTimer = () => {
+        if (idleTimer) {
+          clearTimeout(idleTimer)
+          idleTimer = null
+        }
+      }
+      const bumpIdleStatus = (suffix: string) => {
+        const nextMessage = currentBaseStatus
+          ? `${currentBaseStatus} — ${suffix}`
+          : suffix
+        setAssistantHistory((prev) =>
+          prev.map((e) =>
+            e.id === id
+              ? { ...e, streamPhase: { phase: 'tool_running', tool: currentTool, statusMessage: nextMessage, round: currentRound } }
+              : e
+          )
+        )
+      }
+      const armIdleTimer = (baseMessage: string, tool: string) => {
+        clearIdleTimer()
+        currentBaseStatus = baseMessage
+        currentTool = tool
+        // First fallback at 5s, escalate at 10s. Reset on any new event.
+        idleTimer = setTimeout(() => {
+          bumpIdleStatus('still working')
+          idleTimer = setTimeout(() => {
+            bumpIdleStatus('taking longer than usual')
+            idleTimer = null
+          }, 5000)
+        }, 5000)
+      }
+
       const scheduleDisplayUpdate = (content: string) => {
         pendingDisplay = content
         if (!displayTimer) {
@@ -335,6 +375,8 @@ export function useAssistantChat({
             const event = JSON.parse(jsonStr)
 
             if (event.type === 'token') {
+              // Active token stream — no need for an idle fallback.
+              clearIdleTimer()
               accumulatedContent += event.content || ''
               const display = stripActionsBlock(accumulatedContent)
 
@@ -354,6 +396,7 @@ export function useAssistantChat({
               // New round starting — clear display, only final round matters
               // The backend doesn't stream tokens during tool rounds (stream_directly=False),
               // so any text shown was from BEFORE the tool was detected. Clear it.
+              clearIdleTimer()
               accumulatedContent = ''
               currentRound = event.round || currentRound + 1
               currentPhase = 'waiting'
@@ -367,13 +410,15 @@ export function useAssistantChat({
               )
             } else if (event.type === 'tool_start') {
               currentPhase = 'tool_running'
+              const baseMessage = event.message || 'Processing'
               setAssistantHistory((prev) =>
                 prev.map((e) =>
                   e.id === id
-                    ? { ...e, streamPhase: { phase: 'tool_running', tool: event.tool || '', statusMessage: event.message || 'Processing', round: event.round || currentRound } }
+                    ? { ...e, streamPhase: { phase: 'tool_running', tool: event.tool || '', statusMessage: baseMessage, round: event.round || currentRound } }
                     : e
                 )
               )
+              armIdleTimer(baseMessage, event.tool || '')
             } else if (event.type === 'tool_end') {
               // Tool finished — stay in tool_running until next round starts.
               // Some tools mutate data the rest of the UI reads from cache
@@ -389,20 +434,26 @@ export function useAssistantChat({
                 })
               }
             } else if (event.type === 'status') {
-              // Backward compatibility
+              // Backward compatibility — also used for per-source progress
+              // ticks during paper discovery and the "reconsidering approach"
+              // keep-alive on the recovery retry path.
               currentPhase = 'tool_running'
+              const baseMessage = event.message || 'Processing'
               setAssistantHistory((prev) =>
                 prev.map((e) =>
                   e.id === id
-                    ? { ...e, streamPhase: { phase: 'tool_running', tool: event.tool || '', statusMessage: event.message || 'Processing', round: currentRound } }
+                    ? { ...e, streamPhase: { phase: 'tool_running', tool: event.tool || '', statusMessage: baseMessage, round: currentRound } }
                     : e
                 )
               )
+              armIdleTimer(baseMessage, event.tool || '')
             } else if (event.type === 'result') {
+              clearIdleTimer()
               finalResult = event.payload
               gotFinalResult = true
               break
             } else if (event.type === 'error') {
+              clearIdleTimer()
               throw new Error(event.message || 'Stream error')
             }
           } catch (parseError) {
@@ -423,6 +474,7 @@ export function useAssistantChat({
         clearTimeout(displayTimer)
         displayTimer = null
       }
+      clearIdleTimer()
       // Flush final display AND mark as complete immediately
       // This unblocks the input without waiting for onSuccess
       const flushed = accumulatedContent ? stripActionsBlock(accumulatedContent) : ''

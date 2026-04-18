@@ -487,9 +487,15 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         if not api_key:
             logger.warning("OPENROUTER_API_KEY not configured (no user key or system key)")
 
+        # Cap LLM round-trip at 60s. Default SDK timeout is ~10min, which would
+        # stall tool-call iterations well past the frontend's 180s axios limit and
+        # surface as an opaque network error instead of a retryable backend timeout.
+        openrouter_timeout = 60.0
+
         self.openrouter_client = openai.OpenAI(
             api_key=api_key or "missing-key",
             base_url="https://openrouter.ai/api/v1",
+            timeout=openrouter_timeout,
             default_headers={
                 "HTTP-Referer": "https://scholarhub.space",
                 "X-Title": "ScholarHub",
@@ -499,6 +505,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         self.async_openrouter_client = openai.AsyncOpenAI(
             api_key=api_key or "missing-key",
             base_url="https://openrouter.ai/api/v1",
+            timeout=openrouter_timeout,
             default_headers={
                 "HTTP-Referer": "https://scholarhub.space",
                 "X-Title": "ScholarHub",
@@ -1024,6 +1031,9 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                         "role": "system",
                         "content": "You MUST use a tool to fulfill this request. Do not just describe what you would do — call the appropriate tool now.",
                     })
+                    # Emit a status so the user doesn't stare at a frozen UI
+                    # during the silent 1.5-4s while we re-prompt the model.
+                    yield {"type": "status", "tool": "", "message": "Reconsidering approach"}
                     logger.info("[ToolRecovery] No tool calls, retrying with nudge")
                     continue
 

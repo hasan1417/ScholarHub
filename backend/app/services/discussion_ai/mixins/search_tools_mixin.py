@@ -505,6 +505,39 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             # Request more to account for filtering (open access + library duplicates)
             search_max = max_results * 3
 
+            # Friendly labels for the status ticker — keep the mapping here so
+            # new sources get a human name as soon as they're wired up.
+            source_labels = {
+                "semantic_scholar": "Semantic Scholar",
+                "google_scholar": "Google Scholar",
+                "openalex": "OpenAlex",
+                "arxiv": "arXiv",
+                "crossref": "CrossRef",
+                "pubmed": "PubMed",
+                "europe_pmc": "Europe PMC",
+                "sciencedirect": "ScienceDirect",
+                "core": "CORE",
+            }
+
+            def _source_progress(event):
+                # The discover_papers pipeline emits {"type": "source_complete",
+                # "source": ..., "count": ..., "elapsed_ms": ...}. Turn those
+                # into a ticker so the user sees sources land one-by-one
+                # instead of staring at "Searching for papers" for 10s.
+                if not isinstance(event, dict):
+                    return
+                if event.get("type") != "source_complete":
+                    return
+                source = str(event.get("source") or "")
+                label = source_labels.get(source, source.replace("_", " ").title())
+                if not label:
+                    return
+                count = event.get("count")
+                if isinstance(count, int) and count > 0:
+                    _emit_progress(ctx, f"{label}: {count} results")
+                else:
+                    _emit_progress(ctx, f"{label}: 0 results")
+
             async def _run_search():
                 discovery_service = PaperDiscoveryService()
                 try:
@@ -516,6 +549,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                         year_from=year_from,
                         year_to=year_to,
                         open_access_only=open_access_only,
+                        progress_callback=_source_progress,
                     )
                 finally:
                     await discovery_service.close()
