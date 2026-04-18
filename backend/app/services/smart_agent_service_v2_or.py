@@ -569,11 +569,18 @@ class SmartAgentServiceV2OR:
         "sentence", "document", "paper", "manuscript",
     )
 
+    # The lite route has no tools and no access to the document. It must NEVER
+    # draft LaTeX content or propose edits — all editing must flow through the
+    # main tool-using route where LATEX_EDITOR_GUARDRAILS (scope + citation
+    # integrity) is enforced. If you ever change the lite prompt to draft
+    # document content, also append LATEX_EDITOR_GUARDRAILS here.
     _LITE_SYSTEM_PROMPT = (
         "You are a helpful academic writing assistant for the LaTeX editor in ScholarHub. "
         "Respond concisely and warmly. If the user greets you, greet them back briefly. "
         "If they thank you or acknowledge something, confirm briefly. "
         "If they seem to need editing help, let them know you're ready. "
+        "Do NOT draft LaTeX, code, or document content in this route — those "
+        "requests must be routed to the full tool-enabled path. "
         "Keep responses under 2 sentences.\n"
         + GUARDRAIL_PROMPT
     )
@@ -1954,6 +1961,7 @@ class SmartAgentServiceV2OR:
     ) -> str:
         """Get reference summaries for context."""
         try:
+            from sqlalchemy.orm import joinedload
             from app.models.reference import Reference
             from app.models.paper_reference import PaperReference
 
@@ -1964,7 +1972,12 @@ class SmartAgentServiceV2OR:
             if not resolved_id:
                 return "Paper not found."
 
-            refs = db.query(Reference).join(
+            # Eager-load `document` to avoid an N+1: without this, every
+            # `ref.document` access below triggers its own SELECT. On a paper
+            # with 25 attached refs that was 25+ round-trips per turn.
+            refs = db.query(Reference).options(
+                joinedload(Reference.document),
+            ).join(
                 PaperReference, PaperReference.reference_id == Reference.id
             ).filter(
                 PaperReference.paper_id == resolved_id

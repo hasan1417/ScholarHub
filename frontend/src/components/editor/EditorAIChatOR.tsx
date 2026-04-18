@@ -582,12 +582,27 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
       // Create abort controller for cancel functionality
       abortControllerRef.current = new AbortController()
 
+      // Hard 3-minute ceiling that merges with the manual Cancel signal. The
+      // browser default alone won't stop a request the backend has silently
+      // given up on — if nginx holds a dead connection open, the UI would spin
+      // forever. AbortSignal.any keeps manual Cancel working alongside this.
+      const timeoutSignal =
+        typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+          ? AbortSignal.timeout(180000)
+          : null
+      const combinedSignal =
+        timeoutSignal && typeof (AbortSignal as unknown as { any?: unknown }).any === 'function'
+          ? (AbortSignal as unknown as { any: (signals: AbortSignal[]) => AbortSignal }).any(
+              [abortControllerRef.current.signal, timeoutSignal],
+            )
+          : abortControllerRef.current.signal
+
       try {
         // Use OpenRouter agent endpoint with model selection
         const res = await fetch(
           buildApiUrl(`/agent-or/chat/stream?model=${encodeURIComponent(selectedModel)}`),
           {
-            signal: abortControllerRef.current.signal,
+            signal: combinedSignal,
             method: 'POST',
             headers: buildAuthHeaders(),
             body: JSON.stringify({
@@ -630,11 +645,43 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
               // Streaming content counts as progress — reset idle escalation
               // against the currently-active status rather than a stale label.
               armIdle(statusRef.current)
+
+              // Incremental edit-proposal rendering. If a <<<EDIT>>>...<<<END>>>
+              // block has closed in the growing fullText, parse what's complete
+              // and show it in the proposals panel so the user sees edits land
+              // one-by-one instead of all at once when the stream finishes. The
+              // final-flush block at the bottom of the try still runs and
+              // re-parses for safety.
+              let incrementalProposals: EditProposal[] | null = null
+              let contentForMessage = ''
+              if (fullText.includes('<<<EDIT>>>') && fullText.includes('<<<END>>>')) {
+                try {
+                  const parsed = parseEditProposals(fullText)
+                  if (parsed.proposals.length > 0) {
+                    incrementalProposals = parsed.proposals
+                    contentForMessage = parsed.cleanText
+                  }
+                } catch {
+                  // Malformed partial — ignore, the final parse will handle it.
+                }
+              }
+
               setMessages((prev) => {
                 const copy = [...prev]
                 const last = copy.length - 1
                 if (last >= 0 && copy[last].role === 'assistant') {
-                  copy[last] = { ...copy[last], content: copy[last].content + cleanText }
+                  const updated = { ...copy[last] }
+                  if (incrementalProposals) {
+                    // Replace content with the edit-stripped version and stash
+                    // the in-progress proposals so the panel can render them.
+                    updated.content = contentForMessage
+                    updated.proposals = incrementalProposals
+                    if (!updated.sourceDocument) updated.sourceDocument = docSnapshot
+                    if (!updated.sourcePrompt) updated.sourcePrompt = sourcePrompt
+                  } else {
+                    updated.content = updated.content + cleanText
+                  }
+                  copy[last] = updated
                 } else {
                   copy.push({ role: 'assistant', content: cleanText })
                 }
