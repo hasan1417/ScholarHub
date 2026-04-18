@@ -31,6 +31,14 @@ interface EditorAIChatORProps {
   onInitialMessageConsumed?: () => void
   /** Whether current user is the paper owner (shows clear history button) */
   isOwner?: boolean
+  /**
+   * Visual mode:
+   *  - "docked" (default on desktop): rendered as a normal flex child, fills
+   *    its parent. No fixed positioning, no shadow/round corners.
+   *  - "overlay" (used on narrow screens): fixed-positioned side sheet with
+   *    shadow and rounded corners.
+   */
+  layout?: 'docked' | 'overlay'
 }
 
 type ChatMessage = {
@@ -82,6 +90,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
   initialMessage,
   onInitialMessageConsumed,
   isOwner = false,
+  layout = 'overlay',
 }) => {
   const { user: currentUser } = useAuth()
   const queryClient = useQueryClient()
@@ -880,12 +889,16 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
   const modelDisplayName = currentModel?.name || 'Loading…'
   const providerShort = (currentModel?.provider || '').toLowerCase()
 
+  // Docked mode: fills the parent flex column (width + height controlled by
+  // the layout in DocumentShell — pushes the editor + PDF rather than
+  // overlaying them). Overlay mode: fixed-position side sheet for narrow
+  // screens where there isn't enough width for three columns.
+  const shellClass = layout === 'docked'
+    ? 'flex h-full w-full flex-col bg-white dark:bg-slate-900'
+    : 'fixed bottom-4 right-4 top-[112px] z-40 flex w-[440px] max-w-[calc(100vw-2rem)] flex-col rounded-2xl border border-slate-200 bg-white/95 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95'
+
   return (
-    // Anchor the panel to the LEFT side so it overlays the LaTeX editor (where
-    // the user is asking the AI to change things) instead of the PDF preview
-    // (where the user needs to see the compiled result). Fixed width 440px,
-    // fills most of the vertical height with a small inset.
-    <div className="fixed bottom-4 left-4 top-[112px] z-40 flex w-[440px] max-w-[calc(100vw-2rem)] flex-col rounded-2xl border border-slate-200 bg-white/95 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
+    <div className={shellClass}>
       <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
         <div className="flex min-w-0 items-center gap-2">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 text-white">

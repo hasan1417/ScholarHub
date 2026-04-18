@@ -1150,7 +1150,15 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
         className="flex-1 min-h-0 flex flex-col p-0"
         style={fullBleed ? { } : { height: containerH }}
       >
-        <div className="relative flex-1 min-h-0 overflow-hidden">
+        {/*
+          Horizontal split: [Adapter (editor + PDF)] | [AI chat column].
+          The AI chat is a real flex child when open — it pushes content rather
+          than overlaying it, matching the Cursor / Copilot Chat pattern. On
+          narrow screens (<md) it falls back to a bottom overlay so the editor
+          and PDF aren't starved of width.
+        */}
+        <div className="relative flex-1 min-h-0 overflow-hidden flex">
+          <div className="relative min-w-0 flex-1 overflow-hidden">
           {showSyncOverlay && (
             <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-slate-100/95 text-slate-600 dark:bg-slate-900/95 dark:text-slate-300">
               <Loader2 className="h-5 w-5 animate-spin" />
@@ -1185,6 +1193,31 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
               onApplyAllFixes={handleApplyAllFixes}
             />
           </div>
+          </div>
+
+          {/*
+            Docked AI chat column — pushes the Adapter when open.
+            Hidden below md (<768px); on narrow screens EditorAIChatOR falls
+            back to a bottom overlay (handled inside that component).
+          */}
+          {!readOnly && aiChatOpen && (
+            <div className="hidden shrink-0 border-l border-slate-200 md:flex md:w-[400px] md:flex-col dark:border-slate-700 dark:bg-slate-900">
+              <EditorAIChatOR
+                paperId={paperId}
+                projectId={projectId}
+                documentText={getLiveDocumentText()}
+                documentFiles={getDocumentFiles()}
+                open={true}
+                onOpenChange={(next) => setAiChatOpen(readOnly ? false : next)}
+                onApplyEdit={handleApplyAiEdit}
+                onApplyEditsBatch={handleApplyAiEditsBatch}
+                initialMessage={aiChatInitialMessage || undefined}
+                onInitialMessageConsumed={() => setAiChatInitialMessage(null)}
+                isOwner={isPaperOwner}
+                layout="docked"
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -1324,20 +1357,28 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
         }}
       />
 
-      {/* AI Chat with multi-model support via OpenRouter */}
-      <EditorAIChatOR
-        paperId={paperId}
-        projectId={projectId}
-        documentText={getLiveDocumentText()}
-        documentFiles={getDocumentFiles()}
-        open={!readOnly && aiChatOpen}
-        onOpenChange={(next) => setAiChatOpen(readOnly ? false : next)}
-        onApplyEdit={handleApplyAiEdit}
-        onApplyEditsBatch={handleApplyAiEditsBatch}
-        initialMessage={aiChatInitialMessage || undefined}
-        onInitialMessageConsumed={() => setAiChatInitialMessage(null)}
-        isOwner={isPaperOwner}
-      />
+      {/*
+        AI Chat overlay fallback — only used below md (<768px) where the
+        docked column in the layout above is hidden. On desktop this second
+        instance is hidden by the `md:hidden` wrapper so we don't render two
+        copies of the chat.
+      */}
+      <div className="md:hidden">
+        <EditorAIChatOR
+          paperId={paperId}
+          projectId={projectId}
+          documentText={getLiveDocumentText()}
+          documentFiles={getDocumentFiles()}
+          open={!readOnly && aiChatOpen}
+          onOpenChange={(next) => setAiChatOpen(readOnly ? false : next)}
+          onApplyEdit={handleApplyAiEdit}
+          onApplyEditsBatch={handleApplyAiEditsBatch}
+          initialMessage={aiChatInitialMessage || undefined}
+          onInitialMessageConsumed={() => setAiChatInitialMessage(null)}
+          isOwner={isPaperOwner}
+          layout="overlay"
+        />
+      </div>
     </div>
   )
 }
