@@ -596,6 +596,12 @@ class SmartAgentServiceV2OR:
             self.client = OpenAI(
                 api_key=api_key,
                 base_url="https://openrouter.ai/api/v1",
+                # Cap the LLM round-trip so a stalled provider can't hang the
+                # editor turn past the frontend's abort ceiling. Mirrors the
+                # Discussion AI orchestrator's timeout (see
+                # discussion_ai/openrouter_orchestrator.py:498). Retries are
+                # already handled by _MAX_RETRIES with exponential backoff.
+                timeout=60.0,
                 default_headers={
                     "HTTP-Referer": "https://scholarhub.space",
                     "X-Title": "ScholarHub LaTeX Editor"
@@ -866,6 +872,12 @@ class SmartAgentServiceV2OR:
             edits = args.get("edits", [])
             if not isinstance(edits, list):
                 edits = []
+            # Emit a visible status tick before the synchronous validator pass
+            # (bounds check, cite-key scan, size notes) so the user sees
+            # progress instead of dead air between tool-args-complete and the
+            # first <<<EDIT>>> frame. Typically adds ~50-300ms on a 5-edit
+            # batch, more if there are many attached references.
+            yield self._emit_status("Validating edits")
             latex_warnings = _collect_latex_validation_warnings(edits)
             explanation = _append_latex_validation_warning(explanation, latex_warnings)
 
@@ -1140,6 +1152,13 @@ class SmartAgentServiceV2OR:
             "answer_question": "Drafting answer",
         }
 
+        # Per-edit progress ticker for propose_edit. Multi-edit proposals can
+        # stream 15-25s of tool-call JSON with no visible output — count
+        # description fields so the user sees "Drafting edit 2", "Drafting
+        # edit 3" land as they're produced instead of staring at the frozen
+        # "Drafting edits to your document" status.
+        _edit_ticks_emitted = 0
+
         # answer_question arg-live streaming state
         answer_streaming = False
         answer_aborted = False
@@ -1193,6 +1212,19 @@ class SmartAgentServiceV2OR:
                             if tc_chunk.function.arguments:
                                 arg_frag = tc_chunk.function.arguments
                                 tool_calls_data[idx]["arguments"] += arg_frag
+
+                                # Per-edit tick during propose_edit arg stream.
+                                # Each edit object in the `edits` array has one
+                                # `"description":` field, so counting occurrences
+                                # in the accumulated buffer is a reliable proxy
+                                # for "how many edits has the model emitted so
+                                # far". We only count crossings (emit when the
+                                # count increases) so retries don't double-fire.
+                                if tool_calls_data[idx].get("name") == "propose_edit":
+                                    edit_count = tool_calls_data[idx]["arguments"].count('"description"')
+                                    while _edit_ticks_emitted < edit_count:
+                                        _edit_ticks_emitted += 1
+                                        yield self._emit_status(f"Drafting edit {_edit_ticks_emitted}")
 
                                 # Step 4: answer_question arg-live streaming (feature-flagged)
                                 if (
@@ -1483,6 +1515,14 @@ class SmartAgentServiceV2OR:
                 if use_reasoning:
                     request_kwargs["extra_body"] = {"reasoning_effort": "high"}
 
+                # On turn 2+ the earlier "Incorporating tool results" status
+                # fired before the context-budget trim (which can itself take a
+                # moment on long transcripts). Bump the status right before the
+                # actual LLM call so the user sees a fresh tick instead of a
+                # stale label during the 5-15s silence until the first token.
+                if turn > 1:
+                    yield self._emit_status("Finalizing answer")
+
                 # Stream the LLM call with retry on transient errors.
                 # Only retry if no content tokens have been yielded yet — once
                 # tokens reach the client, retrying would produce duplicates.
@@ -1505,8 +1545,35 @@ class SmartAgentServiceV2OR:
                 tool_calls = self._last_stream_tool_calls
 
                 if not tool_calls:
+                    # Recovery nudge: user clearly asked for an action ("enhance",
+                    # "rewrite", "insert citation", ...) but the model just
+                    # described what it would do instead of calling a tool.
+                    # Re-prompt once so the user gets an actual edit instead of
+                    # a silent non-answer. Mirrors the Discussion AI orchestrator
+                    # pattern (see openrouter_orchestrator.py:1021-1036).
+                    streamed = self._last_stream_content.strip()
+                    if (turn < max_turns
+                            and not streamed
+                            and self._EDITOR_ACTION_VERBS.search(effective_query or "")):
+                        messages.append({
+                            "role": "assistant",
+                            "content": "",
+                        })
+                        messages.append({
+                            "role": "system",
+                            "content": (
+                                "You MUST call one of the provided tools (propose_edit, "
+                                "apply_template, search_references, review_document, or "
+                                "answer_question) to fulfil this request. Do not just "
+                                "describe what you would do — call the appropriate tool now."
+                            ),
+                        })
+                        yield self._emit_status("Reconsidering approach")
+                        logger.info("[SmartAgentV2OR] Empty tool_calls on action query, retrying with nudge")
+                        continue
+
                     # Content-only response — already streamed and accumulated
-                    if not self._last_stream_content.strip() and turn > 1:
+                    if not streamed and turn > 1:
                         fallback = "\n\nI wasn't able to complete the full response. Please try again."
                         response_text += fallback
                         yield fallback

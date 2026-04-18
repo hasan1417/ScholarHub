@@ -526,8 +526,34 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
       setError(null)
       setMessages((prev) => [...prev, { role: 'user', content: prompt }])
 
-      // Fallback timer: show "Still working..." if no status update for 15s
-      let fallbackTimer = window.setTimeout(() => setStatusMessage('Still working...'), 5000)
+      // Two-tier idle escalation. Mirrors the Discussion AI idle timer pattern
+      // so the editor chat never looks frozen during long propose_edit streams:
+      //   +5s  of silence → "… — still working"
+      //   +10s of silence → "… — taking longer than usual"
+      //   +15s of silence → "… — the model is still drafting"
+      // Resets on every real status update so it never fires in the happy path.
+      let idleTimer: number | null = null
+      const clearIdle = () => {
+        if (idleTimer !== null) {
+          window.clearTimeout(idleTimer)
+          idleTimer = null
+        }
+      }
+      const armIdle = (baseMessage: string) => {
+        clearIdle()
+        idleTimer = window.setTimeout(() => {
+          setStatusMessage(`${baseMessage} — still working`)
+          idleTimer = window.setTimeout(() => {
+            setStatusMessage(`${baseMessage} — taking longer than usual`)
+            idleTimer = window.setTimeout(() => {
+              setStatusMessage(`${baseMessage} — the model is still drafting`)
+              idleTimer = null
+            }, 5000)
+          }, 5000)
+        }, 5000)
+      }
+
+      armIdle('Thinking')
       // Debounce timer for status UI updates (100ms) to prevent flicker
       let statusDebounceTimer: number | null = null
       const updateStatus = (msg: string) => {
@@ -535,9 +561,8 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
         statusRef.current = msg
         if (statusDebounceTimer !== null) window.clearTimeout(statusDebounceTimer)
         statusDebounceTimer = window.setTimeout(() => setStatusMessage(msg), 100)
-        // Reset fallback timer on each status update
-        window.clearTimeout(fallbackTimer)
-        fallbackTimer = window.setTimeout(() => setStatusMessage('Still working...'), 5000)
+        // Reset idle escalation on each real status update.
+        armIdle(msg)
       }
 
       // BETA: Send full document - backend handles smart AI-driven extraction
@@ -602,9 +627,9 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
 
             if (cleanText) {
               fullText += cleanText
-              // Reset fallback timer on text progress too
-              window.clearTimeout(fallbackTimer)
-              fallbackTimer = window.setTimeout(() => setStatusMessage('Still working...'), 5000)
+              // Streaming content counts as progress — reset idle escalation
+              // against the currently-active status rather than a stale label.
+              armIdle(statusRef.current)
               setMessages((prev) => {
                 const copy = [...prev]
                 const last = copy.length - 1
@@ -700,7 +725,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
           return copy
         })
       } finally {
-        window.clearTimeout(fallbackTimer)
+        clearIdle()
         if (statusDebounceTimer !== null) window.clearTimeout(statusDebounceTimer)
         abortControllerRef.current = null
         setSending(false)
