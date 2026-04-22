@@ -779,6 +779,24 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     return null
   }, [])
 
+  /** Get live document text — reads from Yjs (realtime) or falls back to lastHtml/latestContentRef */
+  const getLiveDocumentText = useCallback((): string => {
+    // 1. Try Yjs realtime doc (most current)
+    if (collab.doc) {
+      try {
+        const mainText = collab.doc.getText('main')
+        if (mainText && mainText.length > 0) return mainText.toString()
+      } catch {}
+    }
+    // 2. Try lastHtml state
+    if (lastHtml) return lastHtml
+    // 3. Try latestContentRef
+    const refContent = latestContentRef.current
+    if (refContent.json?.latex_source) return refContent.json.latex_source
+    if (refContent.html) return refContent.html
+    return ''
+  }, [collab.doc, lastHtml])
+
   const handleApplyAiEdit = useCallback((startLine: number, endLine: number, anchor: string, replacement: string, _sourceDocument?: string, file?: string): boolean => {
     if (readOnly) return false
 
@@ -813,7 +831,9 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     }
 
     // Main file edit (file is undefined or 'main.tex')
-    const currentContent = adapterRef.current?.getContent?.() || latestContentRef.current.html || ''
+    // Read from Yjs when collab is active — adapter state can lag Yjs right after
+    // a previous apply, causing charStart drift and mid-paragraph corruption.
+    const currentContent = getLiveDocumentText()
     const lines = currentContent.split('\n')
 
     // Resolve target location via anchor — line numbers are just a hint.
@@ -867,7 +887,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     updateLatestContent(newContent, nextJson)
     requestAutosave('ai-edit-applied')
     return true
-  }, [collab.doc, isLatex, readOnly, requestAutosave, showToast, updateLatestContent, resolveEditLocation])
+  }, [collab.doc, isLatex, readOnly, requestAutosave, showToast, updateLatestContent, resolveEditLocation, getLiveDocumentText])
 
   type BatchEdit = {
     id: string
@@ -882,7 +902,8 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
   const handleApplyAiEditsBatch = useCallback((proposals: BatchEdit[], _sourceDocument: string): string[] => {
     if (readOnly) return []
 
-    const currentContent = adapterRef.current?.getContent?.() || latestContentRef.current.html || ''
+    // Read from Yjs when collab is active — see handleApplyAiEdit for rationale
+    const currentContent = getLiveDocumentText()
     const lines = currentContent.split('\n')
 
     // Track skipped edits by reason for better user feedback
@@ -987,25 +1008,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     updateLatestContent(newContent, nextJson)
     requestAutosave('ai-edit-applied-batch')
     return appliedIds
-  }, [collab.doc, isLatex, readOnly, requestAutosave, showToast, updateLatestContent, resolveEditLocation])
-
-  /** Get live document text — reads from Yjs (realtime) or falls back to lastHtml/latestContentRef */
-  const getLiveDocumentText = useCallback((): string => {
-    // 1. Try Yjs realtime doc (most current)
-    if (collab.doc) {
-      try {
-        const mainText = collab.doc.getText('main')
-        if (mainText && mainText.length > 0) return mainText.toString()
-      } catch {}
-    }
-    // 2. Try lastHtml state
-    if (lastHtml) return lastHtml
-    // 3. Try latestContentRef
-    const refContent = latestContentRef.current
-    if (refContent.json?.latex_source) return refContent.json.latex_source
-    if (refContent.html) return refContent.html
-    return ''
-  }, [collab.doc, lastHtml])
+  }, [collab.doc, isLatex, readOnly, requestAutosave, showToast, updateLatestContent, resolveEditLocation, getLiveDocumentText])
 
   /** Get extra file contents from Yjs for multi-file AI context */
   const getDocumentFiles = useCallback((): Record<string, string> | null => {
