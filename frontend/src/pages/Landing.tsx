@@ -14,17 +14,7 @@ import {
   PenTool,
 } from 'lucide-react'
 import { Logo } from '../components/brand/Logo'
-import showcaseEditor from '../assets/showcase-editor.png'
-import showcaseAI from '../assets/showcase-ai-assistant.png'
-import showcaseLibrary from '../assets/showcase-library.png'
-import showcaseOverview from '../assets/showcase-overview.png'
-
-const showcaseTabs = [
-  { label: 'LaTeX Editor', image: showcaseEditor, alt: 'ScholarHub LaTeX editor showing a research paper with live PDF preview' },
-  { label: 'AI Assistant', image: showcaseAI, alt: 'AI research assistant comparing NAS approaches in a discussion channel' },
-  { label: 'Reference Library', image: showcaseLibrary, alt: 'Reference library with 15 academic papers, export, and Zotero import' },
-  { label: 'Project Dashboard', image: showcaseOverview, alt: 'Project overview with AI-powered topic coverage insights' },
-]
+import HeroAnimatedMockup from '../components/landing/HeroAnimatedMockup'
 
 const heroFeaturePills = [
   {
@@ -80,7 +70,6 @@ const useScrollAnimation = (threshold = 0.1) => {
 const Landing = () => {
   const [isVisible, setIsVisible] = useState(false)
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false)
-  const [activeTab, setActiveTab] = useState(0)
 
   // Scroll animation refs
 
@@ -225,85 +214,7 @@ const Landing = () => {
       </nav>
 
       {/* Hero Section */}
-      <section className="relative px-4 sm:px-6 pt-12 sm:pt-20 pb-20 sm:pb-32">
-        <div className="max-w-5xl mx-auto">
-          <div className={`text-center transition-all duration-1000 ease-out ${heroAnimationCls}`}>
-            {/* Main headline */}
-            <h1 className="font-serif mt-6 sm:mt-8 text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight">
-              <span className="bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 dark:from-white dark:via-gray-100 dark:to-white bg-clip-text text-transparent inline-block transition-transform duration-300 pb-1">
-                Write and publish
-              </span>
-              <br />
-              <span className="text-indigo-600 dark:text-indigo-400 inline-block pb-2">
-                research papers, together
-              </span>
-            </h1>
-
-            {/* Subheadline */}
-            <p className="mt-5 sm:mt-8 text-lg sm:text-xl text-gray-600 max-w-2xl mx-auto leading-relaxed dark:text-slate-300 px-2 sm:px-0">
-              Stop juggling Overleaf, Zotero, and Slack for every paper. Write in LaTeX with AI-powered assistance, discover papers across 8 databases, and export journal-ready manuscripts in one click.
-            </p>
-
-            {/* CTA Buttons */}
-            <div className="mt-8 sm:mt-12 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
-              <Link
-                to="/register"
-                className="group relative inline-flex items-center gap-2 px-6 py-3 sm:px-8 sm:py-4 text-sm sm:text-base font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl sm:rounded-2xl transition-all shadow-xl shadow-indigo-500/25 hover:shadow-2xl hover:shadow-indigo-500/40 hover:-translate-y-1"
-              >
-                <span className="relative flex items-center gap-2">
-                  Start for free
-                  <ArrowRight className="h-4 w-4 sm:h-5 sm:w-5 group-hover:translate-x-1 transition-transform" />
-                </span>
-              </Link>
-              <a
-                href="#features"
-                className="group inline-flex items-center gap-2 px-6 py-3 sm:px-8 sm:py-4 text-sm sm:text-base font-medium text-gray-700 dark:text-slate-300 bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border border-gray-200 dark:border-slate-700 rounded-xl sm:rounded-2xl transition-all hover:shadow-lg hover:-translate-y-0.5 hover:border-indigo-300 dark:hover:border-indigo-500/50"
-                onClick={(e) => { e.preventDefault(); document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' }) }}
-              >
-                See what's inside
-              </a>
-            </div>
-            <p className="mt-4 text-sm text-gray-500 dark:text-slate-500">
-              Free for research teams — no credit card required
-            </p>
-
-            {/* Tabbed Product Showcase */}
-            <div className="mt-12 max-w-4xl mx-auto">
-              {/* Tab buttons */}
-              <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 mb-4">
-                {showcaseTabs.map((tab, index) => (
-                  <button
-                    key={tab.label}
-                    onClick={() => setActiveTab(index)}
-                    className={`px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium rounded-lg sm:rounded-xl transition-all ${
-                      activeTab === index
-                        ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/25'
-                        : 'text-gray-600 dark:text-slate-400 bg-white/80 dark:bg-slate-800/80 border border-gray-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-500/50 hover:text-gray-900 dark:hover:text-white'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-              {/* Screenshot */}
-              <div className="rounded-2xl border border-gray-200 dark:border-slate-700 shadow-2xl overflow-hidden">
-                {showcaseTabs.map((tab, index) => (
-                  <img
-                    key={tab.label}
-                    src={tab.image}
-                    alt={tab.alt}
-                    className={`w-full ${index === activeTab ? 'block' : 'hidden'}`}
-                    width={1440}
-                    height={900}
-                    loading={index === activeTab ? 'eager' : 'lazy'}
-                  />
-                ))}
-              </div>
-            </div>
-
-          </div>
-        </div>
-      </section>
+      <HeroAnimatedMockup reduced={prefersReducedMotion} heroAnimationCls={heroAnimationCls} />
 
       {/* Platform Highlights */}
       <section ref={platformHighlights.ref} className="relative px-4 sm:px-6 py-12 sm:py-20">
