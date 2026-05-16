@@ -85,6 +85,7 @@ def build_ai_response(result_dict: Dict[str, Any], model: str) -> DiscussionAssi
         model=result_dict.get("model_used", model),
         usage=result_dict.get("usage"),
         suggested_actions=build_actions(result_dict),
+        invalid_citations=result_dict.get("invalid_citations", []),
     )
 
 

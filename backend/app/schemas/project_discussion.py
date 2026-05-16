@@ -281,6 +281,7 @@ class DiscussionAssistantResponse(BaseModel):
     model: str
     usage: Optional[Dict[str, Any]] = None
     suggested_actions: List[DiscussionAssistantSuggestedAction] = Field(default_factory=list)
+    invalid_citations: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 DiscussionAssistantResponse.model_rebuild(_types_namespace=globals())

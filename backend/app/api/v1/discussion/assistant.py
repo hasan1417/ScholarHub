@@ -378,6 +378,14 @@ async def invoke_discussion_assistant(
                     elif event.get("type") == "result":
                         final_result = event.get("data", {})
                         response_model = _build_ai_response(final_result, selected_model)
+                        citation_validation = final_result.get("citation_validation") or {}
+                        if citation_validation:
+                            yield "data: " + json.dumps({
+                                "type": "citation_validation",
+                                "mode": citation_validation.get("mode"),
+                                "invalid_list": citation_validation.get("invalid_list", []),
+                                "invalid_citations": citation_validation.get("invalid_citations", []),
+                            }) + "\n\n"
                         # Persist as "completed" BEFORE yielding to client
                         # so the DB is correct even if the client disconnects
                         try:

@@ -36,6 +36,11 @@ from app.models.paper_member import PaperMember
 from app.api.utils.project_access import ensure_project_member, get_project_or_404
 from app.api.utils.openrouter_access import resolve_openrouter_key_for_user, resolve_openrouter_key_for_project
 from openai import AsyncOpenAI
+from app.services.citation_filter import (
+    apply_citation_filter_mode,
+    build_allowed_citation_keys,
+    normalize_filter_mode,
+)
 
 router = APIRouter()
 
@@ -1818,6 +1823,13 @@ async def fix_latex_errors(
                     "X-Title": "ScholarHub",
                 },
             )
+            allowed_citation_keys = build_allowed_citation_keys(
+                db,
+                project_id=request.project_id,
+                paper_id=request.paper_id,
+                owner_id=current_user.id,
+            )
+            response_chunks: list[str] = []
 
             yield "data: " + json.dumps({"type": "status", "message": "Analyzing errors..."}) + "\n\n"
 
@@ -1835,7 +1847,24 @@ async def fix_latex_errors(
             async for chunk in stream:
                 delta = chunk.choices[0].delta if chunk.choices else None
                 if delta and delta.content:
+                    response_chunks.append(delta.content)
                     yield "data: " + json.dumps({"type": "token", "content": delta.content}) + "\n\n"
+
+            filtered_text, invalid_citations = apply_citation_filter_mode(
+                "".join(response_chunks),
+                allowed_citation_keys,
+                settings.CITATION_FILTER_MODE,
+            )
+            citation_filter_mode = normalize_filter_mode(settings.CITATION_FILTER_MODE)
+            citation_payload = {
+                "type": "citation_validation",
+                "mode": citation_filter_mode,
+                "invalid_list": invalid_citations,
+                "invalid_citations": invalid_citations,
+            }
+            if citation_filter_mode == "strict":
+                citation_payload["filtered_text"] = filtered_text
+            yield "data: " + json.dumps(citation_payload) + "\n\n"
 
             try:
                 SubscriptionService.increment_usage(

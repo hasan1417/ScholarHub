@@ -22,6 +22,7 @@ from app.services.discussion_ai.utils import (
     _CITE_PATTERN,
     AVAILABLE_TEMPLATES,
 )
+from app.services.citation_filter import make_bib_key
 
 if TYPE_CHECKING:
     from app.models import Project
@@ -437,37 +438,24 @@ class LibraryToolsMixin:
         return keywords
 
     def _generate_citation_key(self, paper: Dict, used_keys: Optional[set] = None) -> str:
-        """Generate a citation key from paper info (authorYYYYword format).
+        """Generate a citation key using the frontend makeBibKey algorithm.
 
         If *used_keys* is provided the method guarantees uniqueness: when the
         base key already exists in the set a disambiguating letter suffix
         (a, b, c, ...) is appended.  The final key is added to *used_keys*
         before returning so that subsequent calls stay collision-free.
         """
-        import re
         authors = paper.get("authors", "unknown")
-        if isinstance(authors, list):
-            first_author = authors[0] if authors else "unknown"
-        else:
-            first_author = authors.split(",")[0].strip() if authors else "unknown"
+        if isinstance(authors, str):
+            authors = [a.strip() for a in authors.split(",") if a.strip()]
 
-        # Extract last name
-        if "," in first_author:
-            last_name = first_author.split(",")[0].strip()
-        else:
-            last_name = first_author.split()[-1] if first_author.split() else "unknown"
-
-        # Clean last name - only lowercase letters
-        last_name = re.sub(r'[^a-zA-Z]', '', last_name).lower()
-
-        year = str(paper.get("year", ""))
-
-        # Get first significant word from title
-        title = paper.get("title", "")
-        title_words = [w for w in re.findall(r'[a-zA-Z]+', title) if len(w) > 3]
-        title_word = title_words[0].lower() if title_words else ""
-
-        base_key = f"{last_name}{year}{title_word}"
+        base_key = make_bib_key(
+            {
+                "authors": authors if isinstance(authors, list) else [],
+                "year": paper.get("year"),
+                "title": paper.get("title"),
+            }
+        )
 
         # Disambiguate when tracking used keys
         if used_keys is not None:

@@ -11,6 +11,7 @@ from app.models.reference import Reference
 from openai import OpenAI
 import os
 import math
+import json
 from app.services.ai_service import AIService
 from app.services.document_processing_service import DocumentProcessingService
 from app.schemas.ai import ChatQuery, ChatResponse, DocumentProcessingResponse
@@ -18,6 +19,12 @@ from pydantic import BaseModel
 import logging
 import time
 from app.models.paper_reference import PaperReference
+from app.core.config import settings
+from app.services.citation_filter import (
+    apply_citation_filter_mode,
+    build_allowed_citation_keys,
+    normalize_filter_mode,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +40,8 @@ class TextGenerationRequest(BaseModel):
     instruction: str  # e.g., "expand", "rephrase", "complete", "summarize"
     context: Optional[str] = None  # Additional context or requirements
     max_length: Optional[int] = 500  # Maximum length of generated text
+    project_id: Optional[str] = None
+    paper_id: Optional[str] = None
 
 class TextGenerationResponse(BaseModel):
     generated_text: str
@@ -40,6 +49,7 @@ class TextGenerationResponse(BaseModel):
     instruction: str
     word_count: int
     processing_time: float
+    invalid_citations: List[Dict[str, Any]] = []
 
 class GrammarCheckRequest(BaseModel):
     text: str
@@ -69,6 +79,40 @@ class ResearchContextResponse(BaseModel):
 router = APIRouter()
 ai_service = AIService()
 document_processor = DocumentProcessingService()
+
+
+def _filter_ai_response_text(
+    db: Session,
+    text: str,
+    current_user: User,
+    *,
+    project_id: Optional[str] = None,
+    paper_id: Optional[str] = None,
+) -> tuple[str, List[dict]]:
+    allowed_keys = build_allowed_citation_keys(
+        db,
+        project_id=project_id,
+        paper_id=paper_id,
+        owner_id=current_user.id,
+    )
+    return apply_citation_filter_mode(text, allowed_keys, settings.CITATION_FILTER_MODE)
+
+
+def _citation_validation_sse(
+    invalid_citations: List[dict],
+    *,
+    filtered_text: Optional[str] = None,
+) -> str:
+    mode = normalize_filter_mode(settings.CITATION_FILTER_MODE)
+    payload = {
+        "type": "citation_validation",
+        "mode": mode,
+        "invalid_list": invalid_citations,
+        "invalid_citations": invalid_citations,
+    }
+    if filtered_text is not None and mode == "strict":
+        payload["filtered_text"] = filtered_text
+    return "data: " + json.dumps(payload) + "\n\n"
 
 
 @router.post("/chat-with-documents", response_model=ChatResponse)
@@ -473,13 +517,21 @@ async def generate_text(
             context=request.context,
             max_length=request.max_length
         )
+        generated_text, invalid_citations = _filter_ai_response_text(
+            db,
+            result["generated_text"],
+            current_user,
+            project_id=request.project_id,
+            paper_id=request.paper_id,
+        )
         
         return TextGenerationResponse(
-            generated_text=result['generated_text'],
+            generated_text=generated_text,
             original_text=request.text,
             instruction=request.instruction,
-            word_count=len(result['generated_text'].split()),
-            processing_time=result.get('processing_time', 0.0)
+            word_count=len(generated_text.split()),
+            processing_time=result.get('processing_time', 0.0),
+            invalid_citations=invalid_citations,
         )
         
     except Exception as e:
@@ -507,12 +559,23 @@ async def generate_text_stream(
             )
 
         def streamer():
-            yield from ai_service.stream_generate_text(
+            chunks: List[str] = []
+            for chunk in ai_service.stream_generate_text(
                 text=request.text,
                 instruction=request.instruction,
                 context=request.context,
                 max_length=request.max_length or 500
+            ):
+                chunks.append(chunk)
+                yield chunk
+            filtered_text, invalid_citations = _filter_ai_response_text(
+                db,
+                "".join(chunks),
+                current_user,
+                project_id=request.project_id,
+                paper_id=request.paper_id,
             )
+            yield _citation_validation_sse(invalid_citations, filtered_text=filtered_text)
 
         return StreamingResponse(streamer(), media_type="text/plain")
     except HTTPException:
@@ -622,6 +685,7 @@ async def enhance_with_research_context(
 class ReferenceChatQuery(BaseModel):
     query: str
     paper_id: Optional[str] = None  # If provided, scope to this paper's references; otherwise use global library
+    project_id: Optional[str] = None
     max_results: Optional[int] = 8  # Maximum number of reference chunks to use
     document_excerpt: Optional[str] = None  # Optional paper draft excerpt to provide additional context
 
@@ -632,6 +696,7 @@ class ReferenceChatResponse(BaseModel):
     chat_id: str
     scope: str  # "paper" or "global"
     paper_title: Optional[str] = None  # If scoped to paper
+    invalid_citations: List[Dict[str, Any]] = []
 
 def _chunk_text_stream(text: str, chunk_size: int = 512):
     """
@@ -803,13 +868,22 @@ async def chat_with_references(
                     detail=f"AI service result missing {key}"
         )
 
+        filtered_response, invalid_citations = _filter_ai_response_text(
+            db,
+            result["response"],
+            current_user,
+            project_id=query.project_id,
+            paper_id=query.paper_id,
+        )
+
         return ReferenceChatResponse(
-            response=result['response'],
+            response=filtered_response,
             sources=result['sources'],
             sources_data=result['sources_data'],
             chat_id=result['chat_id'],
             scope="paper" if query.paper_id else "global",
-            paper_title=paper_title
+            paper_title=paper_title,
+            invalid_citations=invalid_citations,
         )
         
     except HTTPException:
@@ -930,14 +1004,25 @@ async def chat_with_references_stream(
         # Let downstream handle empty chunks when doc excerpt is provided
 
         def streamer():
-            yield from ai_service.stream_reference_rag_response(
+            response_chunks: List[str] = []
+            for chunk in ai_service.stream_reference_rag_response(
                 query.query,
                 chunks,
                 document_excerpt=query.document_excerpt,
                 paper_id=query.paper_id,
                 user_id=str(current_user.id),
                 db=db,
+            ):
+                response_chunks.append(chunk)
+                yield chunk
+            filtered_text, invalid_citations = _filter_ai_response_text(
+                db,
+                "".join(response_chunks),
+                current_user,
+                project_id=query.project_id,
+                paper_id=query.paper_id,
             )
+            yield _citation_validation_sse(invalid_citations, filtered_text=filtered_text)
 
         return StreamingResponse(streamer(), media_type="text/plain")
 
@@ -1267,10 +1352,12 @@ class TextToolsRequest(BaseModel):
     action: str  # 'paraphrase', 'tone', 'summarize', 'explain', 'synonyms'
     tone: Optional[str] = None  # For tone action: 'formal', 'casual', 'academic', 'friendly', 'professional'
     project_id: Optional[str] = None  # Project ID to use project's configured model
+    paper_id: Optional[str] = None
 
 
 class TextToolsResponse(BaseModel):
     result: str
+    invalid_citations: List[Dict[str, Any]] = []
 
 
 def _is_valid_uuid_str(val: str) -> bool:
@@ -1407,8 +1494,15 @@ async def ai_text_tools(
                 raise
 
         result = (response.choices[0].message.content or "").strip()
+        result, invalid_citations = _filter_ai_response_text(
+            db,
+            result,
+            current_user,
+            project_id=request.project_id,
+            paper_id=request.paper_id,
+        )
 
-        return TextToolsResponse(result=result)
+        return TextToolsResponse(result=result, invalid_citations=invalid_citations)
 
     except HTTPException:
         raise

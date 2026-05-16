@@ -11,6 +11,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.models.reference import Reference
+from app.services.citation_filter import make_bib_key
 
 logger = logging.getLogger(__name__)
 
@@ -280,19 +281,7 @@ def validate_for_venue(latex_source: str, venue: str) -> list[dict]:
 
 
 def _make_bibtex_key(title: str | None, authors: list | None, year: int | None) -> str:
-    try:
-        last = ""
-        if isinstance(authors, list) and authors:
-            parts = str(authors[0]).split()
-            last = parts[-1].lower() if parts else ""
-        yr = str(year or "")
-        base = (title or "").strip().lower()
-        base = "".join(ch for ch in base if ch.isalnum() or ch.isspace()).split()
-        short = "".join(base[:3])[:12]
-        key = (last + yr + short) or ("ref" + yr)
-        return key
-    except Exception:
-        return "ref"
+    return make_bib_key({"title": title, "authors": authors or [], "year": year})
 
 
 def _esc(s: str | None) -> str | None:

@@ -35,6 +35,7 @@ from app.services.project_reference_service import ProjectReferenceSuggestionSer
 from app.services.project_discovery_service import ProjectDiscoveryManager
 from app.services.activity_feed import record_project_activity, preview_text
 from app.services.embedding_worker import queue_library_paper_embedding_sync
+from app.services.citation_filter import make_bib_key
 from app.utils.doi import normalize_doi
 from pydantic import BaseModel, Field
 
@@ -726,12 +727,13 @@ async def suggest_citations(
 
     # Disambiguate citation keys across results
     class _RefProxy:
-        def __init__(self, rid, authors, year):
+        def __init__(self, rid, authors, year, title):
             self.id = rid
             self.authors = authors
             self.year = year
+            self.title = title
 
-    proxies = [_RefProxy(row.reference_id, row.authors or [], row.year) for row in rows]
+    proxies = [_RefProxy(row.reference_id, row.authors or [], row.year, row.title) for row in rows]
     key_map = _disambiguate_cite_keys(proxies)
 
     suggestions = []
@@ -741,7 +743,7 @@ async def suggest_citations(
             "title": row.title,
             "authors": row.authors or [],
             "year": row.year,
-            "citation_key": key_map.get(row.reference_id, _generate_cite_key(row.authors or [], row.year)),
+            "citation_key": key_map.get(row.reference_id, _generate_cite_key(row.authors or [], row.year, row.title)),
             "similarity": round(float(row.similarity), 4),
         })
 
@@ -1324,19 +1326,9 @@ def _parse_bibtex(raw: str) -> list[dict]:
     return entries
 
 
-def _generate_cite_key(authors: list[str] | None, year: int | None) -> str:
-    """Generate a citation key from first author lastname + year."""
-    lastname = "unknown"
-    if authors and len(authors) > 0:
-        first = authors[0]
-        if "," in first:
-            lastname = first.split(",")[0].strip()
-        else:
-            parts = first.strip().split()
-            lastname = parts[-1] if parts else "unknown"
-    lastname = re.sub(r"[^a-zA-Z]", "", lastname).lower() or "unknown"
-    yr = str(year) if year else "XXXX"
-    return f"{lastname}{yr}"
+def _generate_cite_key(authors: list[str] | None, year: int | None, title: str | None = None) -> str:
+    """Generate a citation key with the same algorithm as the editor."""
+    return make_bib_key({"authors": authors or [], "year": year, "title": title})
 
 
 def _disambiguate_cite_keys(refs: list) -> dict:
@@ -1345,7 +1337,7 @@ def _disambiguate_cite_keys(refs: list) -> dict:
     used: dict = {}  # base_key -> count
     for ref in refs:
         authors = ref.authors or []
-        base = _generate_cite_key(authors, ref.year)
+        base = _generate_cite_key(authors, ref.year, getattr(ref, "title", None))
         count = used.get(base, 0)
         used[base] = count + 1
         if count == 0:
@@ -1356,7 +1348,7 @@ def _disambiguate_cite_keys(refs: list) -> dict:
     # Go back and add 'a' suffix to the first occurrence if there were collisions
     for ref in refs:
         authors = ref.authors or []
-        base = _generate_cite_key(authors, ref.year)
+        base = _generate_cite_key(authors, ref.year, getattr(ref, "title", None))
         if used[base] > 1 and keys[ref.id] == base:
             keys[ref.id] = f"{base}a"
     return keys
@@ -1366,7 +1358,7 @@ def _reference_to_bibtex(ref: Reference, cite_key: str | None = None, entry_type
     """Convert a Reference model instance to a BibTeX entry string."""
     authors = ref.authors or []
     if not cite_key:
-        cite_key = _generate_cite_key(authors, ref.year)
+        cite_key = _generate_cite_key(authors, ref.year, ref.title)
     lines = [f"@{entry_type}{{{cite_key},"]
     if ref.title:
         lines.append(f"  title = {{{ref.title}}},")

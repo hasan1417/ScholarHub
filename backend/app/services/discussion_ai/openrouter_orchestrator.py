@@ -834,6 +834,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
 
         if not final_message:
             final_message = self._build_lite_fallback(ctx)
+        final_message, invalid_citations = self._apply_citation_filter_for_context(final_message, ctx)
 
         # Lightweight memory update (regex only, skip LLM fact extraction)
         self._lite_memory_update(ctx)
@@ -853,6 +854,8 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             "reasoning_used": False,
             "tools_called": [],
             "conversation_state": {},
+            "invalid_citations": invalid_citations,
+            "citation_validation": ctx.get("citation_validation", {}),
         }
 
     async def _execute_lite_streaming(self, messages: List[Dict], ctx: Dict[str, Any]) -> AsyncGenerator[Dict[str, Any], None]:
@@ -893,6 +896,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         if not final_message:
             final_message = self._build_lite_fallback(ctx)
             yield {"type": "token", "content": final_message}
+        final_message, invalid_citations = self._apply_citation_filter_for_context(final_message, ctx)
 
         # Yield result IMMEDIATELY so the frontend can unblock the input.
         yield {
@@ -905,6 +909,8 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 "reasoning_used": False,
                 "tools_called": [],
                 "conversation_state": {},
+                "invalid_citations": invalid_citations,
+                "citation_validation": ctx.get("citation_validation", {}),
             },
         }
 
@@ -1182,6 +1188,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 final_message = generated_fallback.strip()
         if not final_message.strip():
             final_message = self._build_empty_response_fallback(ctx)
+        final_message, invalid_citations = self._apply_citation_filter_for_context(final_message, ctx)
 
         actions = self._extract_actions(final_message, all_tool_results)
         tools_called_this_turn = [t["name"] for t in all_tool_results] if all_tool_results else []
@@ -1198,6 +1205,8 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 "reasoning_used": ctx.get("reasoning_mode", False),
                 "tools_called": tools_called_this_turn,
                 "conversation_state": {},
+                "invalid_citations": invalid_citations,
+                "citation_validation": ctx.get("citation_validation", {}),
             }
         }
 

@@ -18,6 +18,12 @@ from app.services.discussion_ai.tools import build_tool_registry
 from app.services.discussion_ai.policy import DiscussionPolicy, PolicyDecision
 from app.services.discussion_ai.quality_metrics import get_discussion_ai_metrics_collector
 from app.services.discussion_ai.utils import filter_duplicate_mutations
+from app.core.config import settings
+from app.services.citation_filter import (
+    apply_citation_filter_mode,
+    build_allowed_citation_keys,
+    normalize_filter_mode,
+)
 from app.services.discussion_ai.mixins import (
     MemoryMixin,
     SearchToolsMixin,
@@ -192,6 +198,43 @@ class ToolOrchestrator(MemoryMixin, SearchToolsMixin, LibraryToolsMixin, Analysi
         self._tool_registry = DISCUSSION_TOOL_REGISTRY
         self._policy = DiscussionPolicy()
         self._quality_metrics = get_discussion_ai_metrics_collector()
+
+    def _apply_citation_filter_for_context(
+        self,
+        text: str,
+        ctx: Dict[str, Any],
+    ) -> tuple[str, List[dict]]:
+        """Validate AI-emitted LaTeX citations against the request library context."""
+        try:
+            project = ctx.get("project")
+            current_user = ctx.get("current_user")
+            allowed_keys = build_allowed_citation_keys(
+                self.db,
+                project_id=getattr(project, "id", None),
+                paper_id=ctx.get("paper_id"),
+                owner_id=getattr(current_user, "id", None),
+            )
+            filtered_text, invalid = apply_citation_filter_mode(
+                text,
+                allowed_keys,
+                settings.CITATION_FILTER_MODE,
+            )
+            citation_filter_mode = normalize_filter_mode(settings.CITATION_FILTER_MODE)
+            ctx["citation_validation"] = {
+                "mode": citation_filter_mode,
+                "invalid_list": invalid,
+                "invalid_citations": invalid,
+            }
+            return filtered_text, invalid
+        except Exception as exc:
+            logger.warning("Citation validation failed; returning unfiltered response: %s", exc)
+            ctx["citation_validation"] = {
+                "mode": normalize_filter_mode(settings.CITATION_FILTER_MODE),
+                "invalid_list": [],
+                "invalid_citations": [],
+                "error": "citation_validation_failed",
+            }
+            return text, []
 
     # ── Recent-papers state helpers ─────────────────────────────────────
     # ctx is the turn-time source of truth; Redis is cross-turn persistence.
@@ -797,6 +840,7 @@ If asked to perform write actions, explain that editor/admin access is required.
                     final_message = fallback.strip()
             if not final_message.strip():
                 final_message = self._build_empty_response_fallback(ctx)
+            final_message, invalid_citations = self._apply_citation_filter_for_context(final_message, ctx)
             actions = self._extract_actions(final_message, all_tool_results)
 
             # Update AI memory after successful response
@@ -843,6 +887,8 @@ If asked to perform write actions, explain that editor/admin access is required.
                 "reasoning_used": ctx.get("reasoning_mode", False),
                 "tools_called": tools_called,
                 "conversation_state": {},
+                "invalid_citations": invalid_citations,
+                "citation_validation": ctx.get("citation_validation", {}),
                 "memory_warning": contradiction_warning,  # Include contradiction warning
             }
 

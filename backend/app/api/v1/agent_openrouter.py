@@ -11,9 +11,11 @@ from pydantic import BaseModel
 from typing import Optional, List, Union, Dict
 import logging
 import uuid as uuid_mod
+import json
 
 from app.database import get_db
 from app.api.deps import get_current_user
+from app.core.config import settings
 from app.models.user import User
 from app.models.research_paper import ResearchPaper
 from app.models.paper_member import PaperMember, PaperRole
@@ -25,6 +27,11 @@ from app.services.discussion_ai.openrouter_orchestrator import get_available_mod
 from app.services.ai_guardrails import check_message_size, GuardrailViolation
 from app.api.utils.openrouter_access import resolve_openrouter_key_for_user, resolve_openrouter_key_for_project
 from app.models.project import Project
+from app.services.citation_filter import (
+    apply_citation_filter_mode,
+    build_allowed_citation_keys,
+    normalize_filter_mode,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -185,8 +192,15 @@ async def agent_chat_stream_or(
         model=model,
         user_api_key=user_api_key,
     )
+    allowed_citation_keys = build_allowed_citation_keys(
+        db,
+        project_id=request.project_id,
+        paper_id=request.paper_id,
+        owner_id=current_user.id,
+    )
 
     def generate():
+        response_chunks: List[str] = []
         try:
             for chunk in agent_service.stream_query(
                 db=db,
@@ -199,7 +213,23 @@ async def agent_chat_stream_or(
                 document_files=request.document_files,
                 reasoning_mode=request.reasoning_mode,
             ):
+                response_chunks.append(chunk)
                 yield chunk
+            filtered_text, invalid_citations = apply_citation_filter_mode(
+                "".join(response_chunks),
+                allowed_citation_keys,
+                settings.CITATION_FILTER_MODE,
+            )
+            citation_filter_mode = normalize_filter_mode(settings.CITATION_FILTER_MODE)
+            citation_payload = {
+                "type": "citation_validation",
+                "mode": citation_filter_mode,
+                "invalid_list": invalid_citations,
+                "invalid_citations": invalid_citations,
+            }
+            if citation_filter_mode == "strict":
+                citation_payload["filtered_text"] = filtered_text
+            yield "data: " + json.dumps(citation_payload) + "\n\n"
         finally:
             # Increment editor AI credits (premium models cost 5, standard cost 1)
             try:

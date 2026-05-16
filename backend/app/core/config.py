@@ -170,6 +170,9 @@ class Settings(BaseSettings):
     # Deterministic template converter V1 (preamble in code, body via LLM)
     EDITOR_DETERMINISTIC_CONVERT_V1: bool = True
 
+    # Citation grounding filter for AI-generated LaTeX citations: off, warn, strict
+    CITATION_FILTER_MODE: str = "strict"
+
     # (Purged) Discovery advanced flags removed for simplicity
     
     class Config:
