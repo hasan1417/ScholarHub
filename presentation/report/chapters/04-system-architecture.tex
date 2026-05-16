@@ -1,0 +1,384 @@
+\chapter{System Architecture}
+\label{ch:architecture}
+
+This chapter describes the architecture of \sh{}: the high-level structure of the deployed system, the data model, the API surface, the AI orchestration mechanism, the real-time collaboration design, the paper discovery aggregator, and the security model.
+
+\section{High-Level Architecture}
+\label{sec:arch-overview}
+
+\sh{} is a three-tier web application deployed as a set of containerized services behind an Nginx reverse proxy. Figure~\ref{fig:arch-overview} illustrates the topology.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+    node distance=1.0cm and 1.4cm,
+    block/.style={rectangle, draw=black!60, fill=accent!8, rounded corners=2pt, text width=2.6cm, align=center, minimum height=1.0cm, font=\small},
+    db/.style={cylinder, shape border rotate=90, aspect=0.25, draw=black!60, fill=accent!12, text width=1.9cm, align=center, minimum height=1.3cm, font=\small},
+    ext/.style={rectangle, draw=black!50, dashed, fill=ink!5, rounded corners=2pt, text width=2.4cm, align=center, minimum height=0.8cm, font=\footnotesize},
+    arr/.style={-{Stealth[length=2mm]}, draw=black!70, semithick}
+]
+\node[ext] (browser) {Browser \\(React + CodeMirror)};
+\node[block, below=of browser] (nginx) {Nginx \\Reverse Proxy};
+\node[block, below left=of nginx] (api) {FastAPI \\Backend};
+\node[block, below right=of nginx] (collab) {Hocuspocus \\Collab Server};
+\node[db,    below=of api]    (pg)    {PostgreSQL \\+ pgvector};
+\node[db,    below=of collab] (redis) {Redis};
+\node[ext, left=of api] (extapi) {External APIs \\(OpenAI, OpenRouter, \\Semantic Scholar)};
+
+\draw[arr] (browser) -- node[right, font=\scriptsize]{HTTPS / WSS} (nginx);
+\draw[arr] (nginx.south west) -- (api.north);
+\draw[arr] (nginx.south east) -- (collab.north);
+\draw[arr] (api)    -- (pg);
+\draw[arr] (collab) -- (redis);
+\draw[arr] (api)    -- (extapi);
+\end{tikzpicture}
+\caption{High-level architecture. The browser communicates with the system through an Nginx reverse proxy, which routes HTTP traffic to the FastAPI backend and WebSocket traffic to the Hocuspocus collaboration server. The principal persistence paths are shown: the backend writes to PostgreSQL with pgvector, and the collaboration server caches room state in Redis. Secondary connections (the backend also uses Redis for session caching, and the collaboration server periodically snapshots Y.Doc state to PostgreSQL) are described in the text below.}
+\label{fig:arch-overview}
+\end{figure}
+
+The deployed system consists of seven containerized services orchestrated by Docker Compose. Their responsibilities are summarized in table~\ref{tab:services}.
+
+\begin{table}[h]
+\centering
+\caption{Production services and their responsibilities.}
+\label{tab:services}
+\small
+\begin{tabularx}{\textwidth}{l l X}
+\toprule
+\textbf{Service} & \textbf{Image} & \textbf{Responsibility} \\
+\midrule
+nginx     & \code{nginx:alpine}            & TLS termination; routing of HTTP and WebSocket traffic. \\
+backend   & custom (FastAPI)               & REST API; LaTeX compilation; AI orchestration; auth. \\
+collab    & custom (Hocuspocus + Node.js)  & Y.js document synchronization; awareness. \\
+postgres  & \code{pgvector/pgvector:pg15}  & Primary data store with vector embeddings. \\
+redis     & \code{redis:7-alpine}          & Session cache; collaboration coordination. \\
+frontend  & custom (Vite-built React)      & Static asset serving (built and copied to Nginx). \\
+certbot   & \code{certbot/certbot}         & TLS certificate renewal on a 12-hour schedule. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The frontend is a single-page React application bundled with Vite. The backend is a FastAPI application written in Python 3.11. The collaboration server is a Node.js application built on the Hocuspocus framework. PostgreSQL with the pgvector extension stores all persistent data, including vector embeddings for semantic library search. Redis serves three purposes: session caching for the backend, room state for the collaboration server, and short-lived storage for streaming response state.
+
+The application is deployed at \url{https://scholarhub.space}. TLS certificates are managed automatically by certbot using the Let's Encrypt service. The Nginx configuration routes \code{/api/} to the backend, \code{/collab/} to the collaboration server, and all other paths to the static frontend bundle.
+
+\section{Data Model}
+\label{sec:arch-data}
+
+The data model is implemented as a set of SQLAlchemy ORM classes, each of which corresponds to a table in PostgreSQL. The schema is organized into six logical groups, summarized in table~\ref{tab:datamodel}.
+
+\begin{table}[h]
+\centering
+\caption{Data model groups and their principal tables.}
+\label{tab:datamodel}
+\small
+\begin{tabularx}{\textwidth}{l X}
+\toprule
+\textbf{Group} & \textbf{Principal tables} \\
+\midrule
+Identity         & \code{users}, \code{user\_sessions}, \code{password\_reset\_tokens} \\
+Projects         & \code{projects}, \code{project\_members}, \code{project\_discussion\_channels}, \code{project\_discussion\_messages} \\
+Papers           & \code{research\_papers}, \code{paper\_members}, \code{paper\_versions}, \code{branches} \\
+References       & \code{references}, \code{project\_references}, \code{paper\_references}, \code{document\_chunks} \\
+AI               & \code{ai\_artifacts}, \code{ai\_chat\_sessions}, \code{discussion\_messages.tool\_calls} (JSONB) \\
+Collaboration    & \code{collaboration\_sessions}, \code{collaboration\_participants}, \code{section\_locks} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Several design decisions in the data model are worth highlighting.
+
+\textbf{UUIDs as primary keys.} Every primary entity (user, project, paper, reference) uses a UUID rather than an auto-incrementing integer. This decision supports horizontal sharding in a future multi-tenant deployment without requiring distributed sequence generators.
+
+\textbf{JSONB for evolving structure.} Several columns use PostgreSQL's JSONB type to store data whose structure evolves with the application: project discussion and discovery settings, the per-paper auxiliary file map, and the captured tool-call payloads from discussion messages. The trade-off is acknowledged: JSONB columns are not directly queryable as efficiently as normalized tables. They are used only where the structure is genuinely flexible or where the access pattern is whole-row read.
+
+\textbf{Vector embeddings co-located with metadata.} The \code{document\_chunks} table stores both the chunk text and its 1{,}536-dimensional embedding (pgvector \code{vector(1536)} column) in the same row. The index is HNSW (hierarchical navigable small worlds) for approximate nearest neighbor search. Co-location avoids a separate vector database and the consistency problems that come with two-store designs.
+
+\textbf{CRDT state stored as opaque binary.} The \code{research\_papers.latex\_crdt\_state} column is a \code{LargeBinary} containing the serialized Y.js document state. The application does not parse this state directly; the collaboration server is the authoritative reader and writer. Storing the CRDT state in the same row as the rest of the paper's metadata simplifies snapshot and restore operations.
+
+\textbf{Soft membership for projects and papers.} Membership tables (\code{project\_members}, \code{paper\_members}) include a \code{status} column with values \code{pending}, \code{active}, and \code{removed}. Status transitions are recorded with timestamps. This design supports invitation flows, audit, and re-invitation without unique constraint conflicts.
+
+\section{API Surface}
+\label{sec:arch-api}
+
+The backend exposes a REST API at \code{/api/v1/} with thirty-one router modules, each of which groups endpoints by domain. The complete list of endpoints is reproduced in appendix \ref{app:api}. The principal groups are summarized in table~\ref{tab:api}.
+
+\begin{table}[h]
+\centering
+\caption{Principal API router groups.}
+\label{tab:api}
+\small
+\begin{tabularx}{\textwidth}{l X}
+\toprule
+\textbf{Router} & \textbf{Surface} \\
+\midrule
+auth                  & sign-in, sign-up, OAuth (Google), token refresh, password reset \\
+research\_papers      & CRUD, branching, versioning, LaTeX file management \\
+discovery             & multi-source paper search, streaming, recommendation \\
+ai                    & document RAG chat, reference RAG chat, writing tools \\
+project\_ai           & project-scoped AI artifact generation \\
+project\_discovery    & project-scoped discovery runs (saved searches) \\
+project\_references   & per-project reference management, BibTeX import/export, citation graph \\
+project\_meetings     & Daily.co video meetings integration \\
+latex                 & LaTeX compilation (streaming), error correction, export to DOCX/ZIP \\
+collab                & JWT issuance for Hocuspocus, bootstrap, persist \\
+discussion\_actions   & tool-orchestrated paper actions \\
+agent\_openrouter     & multi-model agent endpoints with streaming \\
+documents             & document CRUD, chunk retrieval, PDF analysis \\
+metrics               & analytics endpoints for AI quality and usage \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The API uses three response patterns. Standard request-response endpoints return JSON. Long-running operations (search, compilation, AI generation) use Server-Sent Events to stream progressive results. Real-time collaboration uses WebSocket through the Hocuspocus protocol on a separate path.
+
+Authentication for HTTP endpoints uses a session cookie issued at sign-in. Authentication for the WebSocket endpoint uses a short-lived JWT issued by the \code{/api/v1/collab/token} endpoint and validated by the Hocuspocus server's authentication callback. The two-token scheme isolates the collaboration server from the session store and limits the credential's lifetime in any client-side state.
+
+\section{AI Orchestration}
+\label{sec:ai-orchestration}
+
+The AI subsystem is the most architecturally distinctive component of the system. Figure~\ref{fig:ai-loop} illustrates the orchestration loop.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+    node distance=1.0cm and 1.4cm,
+    block/.style={rectangle, draw=black!60, fill=accent!8, rounded corners=2pt, text width=2.8cm, align=center, minimum height=0.9cm, font=\small},
+    decision/.style={diamond, draw=black!60, fill=accent!12, aspect=2.2, text width=2.0cm, align=center, font=\small},
+    arr/.style={-{Stealth[length=2mm]}, draw=black!70, semithick}
+]
+\node[block] (user)  {User Message};
+\node[block, right=of user]  (build) {Build Context \\(system + tools)};
+\node[block, right=of build] (model) {Call LLM};
+\node[decision, below=of model] (decide) {Tool call?};
+\node[block, right=2.0cm of decide, text width=2.4cm] (final)  {Stream Response};
+\node[block, left=of decide]        (exec)   {Execute Tool};
+\node[block, below=of exec]         (append) {Append Result \\to Messages};
+
+\draw[arr] (user)  -- (build);
+\draw[arr] (build) -- (model);
+\draw[arr] (model) -- (decide);
+\draw[arr] (decide) -- node[above, font=\scriptsize]{yes} (exec);
+\draw[arr] (decide) -- node[above, font=\scriptsize]{no}  (final);
+\draw[arr] (exec)   -- (append);
+% Loop-back: append → model. Route under append-row, up the LEFT side, into model from above-left.
+\draw[arr] (append.west) -- ++(-0.6,0) |- node[left, font=\scriptsize, pos=0.25]{loop} ($(model.north) + (-0.6, 0.5)$) -- ($(model.north) + (0, 0.5)$) -- (model.north);
+\end{tikzpicture}
+\caption{AI orchestration loop. The model is called with the conversation history and the registered tool definitions. If the model emits a tool call, the orchestrator executes it, appends the result to the message history, and recalls the model. The loop terminates when the model produces a non-tool response, which is then streamed to the client.}
+\label{fig:ai-loop}
+\end{figure}
+
+The orchestrator is implemented in \file{tool\_orchestrator.py} under \file{backend/app/services/discussion\_ai/}. The OpenRouter variant (\file{openrouter\_orchestrator.py} in the same directory) inherits from the base orchestrator and overrides only the model invocation method, allowing the same tool registry to be used across providers.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\textwidth]{screenshots/auth-discussion.png}
+\caption{The discussion view inside a project. Channels organize threaded conversations (project-wide and paper-scoped); the AI agent participates as a regular channel member but is implemented as the tool-orchestrated agent described in this section. The model picker at the top right routes between OpenAI, Anthropic, Google, and OpenRouter providers.}
+\label{fig:ss-discussion-inline}
+\end{figure}
+
+\subsection{Tool Registry}
+
+The tool registry contains thirty tools grouped into six modules. Table~\ref{tab:tools} lists representative tools from each module.
+
+\begin{table}[h]
+\centering
+\caption{Representative tools registered with the AI orchestrator.}
+\label{tab:tools}
+\small
+\begin{tabularx}{\textwidth}{l l X}
+\toprule
+\textbf{Module} & \textbf{Tool} & \textbf{Purpose} \\
+\midrule
+library    & \code{get\_project\_references}     & Retrieve all references in the active project. \\
+library    & \code{semantic\_search\_library}     & Vector search over the user's library. \\
+library    & \code{add\_to\_library}              & Add a discovered paper to the library. \\
+search     & \code{search\_papers}                & Search a specified external source. \\
+search     & \code{batch\_search\_papers}         & Search multiple sources in parallel. \\
+paper      & \code{focus\_on\_papers}             & Set the active context to specific papers. \\
+paper      & \code{analyze\_across\_papers}       & Comparative analysis across multiple papers. \\
+paper      & \code{compare\_papers}               & Side-by-side comparison of two papers. \\
+project    & \code{get\_project\_info}            & Retrieve project metadata and members. \\
+project    & \code{update\_project\_info}         & Modify project title, scope, or keywords. \\
+artifact   & \code{create\_paper}                 & Generate a new paper draft with citations. \\
+artifact   & \code{generate\_section}             & Generate a paper section from discussion. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Each tool is defined as a Python function with type-annotated parameters and a docstring. The registry uses a decorator (\code{@register\_tool}) to extract the JSON schema from the type annotations and the description from the docstring. This approach keeps tool definitions colocated with their implementations and avoids manual schema maintenance.
+
+\subsection{Library Grounding}
+
+The grounding mechanism is enforced by the structure of the tool registry. The agent has no tool that returns text from outside the user's library or from outside the discovery sources. When the agent needs to cite a claim, it must invoke a library or search tool first. The cited paper's bibliographic metadata is then available in the message context, and the agent generates a \code{\textbackslash cite\{key\}} command using a deterministic key derived from the first author's surname, the year, and a salient title word.
+
+The post-processing step in \file{app/services/citation\_filter.py} (mirroring the frontend's \file{utils/bibKey.ts} key derivation) validates that every citation key in the generated text corresponds to a reference in the project library. The filter operates in three modes (\code{off}, \code{warn}, \code{strict}) controlled by the \code{CITATION\_FILTER\_MODE} environment variable; the default is \code{strict}, in which any citation key without a matching reference is replaced with an explicit \code{\textbackslash{}cite\{?MISSING:<original>?\}} marker before the response is delivered. This validation is the structural reason that, even though raw grounded model output still produces fabricated citations at a measurable rate (14.0\% mean across four 2026 frontier models, chapter \ref{ch:evaluation}), the citations that actually reach the user in the final response are 0.0\% fabricated empirically for three of the four models (0.0--6.2\% range, with the 6.2\% being a verification artifact rather than a true fabrication).
+
+\subsection{Permissions}
+
+Tools are partitioned by the project role required to invoke them. Read-only tools (\code{get\_project\_references}, \code{search\_papers}) are available to all roles including viewer. Write tools (\code{add\_to\_library}, \code{create\_paper}) require editor or owner. Project-altering tools (\code{update\_project\_info}, \code{remove\_member}) require owner. The orchestrator filters the tool list visible to the model based on the requesting user's role; the model never sees a tool it cannot legitimately invoke.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\textwidth]{screenshots/auth-discovery-results.png}
+\caption{Paper discovery in \sh{} with results displayed. The query \emph{``arabic character-level BERT pretraining''} returns 20 deduplicated, relevance-ranked papers from seven sources in parallel (Crossref 20, ScienceDirect 20, OpenAlex 20, Europe PMC 20, CORE 9, arXiv 1, PubMed 0; Semantic Scholar was rate-limited and surfaces a Retry control). Each result shows its relevance score, source badge, year, venue, abstract excerpt, and one-click Add or Dismiss.}
+\label{fig:ss-discovery-inline}
+\end{figure}
+
+\section{Real-Time Collaboration}
+\label{sec:arch-collab}
+
+The collaboration layer uses Y.js, a CRDT, with the Hocuspocus server providing room management, persistence, and authentication. The architecture is described in figure~\ref{fig:collab}.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+    node distance=0.6cm and 1.0cm,
+    block/.style={rectangle, draw=black!60, fill=accent!8, rounded corners=2pt, text width=2.6cm, align=center, minimum height=0.9cm, font=\small},
+    arr/.style={-{Stealth[length=2mm]}, draw=black!70, semithick}
+]
+\node[block] (clientA) {Client A \\(CodeMirror + Y.js)};
+\node[block, right=2.0cm of clientA] (clientB) {Client B \\(CodeMirror + Y.js)};
+\node[block, below=1.4cm of $(clientA)!0.5!(clientB)$] (hp) {Hocuspocus \\(room: paper-id)};
+\node[block, below=1.0cm of hp, xshift=-1.6cm] (redis) {Redis \\(room state)};
+\node[block, below=1.0cm of hp, xshift=1.6cm] (pg) {PostgreSQL \\(snapshots)};
+
+\draw[arr] (clientA.south) -- node[left, font=\scriptsize]{WSS} (hp.north west);
+\draw[arr] (clientB.south) -- node[right, font=\scriptsize]{WSS} (hp.north east);
+\draw[arr] (hp) -- (redis);
+\draw[arr] (hp) -- (pg);
+\draw[arr, dashed, draw=accent] (clientA.east) -- node[above, font=\scriptsize]{logical CRDT sync} (clientB.west);
+\end{tikzpicture}
+\caption{Collaboration architecture. Clients connect to the Hocuspocus server over WebSocket. Document state is held in memory by Hocuspocus and replicated to Redis for cross-process consistency. Snapshots are persisted to PostgreSQL on a configurable interval. Logically, all clients participate in a single CRDT; physically, the server mediates message delivery for efficiency and authentication.}
+\label{fig:collab}
+\end{figure}
+
+\subsection{Multi-File Documents}
+
+A research paper in \sh{} can consist of multiple LaTeX files: a primary file (\code{main.tex}), zero or more auxiliary files (\code{intro.tex}, \code{methods.tex}), and a bibliography file (\code{references.bib}). All files of a single paper share a single Y.Doc. The naming convention is:
+
+\begin{itemize}
+    \item The primary file is bound to the \code{Y.Text} accessed by the key \code{main}.
+    \item Each auxiliary file with name \code{X} is bound to the \code{Y.Text} accessed by the key \code{file:X}.
+\end{itemize}
+
+The file list is itself stored in a \code{Y.Map} accessed by the key \code{files}, with each entry mapping the filename to a small metadata object. When a user creates a new file, a new \code{Y.Text} is created and the metadata is added to the map. When a user opens a different file in the editor, the CodeMirror binding is rebound to the new \code{Y.Text}; the Hocuspocus connection itself does not change.
+
+Each file maintains its own undo manager. Pressing Ctrl-Z while editing \code{intro.tex} reverts only the user's most recent edit in that file, not in the project as a whole. The undo manager is also user-scoped: the user's undo stack contains only their own operations, not those of collaborators.
+
+\subsection{Awareness}
+
+The Y.js awareness protocol is used for ephemeral state: cursor position, selection range, display name, and assigned color. Awareness updates are not persisted; they are broadcast to all clients in the same room and discarded when the originating client disconnects. The display color is assigned deterministically based on the user's UUID, ensuring that the same user always appears in the same color across sessions.
+
+\subsection{Persistence}
+
+Document state is persisted on three triggers. First, every 60 seconds during active editing, the Hocuspocus server writes the current Y.Doc state to PostgreSQL. Second, when the last client disconnects from a room, the server flushes the state immediately. Third, an explicit \code{POST /api/v1/collab/persist/\{paper\_id\}} endpoint allows the application to force a flush, which is used when the paper is closed in the UI.
+
+The 60-second interval is chosen as a trade-off. Shorter intervals reduce data loss risk but increase write load and database churn. Longer intervals reduce write load but increase the worst-case data loss to the value of the interval. The interval is configurable per deployment.
+
+\section{Paper Discovery}
+\label{sec:paper-discovery}
+
+The discovery layer is implemented in \file{backend/app/services/paper\_discovery/}. Figure~\ref{fig:discovery} illustrates its structure.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+    node distance=0.5cm and 0.8cm,
+    block/.style={rectangle, draw=black!60, fill=accent!8, rounded corners=2pt, text width=2.5cm, align=center, minimum height=0.8cm, font=\small},
+    src/.style={rectangle, draw=black!50, fill=ink!5, rounded corners=2pt, text width=1.8cm, align=center, minimum height=0.7cm, font=\footnotesize},
+    arr/.style={-{Stealth[length=2mm]}, draw=black!70, semithick}
+]
+% Stage boxes (left → right): Query → Router → [sources stack] → Dedup → Reranker
+% Result Stream goes BELOW Reranker to avoid horizontal overflow
+\node[block] (query)  {Query Builder};
+\node[block, right=1.5cm of query]  (router) {Source Router};
+\node[block, right=3.4cm of router] (dedup)  {Deduplicator \\(union-find)};
+\node[block, right=1.0cm of dedup]  (rank)   {Reranker};
+\node[block, below=1.0cm of rank]   (out)    {Result Stream \\(SSE)};
+
+% Sources stacked vertically between router and dedup
+\node[src] (s1) at ($(router)!0.5!(dedup) + (0,1.6)$)  {arXiv};
+\node[src] (s2) at ($(router)!0.5!(dedup) + (0,0.8)$)  {Sem.~Scholar};
+\node[src] (s3) at ($(router)!0.5!(dedup) + (0,0.0)$)  {OpenAlex};
+\node[src] (s4) at ($(router)!0.5!(dedup) + (0,-0.8)$) {CORE};
+\node[src] (s5) at ($(router)!0.5!(dedup) + (0,-1.6)$) {CrossRef};
+\node[src] (s6) at ($(router)!0.5!(dedup) + (0,-2.4)$) {PubMed};
+
+\draw[arr] (query)  -- (router);
+\draw[arr] (router) -- (s1);
+\draw[arr] (router) -- (s2);
+\draw[arr] (router) -- (s3);
+\draw[arr] (router) -- (s4);
+\draw[arr] (router) -- (s5);
+\draw[arr] (router) -- (s6);
+\draw[arr] (s1) -- (dedup);
+\draw[arr] (s2) -- (dedup);
+\draw[arr] (s3) -- (dedup);
+\draw[arr] (s4) -- (dedup);
+\draw[arr] (s5) -- (dedup);
+\draw[arr] (s6) -- (dedup);
+\draw[arr] (dedup) -- (rank);
+\draw[arr] (rank)  -- (out);
+\end{tikzpicture}
+\caption{Paper discovery architecture. The query builder normalizes the user query for each source's expected syntax. The source router dispatches in parallel. As results arrive, the deduplicator collapses identical works using a union-find structure keyed by DOI, arXiv ID, and normalized title. The reranker applies semantic reranking when configured. Results are streamed as Server-Sent Events.}
+\label{fig:discovery}
+\end{figure}
+
+Figure \ref{fig:ss-library-arch} shows the project library view, where references added through the discovery layer accumulate alongside their ingestion status.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\textwidth]{screenshots/auth-references.png}
+\caption{The project library (References tab). Each entry shows title, authors, year, source, and a status indicator for AI ingestion (text extraction and embedding for retrieval). One-click actions are exposed for chat-with-paper, citation insertion into the active draft, and re-ingestion.}
+\label{fig:ss-library-arch}
+\end{figure}
+
+\subsection{Source Adapters}
+
+Each source has an adapter in \file{searchers.py} that exposes a uniform async interface (\code{async def search(query, filters) -> List[PaperResult]}) and translates the source's native response format to the internal \code{PaperResult} dataclass. The adapters handle source-specific concerns: arXiv returns Atom XML; Semantic Scholar returns JSON with nested author and venue records; OpenAlex returns a flat JSON document with extensive metadata; CORE returns a paginated JSON response; CrossRef returns a Linked-Data-style JSON; PubMed uses NCBI E-utilities with two-stage XML responses (esearch and efetch).
+
+\subsection{Deduplication}
+
+The deduplication strategy is a union-find data structure keyed by three identifier types in priority order. Two results are considered duplicates if they share any of the following:
+
+\begin{enumerate}
+    \item \textbf{Normalized DOI.} Case-insensitive match after stripping arXiv DOI prefixes (\code{10.48550/arXiv.}).
+    \item \textbf{Normalized arXiv ID.} Version-stripped match (\code{2509.01401v3} and \code{2509.01401v1} are duplicates).
+    \item \textbf{Normalized title plus year.} Diacritics stripped, case-folded, whitespace-normalized title plus the year of publication.
+\end{enumerate}
+
+When two results are identified as duplicates, the deduplicator selects a winner using a three-tier preference: a published DOI beats an arXiv DOI beats a title-only match. Within the same tier, the result with richer metadata (longer abstract, present PDF URL, open-access flag set, higher citation count) wins. Earliest arrival breaks remaining ties for stability. The loser's metadata fills gaps in the winner's record (a missing abstract from the winner is filled from the loser if available).
+
+\subsection{Streaming and Caching}
+
+Results are streamed to the client as Server-Sent Events. The first source to respond is the first to populate the user's screen. The client-side rendering applies dedup tags to merge late-arriving duplicates with already-displayed results. A per-query LRU cache with a one-hour TTL avoids re-querying external APIs for repeated searches within a session.
+
+\section{Per-Project AI Configuration}
+\label{sec:arch-ai-settings}
+
+Each project carries its own AI configuration: the active LLM model, an optional team-shared API key, and per-feature enable flags. The configuration is reachable from the project header and is shown in figure \ref{fig:ss-project-settings}. The model picker exposes the 280+ models supported through the OpenRouter gateway (OpenAI, Anthropic, Google, DeepSeek, Meta Llama, Qwen, Mistral, xAI Grok, and others), with provider-prefixed names for clarity. The same configuration drives both the discussion-channel agent and the editor-side AI assistant, so the project's AI behaviour is uniform across surfaces.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.85\textwidth]{screenshots/auth-project-settings.png}
+\caption{Project AI Settings dialog. The model picker exposes the full set of OpenRouter-routable models. The ``Share your API key with team members'' toggle allows a project owner to provide a single API key for all members, useful in supervised research settings where the supervisor pays for inference.}
+\label{fig:ss-project-settings}
+\end{figure}
+
+\section{Security Model}
+\label{sec:arch-security}
+
+The security model rests on five mechanisms.
+
+\textbf{S1: Cookie-based session authentication.} Sign-in establishes a session and issues an HTTP-only, secure, same-site cookie containing a session token. The token is validated against the database on every authenticated request.
+
+\textbf{S2: Short-lived JWT for WebSocket.} The collaboration WebSocket is authenticated by a JWT issued by the backend, valid for 300 seconds, signed with a secret shared between backend and collaboration server. The Hocuspocus server validates the JWT in its \code{onAuthenticate} hook before admitting the client to a room.
+
+\textbf{S3: Database-level isolation.} Every query that retrieves user-owned data includes an explicit ownership filter (\code{user\_id = current\_user.id} or membership check on the joining tables). Cross-user data leakage is prevented at the query layer rather than relying on application-level filtering.
+
+\textbf{S4: Argon2 password hashing.} Passwords are hashed with Argon2id (memory-hard, time-hard) using parameters consistent with the OWASP 2026 password storage guidance. The hash includes a per-user salt.
+
+\textbf{S5: Encrypted user-supplied API keys.} Users may supply their own OpenRouter API key. The key is encrypted at rest using a Fernet key derived from a deployment secret (\code{OPENROUTER\_KEY\_ENCRYPTION\_KEY}). The plaintext key is never logged.
+
+The combined model is designed to satisfy NFR-5 and NFR-6 from chapter \ref{ch:requirements}. The model is not a replacement for a formal security review, which is reserved for the productization phase as described in chapter \ref{ch:conclusion}.

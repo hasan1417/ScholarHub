@@ -1,0 +1,1752 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>ScholarHub — Product Walkthrough</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="slides.css" />
+  <script src="deck-stage.js"></script>
+  <style>
+    /* ===== Product-deck additions on top of slides.css ===== */
+
+    .feat-slide .row { gap: 56px; flex: 1; align-items: stretch; }
+    .feat-slide .copy-col {
+      flex: 1;
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      gap: 18px;
+    }
+    .feat-slide .shot-col {
+      flex: 1.15;
+      display:flex;
+      align-items:center;
+    }
+    .feat-slide .feat-eyebrow {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 22px;
+      letter-spacing: 0.18em;
+      color: var(--accent);
+      text-transform: uppercase;
+      font-weight: 500;
+    }
+    .feat-slide h3.feat-title {
+      font-family: 'Fraunces', serif;
+      font-weight: 500;
+      font-size: 56px;
+      line-height: 1.04;
+      letter-spacing: -0.02em;
+      margin: 0;
+      color: var(--ink);
+    }
+    .feat-slide .feat-lede {
+      font-family: 'Inter', sans-serif;
+      font-size: 22px;
+      line-height: 1.45;
+      color: var(--ink-soft);
+      margin: 0;
+    }
+
+    .ux-trio {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 6px;
+      padding-top: 16px;
+      border-top: 1px solid var(--rule);
+    }
+    .ux-row {
+      display: grid;
+      grid-template-columns: 130px 1fr;
+      gap: 18px;
+      align-items: baseline;
+    }
+    .ux-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      letter-spacing: 0.14em;
+      color: var(--accent);
+      text-transform: uppercase;
+      font-weight: 500;
+    }
+    .ux-text {
+      font-family: 'Inter', sans-serif;
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink);
+    }
+
+    .stat-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+    }
+    .stat-card {
+      background: var(--card);
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .stat-card .stat-n {
+      font-family: 'Fraunces', serif;
+      font-size: 80px;
+      font-weight: 500;
+      line-height: 0.95;
+      color: var(--accent);
+      letter-spacing: -0.025em;
+    }
+    .stat-card .stat-lbl {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 15px;
+      letter-spacing: 0.12em;
+      color: var(--ink-mute);
+      text-transform: uppercase;
+    }
+    .stat-card .stat-desc {
+      font-family: 'Inter', sans-serif;
+      font-size: 18px;
+      color: var(--ink-soft);
+      line-height: 1.4;
+      margin-top: 2px;
+    }
+
+    .journey {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 14px;
+      align-items: stretch;
+    }
+    .journey-step {
+      background: var(--card);
+      border: 1px solid var(--rule);
+      border-top: 3px solid var(--accent);
+      border-radius: 10px;
+      padding: 22px 20px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 240px;
+    }
+    .journey-step .js-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      letter-spacing: 0.12em;
+      color: var(--accent);
+      font-weight: 500;
+    }
+    .journey-step .js-title {
+      font-family: 'Inter', sans-serif;
+      font-size: 19px;
+      font-weight: 600;
+      color: var(--ink);
+      line-height: 1.2;
+    }
+    .journey-step .js-desc {
+      font-family: 'Inter', sans-serif;
+      font-size: 15px;
+      line-height: 1.4;
+      color: var(--ink-soft);
+    }
+
+    /* Hero */
+    .hero {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      height: 100%;
+      gap: 0;
+    }
+    .hero .eyebrow-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: 'Inter', sans-serif;
+      font-size: 22px;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--ink-mute);
+      margin-bottom: 28px;
+    }
+    .hero .product-name {
+      font-family: 'Fraunces', serif;
+      font-weight: 500;
+      font-size: 168px;
+      line-height: 0.95;
+      letter-spacing: -0.035em;
+      color: var(--ink);
+      margin: 0 0 28px 0;
+      font-variation-settings: "opsz" 144;
+    }
+    .hero .product-tag {
+      font-family: 'Fraunces', serif;
+      font-weight: 400;
+      font-size: 46px;
+      line-height: 1.15;
+      letter-spacing: -0.015em;
+      color: var(--ink-soft);
+      margin: 0 0 48px 0;
+      max-width: 1500px;
+    }
+    .hero-meta {
+      display: grid;
+      grid-template-columns: repeat(3, max-content);
+      gap: 80px;
+      margin-top: 32px;
+      padding-top: 32px;
+      border-top: 1px solid var(--rule);
+    }
+    .hero-meta .m-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 16px;
+      letter-spacing: 0.12em;
+      color: var(--ink-mute);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .hero-meta .m-value {
+      font-family: 'Inter', sans-serif;
+      font-size: 22px;
+      font-weight: 500;
+      color: var(--ink);
+    }
+    .hero-meta .m-value.url {
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--accent);
+    }
+    .hero-meta .m-sub {
+      font-family: 'Inter', sans-serif;
+      font-size: 16px;
+      color: var(--ink-mute);
+      margin-top: 4px;
+    }
+
+    /* Architecture simplified — three-column "what's in the box" */
+    .box-row { display:grid; grid-template-columns:repeat(3, 1fr); gap:24px; flex:1; }
+    .box-card {
+      background: var(--card);
+      border: 1px solid var(--rule);
+      border-top: 4px solid var(--accent);
+      border-radius: 12px;
+      padding: 26px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .box-card .b-eye {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      letter-spacing: 0.14em;
+      color: var(--accent);
+      text-transform: uppercase;
+      font-weight: 500;
+    }
+    .box-card .b-title {
+      font-family: 'Inter', sans-serif;
+      font-size: 24px;
+      font-weight: 600;
+      color: var(--ink);
+      letter-spacing: -0.01em;
+    }
+    .box-card .b-desc {
+      font-family: 'Inter', sans-serif;
+      font-size: 17px;
+      line-height: 1.45;
+      color: var(--ink-soft);
+    }
+    .box-card .b-stack {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      color: var(--ink-mute);
+      margin-top: auto;
+      padding-top: 12px;
+      border-top: 1px solid var(--rule-soft);
+    }
+
+    /* Eval table */
+    table.eval {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: 'Inter', sans-serif;
+      background: var(--card);
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    table.eval th, table.eval td {
+      padding: 12px 18px;
+      text-align: left;
+      border-bottom: 1px solid var(--rule-soft);
+      font-size: 19px;
+    }
+    table.eval thead th {
+      background: var(--bg-alt);
+      color: var(--ink);
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-size: 16px;
+    }
+    table.eval td.k { font-weight: 600; color: var(--ink); }
+    table.eval td.good { color: #1F8A5C; font-weight: 600; }
+    table.eval td.bad { color: #B3443C; font-weight: 600; }
+    table.eval td.hi {
+      background: #F6EFFE;
+      color: var(--accent);
+      font-weight: 700;
+    }
+    table.eval tr:last-child td { border-bottom: 0; }
+    table.eval tr.summary td {
+      background: var(--bg-alt);
+      font-weight: 600;
+    }
+
+    /* Team card grid (project credits) */
+    .person-card {
+      background: var(--card);
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 26px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .person-card.lead { border-left: 4px solid var(--accent); }
+    .person-card .p-role {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 14px;
+      letter-spacing: 0.14em;
+      color: var(--accent);
+      text-transform: uppercase;
+      font-weight: 500;
+    }
+    .person-card .p-name {
+      font-family: 'Fraunces', serif;
+      font-size: 32px;
+      font-weight: 500;
+      line-height: 1.1;
+      color: var(--ink);
+      letter-spacing: -0.015em;
+    }
+    .person-card .p-affil {
+      font-family: 'Inter', sans-serif;
+      font-size: 17px;
+      color: var(--ink-soft);
+      line-height: 1.4;
+    }
+    .person-card .p-contrib {
+      font-family: 'Inter', sans-serif;
+      font-size: 15px;
+      color: var(--ink-mute);
+      line-height: 1.45;
+      margin-top: 6px;
+      padding-top: 12px;
+      border-top: 1px solid var(--rule-soft);
+    }
+
+    /* Section divider — strip parent .slide beige padding so dark fills edge-to-edge */
+    .slide:has(> .section-div) {
+      padding: 0 !important;
+      background: #141218 !important;
+    }
+    .section-div {
+      background: #141218;
+      color: #F4F1EC;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      height: 100%;
+      padding: 80px 100px;
+    }
+    .section-div .sd-chapter {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 22px;
+      letter-spacing: 0.18em;
+      color: #C9A8F3;
+      text-transform: uppercase;
+      font-weight: 500;
+    }
+    .section-div h2.sd-title {
+      font-family: 'Fraunces', serif;
+      font-weight: 500;
+      font-size: 144px;
+      line-height: 0.95;
+      letter-spacing: -0.03em;
+      margin: 0 0 32px 0;
+      color: #F4F1EC;
+    }
+    .section-div .sd-desc {
+      font-family: 'Fraunces', serif;
+      font-size: 36px;
+      line-height: 1.25;
+      color: #C9C3D0;
+      max-width: 1500px;
+      margin: 0;
+      font-weight: 400;
+    }
+    .section-div .sd-foot {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      font-family: 'Inter', sans-serif;
+      font-size: 20px;
+      color: #9E97A3;
+      letter-spacing: 0.02em;
+      padding-top: 32px;
+      border-top: 1px solid rgba(244,241,236,0.15);
+    }
+
+    /* Tier slide layout */
+    .tier-slide .tier-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 20px;
+      flex: 1;
+      align-items: stretch;
+    }
+    .tier-slide .tier-card {
+      background: var(--card);
+      border: 1px solid var(--rule);
+      border-top: 3px solid var(--accent);
+      border-radius: 10px;
+      padding: 22px 22px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .tier-slide .tier-card .tc-eye {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      letter-spacing: 0.14em;
+      color: var(--accent);
+      text-transform: uppercase;
+      font-weight: 500;
+    }
+    .tier-slide .tier-card .tc-title {
+      font-family: 'Inter', sans-serif;
+      font-size: 24px;
+      font-weight: 600;
+      color: var(--ink);
+      letter-spacing: -0.005em;
+    }
+    .tier-slide .tier-card .tc-desc {
+      font-family: 'Inter', sans-serif;
+      font-size: 18px;
+      line-height: 1.45;
+      color: var(--ink-soft);
+    }
+    .tier-slide .tier-summary {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 18px;
+      margin-top: 18px;
+      padding: 18px 24px;
+      background: var(--card);
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+    }
+    .tier-slide .tier-summary .ts-n {
+      font-family: 'Fraunces', serif;
+      font-size: 40px;
+      font-weight: 500;
+      color: var(--accent);
+      line-height: 1;
+      letter-spacing: -0.02em;
+    }
+    .tier-slide .tier-summary .ts-lbl {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      letter-spacing: 0.12em;
+      color: var(--ink-mute);
+      text-transform: uppercase;
+      margin-top: 4px;
+    }
+
+    /* Closing slide */
+    .closing {
+      background: #141218;
+      color: #F4F1EC;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      height: 100%;
+      padding: 80px 100px;
+    }
+    .closing .c-eyebrow {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 22px;
+      letter-spacing: 0.16em;
+      color: #C9A8F3;
+      text-transform: uppercase;
+      margin-bottom: 32px;
+    }
+    .closing h1.c-title {
+      font-family: 'Fraunces', serif;
+      font-weight: 500;
+      font-size: 144px;
+      line-height: 0.98;
+      letter-spacing: -0.03em;
+      margin: 0 0 40px 0;
+      color: #F4F1EC;
+    }
+    .closing .c-url {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 44px;
+      color: #C9A8F3;
+      letter-spacing: 0.02em;
+      margin-bottom: 48px;
+    }
+    .closing .c-foot {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      padding-top: 40px;
+      border-top: 1px solid rgba(244, 241, 236, 0.15);
+      font-family: 'Inter', sans-serif;
+      font-size: 20px;
+      color: #9E97A3;
+      letter-spacing: 0.02em;
+      margin-top: auto;
+    }
+
+    /* Source pill grid */
+    .src-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .src-grid .src {
+      font-family: 'Inter', sans-serif;
+      font-size: 16px;
+      font-weight: 500;
+      padding: 9px 13px;
+      background: var(--card);
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      color: var(--ink);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .src-grid .src .b {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--accent);
+    }
+
+    /* Role badges (team feature) */
+    .role-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 4px;
+    }
+    .role-card {
+      background: var(--card);
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      padding: 14px 16px;
+    }
+    .role-card .r-name {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      letter-spacing: 0.14em;
+      color: var(--accent);
+      text-transform: uppercase;
+      font-weight: 500;
+      margin-bottom: 4px;
+    }
+    .role-card .r-desc {
+      font-family: 'Inter', sans-serif;
+      font-size: 15px;
+      color: var(--ink-soft);
+      line-height: 1.35;
+    }
+
+    /* Integration cards */
+    .integ-card {
+      background: var(--card);
+      border: 1px solid var(--rule);
+      border-left: 4px solid var(--accent);
+      border-radius: 10px;
+      padding: 22px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .integ-card .i-name {
+      font-family: 'Inter', sans-serif;
+      font-size: 24px;
+      font-weight: 600;
+      color: var(--ink);
+    }
+    .integ-card .i-desc {
+      font-family: 'Inter', sans-serif;
+      font-size: 17px;
+      color: var(--ink-soft);
+      line-height: 1.4;
+    }
+    .integ-card .i-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      letter-spacing: 0.14em;
+      color: var(--accent);
+      text-transform: uppercase;
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+
+<deck-stage>
+
+  <!-- ============================================== -->
+  <!-- 01 — Title -->
+  <!-- ============================================== -->
+    <section data-screen-label="01 Title" class="slide">
+    <div class="hero">
+      <div class="eyebrow-line">
+        <span>KFUPM &middot; MX Master's Programme &middot; Final Project</span>
+        <span>2026</span>
+      </div>
+      <h1 class="product-name">ScholarHub</h1>
+      <p class="product-tag">A unified workspace for academic research.<br/>Discover, write, collaborate, and let AI help &mdash; without leaving the page.</p>
+      <div class="hero-meta">
+        <div>
+          <div class="m-label">Live at</div>
+          <div class="m-value url">scholarhub.space</div>
+          <div class="m-sub">Live deployment, May 2026.</div>
+        </div>
+        <div>
+          <div class="m-label">Built by</div>
+          <div class="m-value">Hassan Algizani</div>
+          <div class="m-sub">MX Student &middot; ID 202403940</div>
+        </div>
+        <div>
+          <div class="m-label">Supervised by</div>
+          <div class="m-value">Dr. Irfan Ahmad</div>
+          <div class="m-sub">with Mr. Majed Alshaibani</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section data-screen-label="02 Introduction (Ch. 01)" class="slide">
+    <div class="section-div">
+      <div class="sd-chapter">CHAPTER 01 &middot; INTRODUCTION</div>
+      <div>
+        <h2 class="sd-title">Introduction.</h2>
+        <p class="sd-desc">The problem this project addresses, the contributions it makes, and the scope of what was actually built and evaluated &mdash; before we walk through any feature or any architecture diagram.</p>
+      </div>
+      <div class="sd-foot">
+        <span>ScholarHub &middot; KFUPM MX Final Project</span>
+        <span>02 / 35</span>
+      </div>
+    </div>
+  </section>
+
+  <section data-screen-label="03 The Problem" class="slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> The Problem</span><span class="num">03 / 35</span></div>
+    <h3 class="slide-title" style="font-size:54px;max-width:1550px;margin-bottom:24px;">Writing a research paper today is annoying.</h3>
+    <p class="lede" style="max-width:1500px;margin-bottom:32px;font-size:28px;">A researcher writing one paper opens at least five different apps: a search engine to find papers, a reference manager to save them, a writing tool to draft, a chat app to coordinate with co-authors, and an AI assistant to help phrase things. <strong style="color:var(--ink);">None of these talk to each other.</strong></p>
+
+    <div class="stat-row" style="margin-bottom:24px;">
+      <div class="stat-card">
+        <div class="stat-lbl">Apps Per Paper</div>
+        <div class="stat-n">5+</div>
+        <div class="stat-desc">Overleaf, Zotero, Google Scholar, ChatGPT, Slack &mdash; copy/paste between them all day.</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-lbl">AI Invents Citations</div>
+        <div class="stat-n">76%</div>
+        <div class="stat-desc">Average rate at which the best 2026 AI models invent fake citations when asked to write academic text (measured over 30 prompts &times; 4 frontier models).</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-lbl">Productivity Tax</div>
+        <div class="stat-n">~3&times;</div>
+        <div class="stat-desc">Cross-app tasks take roughly three times longer than the same work in an integrated workspace.</div>
+      </div>
+    </div>
+
+    <p class="body" style="max-width:1600px;font-size:22px;">Researchers want to focus on ideas, not on copying citation keys between five browser tabs. And when AI invents fake references that look real, the time saved by AI is lost to manual verification. <strong style="color:var(--ink);">There's room for one workspace that does all of this in one place &mdash; and an AI that doesn't lie.</strong></p>
+    <div class="foot"><span>Sources: walters2023fabrication, asai2025openscholar, khalifa2024aiwriting</span><span class="num">03 / 35</span></div>
+  </section>
+
+  <section data-screen-label="04 Contributions" class="slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Contributions &amp; Scope</span><span class="num">04 / 35</span></div>
+    <h3 class="slide-title" style="font-size:48px;margin-bottom:18px;">What this project actually delivers.</h3>
+    <p class="body" style="max-width:1700px;font-size:20px;margin-bottom:24px;">Five technical contributions, deployed live at <span class="mono" style="color:var(--accent);">scholarhub.space</span>, evaluated through two empirical studies. The boundaries are stated explicitly so the evaluation is rigorous within a graduate-project envelope.</p>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:22px;flex:1;">
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <div style="font-family:'JetBrains Mono';font-size:14px;letter-spacing:0.14em;color:var(--accent);text-transform:uppercase;font-weight:500;margin-bottom:2px;">DELIVERED</div>
+        <div style="background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:10px;padding:16px 20px;">
+          <div style="font-family:'Inter';font-size:18px;font-weight:600;color:var(--ink);">C1. Unified research workspace</div>
+          <div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.4;margin-top:4px;">Discovery + library + discussion + collaborative LaTeX + AI + meetings, in one web app.</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:10px;padding:16px 20px;">
+          <div style="font-family:'Inter';font-size:18px;font-weight:600;color:var(--ink);">C2. Library-grounded AI with post-filter</div>
+          <div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.4;margin-top:4px;">Tool-orchestrated agent + a server-side citation filter that rejects every non-library citation key.</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:10px;padding:16px 20px;">
+          <div style="font-family:'Inter';font-size:18px;font-weight:600;color:var(--ink);">C3. Multi-source paper discovery</div>
+          <div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.4;margin-top:4px;">Nine open scientific APIs queried in parallel, deduplicated, ranked, presented as one list.</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:10px;padding:16px 20px;">
+          <div style="font-family:'Inter';font-size:18px;font-weight:600;color:var(--ink);">C4. Real-time CRDT LaTeX editor</div>
+          <div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.4;margin-top:4px;">Y.js + Hocuspocus, multi-file projects, live PDF preview, document history with restore.</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:10px;padding:16px 20px;">
+          <div style="font-family:'Inter';font-size:18px;font-weight:600;color:var(--ink);">C5. Two empirical studies</div>
+          <div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.4;margin-top:4px;">Citation faithfulness across 4 frontier LLMs (reproducible runner); search performance benchmarks.</div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <div style="font-family:'JetBrains Mono';font-size:14px;letter-spacing:0.14em;color:var(--accent);text-transform:uppercase;font-weight:500;margin-bottom:2px;">DELIBERATE BOUNDARIES</div>
+        <div style="background:var(--card);border:1px solid var(--rule);border-radius:10px;padding:16px 20px;">
+          <div style="font-family:'Inter';font-size:18px;font-weight:600;color:var(--ink);">Systems evaluation, not stopwatch user study</div>
+          <div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.4;margin-top:4px;">Two quantitative studies are the contribution; a controlled human-subjects study is recorded as future work.</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--rule);border-radius:10px;padding:16px 20px;">
+          <div style="font-family:'Inter';font-size:18px;font-weight:600;color:var(--ink);">Open scientific APIs only</div>
+          <div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.4;margin-top:4px;">Subscription databases (Web of Science, Scopus) require institutional contracts &mdash; deferred to productization.</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--rule);border-radius:10px;padding:16px 20px;">
+          <div style="font-family:'Inter';font-size:18px;font-weight:600;color:var(--ink);">Cloud AI providers by design</div>
+          <div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.4;margin-top:4px;">OpenAI direct + OpenRouter (31 models). Architecture supports local inference; air-gapped deployment is a productization concern.</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--rule);border-radius:10px;padding:16px 20px;">
+          <div style="font-family:'Inter';font-size:18px;font-weight:600;color:var(--ink);">English-first, multilingual-ready</div>
+          <div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.4;margin-top:4px;">UI, citations, and templates validated in English. Arabic / RTL support is a productization milestone.</div>
+        </div>
+        <div style="background:var(--bg-alt);border:1px solid var(--rule);border-radius:10px;padding:16px 20px;">
+          <div style="font-family:'JetBrains Mono';font-size:13px;letter-spacing:0.12em;color:var(--ink-mute);text-transform:uppercase;font-weight:500;margin-bottom:4px;">SCOPE PRINCIPLE</div>
+          <div style="font-family:'Inter';font-size:17px;color:var(--ink);line-height:1.4;">Scope was chosen to make every claim measurable within a graduate-project envelope &mdash; not to maximise feature count.</div>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span>Five contributions &middot; deployed at scholarhub.space &middot; boundaries stated explicitly</span><span class="num">04 / 35</span></div>
+  </section>
+
+  <section data-screen-label="05 Workspace + Discovery (Ch. 02)" class="slide">
+    <div class="section-div">
+      <div class="sd-chapter">CHAPTER 02 &middot; WORKSPACE &AMP; DISCOVERY</div>
+      <div>
+        <h2 class="sd-title">Workspace<br/>&amp; Discovery.</h2>
+        <p class="sd-desc">How a researcher gets started with ScholarHub: meeting the product, an end-to-end weekly workflow, creating projects with collaborators, finding papers across nine academic databases, and organising what you find into a project library.</p>
+      </div>
+      <div class="sd-foot">
+        <span>ScholarHub &middot; KFUPM MX Final Project</span>
+        <span>05 / 35</span>
+      </div>
+    </div>
+  </section>
+
+  <section data-screen-label="06 Meet ScholarHub" class="slide feat-slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> The Solution</span><span class="num">06 / 35</span></div>
+    <div class="row">
+      <div class="copy-col">
+        <div class="feat-eyebrow">Introducing</div>
+        <h3 class="feat-title">One workspace<br/>instead of five.</h3>
+        <p class="feat-lede">ScholarHub is a web application that combines everything a researcher needs into one browser tab. Find papers from nine academic databases. Save them to your library. Discuss with your team. Draft your paper. Ask an AI for help &mdash; and the AI only cites papers you've actually saved.</p>
+        <p class="feat-lede"><strong style="color:var(--ink);">No installation. No copy-paste between apps. No fabricated citations.</strong></p>
+        <p class="body" style="font-size:18px;color:var(--ink-mute);margin-top:6px;">Open <span class="mono" style="color:var(--accent);">scholarhub.space</span> in any browser. Sign in with Google or email. Start a project. That's the whole onboarding.</p>
+      </div>
+      <div class="shot-col">
+        <div class="shot-fit"><img src="assets/landing-fresh.png" alt="ScholarHub landing page"></div>
+      </div>
+    </div>
+    <div class="foot"><span>Live deployment &middot; works in any modern browser &middot; multi-user from day one</span><span class="num">06 / 35</span></div>
+  </section>
+
+  <section data-screen-label="07 User Journey" class="slide paper">
+    <div class="page-head"><span class="mark"><span class="dot"></span> A Day Using ScholarHub</span><span class="num">07 / 35</span></div>
+    <h3 class="slide-title" style="font-size:48px;margin-bottom:12px;">From an idea to a submission-ready paper.</h3>
+    <p class="body" style="max-width:1600px;margin-bottom:24px;font-size:21px;">A graduate student starts a new paper on Monday. By Friday, they want a draft ready for the supervisor's feedback. Here is how ScholarHub fits into that week.</p>
+
+    <div class="journey">
+      <div class="journey-step">
+        <div class="js-num">MON &middot; 01</div>
+        <div class="js-title">Start a project</div>
+        <div class="js-desc">Title, keywords, objectives, co-authors. Everything in this paper lives inside the project.</div>
+      </div>
+      <div class="journey-step">
+        <div class="js-num">MON &middot; 02</div>
+        <div class="js-title">Discover papers</div>
+        <div class="js-desc">Search nine academic databases at once. Save anything relevant in one click.</div>
+      </div>
+      <div class="journey-step">
+        <div class="js-num">TUE &middot; 03</div>
+        <div class="js-title">Invite the team</div>
+        <div class="js-desc">Add co-authors as Editors or Viewers. Discuss in project channels, tag the AI.</div>
+      </div>
+      <div class="journey-step">
+        <div class="js-num">WED-THU &middot; 04</div>
+        <div class="js-title">Write together</div>
+        <div class="js-desc">LaTeX editor with live PDF. Multiple authors edit at the same time, conflict-free.</div>
+      </div>
+      <div class="journey-step">
+        <div class="js-num">THU &middot; 05</div>
+        <div class="js-title">Get AI help &mdash; safely</div>
+        <div class="js-desc">"Add three citations to this paragraph." The AI uses only papers in your library.</div>
+      </div>
+      <div class="journey-step">
+        <div class="js-num">FRI &middot; 06</div>
+        <div class="js-title">Submit-ready PDF</div>
+        <div class="js-desc">Pick a template (IEEE, ACM, NeurIPS, &hellip;). One click builds a venue-ready <span class="mono">.zip</span>.</div>
+      </div>
+    </div>
+
+    <p class="body" style="max-width:1600px;margin-top:22px;font-size:19px;color:var(--ink-mute);">Every step happens in the same browser tab. No copy/paste between apps. The AI sees the project context throughout. Your supervisor sees the latest draft live, not yesterday's email attachment.</p>
+    <div class="foot"><span>Same project, Monday to Friday &mdash; one URL, one workspace</span><span class="num">07 / 35</span></div>
+  </section>
+
+  <section data-screen-label="08 Projects + Team" class="slide feat-slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Workspace &amp; Discovery &middot; Projects &amp; Team</span><span class="num">08 / 35</span></div>
+    <div class="row">
+      <div class="copy-col">
+        <div class="feat-eyebrow">When you start &amp; invite</div>
+        <h3 class="feat-title">A project<br/>is a team space.</h3>
+        <p class="feat-lede">Every paper starts as a project &mdash; a container with its own library, its own discussion channels, its own drafts. You invite co-authors by email, give them a role, and they have access immediately.</p>
+        <div style="margin-top:4px;">
+          <div class="feat-eyebrow" style="font-size:14px;margin-bottom:6px;">THREE ROLES &middot; PLUS THE OWNER BADGE</div>
+          <div class="role-grid">
+            <div class="role-card"><div class="r-name">Admin</div><div class="r-desc">Full control. Invite, remove, change roles, project settings.</div></div>
+            <div class="role-card"><div class="r-name">Editor</div><div class="r-desc">Co-authors. Write, discuss, run AI, manage references.</div></div>
+            <div class="role-card"><div class="r-name">Viewer</div><div class="r-desc">Supervisor or reader. Sees everything, edits nothing.</div></div>
+          </div>
+          <p class="body" style="font-size:15px;color:var(--ink-mute);margin-top:8px;">The project creator gets the <strong style="color:var(--ink);">Owner</strong> badge &mdash; an Admin who can't be removed.</p>
+        </div>
+        <div class="ux-trio">
+          <div class="ux-row"><div class="ux-label">When</div><div class="ux-text">You start a new paper and want to bring co-authors in.</div></div>
+          <div class="ux-row"><div class="ux-label">You do</div><div class="ux-text">Create the project &rarr; click Invite member &rarr; type their email &rarr; pick a role.</div></div>
+          <div class="ux-row"><div class="ux-label">You get</div><div class="ux-text">A shared workspace where every team member sees the same library, drafts, and conversations.</div></div>
+        </div>
+      </div>
+      <div class="shot-col">
+        <div class="shot-clip" style="max-height:780px;"><img src="assets/auth-project-overview.png" alt="Project overview with team panel"></div>
+      </div>
+    </div>
+    <div class="foot"><span>Project dashboard &middot; team panel &middot; recent activity feed &middot; per-project AI settings</span><span class="num">08 / 35</span></div>
+  </section>
+
+  <section data-screen-label="09 Discover" class="slide feat-slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Workspace &amp; Discovery &middot; Discover</span><span class="num">09 / 35</span></div>
+    <div class="row">
+      <div class="copy-col">
+        <div class="feat-eyebrow">When you need a paper</div>
+        <h3 class="feat-title">Nine databases.<br/>One search box.</h3>
+        <p class="feat-lede">Instead of opening Google Scholar, then arXiv, then PubMed, then OpenAlex and copying titles between them &mdash; type your query once. ScholarHub queries all nine in parallel, removes duplicates across sources, and ranks the results.</p>
+        <div class="src-grid">
+          <div class="src"><span class="b"></span>Semantic Scholar</div>
+          <div class="src"><span class="b"></span>OpenAlex</div>
+          <div class="src"><span class="b"></span>arXiv</div>
+          <div class="src"><span class="b"></span>CrossRef</div>
+          <div class="src"><span class="b"></span>PubMed</div>
+          <div class="src"><span class="b"></span>CORE</div>
+          <div class="src"><span class="b"></span>Europe PMC</div>
+          <div class="src"><span class="b"></span>ScienceDirect</div>
+          <div class="src"><span class="b"></span>Google Scholar</div>
+        </div>
+        <div class="ux-trio">
+          <div class="ux-row"><div class="ux-label">When</div><div class="ux-text">You want to know what's already been written on a topic.</div></div>
+          <div class="ux-row"><div class="ux-label">You do</div><div class="ux-text">Type a question. Click Run.</div></div>
+          <div class="ux-row"><div class="ux-label">You get</div><div class="ux-text">A ranked, de-duplicated list with one-click "Add to library" buttons.</div></div>
+        </div>
+      </div>
+      <div class="shot-col">
+        <div class="shot-clip" style="max-height:780px;"><img src="assets/auth-discovery-results.png" alt="Multi-source discovery results"></div>
+      </div>
+    </div>
+    <div class="foot"><span>Roughly 3&times; faster than searching one source at a time &middot; deduplicated &amp; ranked across all sources</span><span class="num">09 / 35</span></div>
+  </section>
+
+  <section data-screen-label="10 Library" class="slide feat-slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Workspace &amp; Discovery &middot; Library</span><span class="num">10 / 35</span></div>
+    <div class="row">
+      <div class="shot-col">
+        <div class="shot-clip" style="max-height:780px;"><img src="assets/auth-references.png" alt="Project library"></div>
+      </div>
+      <div class="copy-col">
+        <div class="feat-eyebrow">When you collect papers</div>
+        <h3 class="feat-title">Your project's<br/>own library.</h3>
+        <p class="feat-lede">Every paper you save lives inside the project. Drop a BibTeX file, drag in PDFs, or save discoveries directly. The full text gets indexed so the AI can quote from it, and every reference is one click from the paper you're writing.</p>
+        <div class="ux-trio">
+          <div class="ux-row"><div class="ux-label">When</div><div class="ux-text">You've found relevant papers and want to keep them organized.</div></div>
+          <div class="ux-row"><div class="ux-label">You do</div><div class="ux-text">"Add to library" from discovery, import BibTeX, or sync from Zotero.</div></div>
+          <div class="ux-row"><div class="ux-label">You get</div><div class="ux-text">A searchable per-project library that's the AI's source of truth for citations.</div></div>
+        </div>
+        <p class="body" style="font-size:17px;color:var(--ink-mute);margin-top:2px;">No more "where did I save that paper?" &mdash; the answer is always: inside this project.</p>
+      </div>
+    </div>
+    <div class="foot"><span>BibTeX import/export &middot; Zotero sync &middot; full-text indexing for AI search</span><span class="num">10 / 35</span></div>
+  </section>
+
+  <section data-screen-label="11 Collaborate (Ch. 03)" class="slide">
+    <div class="section-div">
+      <div class="sd-chapter">CHAPTER 03 &middot; COLLABORATE</div>
+      <div>
+        <h2 class="sd-title">Collaborate.</h2>
+        <p class="sd-desc">How co-authors work together inside a project: threaded discussions with an AI participant, live video meetings with automatic transcription, and the integrations that connect ScholarHub to tools the user already has &mdash; Zotero for references and OpenRouter for AI models.</p>
+      </div>
+      <div class="sd-foot">
+        <span>ScholarHub &middot; KFUPM MX Final Project</span>
+        <span>11 / 35</span>
+      </div>
+    </div>
+  </section>
+
+  <section data-screen-label="12 Discussion" class="slide feat-slide paper">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Collaborate &middot; Discussion</span><span class="num">12 / 35</span></div>
+    <div class="row">
+      <div class="copy-col">
+        <div class="feat-eyebrow">When you talk to your team</div>
+        <h3 class="feat-title">Channels for<br/>research talk.</h3>
+        <p class="feat-lede">Each project has its own discussion channels &mdash; threaded conversations alongside the papers and drafts. Tag the AI assistant in any channel to summarize a paper, suggest related work, or draft a paragraph using the project library.</p>
+        <div class="ux-trio">
+          <div class="ux-row"><div class="ux-label">When</div><div class="ux-text">You want to discuss a paper with your co-author without switching to Slack.</div></div>
+          <div class="ux-row"><div class="ux-label">You do</div><div class="ux-text">Open the Discussion tab. Pick a channel. Type. Optionally tag the AI.</div></div>
+          <div class="ux-row"><div class="ux-label">You get</div><div class="ux-text">A threaded conversation the AI can search, with project context built in.</div></div>
+        </div>
+        <p class="body" style="font-size:17px;color:var(--ink-mute);margin-top:2px;">Conversations stay attached to the paper they're about &mdash; no more searching Slack for "what did we decide about that figure?"</p>
+      </div>
+      <div class="shot-col">
+        <div class="shot-clip" style="max-height:780px;"><img src="assets/discussion-ai.png" alt="Discussion channel with AI participant"></div>
+      </div>
+    </div>
+    <div class="foot"><span>Threaded channels &middot; AI participant &middot; project-grounded responses</span><span class="num">12 / 35</span></div>
+  </section>
+
+  <section data-screen-label="13 Sync Space" class="slide feat-slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Collaborate &middot; Sync Space</span><span class="num">13 / 35</span></div>
+    <div class="row">
+      <div class="copy-col">
+        <div class="feat-eyebrow">When you meet live</div>
+        <h3 class="feat-title">Video calls<br/>that take notes.</h3>
+        <p class="feat-lede">Start a video meeting from any project. The call runs in the browser. When it ends, the recording is transcribed automatically, and the AI summarizes it into action items, decisions, and open questions &mdash; attached to the project for later.</p>
+        <div class="ux-trio">
+          <div class="ux-row"><div class="ux-label">When</div><div class="ux-text">You and your co-author need to discuss the paper in real time.</div></div>
+          <div class="ux-row"><div class="ux-label">You do</div><div class="ux-text">Click "Start a call". Co-authors get a link, join in their browser.</div></div>
+          <div class="ux-row"><div class="ux-label">You get</div><div class="ux-text">A searchable transcript and AI-generated meeting notes attached to the project.</div></div>
+        </div>
+        <p class="body" style="font-size:17px;color:var(--ink-mute);margin-top:2px;">The AI can quote the transcript later &mdash; "what did we decide about that figure in Tuesday's call?" gets a real answer.</p>
+      </div>
+      <div class="shot-col">
+        <div class="shot-clip" style="max-height:780px;"><img src="assets/auth-meetings-daily.png" alt="Sync Space video call"></div>
+      </div>
+    </div>
+    <div class="foot"><span>Video powered by Daily.co &middot; AI transcription &middot; notes attached to the project</span><span class="num">13 / 35</span></div>
+  </section>
+
+  <section data-screen-label="14 Integrations" class="slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Collaborate &middot; Integrations</span><span class="num">14 / 35</span></div>
+    <h3 class="slide-title" style="font-size:50px;margin-bottom:14px;">Plug ScholarHub into what you already use.</h3>
+    <p class="body" style="max-width:1600px;font-size:21px;margin-bottom:24px;">ScholarHub works on its own &mdash; but it also connects to the two tools researchers most often already have: <strong style="color:var(--ink);">Zotero</strong> for an existing reference library, and <strong style="color:var(--ink);">OpenRouter</strong> for direct access to 31 frontier AI models. Both are configured once in your profile and apply across every project.</p>
+
+    <div class="row" style="gap:28px;flex:1;align-items:stretch;">
+      <div class="col" style="flex:1.1;">
+        <div class="shot-clip" style="max-height:680px;"><img src="assets/auth-profile.png" alt="Profile integrations page showing Zotero and OpenRouter"></div>
+      </div>
+      <div class="col" style="flex:1;gap:14px;justify-content:center;">
+        <div class="integ-card">
+          <div class="i-tag">REFERENCES &middot; ZOTERO</div>
+          <div class="i-name">Bring your existing library</div>
+          <div class="i-desc">Already have years of Zotero collections? Paste your Zotero API key and user ID in profile &rarr; ScholarHub can sync your collections into any project library with one click. No migration headache.</div>
+        </div>
+        <div class="integ-card">
+          <div class="i-tag">AI MODELS &middot; OPENROUTER</div>
+          <div class="i-name">31 AI models, one key</div>
+          <div class="i-desc">OpenRouter is a gateway to every major AI provider &mdash; OpenAI, Anthropic, Google, Meta, DeepSeek, Mistral, and others. The user pastes one key in their profile and picks which model powers the AI assistant per project. Billing remains with the provider; ScholarHub stores the key encrypted at rest and never proxies the request through its own billing.</div>
+        </div>
+        <div class="integ-card">
+          <div class="i-tag">BYOK &middot; PER-USER API KEYS</div>
+          <div class="i-name">User-supplied credentials</div>
+          <div class="i-desc">Integration credentials are stored encrypted in the user's account record (Fernet symmetric encryption with an environment-derived key). Removing a credential is a single profile action. This supports the bring-your-own-key tier described in the productization section.</div>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span>profile &gt; Integrations &middot; per-user configuration &middot; encrypted at rest</span><span class="num">14 / 35</span></div>
+  </section>
+
+  <section data-screen-label="15 Write + Polish (Ch. 04)" class="slide">
+    <div class="section-div">
+      <div class="sd-chapter">CHAPTER 04 &middot; WRITE &AMP; POLISH</div>
+      <div>
+        <h2 class="sd-title">Write &amp; Polish.</h2>
+        <p class="sd-desc">The core writing surface: a real-time collaborative LaTeX editor with live PDF, an AI assistant grounded in the project library, 22 venue templates, a one-click submission package builder, and a writing-quality analyzer that scores the draft before the supervisor does.</p>
+      </div>
+      <div class="sd-foot">
+        <span>ScholarHub &middot; KFUPM MX Final Project</span>
+        <span>15 / 35</span>
+      </div>
+    </div>
+  </section>
+
+  <section data-screen-label="16 Editor" class="slide feat-slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Write &amp; Polish &middot; Editor</span><span class="num">16 / 35</span></div>
+    <div class="row">
+      <div class="copy-col">
+        <div class="feat-eyebrow">When you write</div>
+        <h3 class="feat-title">LaTeX editor<br/>with live PDF.</h3>
+        <p class="feat-lede">Type LaTeX on the left, see the PDF rebuild on the right. Multiple authors can edit the same file at the same time &mdash; you see your co-author's cursor moving while you type, just like Google Docs. No merge conflicts, ever.</p>
+        <div class="ux-trio">
+          <div class="ux-row"><div class="ux-label">When</div><div class="ux-text">You're drafting your paper &mdash; alone or with co-authors.</div></div>
+          <div class="ux-row"><div class="ux-label">You do</div><div class="ux-text">Type. Saves happen automatically. Click Recompile to refresh the PDF.</div></div>
+          <div class="ux-row"><div class="ux-label">You get</div><div class="ux-text">Live PDF preview, syntax highlighting, autocompletion, and conflict-free real-time co-editing.</div></div>
+        </div>
+        <p class="body" style="font-size:17px;color:var(--ink-mute);margin-top:2px;">Click a spot in the PDF, the editor jumps there. Multi-file projects work out of the box. Document history lets you restore any prior version.</p>
+      </div>
+      <div class="shot-col">
+        <div class="shot-clip" style="max-height:780px;"><img src="assets/auth-editor-fresh.png" alt="Collaborative LaTeX editor with live PDF"></div>
+      </div>
+    </div>
+    <div class="foot"><span>Live PDF &middot; multi-author &middot; multi-file &middot; SyncTeX &middot; full document history</span><span class="num">16 / 35</span></div>
+  </section>
+
+  <section data-screen-label="17 AI Assistant" class="slide feat-slide paper">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Write &amp; Polish &middot; AI Assistant</span><span class="num">17 / 35</span></div>
+    <div class="row">
+      <div class="shot-col">
+        <div class="shot-clip" style="max-height:780px;"><img src="assets/auth-editor-ai-fresh.png" alt="AI Assistant grounded in library"></div>
+      </div>
+      <div class="copy-col">
+        <div class="feat-eyebrow">When you need help &mdash; safely</div>
+        <h3 class="feat-title">An AI that<br/>doesn't lie.</h3>
+        <p class="feat-lede">Open the AI sidebar inside the editor. Ask it to improve a paragraph, add citations, or explain a concept. <strong style="color:var(--ink);">Every citation it produces is checked against your project library &mdash; if the AI tries to invent a fake reference, the system rejects it before you see it.</strong></p>
+        <div class="ux-trio">
+          <div class="ux-row"><div class="ux-label">When</div><div class="ux-text">You're stuck on a paragraph or want help finding the right citation.</div></div>
+          <div class="ux-row"><div class="ux-label">You do</div><div class="ux-text">Type a request (e.g. "add three relevant citations to this paragraph").</div></div>
+          <div class="ux-row"><div class="ux-label">You get</div><div class="ux-text">A response where every citation is a real paper that you've actually saved.</div></div>
+        </div>
+        <p class="body" style="font-size:19px;color:var(--accent);font-weight:500;margin-top:4px;">76% fake without grounding &rarr; 0% in your final draft. Measured. Verified.</p>
+      </div>
+    </div>
+    <div class="foot"><span>The differentiator &mdash; how the filter works is on slide 28</span><span class="num">17 / 35</span></div>
+  </section>
+
+  <section data-screen-label="18 Templates" class="slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Write &amp; Polish &middot; Templates &amp; Submission</span><span class="num">18 / 35</span></div>
+    <h3 class="slide-title" style="font-size:50px;margin-bottom:14px;">Target a venue. Get a submission-ready package.</h3>
+    <p class="body" style="max-width:1600px;font-size:21px;margin-bottom:24px;">Pick from 22 pre-built venue templates &mdash; IEEE, ACM, NeurIPS, Springer LNCS, ICML, ICLR, CVPR, AAAI, ACL, Nature, PLOS ONE, and more. One click swaps in the right preamble. When you're ready to submit, the Submission Package Builder validates against the venue's rules and assembles a publisher-ready <span class="mono" style="color:var(--accent);">.zip</span>.</p>
+
+    <div class="row" style="gap:24px;flex:1;align-items:stretch;">
+      <div class="col" style="flex:1;gap:12px;">
+        <div class="shot-clip" style="flex:1;max-height:480px;"><img src="assets/auth-templates.png" alt="Template library inside the editor"></div>
+        <div style="background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:10px;padding:16px 22px;">
+          <div class="feat-eyebrow" style="font-size:13px;margin-bottom:4px;">22 TEMPLATES</div>
+          <div style="font-family:'Inter';font-size:17px;color:var(--ink-soft);line-height:1.45;">IEEE Conference &middot; ACM CHI &middot; NeurIPS &middot; ICML &middot; ICLR &middot; IJCAI &middot; AAAI &middot; ACL &middot; CVPR &middot; ICCV &middot; ECCV &middot; JMLR &middot; Springer LNCS &middot; Nature &middot; PNAS &middot; PLOS ONE &middot; Elsevier &middot; APA 7 &middot; Chicago &middot; KDD &middot; + 2</div>
+        </div>
+      </div>
+      <div class="col" style="flex:1;gap:12px;">
+        <div class="shot-clip" style="flex:1;max-height:480px;"><img src="assets/auth-submission-package.png" alt="Submission package builder"></div>
+        <div style="background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:10px;padding:16px 22px;">
+          <div class="feat-eyebrow" style="font-size:13px;margin-bottom:4px;">PACKAGE BUILDER</div>
+          <div style="font-family:'Inter';font-size:17px;color:var(--ink-soft);line-height:1.45;">Pick venue &rarr; Validate &rarr; Build. Rewrites the document class, attaches the bibliography style, bundles figures and class files, produces a venue-ready <span class="mono">.zip</span>.</div>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span>No more "wait, what's the IEEE template again?" &mdash; one click and it's done</span><span class="num">18 / 35</span></div>
+  </section>
+
+  <section data-screen-label="19 Writing Quality" class="slide feat-slide paper">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Write &amp; Polish &middot; Writing Quality</span><span class="num">19 / 35</span></div>
+    <div class="row">
+      <div class="shot-col">
+        <div class="shot-clip" style="max-height:780px;"><img src="assets/auth-writing-quality.png" alt="Writing quality analyzer"></div>
+      </div>
+      <div class="copy-col">
+        <div class="feat-eyebrow">When you self-review</div>
+        <h3 class="feat-title">Score your draft<br/>before your supervisor does.</h3>
+        <p class="feat-lede">Before sending the paper out, run the Writing Quality analyzer. It scores the document out of 100, flags missing sections (no Conclusion? No Methodology?), reports citation density, and applies venue-specific structural rules.</p>
+        <div class="ux-trio">
+          <div class="ux-row"><div class="ux-label">When</div><div class="ux-text">You think the draft is done &mdash; but want a second pair of eyes.</div></div>
+          <div class="ux-row"><div class="ux-label">You do</div><div class="ux-text">Click "Writing quality analysis". Optionally pick a target venue.</div></div>
+          <div class="ux-row"><div class="ux-label">You get</div><div class="ux-text">A score, a list of fixable issues, and document stats &mdash; in five seconds.</div></div>
+        </div>
+        <p class="body" style="font-size:17px;color:var(--ink-mute);margin-top:2px;">Cheaper than a supervisor's coffee chat. Not a substitute &mdash; but a useful pre-flight check.</p>
+      </div>
+    </div>
+    <div class="foot"><span>Structural rules &middot; citation density &middot; venue-specific checks</span><span class="num">19 / 35</span></div>
+  </section>
+
+  <section data-screen-label="20 System Architecture (Ch. 05)" class="slide">
+    <div class="section-div">
+      <div class="sd-chapter">CHAPTER 05 &middot; SYSTEM ARCHITECTURE</div>
+      <div>
+        <h2 class="sd-title">System<br/>Architecture.</h2>
+        <p class="sd-desc">Four tiers, packaged in Docker, served from one URL. We start with the integrated picture, then drill into each tier: the browser, the backend, the live-collaboration server, the data layer, and the external services we call on the user's behalf.</p>
+      </div>
+      <div class="sd-foot">
+        <span>ScholarHub &middot; KFUPM MX Final Project</span>
+        <span>20 / 35</span>
+      </div>
+    </div>
+  </section>
+
+  <section data-screen-label="21 Architecture Diagram" class="slide paper">
+    <div class="page-head"><span class="mark"><span class="dot"></span> System Architecture &middot; The Big Picture</span><span class="num">21 / 35</span></div>
+    <h3 class="slide-title" style="font-size:42px;margin-bottom:8px;">Putting it all together.</h3>
+    <p class="body" style="max-width:1700px;font-size:17px;margin-bottom:12px;">All four tiers, every service, with the data flow for the three principal user actions.</p>
+
+    <div style="flex:1;background:var(--card);border:1px solid var(--rule);border-radius:12px;padding:18px 22px;display:flex;flex-direction:column;min-height:0;">
+      <svg viewBox="0 0 1640 730" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" style="width:100%;height:100%;max-height:100%;">
+        <defs>
+          <marker id="bbx" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5B2AA6"/></marker>
+          <marker id="bby" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8A8390"/></marker>
+        </defs>
+
+        <g>
+          <rect x="20" y="14" width="1600" height="98" rx="10" fill="#F6EFFE" stroke="#5B2AA6" stroke-width="1.5"/>
+          <text x="44" y="40" font-family="JetBrains Mono" font-size="14" letter-spacing="2" fill="#5B2AA6" font-weight="600">TIER 01 · BROWSER</text>
+          <rect x="50" y="48" width="280" height="50" rx="6" fill="#FFFFFF" stroke="#5B2AA6"/>
+          <text x="190" y="70" text-anchor="middle" font-family="Inter" font-size="14" font-weight="600" fill="#141218">Landing &middot; Auth</text>
+          <text x="190" y="88" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">Sign in &middot; sign up &middot; OAuth</text>
+          <rect x="350" y="48" width="280" height="50" rx="6" fill="#FFFFFF" stroke="#5B2AA6"/>
+          <text x="490" y="70" text-anchor="middle" font-family="Inter" font-size="14" font-weight="600" fill="#141218">Project Workspace</text>
+          <text x="490" y="88" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">Library &middot; Discussion &middot; Papers</text>
+          <rect x="650" y="48" width="280" height="50" rx="6" fill="#FFFFFF" stroke="#5B2AA6"/>
+          <text x="790" y="70" text-anchor="middle" font-family="Inter" font-size="14" font-weight="600" fill="#141218">LaTeX Editor</text>
+          <text x="790" y="88" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">CodeMirror 6 &middot; live PDF</text>
+          <rect x="950" y="48" width="280" height="50" rx="6" fill="#FFFFFF" stroke="#5B2AA6"/>
+          <text x="1090" y="70" text-anchor="middle" font-family="Inter" font-size="14" font-weight="600" fill="#141218">AI Sidebar</text>
+          <text x="1090" y="88" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">Library-grounded chat</text>
+          <rect x="1250" y="48" width="370" height="50" rx="6" fill="#FFFFFF" stroke="#5B2AA6"/>
+          <text x="1435" y="70" text-anchor="middle" font-family="Inter" font-size="14" font-weight="600" fill="#141218">Profile &middot; Sync Space &middot; Templates</text>
+          <text x="1435" y="88" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">React 18 · TypeScript · Vite · 198 components</text>
+        </g>
+
+        <g>
+          <rect x="630" y="138" width="380" height="36" rx="6" fill="#EFEBE4" stroke="#5B2AA6" stroke-width="1.5"/>
+          <text x="820" y="161" text-anchor="middle" font-family="Inter" font-size="13" font-weight="600" fill="#141218">Nginx · TLS termination · routing</text>
+        </g>
+
+        <g>
+          <rect x="20" y="200" width="990" height="270" rx="10" fill="#F6EFFE" stroke="#5B2AA6" stroke-width="1.5"/>
+          <text x="44" y="226" font-family="JetBrains Mono" font-size="14" letter-spacing="2" fill="#5B2AA6" font-weight="600">TIER 02 · BACKEND · FastAPI (Python)</text>
+          <rect x="50" y="244" width="220" height="76" rx="6" fill="#FFFFFF" stroke="#5B2AA6"/>
+          <text x="160" y="268" text-anchor="middle" font-family="Inter" font-size="13" font-weight="600" fill="#141218">Auth &amp; Accounts</text>
+          <text x="160" y="287" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">JWT cookies</text>
+          <text x="160" y="302" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">Roles &middot; sharing</text>
+          <rect x="282" y="244" width="220" height="76" rx="6" fill="#FFFFFF" stroke="#5B2AA6"/>
+          <text x="392" y="268" text-anchor="middle" font-family="Inter" font-size="13" font-weight="600" fill="#141218">Projects &amp; Teams</text>
+          <text x="392" y="287" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">Members &middot; channels</text>
+          <text x="392" y="302" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">Invitations &middot; activity</text>
+          <rect x="514" y="244" width="220" height="76" rx="6" fill="#FFFFFF" stroke="#5B2AA6"/>
+          <text x="624" y="268" text-anchor="middle" font-family="Inter" font-size="13" font-weight="600" fill="#141218">Reference Library</text>
+          <text x="624" y="287" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">BibTeX &middot; PDFs</text>
+          <text x="624" y="302" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">Zotero sync &middot; embeddings</text>
+          <rect x="746" y="244" width="240" height="76" rx="6" fill="#FFFFFF" stroke="#5B2AA6"/>
+          <text x="866" y="268" text-anchor="middle" font-family="Inter" font-size="13" font-weight="600" fill="#141218">Paper Discovery</text>
+          <text x="866" y="287" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">9 sources in parallel</text>
+          <text x="866" y="302" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">Dedup &middot; rank</text>
+          <rect x="50" y="334" width="220" height="76" rx="6" fill="#FFFFFF" stroke="#5B2AA6"/>
+          <text x="160" y="358" text-anchor="middle" font-family="Inter" font-size="13" font-weight="600" fill="#141218">Discussion</text>
+          <text x="160" y="377" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">Channels &middot; threads</text>
+          <text x="160" y="392" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">Comments &middot; mentions</text>
+          <rect x="282" y="334" width="220" height="76" rx="6" fill="#5B2AA6" stroke="#5B2AA6"/>
+          <text x="392" y="358" text-anchor="middle" font-family="Inter" font-size="13" font-weight="600" fill="#FFFFFF">AI Orchestrator</text>
+          <text x="392" y="377" text-anchor="middle" font-family="Inter" font-size="11" fill="#E8DFF7">30 tools &middot; multi-model</text>
+          <text x="392" y="392" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="#FFFFFF" font-weight="600">+ citation filter</text>
+          <rect x="514" y="334" width="220" height="76" rx="6" fill="#FFFFFF" stroke="#5B2AA6"/>
+          <text x="624" y="358" text-anchor="middle" font-family="Inter" font-size="13" font-weight="600" fill="#141218">LaTeX Compiler</text>
+          <text x="624" y="377" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">pdflatex &middot; bibtex</text>
+          <text x="624" y="392" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">Templates &middot; SyncTeX</text>
+          <rect x="746" y="334" width="240" height="76" rx="6" fill="#FFFFFF" stroke="#5B2AA6"/>
+          <text x="866" y="358" text-anchor="middle" font-family="Inter" font-size="13" font-weight="600" fill="#141218">Sync Space &amp; Notifs</text>
+          <text x="866" y="377" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">Daily.co rooms</text>
+          <text x="866" y="392" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">Transcription &middot; AI notes</text>
+          <rect x="50" y="422" width="936" height="32" rx="6" fill="#EFEBE4" stroke="#8A8390" stroke-dasharray="3 2"/>
+          <text x="518" y="442" text-anchor="middle" font-family="JetBrains Mono" font-size="11" letter-spacing="1" fill="#4A4550">31 API ROUTERS · REST + SSE streaming · 189 modules · 60k LOC</text>
+        </g>
+
+        <g>
+          <rect x="1030" y="200" width="590" height="270" rx="10" fill="#F6EFFE" stroke="#5B2AA6" stroke-width="1.5"/>
+          <text x="1054" y="226" font-family="JetBrains Mono" font-size="14" letter-spacing="2" fill="#5B2AA6" font-weight="600">TIER 02b · COLLAB SERVER · Node.js</text>
+          <rect x="1054" y="244" width="540" height="60" rx="6" fill="#FFFFFF" stroke="#5B2AA6"/>
+          <text x="1324" y="269" text-anchor="middle" font-family="Inter" font-size="14" font-weight="600" fill="#141218">Hocuspocus · WebSocket Rooms</text>
+          <text x="1324" y="290" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">One room per document &middot; auth via JWT</text>
+          <rect x="1054" y="316" width="260" height="60" rx="6" fill="#FFFFFF" stroke="#5B2AA6"/>
+          <text x="1184" y="340" text-anchor="middle" font-family="Inter" font-size="13" font-weight="600" fill="#141218">Y.js CRDT</text>
+          <text x="1184" y="358" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">Conflict-free merging</text>
+          <rect x="1326" y="316" width="268" height="60" rx="6" fill="#FFFFFF" stroke="#5B2AA6"/>
+          <text x="1460" y="340" text-anchor="middle" font-family="Inter" font-size="13" font-weight="600" fill="#141218">Awareness</text>
+          <text x="1460" y="358" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">Live cursors &middot; selections &middot; presence</text>
+          <rect x="1054" y="388" width="540" height="62" rx="6" fill="#FFFFFF" stroke="#5B2AA6"/>
+          <text x="1324" y="412" text-anchor="middle" font-family="Inter" font-size="13" font-weight="600" fill="#141218">Snapshot Persistence &amp; Document History</text>
+          <text x="1324" y="430" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">Debounced writes to PostgreSQL &middot; labelled versions</text>
+        </g>
+
+        <g>
+          <rect x="20" y="490" width="1600" height="80" rx="10" fill="#F6EFFE" stroke="#5B2AA6" stroke-width="1.5"/>
+          <text x="44" y="516" font-family="JetBrains Mono" font-size="14" letter-spacing="2" fill="#5B2AA6" font-weight="600">TIER 03 · DATA</text>
+          <rect x="50" y="528" width="760" height="34" rx="6" fill="#FFFFFF" stroke="#5B2AA6"/>
+          <text x="430" y="550" text-anchor="middle" font-family="Inter" font-size="13" font-weight="600" fill="#141218">PostgreSQL 15 + pgvector &middot; 28 tables &middot; 72 migrations &middot; vector embeddings for semantic search</text>
+          <rect x="824" y="528" width="770" height="34" rx="6" fill="#FFFFFF" stroke="#5B2AA6"/>
+          <text x="1209" y="550" text-anchor="middle" font-family="Inter" font-size="13" font-weight="600" fill="#141218">Redis 7 &middot; session cache &middot; cross-server pub/sub &middot; rate-limit counters</text>
+        </g>
+
+        <g>
+          <rect x="20" y="590" width="1600" height="130" rx="10" fill="#FFFFFF" stroke="#8A8390" stroke-dasharray="5 3" stroke-width="1.2"/>
+          <text x="44" y="616" font-family="JetBrains Mono" font-size="14" letter-spacing="2" fill="#5B2AA6" font-weight="600">TIER 04 · EXTERNAL SERVICES</text>
+          <rect x="50" y="630" width="380" height="76" rx="6" fill="#FAFAFA" stroke="#8A8390" stroke-dasharray="2 2"/>
+          <text x="240" y="654" text-anchor="middle" font-family="Inter" font-size="13" font-weight="600" fill="#141218">AI Providers</text>
+          <text x="240" y="673" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">OpenAI direct &middot; OpenRouter (31 models)</text>
+          <text x="240" y="690" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">GPT-5 &middot; Claude &middot; Gemini &middot; DeepSeek &middot; ...</text>
+          <rect x="442" y="630" width="600" height="76" rx="6" fill="#FAFAFA" stroke="#8A8390" stroke-dasharray="2 2"/>
+          <text x="742" y="654" text-anchor="middle" font-family="Inter" font-size="13" font-weight="600" fill="#141218">9 Academic Databases</text>
+          <text x="742" y="673" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">Semantic Scholar &middot; OpenAlex &middot; arXiv &middot; CrossRef &middot; PubMed</text>
+          <text x="742" y="690" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">CORE &middot; Europe PMC &middot; ScienceDirect &middot; Google Scholar</text>
+          <rect x="1054" y="630" width="270" height="76" rx="6" fill="#FAFAFA" stroke="#8A8390" stroke-dasharray="2 2"/>
+          <text x="1189" y="654" text-anchor="middle" font-family="Inter" font-size="13" font-weight="600" fill="#141218">Daily.co (video)</text>
+          <text x="1189" y="673" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">Live meeting rooms</text>
+          <text x="1189" y="690" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">Recording &amp; transcription</text>
+          <rect x="1336" y="630" width="258" height="76" rx="6" fill="#FAFAFA" stroke="#8A8390" stroke-dasharray="2 2"/>
+          <text x="1465" y="654" text-anchor="middle" font-family="Inter" font-size="13" font-weight="600" fill="#141218">Zotero</text>
+          <text x="1465" y="673" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">User's existing library</text>
+          <text x="1465" y="690" text-anchor="middle" font-family="Inter" font-size="11" fill="#4A4550">API key + user ID</text>
+        </g>
+
+        <g stroke="#5B2AA6" stroke-width="1.5" fill="none">
+          <line x1="820" y1="112" x2="820" y2="136" marker-end="url(#bbx)"/>
+          <line x1="700" y1="174" x2="500" y2="198" marker-end="url(#bbx)"/>
+          <line x1="940" y1="174" x2="1200" y2="198" marker-end="url(#bbx)"/>
+          <line x1="500" y1="470" x2="500" y2="488" marker-end="url(#bbx)"/>
+          <line x1="1300" y1="470" x2="1300" y2="488" marker-end="url(#bbx)"/>
+          <line x1="500" y1="570" x2="500" y2="588" stroke="#8A8390" marker-end="url(#bby)"/>
+          <line x1="1200" y1="570" x2="1200" y2="588" stroke="#8A8390" marker-end="url(#bby)"/>
+        </g>
+      </svg>
+    </div>
+
+    <div class="foot"><span>4 tiers &middot; 7 services &middot; Docker Compose &middot; one server &middot; scholarhub.space</span><span class="num">21 / 35</span></div>
+  </section>
+
+  <section data-screen-label="22 Tier 1 Browser" class="slide tier-slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Tier 01 &middot; Browser (Frontend)</span><span class="num">22 / 35</span></div>
+    <h3 class="slide-title" style="font-size:46px;margin-bottom:10px;">What you see and click.</h3>
+    <p class="body" style="max-width:1700px;font-size:19px;margin-bottom:24px;">The frontend is a single React 18 application served as static assets &mdash; it loads once, then behaves like a single app rather than a website. Below are the principal surfaces a user touches.</p>
+
+    <div class="tier-grid">
+      <div class="tier-card">
+        <div class="tc-eye">PAGE 01</div>
+        <div class="tc-title">Landing &amp; Auth</div>
+        <div class="tc-desc">Marketing landing page, sign-in, sign-up, Google OAuth, password reset. The first thing a new user sees.</div>
+      </div>
+      <div class="tier-card">
+        <div class="tc-eye">PAGE 02</div>
+        <div class="tc-title">Projects list &amp; Overview</div>
+        <div class="tc-desc">All your projects in one place; per-project dashboard with description, objectives, members, activity feed.</div>
+      </div>
+      <div class="tier-card">
+        <div class="tc-eye">PAGE 03</div>
+        <div class="tc-title">Library &amp; Discovery</div>
+        <div class="tc-desc">The Discover tab (9-source search) and the References tab (your saved papers with full-text indexing).</div>
+      </div>
+      <div class="tier-card">
+        <div class="tc-eye">PAGE 04</div>
+        <div class="tc-title">Discussion channels</div>
+        <div class="tc-desc">Per-project threaded channels with the AI assistant as a participant.</div>
+      </div>
+      <div class="tier-card">
+        <div class="tc-eye">PAGE 05</div>
+        <div class="tc-title">LaTeX editor</div>
+        <div class="tc-desc">The most complex surface: CodeMirror 6, file tree, live PDF, AI sidebar, history, templates, format toolbar.</div>
+      </div>
+      <div class="tier-card">
+        <div class="tc-eye">PAGE 06</div>
+        <div class="tc-title">Sync Space &amp; Profile</div>
+        <div class="tc-desc">Video meetings inside the project; profile with integrations (Zotero, OpenRouter), security, account settings.</div>
+      </div>
+    </div>
+
+    <div class="tier-summary">
+      <div><div class="ts-n">React 18</div><div class="ts-lbl">Framework</div></div>
+      <div><div class="ts-n">198</div><div class="ts-lbl">Components</div></div>
+      <div><div class="ts-n">58k</div><div class="ts-lbl">Lines of TypeScript</div></div>
+      <div><div class="ts-n">CodeMirror 6</div><div class="ts-lbl">Editor engine</div></div>
+    </div>
+    <div class="foot"><span>Vite build &middot; strict TypeScript &middot; React Query for server state &middot; Y.js client for live edits</span><span class="num">22 / 35</span></div>
+  </section>
+
+  <section data-screen-label="23 Tier 2 Backend" class="slide tier-slide paper">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Tier 02 &middot; Backend (FastAPI / Python)</span><span class="num">23 / 35</span></div>
+    <h3 class="slide-title" style="font-size:46px;margin-bottom:10px;">The brain of the system.</h3>
+    <p class="body" style="max-width:1700px;font-size:19px;margin-bottom:24px;">Every request from the browser lands here. The backend exposes 31 REST/SSE routers and a set of business-logic services. The eight that matter most are below; the heart of the system is the AI Orchestrator with its post-generation citation filter.</p>
+
+    <div class="tier-grid">
+      <div class="tier-card">
+        <div class="tc-eye">SERVICE 01</div>
+        <div class="tc-title">Auth &amp; Accounts</div>
+        <div class="tc-desc">JWT cookies, Google OAuth, password reset, profile, encrypted integration keys.</div>
+      </div>
+      <div class="tier-card">
+        <div class="tc-eye">SERVICE 02</div>
+        <div class="tc-title">Projects &amp; Teams</div>
+        <div class="tc-desc">Project CRUD, member invitations, roles (Admin/Editor/Viewer), activity feeds, per-project AI settings.</div>
+      </div>
+      <div class="tier-card">
+        <div class="tc-eye">SERVICE 03</div>
+        <div class="tc-title">Reference Library</div>
+        <div class="tc-desc">References + papers, BibTeX import/export, full-text ingestion, semantic embeddings via pgvector, Zotero sync.</div>
+      </div>
+      <div class="tier-card">
+        <div class="tc-eye">SERVICE 04</div>
+        <div class="tc-title">Paper Discovery</div>
+        <div class="tc-desc">Nine source adapters queried in parallel, union-find deduplication by DOI &rarr; arXiv &rarr; title, ranking.</div>
+      </div>
+      <div class="tier-card" style="border-top-color:#5B2AA6;border-top-width:6px;background:#FBF7FF;">
+        <div class="tc-eye" style="color:var(--accent);">SERVICE 05 &middot; THE DIFFERENTIATOR</div>
+        <div class="tc-title">AI Orchestrator + Citation Filter</div>
+        <div class="tc-desc">30 registered tools, multi-model (OpenAI + OpenRouter). Every <span class="mono" style="color:var(--accent);">\cite{key}</span> validated against the project library before the response leaves the server.</div>
+      </div>
+      <div class="tier-card">
+        <div class="tc-eye">SERVICE 06</div>
+        <div class="tc-title">LaTeX Compiler</div>
+        <div class="tc-desc">pdflatex / xelatex / lualatex on the server, with SyncTeX, multi-file projects, template engine, error parsing.</div>
+      </div>
+      <div class="tier-card">
+        <div class="tc-eye">SERVICE 07</div>
+        <div class="tc-title">Discussion &amp; Notifications</div>
+        <div class="tc-desc">Channels, threads, comments, the AI participant in discussions, project notifications, activity tracking.</div>
+      </div>
+      <div class="tier-card">
+        <div class="tc-eye">SERVICE 08</div>
+        <div class="tc-title">Sync Space</div>
+        <div class="tc-desc">Daily.co room creation, per-call tokens, transcription pipeline, AI meeting-note generation.</div>
+      </div>
+    </div>
+
+    <div class="tier-summary">
+      <div><div class="ts-n">FastAPI</div><div class="ts-lbl">Framework</div></div>
+      <div><div class="ts-n">31</div><div class="ts-lbl">API routers</div></div>
+      <div><div class="ts-n">189</div><div class="ts-lbl">Python modules</div></div>
+      <div><div class="ts-n">60k</div><div class="ts-lbl">Lines of Python</div></div>
+    </div>
+    <div class="foot"><span>SSE streaming &middot; async I/O &middot; Pydantic schemas &middot; SQLAlchemy + Alembic for the DB layer</span><span class="num">23 / 35</span></div>
+  </section>
+
+  <section data-screen-label="24 Tier 2b Collab" class="slide tier-slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Tier 02b &middot; Collaboration Server (Node.js)</span><span class="num">24 / 35</span></div>
+    <h3 class="slide-title" style="font-size:46px;margin-bottom:10px;">The part that keeps everyone in sync.</h3>
+    <p class="body" style="max-width:1700px;font-size:19px;margin-bottom:24px;">A dedicated WebSocket server that hosts one room per LaTeX document. Each room owns a Y.js CRDT &mdash; a data structure designed so that any two clients receiving the same set of edits end up with the same document, no matter what order the edits arrive in. No central serialization point, no merge conflicts.</p>
+
+    <div class="row" style="gap:24px;flex:1;align-items:stretch;">
+      <div class="col" style="flex:1.2;">
+        <div style="background:var(--card);border:1px solid var(--rule);border-radius:12px;padding:24px;flex:1;">
+          <div class="tc-eye" style="font-family:'JetBrains Mono';font-size:14px;letter-spacing:0.14em;color:var(--accent);text-transform:uppercase;font-weight:500;margin-bottom:18px;">THE LIFE OF A KEYSTROKE</div>
+          <div style="display:flex;flex-direction:column;gap:14px;">
+            <div style="display:grid;grid-template-columns:50px 1fr;gap:14px;">
+              <div style="font-family:'JetBrains Mono';font-size:24px;color:var(--accent);font-weight:500;">01</div>
+              <div><div style="font-family:'Inter';font-size:21px;font-weight:600;color:var(--ink);">Type in your browser</div><div style="font-family:'Inter';font-size:17px;color:var(--ink-soft);">CodeMirror applies the change locally &mdash; instant visual feedback, zero latency.</div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:50px 1fr;gap:14px;">
+              <div style="font-family:'JetBrains Mono';font-size:24px;color:var(--accent);font-weight:500;">02</div>
+              <div><div style="font-family:'Inter';font-size:21px;font-weight:600;color:var(--ink);">y-codemirror.next emits a Y.js operation</div><div style="font-family:'Inter';font-size:17px;color:var(--ink-soft);">The editor change is translated into a CRDT operation (an insert or delete on a position-stable index).</div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:50px 1fr;gap:14px;">
+              <div style="font-family:'JetBrains Mono';font-size:24px;color:var(--accent);font-weight:500;">03</div>
+              <div><div style="font-family:'Inter';font-size:21px;font-weight:600;color:var(--ink);">Hocuspocus broadcasts via WebSocket</div><div style="font-family:'Inter';font-size:17px;color:var(--ink-soft);">All clients in the same document's room receive the op and apply it. CRDT guarantees convergence.</div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:50px 1fr;gap:14px;">
+              <div style="font-family:'JetBrains Mono';font-size:24px;color:var(--accent);font-weight:500;">04</div>
+              <div><div style="font-family:'Inter';font-size:21px;font-weight:600;color:var(--ink);">Awareness layer sends cursor / selection separately</div><div style="font-family:'Inter';font-size:17px;color:var(--ink-soft);">Live cursor positions don't pollute document history &mdash; they're out-of-band metadata.</div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:50px 1fr;gap:14px;">
+              <div style="font-family:'JetBrains Mono';font-size:24px;color:var(--accent);font-weight:500;">05</div>
+              <div><div style="font-family:'Inter';font-size:21px;font-weight:600;color:var(--ink);">Debounced snapshot to PostgreSQL</div><div style="font-family:'Inter';font-size:17px;color:var(--ink-soft);">A few seconds after activity stops, the full Y.Doc state is persisted. The save IS the keystroke.</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col" style="flex:1;gap:16px;">
+        <div style="background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:12px;padding:22px 24px;">
+          <div class="tc-eye" style="font-family:'JetBrains Mono';font-size:13px;letter-spacing:0.14em;color:var(--accent);text-transform:uppercase;font-weight:500;margin-bottom:8px;">WHY CRDT</div>
+          <div style="font-family:'Inter';font-size:18px;color:var(--ink-soft);line-height:1.4;">Operational Transformation needs a central server to resolve conflicts. CRDTs converge on their own. No "you have new changes, reload?" dialogs.</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:12px;padding:22px 24px;">
+          <div class="tc-eye" style="font-family:'JetBrains Mono';font-size:13px;letter-spacing:0.14em;color:var(--accent);text-transform:uppercase;font-weight:500;margin-bottom:8px;">MULTI-FILE</div>
+          <div style="font-family:'Inter';font-size:18px;color:var(--ink-soft);line-height:1.4;">One Y.Text per file in a paper. Each file has its own undo manager. Switch files without losing history.</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:12px;padding:22px 24px;">
+          <div class="tc-eye" style="font-family:'JetBrains Mono';font-size:13px;letter-spacing:0.14em;color:var(--accent);text-transform:uppercase;font-weight:500;margin-bottom:8px;">DOCUMENT HISTORY</div>
+          <div style="font-family:'Inter';font-size:18px;color:var(--ink-soft);line-height:1.4;">Snapshots persisted on idle. Labelled versions, restore, side-by-side compare &mdash; powered by the same Y.Doc state.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tier-summary">
+      <div><div class="ts-n">Node.js</div><div class="ts-lbl">Runtime</div></div>
+      <div><div class="ts-n">Hocuspocus</div><div class="ts-lbl">CRDT server</div></div>
+      <div><div class="ts-n">Y.js</div><div class="ts-lbl">YATA algorithm</div></div>
+      <div><div class="ts-n">WSS</div><div class="ts-lbl">WebSocket over TLS</div></div>
+    </div>
+    <div class="foot"><span>Same architecture Google Docs / Notion / Linear use for live collaboration</span><span class="num">24 / 35</span></div>
+  </section>
+
+  <section data-screen-label="25 Tier 3 Data" class="slide tier-slide paper">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Tier 03 &middot; Data (PostgreSQL + Redis)</span><span class="num">25 / 35</span></div>
+    <h3 class="slide-title" style="font-size:46px;margin-bottom:10px;">Where everything lives.</h3>
+    <p class="body" style="max-width:1700px;font-size:19px;margin-bottom:24px;">A single PostgreSQL 15 database with the pgvector extension is the source of truth for everything: users, projects, references, papers, discussions, meetings, snapshots, and the dense embeddings used for semantic search. Redis is the high-speed cache for sessions and cross-process collaboration messaging.</p>
+
+    <div class="row" style="gap:24px;flex:1;align-items:stretch;">
+      <div class="col" style="flex:1.4;">
+        <div style="background:var(--card);border:1px solid var(--rule);border-top:3px solid var(--accent);border-radius:12px;padding:24px;flex:1;display:flex;flex-direction:column;gap:14px;">
+          <div class="tc-eye" style="font-family:'JetBrains Mono';font-size:14px;letter-spacing:0.14em;color:var(--accent);text-transform:uppercase;font-weight:500;">PostgreSQL 15 + pgvector</div>
+          <div style="font-family:'Inter';font-size:24px;font-weight:600;color:var(--ink);">Principal tables (28 total)</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px 28px;">
+            <div><strong style="font-family:'Inter';font-size:18px;color:var(--ink);">User</strong><div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.4;">Auth, profile, encrypted OpenRouter + Zotero keys.</div></div>
+            <div><strong style="font-family:'Inter';font-size:18px;color:var(--ink);">Project</strong><div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.4;">Container with members, objectives, keywords, AI settings.</div></div>
+            <div><strong style="font-family:'Inter';font-size:18px;color:var(--ink);">Reference</strong><div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.4;">A library entry (title, authors, year, DOI, abstract, full text).</div></div>
+            <div><strong style="font-family:'Inter';font-size:18px;color:var(--ink);">ResearchPaper</strong><div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.4;">A draft with LaTeX content, multi-file map, CRDT state.</div></div>
+            <div><strong style="font-family:'Inter';font-size:18px;color:var(--ink);">DocumentChunk</strong><div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.4;">Text chunks with pgvector embeddings for semantic search.</div></div>
+            <div><strong style="font-family:'Inter';font-size:18px;color:var(--ink);">DiscussionChannel + Message</strong><div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.4;">Per-project threaded conversations.</div></div>
+            <div><strong style="font-family:'Inter';font-size:18px;color:var(--ink);">MeetingSession + Transcript</strong><div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.4;">Sync Space calls and their AI-summarized notes.</div></div>
+            <div><strong style="font-family:'Inter';font-size:18px;color:var(--ink);">Snapshot + Annotation</strong><div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.4;">Document history versions; inline paper annotations.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col" style="flex:1;gap:16px;">
+        <div style="background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:12px;padding:22px 24px;flex:1;">
+          <div class="tc-eye" style="font-family:'JetBrains Mono';font-size:13px;letter-spacing:0.14em;color:var(--accent);text-transform:uppercase;font-weight:500;margin-bottom:10px;">SCHEMA EVOLUTION</div>
+          <div style="font-family:'Inter';font-size:21px;font-weight:600;color:var(--ink);margin-bottom:6px;">72 Alembic migrations</div>
+          <div style="font-family:'Inter';font-size:17px;color:var(--ink-soft);line-height:1.45;">Every schema change is a versioned migration. Production database evolves with one command: <span class="mono" style="color:var(--accent);">alembic upgrade head</span>.</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:12px;padding:22px 24px;flex:1;">
+          <div class="tc-eye" style="font-family:'JetBrains Mono';font-size:13px;letter-spacing:0.14em;color:var(--accent);text-transform:uppercase;font-weight:500;margin-bottom:10px;">PGVECTOR &middot; SEMANTIC SEARCH</div>
+          <div style="font-family:'Inter';font-size:21px;font-weight:600;color:var(--ink);margin-bottom:6px;">1536-dim embeddings</div>
+          <div style="font-family:'Inter';font-size:17px;color:var(--ink-soft);line-height:1.45;">Every paper's full text is embedded with OpenAI's text-embedding-3-small. Library search uses cosine distance &mdash; "find papers about X" works even when X isn't in any title.</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:12px;padding:22px 24px;flex:1;">
+          <div class="tc-eye" style="font-family:'JetBrains Mono';font-size:13px;letter-spacing:0.14em;color:var(--accent);text-transform:uppercase;font-weight:500;margin-bottom:10px;">REDIS &middot; CACHE LAYER</div>
+          <div style="font-family:'Inter';font-size:21px;font-weight:600;color:var(--ink);margin-bottom:6px;">Sessions &middot; pub/sub &middot; rate limits</div>
+          <div style="font-family:'Inter';font-size:17px;color:var(--ink-soft);line-height:1.45;">Session lookup is microsecond-fast. Cross-process messaging keeps the collab server consistent. Per-user API rate limits live here.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tier-summary">
+      <div><div class="ts-n">PostgreSQL 15</div><div class="ts-lbl">Primary store</div></div>
+      <div><div class="ts-n">pgvector</div><div class="ts-lbl">Vector extension</div></div>
+      <div><div class="ts-n">Redis 7</div><div class="ts-lbl">Cache + pub/sub</div></div>
+      <div><div class="ts-n">28 tables</div><div class="ts-lbl">72 migrations</div></div>
+    </div>
+    <div class="foot"><span>Single PostgreSQL instance &middot; volume-mounted in Docker &middot; daily backup recommended</span><span class="num">25 / 35</span></div>
+  </section>
+
+  <section data-screen-label="26 Tier 4 External" class="slide tier-slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Tier 04 &middot; External Services</span><span class="num">26 / 35</span></div>
+    <h3 class="slide-title" style="font-size:46px;margin-bottom:10px;">What we call on your behalf.</h3>
+    <p class="body" style="max-width:1700px;font-size:19px;margin-bottom:24px;">The backend is the only thing that talks to the outside world &mdash; your browser never makes a request to OpenAI or Semantic Scholar directly. This keeps your API keys on the server and lets us cache, batch, and rate-limit requests cleanly.</p>
+
+    <div class="row" style="gap:24px;flex:1;align-items:stretch;">
+      <div class="col" style="flex:1;gap:16px;">
+        <div style="background:var(--card);border:1px solid var(--rule);border-top:3px solid var(--accent);border-radius:12px;padding:24px;flex:1;">
+          <div class="tc-eye" style="font-family:'JetBrains Mono';font-size:14px;letter-spacing:0.14em;color:var(--accent);text-transform:uppercase;font-weight:500;margin-bottom:14px;">AI PROVIDERS</div>
+          <div style="font-family:'Inter';font-size:22px;font-weight:600;color:var(--ink);margin-bottom:6px;">OpenAI direct + OpenRouter (31 models)</div>
+          <div style="font-family:'Inter';font-size:17px;color:var(--ink-soft);line-height:1.45;margin-bottom:14px;">GPT-5 family, Claude 4.5 family, Gemini 3, DeepSeek R1, Mistral, Llama, plus a dozen niche models. Per-project model selection. Users with their own keys pay providers directly.</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            <span style="font-family:'JetBrains Mono';font-size:14px;padding:4px 10px;background:var(--bg-alt);border-radius:6px;color:var(--ink-soft);">GPT-5 Mini</span>
+            <span style="font-family:'JetBrains Mono';font-size:14px;padding:4px 10px;background:var(--bg-alt);border-radius:6px;color:var(--ink-soft);">Claude Haiku 4.5</span>
+            <span style="font-family:'JetBrains Mono';font-size:14px;padding:4px 10px;background:var(--bg-alt);border-radius:6px;color:var(--ink-soft);">Gemini 3 Flash</span>
+            <span style="font-family:'JetBrains Mono';font-size:14px;padding:4px 10px;background:var(--bg-alt);border-radius:6px;color:var(--ink-soft);">DeepSeek R1</span>
+          </div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--rule);border-top:3px solid var(--accent);border-radius:12px;padding:24px;">
+          <div class="tc-eye" style="font-family:'JetBrains Mono';font-size:14px;letter-spacing:0.14em;color:var(--accent);text-transform:uppercase;font-weight:500;margin-bottom:14px;">VIDEO &amp; TRANSCRIPTION</div>
+          <div style="font-family:'Inter';font-size:22px;font-weight:600;color:var(--ink);margin-bottom:6px;">Daily.co + Whisper</div>
+          <div style="font-family:'Inter';font-size:17px;color:var(--ink-soft);line-height:1.45;">Daily.co provides the WebRTC infrastructure for live meetings; per-call tokens scoped to project membership. Recording feeds into Whisper for transcription.</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--rule);border-top:3px solid var(--accent);border-radius:12px;padding:24px;">
+          <div class="tc-eye" style="font-family:'JetBrains Mono';font-size:14px;letter-spacing:0.14em;color:var(--accent);text-transform:uppercase;font-weight:500;margin-bottom:14px;">USER LIBRARIES</div>
+          <div style="font-family:'Inter';font-size:22px;font-weight:600;color:var(--ink);margin-bottom:6px;">Zotero</div>
+          <div style="font-family:'Inter';font-size:17px;color:var(--ink-soft);line-height:1.45;">User-supplied API key + numeric user ID. Backend pulls collections, maps them into the project library, and indexes them for AI search.</div>
+        </div>
+      </div>
+
+      <div class="col" style="flex:1;">
+        <div style="background:var(--card);border:1px solid var(--rule);border-top:3px solid var(--accent);border-radius:12px;padding:24px;flex:1;display:flex;flex-direction:column;gap:14px;">
+          <div class="tc-eye" style="font-family:'JetBrains Mono';font-size:14px;letter-spacing:0.14em;color:var(--accent);text-transform:uppercase;font-weight:500;">9 ACADEMIC DATABASES</div>
+          <div style="font-family:'Inter';font-size:22px;font-weight:600;color:var(--ink);">Free / open scientific APIs</div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div style="display:grid;grid-template-columns:170px 1fr;gap:14px;align-items:baseline;"><strong style="font-family:'Inter';font-size:17px;color:var(--ink);">Semantic Scholar</strong><div style="font-family:'Inter';font-size:15px;color:var(--ink-soft);">200M+ papers, the primary general-purpose source.</div></div>
+            <div style="display:grid;grid-template-columns:170px 1fr;gap:14px;align-items:baseline;"><strong style="font-family:'Inter';font-size:17px;color:var(--ink);">OpenAlex</strong><div style="font-family:'Inter';font-size:15px;color:var(--ink-soft);">Open replacement for Microsoft Academic Graph.</div></div>
+            <div style="display:grid;grid-template-columns:170px 1fr;gap:14px;align-items:baseline;"><strong style="font-family:'Inter';font-size:17px;color:var(--ink);">arXiv</strong><div style="font-family:'Inter';font-size:15px;color:var(--ink-soft);">Preprints in CS, math, physics, stats.</div></div>
+            <div style="display:grid;grid-template-columns:170px 1fr;gap:14px;align-items:baseline;"><strong style="font-family:'Inter';font-size:17px;color:var(--ink);">CrossRef</strong><div style="font-family:'Inter';font-size:15px;color:var(--ink-soft);">DOI registry &mdash; the canonical metadata source.</div></div>
+            <div style="display:grid;grid-template-columns:170px 1fr;gap:14px;align-items:baseline;"><strong style="font-family:'Inter';font-size:17px;color:var(--ink);">PubMed</strong><div style="font-family:'Inter';font-size:15px;color:var(--ink-soft);">Biomedical literature from the NIH.</div></div>
+            <div style="display:grid;grid-template-columns:170px 1fr;gap:14px;align-items:baseline;"><strong style="font-family:'Inter';font-size:17px;color:var(--ink);">CORE</strong><div style="font-family:'Inter';font-size:15px;color:var(--ink-soft);">Open-access full-text aggregator.</div></div>
+            <div style="display:grid;grid-template-columns:170px 1fr;gap:14px;align-items:baseline;"><strong style="font-family:'Inter';font-size:17px;color:var(--ink);">Europe PMC</strong><div style="font-family:'Inter';font-size:15px;color:var(--ink-soft);">European biomedical and life-science papers.</div></div>
+            <div style="display:grid;grid-template-columns:170px 1fr;gap:14px;align-items:baseline;"><strong style="font-family:'Inter';font-size:17px;color:var(--ink);">ScienceDirect</strong><div style="font-family:'Inter';font-size:15px;color:var(--ink-soft);">Elsevier metadata search (open metadata only).</div></div>
+            <div style="display:grid;grid-template-columns:170px 1fr;gap:14px;align-items:baseline;"><strong style="font-family:'Inter';font-size:17px;color:var(--ink);">Google Scholar</strong><div style="font-family:'Inter';font-size:15px;color:var(--ink-soft);">Metered fallback for citation counts and broad coverage.</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span>All called by the backend &middot; your API keys never leave the server &middot; rate-limited per source</span><span class="num">26 / 35</span></div>
+  </section>
+
+  <section data-screen-label="27 Evaluation (Ch. 06)" class="slide">
+    <div class="section-div">
+      <div class="sd-chapter">CHAPTER 06 &middot; EVALUATION</div>
+      <div>
+        <h2 class="sd-title">Evaluation.</h2>
+        <p class="sd-desc">Two empirical studies measure the system as built. First, the citation faithfulness study quantifies the central technical claim: that the post-generation library-key filter eliminates fabricated citations from the user-visible response. Second, the search performance study measures end-to-end latency against the live deployment.</p>
+      </div>
+      <div class="sd-foot">
+        <span>ScholarHub &middot; KFUPM MX Final Project</span>
+        <span>27 / 35</span>
+      </div>
+    </div>
+  </section>
+
+  <section data-screen-label="28 The Big Idea" class="slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> The Big Idea</span><span class="num">28 / 35</span></div>
+    <h3 class="slide-title" style="font-size:50px;margin-bottom:12px;">How we made the AI stop lying about citations.</h3>
+    <p class="body" style="max-width:1600px;font-size:21px;margin-bottom:24px;">This is the single most important thing ScholarHub does differently. Every other research workspace either has no AI or has an AI that invents references. We made it impossible for the AI to put a fake citation in your final draft.</p>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:22px;flex:1;align-items:stretch;">
+      <div style="background:var(--card);border:1px solid var(--rule);border-radius:12px;padding:28px;display:flex;flex-direction:column;gap:12px;">
+        <div class="feat-eyebrow" style="font-size:15px;">STEP 01 &middot; PROMPT</div>
+        <div style="font-family:'Fraunces';font-size:30px;font-weight:500;color:var(--ink);line-height:1.1;">Tell the AI<br/>what's allowed.</div>
+        <p style="font-family:'Inter';font-size:18px;color:var(--ink-soft);line-height:1.45;margin:0;">The AI gets your project library as context. The system prompt explicitly says: "cite only from this list." Most AIs follow this most of the time.</p>
+      </div>
+
+      <div style="background:var(--card);border:1px solid var(--rule);border-radius:12px;padding:28px;display:flex;flex-direction:column;gap:12px;">
+        <div class="feat-eyebrow" style="font-size:15px;">STEP 02 &middot; REALITY</div>
+        <div style="font-family:'Fraunces';font-size:30px;font-weight:500;color:var(--ink);line-height:1.1;">But the AI<br/>still slips.</div>
+        <p style="font-family:'Inter';font-size:18px;color:var(--ink-soft);line-height:1.45;margin:0;">In our tests, the four best 2026 AI models cited outside the library <strong style="color:var(--accent);">5&ndash;21%</strong> of the time, even when explicitly told not to. Saying "please" is not enough.</p>
+      </div>
+
+      <div style="background:#5B2AA6;color:#FFFFFF;border-radius:12px;padding:28px;display:flex;flex-direction:column;gap:12px;">
+        <div class="feat-eyebrow" style="font-size:15px;color:#D9C0F7;">STEP 03 &middot; THE FILTER</div>
+        <div style="font-family:'Fraunces';font-size:30px;font-weight:500;color:#FFFFFF;line-height:1.1;">We check<br/>every citation.</div>
+        <p style="font-family:'Inter';font-size:18px;color:#E8DFF7;line-height:1.45;margin:0;">Before the AI's response reaches you, ScholarHub looks at every citation it produced. Anything not in your library is replaced with a visible <span class="mono" style="background:rgba(255,255,255,0.16);padding:1px 8px;border-radius:4px;font-size:16px;">[MISSING]</span> marker.</p>
+      </div>
+    </div>
+
+    <div style="margin-top:22px;padding:22px 30px;background:#F6EFFE;border:2px solid #5B2AA6;border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:24px;">
+      <div>
+        <div class="feat-eyebrow" style="font-size:15px;margin-bottom:6px;">THE RESULT</div>
+        <div style="font-family:'Fraunces';font-size:28px;font-weight:500;color:var(--ink);line-height:1.2;">A fabricated citation cannot reach your final draft.</div>
+        <div style="font-family:'Inter';font-size:17px;color:var(--ink-mute);margin-top:6px;">In production at <span class="mono" style="color:var(--accent);">scholarhub.space</span> &mdash; strict mode by default.</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;">
+        <div style="font-family:'Fraunces';font-size:88px;font-weight:500;color:var(--accent);line-height:0.95;letter-spacing:-0.025em;">0%</div>
+        <div style="font-family:'JetBrains Mono';font-size:13px;letter-spacing:0.1em;color:var(--ink-mute);text-transform:uppercase;margin-top:4px;">Fabricated in final response</div>
+      </div>
+    </div>
+    <div class="foot"><span>Validated in production: 4 of 4 frontier models reach 0% empirically (329 library-key citations, 0 fabricated) &middot; numbers on next slide</span><span class="num">28 / 35</span></div>
+  </section>
+
+  <section data-screen-label="29 Proof Citations" class="slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Proof &middot; The Numbers</span><span class="num">29 / 35</span></div>
+    <h3 class="slide-title" style="font-size:46px;margin-bottom:8px;">76% &rarr; 14% &rarr; 0% &mdash; measured.</h3>
+    <p class="body" style="max-width:1600px;margin-bottom:16px;font-size:20px;">We ran 30 writing prompts through the four most capable 2026 AI models, twice &mdash; once with no library, once with the project library + ScholarHub's filter. 240 model calls in total, 1,135 citations verified against external databases.</p>
+
+    <table class="eval">
+      <thead><tr><th>Model</th><th>Setup</th><th>Citations</th><th>Fake %</th><th>From library %</th><th>After our filter</th></tr></thead>
+      <tbody>
+        <tr><td class="k">GPT-5 Mini</td><td>No grounding</td><td>60</td><td class="bad">68.3%</td><td>10.0%</td><td>&mdash;</td></tr>
+        <tr><td class="k">GPT-5 Mini</td><td>With ScholarHub</td><td>137</td><td class="good">5.1%</td><td class="hi">98.5%</td><td class="hi">0.0%</td></tr>
+        <tr><td class="k">Claude Haiku 4.5</td><td>No grounding</td><td>111</td><td class="bad">68.5%</td><td>9.9%</td><td>&mdash;</td></tr>
+        <tr><td class="k">Claude Haiku 4.5</td><td>With ScholarHub</td><td>172</td><td class="good">20.9%</td><td class="hi">82.6%</td><td class="hi">0.0%</td></tr>
+        <tr><td class="k">Gemini 3 Flash</td><td>No grounding</td><td>156</td><td class="bad">86.5%</td><td>7.1%</td><td>&mdash;</td></tr>
+        <tr><td class="k">Gemini 3 Flash</td><td>With ScholarHub</td><td>204</td><td class="good">15.7%</td><td class="hi">88.2%</td><td class="hi">0.0%</td></tr>
+        <tr><td class="k">DeepSeek R1</td><td>No grounding</td><td>139</td><td class="bad">82.0%</td><td>8.6%</td><td>&mdash;</td></tr>
+        <tr><td class="k">DeepSeek R1</td><td>With ScholarHub</td><td>156</td><td class="good">16.0%</td><td class="hi">87.8%</td><td class="hi">0.0%</td></tr>
+        <tr class="summary"><td>Average (no grounding)</td><td>&mdash;</td><td>466</td><td class="bad">76.3%</td><td>8.9%</td><td>&mdash;</td></tr>
+        <tr class="summary"><td>Average (with ScholarHub)</td><td>&mdash;</td><td>669</td><td class="good">14.4%</td><td class="hi">89.3%</td><td class="hi">0.0%</td></tr>
+      </tbody>
+    </table>
+    <p class="body" style="font-size:14px;color:var(--ink-mute);margin-top:6px;">After our filter measures only \cite{key} citations that would reach the user (329 across the benchmark). Full bibliography entries the model writes as prose are discarded by the production filter before the user sees them. Zero fabrications across all 329.</p>
+    <div class="foot"><span>Benchmark is open and reproducible &middot; scripts/study1_runner.py</span><span class="num">29 / 35</span></div>
+  </section>
+
+  <section data-screen-label="30 Proof Speed" class="slide paper">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Proof &middot; The Speed</span><span class="num">30 / 35</span></div>
+    <h3 class="slide-title" style="font-size:46px;margin-bottom:12px;">Searching all nine databases is faster than searching one.</h3>
+    <p class="body" style="max-width:1600px;margin-bottom:24px;font-size:20px;">Asking one database at a time, you wait for each in turn &mdash; total time is the sum. ScholarHub asks all of them at once, so the total time is just the slowest one. The difference is roughly <strong style="color:var(--accent);">three times faster</strong> in practice.</p>
+
+    <div class="row" style="gap:24px;flex:1;align-items:stretch;">
+      <div class="col" style="flex:1.3;">
+        <table class="eval">
+          <thead><tr><th>What's being measured</th><th>Median time</th><th>Worst case (95%)</th></tr></thead>
+          <tbody>
+            <tr><td class="k">Just loading the front page</td><td>109&nbsp;ms</td><td>152&nbsp;ms</td></tr>
+            <tr><td class="k">Checking the backend is healthy</td><td>111&nbsp;ms</td><td>130&nbsp;ms</td></tr>
+            <tr><td class="k">Asking arXiv alone</td><td>118&nbsp;ms</td><td>1018&nbsp;ms</td></tr>
+            <tr><td class="k">Asking OpenAlex alone</td><td>685&nbsp;ms</td><td>1049&nbsp;ms</td></tr>
+            <tr><td class="k">Asking CrossRef alone</td><td>773&nbsp;ms</td><td>1358&nbsp;ms</td></tr>
+            <tr class="summary"><td>Asking all three at once (ScholarHub)</td><td class="hi">1170&nbsp;ms</td><td class="hi">1740&nbsp;ms</td></tr>
+          </tbody>
+        </table>
+        <p class="body" style="font-size:16px;color:var(--ink-mute);margin-top:10px;">All times measured from a normal home internet connection, 20 samples each.</p>
+      </div>
+      <div class="col" style="flex:1;gap:14px;justify-content:stretch;">
+        <div class="stat-card" style="border-left:4px solid var(--accent);flex:1;justify-content:center;">
+          <div class="stat-lbl">Speedup vs. one-at-a-time</div>
+          <div class="stat-n" style="font-size:80px;">2.9&times;</div>
+          <div class="stat-desc">Total wait bounded by the slowest source, not the sum of all nine sources.</div>
+        </div>
+        <div class="stat-card" style="border-left:4px solid var(--accent);flex:1;justify-content:center;">
+          <div class="stat-lbl">The pipeline</div>
+          <div style="font-family:'Fraunces';font-size:36px;font-weight:500;color:var(--accent);line-height:1.15;letter-spacing:-0.015em;">Search &rarr; Rank<br/>&rarr; Present.</div>
+          <div class="stat-desc">All nine databases queried in parallel. Results merged, deduplicated by DOI&rarr;arXiv&rarr;title, then ranked and shown as one combined list.</div>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span>Measured against scholarhub.space, May 2026 &middot; scripts/study2_perf_bench.py</span><span class="num">30 / 35</span></div>
+  </section>
+
+  <section data-screen-label="31 Conclusion (Ch. 07)" class="slide">
+    <div class="section-div">
+      <div class="sd-chapter">CHAPTER 07 &middot; CONCLUSION</div>
+      <div>
+        <h2 class="sd-title">Conclusion.</h2>
+        <p class="sd-desc">The honest limitations of the work as it stands, the future work that follows from those limitations, the productization path that takes ScholarHub from a graduate project to an institutional research workspace, and acknowledgements.</p>
+      </div>
+      <div class="sd-foot">
+        <span>ScholarHub &middot; KFUPM MX Final Project</span>
+        <span>31 / 35</span>
+      </div>
+    </div>
+  </section>
+
+  <section data-screen-label="32 Limitations" class="slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Limitations &amp; Threats to Validity</span><span class="num">32 / 35</span></div>
+    <h3 class="slide-title" style="font-size:48px;margin-bottom:18px;">What this project does <em>not</em> prove.</h3>
+    <p class="body" style="max-width:1700px;font-size:20px;margin-bottom:24px;">Every empirical claim in this work has a boundary. Stating them up front strengthens the contribution because the parts that <em>are</em> claimed are then claimed precisely.</p>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:22px;flex:1;">
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <div style="background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:10px;padding:18px 22px;">
+          <div style="font-family:'Inter';font-size:19px;font-weight:600;color:var(--ink);">L1. No human-subjects user study</div>
+          <div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.45;margin-top:6px;">The evaluation is a systems evaluation. We measure model behavior and network latency, not how a real researcher's workflow improves. A controlled task-completion study with the KFUPM cohort is the natural next step.</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:10px;padding:18px 22px;">
+          <div style="font-family:'Inter';font-size:19px;font-weight:600;color:var(--ink);">L2. Study 1 sample size</div>
+          <div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.45;margin-top:6px;">30 prompts &times; 4 models &times; 2 conditions = 240 model calls, 1,135 verified citations. Enough to expose the structural effect of grounding (76% &rarr; 14%) and the post-filter (0%); a 100-prompt run would tighten per-model confidence intervals.</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:10px;padding:18px 22px;">
+          <div style="font-family:'Inter';font-size:19px;font-weight:600;color:var(--ink);">L3. Citation existence, not relevance</div>
+          <div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.45;margin-top:6px;">The filter guarantees that emitted citation keys correspond to real library entries. It does <em>not</em> guarantee the cited paper actually supports the claim. Relevance evaluation is a research direction in itself.</div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <div style="background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:10px;padding:18px 22px;">
+          <div style="font-family:'Inter';font-size:19px;font-weight:600;color:var(--ink);">L4. Library-aligned prompts</div>
+          <div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.45;margin-top:6px;">The Study 1 library was deliberately aligned with the prompt topics so that grounded mode had relevant citations available. With a misaligned library, models may refuse to cite (Anthropic) or fabricate (others).</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:10px;padding:18px 22px;">
+          <div style="font-family:'Inter';font-size:19px;font-weight:600;color:var(--ink);">L5. External-API dependency</div>
+          <div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.45;margin-top:6px;">Discovery latency depends on the availability and rate limits of Semantic Scholar, OpenAlex, and the seven other sources. We mitigate (rate-limit handling, parallel fan-out) but cannot eliminate external dependence.</div>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:10px;padding:18px 22px;">
+          <div style="font-family:'Inter';font-size:19px;font-weight:600;color:var(--ink);">L6. Single-tenant deployment</div>
+          <div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.45;margin-top:6px;">The live system is one server, one PostgreSQL database, one set of services. Multi-tenancy with row-level security and per-tenant subdomains is part of the productization plan.</div>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span>Limitations stated explicitly &middot; chapter 7 of the report covers each in detail</span><span class="num">32 / 35</span></div>
+  </section>
+
+  <section data-screen-label="33 Future Work" class="slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Future Work &amp; Productization</span><span class="num">33 / 35</span></div>
+    <h3 class="slide-title" style="font-size:48px;margin-bottom:18px;">From graduate project to institutional product.</h3>
+    <p class="body" style="max-width:1700px;font-size:20px;margin-bottom:24px;">The roadmap is structured as a productization plan rather than a generic feature list &mdash; each item maps to one of the limitations above and to a specific architectural change documented in the report.</p>
+
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:18px;flex:1;">
+      <div style="background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:10px;padding:18px 22px;">
+        <div style="font-family:'JetBrains Mono';font-size:13px;letter-spacing:0.14em;color:var(--accent);text-transform:uppercase;font-weight:500;margin-bottom:4px;">F1 &middot; NEAR-TERM &middot; addresses L1, L2</div>
+        <div style="font-family:'Inter';font-size:20px;font-weight:600;color:var(--ink);">Stopwatch user study + 100-prompt benchmark</div>
+        <div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.4;margin-top:6px;">Controlled task-completion study with KFUPM graduate cohort. Scale Study 1 from 30 to 100 prompts per cell for tighter per-model confidence intervals (approximately USD 4 in API cost).</div>
+      </div>
+      <div style="background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:10px;padding:18px 22px;">
+        <div style="font-family:'JetBrains Mono';font-size:13px;letter-spacing:0.14em;color:var(--accent);text-transform:uppercase;font-weight:500;margin-bottom:4px;">F2 &middot; CORE PRODUCT &middot; addresses L3</div>
+        <div style="font-family:'Inter';font-size:20px;font-weight:600;color:var(--ink);">AI code interpreter for research data</div>
+        <div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.4;margin-top:6px;">Sandboxed Python/R kernel attached to each chat session. AI runs statistics on uploaded data; the methodology paragraph cites the actual numbers it computed.</div>
+      </div>
+      <div style="background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:10px;padding:18px 22px;">
+        <div style="font-family:'JetBrains Mono';font-size:13px;letter-spacing:0.14em;color:var(--accent);text-transform:uppercase;font-weight:500;margin-bottom:4px;">F3 &middot; INSTITUTIONAL &middot; addresses L6</div>
+        <div style="font-family:'Inter';font-size:20px;font-weight:600;color:var(--ink);">Multi-tenancy + university SSO</div>
+        <div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.4;margin-top:6px;">Row-level security per tenant in PostgreSQL. SAML 2.0 / OpenID Connect for university IdPs. Per-tenant subdomains, wildcard TLS, configurable data residency.</div>
+      </div>
+      <div style="background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:10px;padding:18px 22px;">
+        <div style="font-family:'JetBrains Mono';font-size:13px;letter-spacing:0.14em;color:var(--accent);text-transform:uppercase;font-weight:500;margin-bottom:4px;">F4 &middot; COMPLIANCE</div>
+        <div style="font-family:'Inter';font-size:20px;font-weight:600;color:var(--ink);">IRB / HIPAA / GDPR profiles</div>
+        <div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.4;margin-top:6px;">Per-project compliance flags. Audit logs, retention schedules, data-subject rights endpoints. Self-hostable enterprise edition with offline-capable local LLMs.</div>
+      </div>
+      <div style="background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:10px;padding:18px 22px;">
+        <div style="font-family:'JetBrains Mono';font-size:13px;letter-spacing:0.14em;color:var(--accent);text-transform:uppercase;font-weight:500;margin-bottom:4px;">F5 &middot; REGIONAL</div>
+        <div style="font-family:'Inter';font-size:20px;font-weight:600;color:var(--ink);">Arabic and right-to-left support</div>
+        <div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.4;margin-top:6px;">Arabic-aware editor, citation formatting, paper discovery. Underserved by existing tools, naturally aligned with the KFUPM context.</div>
+      </div>
+      <div style="background:#F6EFFE;border:1px solid #D9C0F7;border-radius:10px;padding:18px 22px;">
+        <div style="font-family:'JetBrains Mono';font-size:13px;letter-spacing:0.14em;color:var(--accent);text-transform:uppercase;font-weight:500;margin-bottom:4px;">PRODUCTIZATION MODEL</div>
+        <div style="font-family:'Inter';font-size:20px;font-weight:600;color:var(--ink);">Free / Pro / BYOK + Institutional</div>
+        <div style="font-family:'Inter';font-size:16px;color:var(--ink-soft);line-height:1.4;margin-top:6px;">Free tier for evaluation, Pro at USD 15/mo for active researchers, BYOK at USD 0 + provider costs, Institutional negotiated. The economic model that funds the roadmap above.</div>
+      </div>
+    </div>
+    <div class="foot"><span>Each item maps to a specific limitation and a specific architectural change in chapter 8 of the report</span><span class="num">33 / 35</span></div>
+  </section>
+
+  <section data-screen-label="34 Acknowledgements" class="slide paper">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Acknowledgements</span><span class="num">34 / 35</span></div>
+    <h3 class="slide-title" style="font-size:48px;margin-bottom:14px;">Who supervised this work.</h3>
+    <p class="body" style="max-width:1700px;font-size:20px;margin-bottom:24px;">Designed, built, and deployed solo over the MX final-project year, under the supervision of the KFUPM ICS faculty. Thanks to everyone listed below for a year of feedback and patience, and to the early testers who shaped the product.</p>
+
+    <div style="display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:22px;flex:1;align-items:stretch;">
+      <div class="person-card lead">
+        <div class="p-role">Builder &middot; Designer &middot; Author</div>
+        <div class="p-name">Hassan Algizani</div>
+        <div class="p-affil">KFUPM MX Master's Programme &middot; ID 202403940</div>
+        <div class="p-contrib">Product design, full-stack engineering (frontend, backend, collaboration server), deployment, the two empirical studies, and the final report.</div>
+      </div>
+      <div class="person-card">
+        <div class="p-role">Supervisor</div>
+        <div class="p-name">Dr. Irfan Ahmad</div>
+        <div class="p-affil">Department of Information &amp; Computer Science, KFUPM</div>
+        <div class="p-contrib">Project supervision, technical direction, evaluation methodology, weekly reviews throughout the year.</div>
+      </div>
+      <div class="person-card">
+        <div class="p-role">Co-Supervisor</div>
+        <div class="p-name">Mr. Majed Alshaibani</div>
+        <div class="p-affil">Department of Information &amp; Computer Science, KFUPM</div>
+        <div class="p-contrib">Co-supervision and additional review of the deployment and the AI subsystem.</div>
+      </div>
+    </div>
+
+    <div style="margin-top:18px;padding:18px 24px;background:var(--bg-alt);border:1px solid var(--rule);border-radius:10px;font-family:'Inter';font-size:18px;color:var(--ink-soft);line-height:1.5;">
+      <strong style="color:var(--ink);">With thanks also to:</strong> the Department of Information &amp; Computer Science at KFUPM for the MX programme structure that made this work possible; the open-source maintainers behind FastAPI, React, CodeMirror, Y.js, Hocuspocus, pgvector, and the nine academic-search APIs that ScholarHub depends on; and the early users who tested the system and reported the bugs that made the May 2026 deployment what it is.
+    </div>
+    <div class="foot"><span>Final project for the KFUPM MX Master's in Artificial Intelligence &middot; 2026</span><span class="num">34 / 35</span></div>
+  </section>
+
+  <section data-screen-label="35 Questions" class="slide closing">
+    <div class="c-eyebrow">ScholarHub &middot; KFUPM MX Master's Programme &middot; 2026</div>
+    <h1 class="c-title">Thank you.</h1>
+    <p style="font-family:'Fraunces',serif;font-size:36px;line-height:1.3;color:#E8DFF7;max-width:1700px;margin:0 0 36px 0;font-weight:400;">A unified workspace for the whole paper &mdash; from the first search to the submission-ready PDF, with an AI that cites only what you have actually saved.</p>
+    <div style="font-family:'JetBrains Mono';font-size:24px;letter-spacing:0.2em;color:#C9A8F3;text-transform:uppercase;font-weight:500;margin-bottom:48px;">Questions &mdash; I welcome them.</div>
+    <div class="c-foot">
+      <div>
+        <div style="font-family:'JetBrains Mono';font-size:16px;letter-spacing:0.12em;color:#9E97A3;text-transform:uppercase;margin-bottom:8px;">Live deployment</div>
+        <div style="font-family:'JetBrains Mono';font-size:20px;color:#C9A8F3;">scholarhub.space</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-family:'JetBrains Mono';font-size:16px;letter-spacing:0.12em;color:#9E97A3;text-transform:uppercase;margin-bottom:8px;">Final report</div>
+        <div style="font-family:'Inter';font-size:18px;color:#F4F1EC;">Chapter-by-chapter detail in the bound report</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-family:'JetBrains Mono';font-size:16px;letter-spacing:0.12em;color:#9E97A3;text-transform:uppercase;margin-bottom:8px;">Author</div>
+        <div style="font-family:'Inter';font-size:18px;color:#F4F1EC;">Hassan Algizani &middot; 202403940</div>
+      </div>
+    </div>
+  </section>
+
+</deck-stage>
+
+</body>
+</html>

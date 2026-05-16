@@ -1,0 +1,98 @@
+\chapter{Production Deployment Configuration}
+\label{app:deployment}
+
+This appendix summarizes the production deployment of \sh{} at \url{https://scholarhub.space}. The deployment is orchestrated by Docker Compose; the production compose file lives at the repository root. Sensitive values (passwords, API keys, signing secrets) are passed through environment variables and are not reproduced here.
+
+\section{Service Topology}
+
+The deployment consists of seven services, summarized in chapter \ref{ch:architecture} (\cref{tab:services}). The services run on a single host with the following resource allocation:
+
+\begin{itemize}
+    \item \textbf{nginx}: minimal CPU and memory footprint; one replica.
+    \item \textbf{frontend}: static asset server; minimal footprint.
+    \item \textbf{backend}: bounded by LLM and database I/O; one replica with async worker concurrency.
+    \item \textbf{collab}: bounded by WebSocket connection count; one replica with Y.js room state in memory.
+    \item \textbf{postgres}: persistent data store; volume-backed.
+    \item \textbf{redis}: in-memory cache; volume-backed for AOF persistence.
+    \item \textbf{certbot}: scheduled task for TLS certificate renewal.
+\end{itemize}
+
+\section{Environment Variables}
+
+The principal environment variables required by the backend are listed in \cref{tab:envvars}. Values shown are illustrative; production values are specific to the deployment.
+
+\small
+\begin{longtable}{@{}>{\raggedright\arraybackslash\ttfamily\small}p{6.0cm} >{\raggedright\arraybackslash}p{\dimexpr\textwidth-6.6cm\relax}@{}}
+\caption{Principal backend environment variables.}
+\label{tab:envvars}\\
+\toprule
+\normalfont\textbf{Variable} & \textbf{Purpose} \\
+\midrule
+\endfirsthead
+\multicolumn{2}{@{}l}{\textit{Table~\thetable{} (continued from previous page)}}\\
+\toprule
+\normalfont\textbf{Variable} & \textbf{Purpose} \\
+\midrule
+\endhead
+\bottomrule
+\multicolumn{2}{r@{}}{\textit{continued on next page}} \\
+\endfoot
+\bottomrule
+\endlastfoot
+DATABASE\_URL                    & PostgreSQL connection string. \\
+REDIS\_URL                       & Redis connection string. \\
+SECRET\_KEY                      & Application secret for signing session cookies. \\
+OPENROUTER\_KEY\_ENCRYPTION\_KEY & Fernet key for encrypting user-supplied OpenRouter keys at rest. \\
+COLLAB\_JWT\_SECRET              & Shared secret between backend and Hocuspocus for JWT verification. \\
+COLLAB\_WS\_URL                  & WebSocket URL for the collaboration server. \\
+OPENAI\_API\_KEY                 & OpenAI API key for first-party AI features. \\
+OPENROUTER\_API\_KEY             & Fallback OpenRouter key for users without their own. \\
+SEMANTIC\_SCHOLAR\_API\_KEY      & Authenticated key for Semantic Scholar's higher rate limit. \\
+CORE\_API\_KEY                   & API key for the CORE service. \\
+GOOGLE\_CLIENT\_ID, GOOGLE\_CLIENT\_SECRET & OAuth credentials. \\
+DAILY\_API\_KEY                  & Daily.co API key for video meetings. \\
+RESEND\_API\_KEY                 & Email service key for transactional email. \\
+COOKIE\_DOMAIN                   & Domain for session cookie scope (\code{scholarhub.space}). \\
+DEBUG                            & Must be \code{false} in production. \\
+LATEX\_WARMUP\_ON\_STARTUP       & Pre-compile LaTeX templates on container start. \\
+\end{longtable}
+
+\section{Nginx Routing}
+
+The Nginx configuration in \file{nginx/conf.d/scholarhub.conf} routes by path:
+
+\begin{itemize}
+    \item \code{/} -- static frontend bundle.
+    \item \code{/api/} -- proxy to \code{backend:8000}.
+    \item \code{/collab/} -- proxy to \code{collab:3001} with WebSocket upgrade.
+    \item \code{/.well-known/acme-challenge/} -- certbot HTTP challenge.
+\end{itemize}
+
+TLS is terminated at Nginx using Let's Encrypt certificates renewed every 12 hours by the certbot container.
+
+\section{Persistence and Volumes}
+
+\begin{itemize}
+    \item \code{postgres\_data} -- PostgreSQL data directory; durable.
+    \item \code{redis\_data} -- Redis AOF and RDB files; durable.
+    \item \code{./uploads} -- user-uploaded files (PDFs and images); durable.
+    \item \code{./certbot/conf} -- TLS certificates and Let's Encrypt account state; durable.
+\end{itemize}
+
+\section{Health and Monitoring}
+
+Each service defines a Docker health check. The backend exposes \code{/health} (basic) and \code{/healthz} (database and Redis verified). The collaboration server exposes a Node.js health check script. PostgreSQL uses \code{pg\_isready}; Redis uses \code{redis-cli ping}.
+
+Logging is via Docker's default JSON file driver. Centralized log aggregation (Loki, Elasticsearch, or a hosted equivalent) is part of the productization plan in section \ref{sec:fw-multitenancy}.
+
+\section{Disaster Recovery}
+
+The current deployment relies on three recovery mechanisms:
+
+\begin{enumerate}
+    \item PostgreSQL data is backed up via filesystem snapshots of the Docker volume on a daily schedule.
+    \item Redis data is persisted to disk through AOF; on container restart, state is reconstructed.
+    \item User-uploaded PDFs in \code{./uploads} are part of the daily volume snapshot.
+\end{enumerate}
+
+A full disaster recovery test, including bare-metal restore from snapshots into a fresh deployment, has been performed during development to validate the procedure but is not part of a regular operational schedule. Productizing the system would require formalization of the recovery time objective (RTO) and recovery point objective (RPO) to satisfy institutional service level expectations.

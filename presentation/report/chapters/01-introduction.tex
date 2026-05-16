@@ -1,0 +1,88 @@
+\chapter{Introduction}
+\label{ch:introduction}
+
+\section{Background}
+\label{sec:background}
+
+Academic research is a writing-intensive activity. A researcher producing a journal article or a thesis chapter spends most of the working day moving between distinct categories of tools: a literature search interface, a reference manager, a document editor, a collaboration platform for co-authors, and, increasingly, an AI assistant for drafting and rephrasing. The 2024 Springer chapter \textit{From Fragmentation to Focus} describes this state of affairs as the dominant productivity bottleneck in modern scholarly work \cite{springer2024fragmentation}. A researcher writing in 2026 routinely uses Google Scholar or Semantic Scholar to find papers, Zotero \cite{zotero2024} or Mendeley \cite{mendeley2024} to manage references, Overleaf \cite{overleaf2024} or a local LaTeX installation to draft, a separate version control system or shared cloud folder for collaboration, and one of ChatGPT, Claude, or Elicit \cite{elicit2024} for AI-assisted writing. Each tool optimizes its own narrow concern. None is aware of the others.
+
+The cost of this fragmentation is not abstract. Recent surveys of researcher behavior report that a substantial fraction of writing time is consumed by context-switching activities, including locating papers across tools, copying citations between applications, and reconstructing references that exist as inconsistent artifacts in multiple systems \cite{springer2024fragmentation, khalifa2024aiwriting}. When AI assistants enter the workflow, the integration problem grows worse rather than better. A general-purpose assistant such as ChatGPT lacks any reliable connection to the user's library; it generates citations that are syntactically plausible but bibliographically incorrect. The well-known empirical study by Walters and Wilder, published in \textit{Scientific Reports} in 2023, found that 55\% of citations produced by GPT-3.5 and 18\% of citations produced by GPT-4 were entirely fabricated, with an additional 43\% and 24\% of the remaining real citations containing substantive errors \cite{walters2023fabrication}. Subsequent work has confirmed that the problem is general across models: GPT-4o has been observed to hallucinate citations in 78\% to 90\% of academic queries when used without retrieval grounding \cite{asai2025openscholar}.
+
+The technical building blocks for solving this problem now exist. Conflict-free replicated data types (CRDTs), formalized in 2011 by Shapiro et al.\ \cite{shapiro2011crdt}, support distributed real-time editing without a central serialization authority and have been deployed in production systems such as Y.js \cite{yjs2024} and Automerge \cite{kleppmann2017jsoncrdt}. Retrieval-augmented generation (RAG), introduced by Lewis et al.\ at NeurIPS 2020 \cite{lewis2020rag}, has demonstrated that grounding language model output in a retrieval index reduces hallucination dramatically; the OpenScholar system, evaluated against 45 million open-access papers, reports citation accuracy on par with human experts \cite{asai2025openscholar}. Open scientific APIs (Semantic Scholar \cite{kinney2023semanticscholar}, OpenAlex \cite{priem2022openalex}, arXiv, CrossRef, PubMed, CORE \cite{knoth2023core}, Europe PMC, ScienceDirect, and Google Scholar) expose structured metadata for hundreds of millions of scholarly works at no cost.
+
+These components have not been combined into a single research workspace. Existing tools each address one slice of the problem. Overleaf provides collaborative LaTeX editing but no AI and no reference manager. Zotero provides reference management but no editor. SciSpace \cite{scispace2024} provides AI summarization of single papers but no real-time co-authoring. The space between these tools, which is where most of the researcher's actual time is spent, remains unaddressed.
+
+\section{Problem Statement}
+\label{sec:problem}
+
+This work addresses the following problem. Given the existence of mature components for each subtask in the academic writing pipeline (paper search, reference storage, collaborative document editing, and language model assistance), no integrated system exists that combines them in a way that (a) eliminates the manual transfer of artifacts between tools, (b) grounds AI-assisted writing in a verified library and validates every emitted citation key against that library before insertion, so that fabricated citations cannot reach the user, and (c) supports real-time multi-user collaboration on the resulting documents without merge conflicts.
+
+The absence of such a system has two consequences. First, individual researchers waste time on mechanical context switches that contribute nothing to the intellectual content of their work. Second, the use of general-purpose AI assistants introduces citation errors at rates high enough to be a documented academic integrity concern \cite{walters2023fabrication, mugaanyi2024llmcitations}. A unified system that removes the boundaries between subtools and binds AI generation to a controlled bibliography addresses both issues simultaneously.
+
+\section{Objectives}
+\label{sec:objectives}
+
+The primary objective of this work is to design, implement, and evaluate a unified web-based research workspace that integrates the core stages of academic writing into a single application. This objective decomposes into the following specific goals:
+
+\begin{enumerate}
+    \item Design and implement a backend system that exposes a single API surface for paper discovery across multiple open scientific sources, reference management, project organization, document storage, and AI-assisted text generation.
+    \item Implement a paper discovery layer that aggregates results from nine external scientific sources (Semantic Scholar, OpenAlex, arXiv, CrossRef, PubMed, CORE, Europe PMC, ScienceDirect, and Google Scholar) with automatic deduplication and ranking.
+    \item Build a real-time collaborative editor for LaTeX documents using a CRDT-based synchronization layer that supports concurrent editing by multiple authors without conflicts.
+    \item Develop a tool-orchestrated AI agent that grounds every citation in the user's curated reference library, reducing the rate of fabricated citations to zero for in-library references.
+    \item Deploy the system to a public domain and evaluate it through three quantitative studies: a citation faithfulness benchmark, a system performance evaluation, and a comparative workflow analysis.
+    \item Document the system's architecture and limitations sufficiently to support future productization, including multi-tenancy, institutional integration, and AI-driven computational analysis as detailed in the future work chapter.
+\end{enumerate}
+
+\section{Scope and Limitations}
+\label{sec:scope}
+
+The scope of this work is the design and implementation of a unified research workspace, the deployment of that workspace to a public-facing domain, and an evaluation of three of its central technical claims (citation faithfulness, system performance, and workflow efficiency). The scope explicitly does not include a full human subjects usability study with statistical power. As discussed in chapter \ref{ch:evaluation}, the evaluation is structured as a systems evaluation rather than a human-computer interaction study; this choice is justified by the engineering nature of the contribution and is treated transparently in the limitations section.
+
+The system supports English-language academic writing. While the underlying language models can process Arabic and other non-English text, the LaTeX editor, citation system, and discovery layer have not been tested for right-to-left languages or non-Roman scripts. This limitation is recorded as part of the future work in chapter \ref{ch:conclusion}.
+
+The discovery layer is restricted to open scientific APIs. Integration with subscription-based databases such as Web of Science or Scopus is not implemented and would require institutional contracts beyond the scope of a single graduate project.
+
+The AI subsystem uses external LLM providers (OpenAI and OpenRouter). The system does not implement local model inference, although the architecture supports such an extension. Privacy-sensitive deployments, including air-gapped institutional installations, are described in the future work chapter as a productization concern rather than a delivered feature of this work.
+
+\section{Contributions}
+\label{sec:contributions}
+
+This work makes the following contributions to the design of academic research tools.
+
+\textbf{C1. A unified architecture for grounded research writing.} \sh{} integrates paper discovery, reference management, real-time collaborative LaTeX editing, and library-grounded AI generation into a single deployable system. To the author's knowledge, no prior open system combines these four capabilities. The architecture is described in chapter \ref{ch:architecture} and the implementation in chapter \ref{ch:implementation}.
+
+\textbf{C2. A tool-orchestrated AI agent grounded in a curated library.} The system implements a tool-use loop with thirty registered tools spanning library access, multi-source search, paper analysis, project management, and content creation. The agent is prompted to cite only papers in the user's library, and a post-generation filter validates every citation key against the library and drops any non-library key before the response is returned, so the final output cannot present a fabricated citation. The mechanism is described in section \ref{sec:ai-orchestration} and evaluated in chapter \ref{ch:evaluation}.
+
+\textbf{C3. A multi-source paper discovery service with deduplication.} The discovery layer aggregates results from nine open APIs (Semantic Scholar, OpenAlex, arXiv, CrossRef, PubMed, CORE, Europe PMC, ScienceDirect, and Google Scholar), applies a union-find deduplication algorithm with a three-tier preference scoring (published DOI over arXiv ID over title-only fuzzy match), and returns a single ranked list. The implementation is described in section \ref{sec:paper-discovery}.
+
+\textbf{C4. A multi-file CRDT editor for LaTeX.} The collaborative editor supports multi-file LaTeX projects through a per-file Y.Text binding scheme, with independent undo managers per file. This extends the standard single-document Y.js use case to a more realistic LaTeX project structure with main, preamble, and appendix files.
+
+\textbf{C5. An empirical evaluation of citation faithfulness across four 2026 frontier LLMs.} The evaluation chapter reports a real benchmark of GPT-5 Mini, Claude Haiku 4.5, Gemini 3 Flash, and DeepSeek R1 in two conditions (ungrounded versus library-grounded), with automated existence verification of every generated citation against external bibliographic APIs. Mean raw-model fabrication drops from 81.6\% (ungrounded) to 14.0\% (grounded) across the four models; no model reaches 0\% on its own. The orchestrator's post-generation library-key filter then drops every non-library citation key from the response, driving the user-visible fabrication rate to 0.0\% empirically for three of the four models (0.0--6.2\% range, with the 6.2\% being a verification artifact for a real library paper rather than a true fabrication). The benchmark is open and reproducible from the runner script in the project repository.
+
+\textbf{C6. A productization roadmap.} Chapter \ref{ch:conclusion} provides a detailed roadmap for evolving \sh{} into a multi-tenant institutional product, including specific architectural changes (per-tenant isolation, sandboxed AI compute, compliance features) needed for the transition. This roadmap is informed by the system's current architecture and the limitations identified during deployment.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\textwidth, height=0.45\textheight, keepaspectratio]{screenshots/landing-fresh.png}
+\caption{The \sh{} landing page at \url{https://scholarhub.space}. The hero positioning states the integration thesis directly: ``one workspace instead of five''. The interactive preview below the headline cycles through the discovery, library, and editor surfaces before sign-up.}
+\label{fig:ss-landing-intro}
+\end{figure}
+
+\section{Report Organization}
+\label{sec:organization}
+
+The remainder of this report is organized as follows.
+
+\textbf{Chapter \ref{ch:literature}} reviews the technical foundations on which this project rests: existing academic writing and reference management tools, AI-powered research assistants, related products and the competitive positioning of \sh{} against them, real-time collaboration techniques (operational transformation and CRDTs), retrieval-augmented generation and citation hallucination, and tool-use architectures for LLM-based agents. The chapter closes with a gap analysis that justifies the integrated approach taken by \sh{}.
+
+\textbf{Chapter \ref{ch:requirements}} presents the functional and non-functional requirements derived from the problem statement, the user roles the system targets, and the design principles that govern implementation choices throughout the project.
+
+\textbf{Chapter \ref{ch:architecture}} describes the system architecture in detail. The chapter covers the three-tier deployment topology, the database schema, the API surface, the AI orchestration design, the real-time collaboration layer, the paper discovery aggregator, and the security model.
+
+\textbf{Chapter \ref{ch:implementation}} describes the implementation. The chapter is organized by subsystem and includes specific file references, code excerpts where helpful, and a tabulation of code metrics across the project.
+
+\textbf{Chapter \ref{ch:evaluation}} reports the three evaluation studies. Each study is presented with its hypothesis, methodology, results, and discussion. The chapter closes with a critical assessment of the limitations of the chosen evaluation strategy.
+
+\textbf{Chapter \ref{ch:conclusion}} summarizes the contributions and presents the future work. The future work section is structured as a productization roadmap rather than a generic feature list, reflecting the project's intended trajectory beyond the academic submission.
+
+The appendices provide reference material that supports but is not central to the main argument: a complete list of API endpoints (\ref{app:api}), the database schema (\ref{app:schema}), additional screenshots of the deployed system (\ref{app:screenshots}), and the production deployment configuration (\ref{app:deployment}).

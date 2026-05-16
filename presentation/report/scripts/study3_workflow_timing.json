@@ -1,0 +1,179 @@
+{
+  "timestamp": "2026-05-09T16:34:18.065563+00:00",
+  "ui_action_times_ms": {
+    "click": 200,
+    "tab_switch": 500,
+    "key_combo": 150,
+    "menu_navigation": 800,
+    "form_field": 2500,
+    "drag_drop": 1500
+  },
+  "url_load_times_ms": {
+    "https://www.overleaf.com/": {
+      "n": 8,
+      "p50": 253.05733349523507,
+      "p95": 314.0415829984704,
+      "mean": 326.96672399833915
+    },
+    "https://scholarhub.space/": {
+      "n": 8,
+      "p50": 109.0963125025155,
+      "p95": 140.23279200773686,
+      "mean": 165.7942343790637
+    },
+    "https://scholar.google.com/": {
+      "n": 8,
+      "p50": 284.1530005025561,
+      "p95": 366.27016599231865,
+      "mean": 339.1599376245722
+    },
+    "https://chat.openai.com/": {
+      "n": 0,
+      "p50": null,
+      "p95": null,
+      "mean": null
+    }
+  },
+  "tasks": {
+    "T1_discover_5_papers": {
+      "label": "Find 5 papers and add to library",
+      "scholarhub": {
+        "total_ms": 4209.0963125025155,
+        "n_actions": 9,
+        "n_net_requests": 1,
+        "n_app_switches": 0,
+        "breakdown": {
+          "click_x1": 200,
+          "form_field_x1": 2500,
+          "net_x1": 109.0963125025155,
+          "click_x5": 1000
+        }
+      },
+      "overleaf_zotero_chatgpt": {
+        "total_ms": 12457.975336510572,
+        "n_actions": 36,
+        "n_net_requests": 7,
+        "n_app_switches": 3,
+        "breakdown": {
+          "tab_switch_x1": 500,
+          "net_x1": 253.05733349523507,
+          "form_field_x1": 2500,
+          "click_x1": 200,
+          "click_x5": 1000,
+          "net_x5": 1420.7650025127805,
+          "key_combo_x5": 750,
+          "menu_navigation_x1": 800
+        }
+      },
+      "time_reduction_pct": 66.21364066946799,
+      "action_reduction_pct": 75.0
+    },
+    "T2_paragraph_3_citations": {
+      "label": "Write paragraph with 3 citations to library",
+      "scholarhub": {
+        "total_ms": 3209.0963125025155,
+        "n_actions": 4,
+        "n_net_requests": 1,
+        "n_app_switches": 0,
+        "breakdown": {
+          "click_x1": 200,
+          "form_field_x1": 2500,
+          "net_x1": 109.0963125025155
+        }
+      },
+      "overleaf_zotero_chatgpt": {
+        "total_ms": 17553.057333495235,
+        "n_actions": 23,
+        "n_net_requests": 3,
+        "n_app_switches": 3,
+        "breakdown": {
+          "tab_switch_x1": 500,
+          "net_x1": 253.05733349523507,
+          "form_field_x1": 2500,
+          "click_x1": 200,
+          "key_combo_x1": 150,
+          "click_x3": 600,
+          "key_combo_x3": 450,
+          "form_field_x3": 7500
+        }
+      },
+      "time_reduction_pct": 81.71773582497889,
+      "action_reduction_pct": 82.6086956521739
+    },
+    "T3_inline_citation": {
+      "label": "Insert citation mid-paragraph",
+      "scholarhub": {
+        "total_ms": 2850.0,
+        "n_actions": 3,
+        "n_net_requests": 0,
+        "n_app_switches": 0,
+        "breakdown": {
+          "key_combo_x1": 150,
+          "form_field_x1": 2500,
+          "click_x1": 200
+        }
+      },
+      "overleaf_zotero_chatgpt": {
+        "total_ms": 9453.057333495235,
+        "n_actions": 9,
+        "n_net_requests": 1,
+        "n_app_switches": 2,
+        "breakdown": {
+          "tab_switch_x1": 500,
+          "form_field_x1": 2500,
+          "click_x1": 200,
+          "key_combo_x1": 150,
+          "net_x1": 253.05733349523507
+        }
+      },
+      "time_reduction_pct": 69.85102385974609,
+      "action_reduction_pct": 66.66666666666667
+    },
+    "T4_compile_multifile": {
+      "label": "Compile multi-file LaTeX with bibliography",
+      "scholarhub": {
+        "total_ms": 200.0,
+        "n_actions": 1,
+        "n_net_requests": 0,
+        "n_app_switches": 0,
+        "breakdown": {
+          "click_x1": 200
+        }
+      },
+      "overleaf_zotero_chatgpt": {
+        "total_ms": 200.0,
+        "n_actions": 1,
+        "n_net_requests": 0,
+        "n_app_switches": 0,
+        "breakdown": {
+          "click_x1": 200
+        }
+      },
+      "time_reduction_pct": 0.0,
+      "action_reduction_pct": 0.0
+    },
+    "T5_realtime_coedit": {
+      "label": "Real-time co-edit paper section",
+      "scholarhub": {
+        "total_ms": 109.0963125025155,
+        "n_actions": 0,
+        "n_net_requests": 1,
+        "n_app_switches": 0,
+        "breakdown": {
+          "net_x1": 109.0963125025155
+        }
+      },
+      "overleaf_zotero_chatgpt": {
+        "total_ms": 253.05733349523507,
+        "n_actions": 0,
+        "n_net_requests": 1,
+        "n_app_switches": 0,
+        "breakdown": {
+          "net_x1": 253.05733349523507
+        }
+      },
+      "time_reduction_pct": 56.888697515430934,
+      "action_reduction_pct": 0
+    }
+  }
+}

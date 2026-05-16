@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>ScholarHub — Final Project Presentation</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="slides.css" />
+  <script src="deck-stage.js"></script>
+  <style>
+    /* Compass logo — matches frontend/src/components/brand/Logo.tsx */
+    .sh-compass { display:inline-block; }
+    /* Hide redundant page numbers in page-head (kept only in foot) */
+    .page-head .num { display: none; }
+    /* Slide 16 — tighten comparison table so foot legend clears last row */
+    section[data-label="Related Work"] table.compare th,
+    section[data-label="Related Work"] table.compare td { padding: 14px 22px; }
+  </style>
+</head>
+<body style="margin:0;background:#000;">
+
+<deck-stage width="1920" height="1080">
+
+  <!-- 01 — Title -->
+  <section data-label="Title" class="slide center" style="padding:80px;">
+    <div style="position:absolute;top:64px;left:100px;right:100px;display:flex;justify-content:space-between;align-items:center;font-family:'Inter';font-size:24px;color:var(--ink-mute);letter-spacing:0.12em;text-transform:uppercase;">
+      <span>KFUPM · MX Master's</span>
+      <span>Final Project · 2026</span>
+    </div>
+
+    <div style="display:flex;flex-direction:column;align-items:center;gap:40px;max-width:1500px;">
+      <!-- Real ScholarHub compass logo -->
+      <svg class="sh-compass" width="104" height="104" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="g-title" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#a855f7"/>
+          </linearGradient>
+        </defs>
+        <path d="M24 2L29 20L24 24L19 20Z" fill="url(#g-title)"/>
+        <path d="M46 24L28 29L24 24L28 19Z" fill="url(#g-title)" fill-opacity="0.75"/>
+        <path d="M24 46L19 28L24 24L29 28Z" fill="url(#g-title)" fill-opacity="0.5"/>
+        <path d="M2 24L20 19L24 24L20 29Z" fill="url(#g-title)" fill-opacity="0.35"/>
+        <circle cx="24" cy="24" r="4" fill="url(#g-title)"/>
+      </svg>
+      <div>
+        <h1 class="title" style="font-size:140px;margin:0 0 28px 0;">ScholarHub</h1>
+        <p class="lede" style="font-size:38px;color:var(--ink-soft);text-align:center;margin:0 auto;max-width:1400px;">
+          A project-scoped research workspace where the AI,<br/>the library, and the editor know about each other.
+        </p>
+      </div>
+      <div style="margin-top:40px;display:flex;flex-direction:column;align-items:center;gap:12px;font-family:'Inter';font-size:26px;color:var(--ink-soft);">
+        <div style="display:flex;align-items:center;gap:18px;"><span style="width:40px;height:1px;background:var(--rule);"></span><span><strong style="color:var(--ink);font-weight:600;">Hassan Algizani</strong></span><span style="width:40px;height:1px;background:var(--rule);"></span></div>
+        <div style="color:var(--ink-mute);font-size:24px;">Supervised by Dr. Ahmad Irfan &nbsp;·&nbsp; Mr. Majed Alshaibani</div>
+      </div>
+    </div>
+
+    <div style="position:absolute;bottom:56px;left:100px;right:100px;display:flex;justify-content:space-between;font-family:'JetBrains Mono', monospace;font-size:24px;color:var(--ink-mute);letter-spacing:0.08em;">
+      <span>scholarhub.space</span><span>01 / 20</span>
+    </div>
+  </section>
+
+  <!-- 02 — The Problem -->
+  <section data-label="The Problem" class="slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> The Problem</span><span class="num">02 / 20</span></div>
+
+    <div class="row" style="gap:80px;flex:1;align-items:flex-start;">
+      <div class="col" style="flex:1.15;gap:32px;">
+        <h2 class="section-title">A researcher's workflow is<br/>stitched across 4&ndash;5 tools<br/>that don't talk to each other.</h2>
+        <p class="lede" style="max-width:900px;">
+          Every tool holds a different slice of the same project &mdash;
+          and none of them share context.
+        </p>
+      </div>
+      <div class="col" style="flex:1;gap:14px;padding-top:32px;">
+        <div class="chip"><span style="color:var(--ink-mute);font-family:'JetBrains Mono', monospace;font-size:24px;">01</span>&nbsp;&nbsp;<strong>Overleaf</strong>&nbsp;&mdash; LaTeX drafting</div>
+        <div class="chip"><span style="color:var(--ink-mute);font-family:'JetBrains Mono', monospace;font-size:24px;">02</span>&nbsp;&nbsp;<strong>Zotero</strong>&nbsp;&mdash; references</div>
+        <div class="chip"><span style="color:var(--ink-mute);font-family:'JetBrains Mono', monospace;font-size:24px;">03</span>&nbsp;&nbsp;<strong>Google Scholar</strong>&nbsp;&mdash; discovery</div>
+        <div class="chip"><span style="color:var(--ink-mute);font-family:'JetBrains Mono', monospace;font-size:24px;">04</span>&nbsp;&nbsp;<strong>Slack / Notion</strong>&nbsp;&mdash; coordination</div>
+        <div class="chip"><span style="color:var(--ink-mute);font-family:'JetBrains Mono', monospace;font-size:24px;">05</span>&nbsp;&nbsp;<strong>ChatGPT</strong>&nbsp;&mdash; help &amp; ideation</div>
+      </div>
+    </div>
+    <div class="foot"><span></span><span class="num">02 / 20</span></div>
+  </section>
+
+  <!-- 03 — The idea -->
+  <section data-label="The Idea" class="slide paper center">
+    <div style="max-width:1600px;text-align:left;">
+      <div class="eyebrow">The Idea</div>
+      <p class="pull">
+        The <span class="accent">integration</span> is the product.<br/>
+        Not any single feature.
+      </p>
+      <p class="lede" style="margin-top:40px;max-width:1400px;">
+        Any one of ScholarHub's tools exists elsewhere. What doesn't exist is a workspace
+        where the editor can cite a paper the AI just discovered&nbsp;&mdash; because they share one project.
+      </p>
+    </div>
+    <div class="foot"><span>One-line pitch</span><span class="num">03 / 20</span></div>
+  </section>
+
+  <!-- 04 — What ScholarHub is -->
+  <section data-label="What It Is" class="slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> What It Is</span><span class="num">04 / 20</span></div>
+    <div class="row" style="gap:60px;flex:1;align-items:stretch;">
+      <div class="col" style="flex:1;gap:24px;">
+        <h3 class="slide-title" style="font-size:60px;">One workspace,<br/>one project.</h3>
+        <p class="body">
+          A researcher creates a <em>project</em>. Inside it: objectives, members, a paper library,
+          discussion channels, LaTeX documents, and meeting transcripts &mdash;
+          all <strong>visible to the same AI</strong>.
+        </p>
+        <div class="col gap-s" style="margin-top:12px;">
+          <div class="feature"><span class="idx">01</span><div class="body-wrap"><div class="feat-title">Project-scoped context</div><p class="feat-desc">Every answer, edit, or search is grounded in your project's actual data.</p></div></div>
+          <div class="feature"><span class="idx">02</span><div class="body-wrap"><div class="feat-title">Role-based collaboration</div><p class="feat-desc">Owner, Admin, Editor, Viewer &mdash; activity feeds and notifications out of the box.</p></div></div>
+          <div class="feature"><span class="idx">03</span><div class="body-wrap"><div class="feat-title">Real-time by default</div><p class="feat-desc">Discussions and edits sync instantly across collaborators.</p></div></div>
+        </div>
+      </div>
+      <div class="col" style="flex:1.2;justify-content:center;">
+        <div class="shot-clip"><img src="assets/project-overview.png" alt="Project overview"/></div>
+      </div>
+    </div>
+    <div class="foot"><span>Project overview</span><span class="num">04 / 20</span></div>
+  </section>
+
+  <!-- 05 — How it fits together -->
+  <section data-label="Research Lifecycle" class="slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> The Research Lifecycle</span><span class="num">05 / 20</span></div>
+    <h2 class="section-title" style="font-size:56px;margin-bottom:16px;">One project carries all four phases.</h2>
+    <p class="body" style="max-width:1400px;margin-bottom:56px;">Everything below shares the same project context &mdash; so the AI, the editor, and your teammates all see the same state.</p>
+    <div class="row gap-s" style="align-items:stretch;">
+      <div class="flow-step"><div class="step-num">01 · DISCOVER</div><div class="step-title">Find papers</div><div class="step-desc">Search across 9 academic databases; save to the project library.</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step"><div class="step-num">02 · DISCUSS</div><div class="step-title">Talk it through</div><div class="step-desc">Channels per topic, with an AI that reads your library and meetings.</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step"><div class="step-num">03 · WRITE</div><div class="step-title">Draft in LaTeX</div><div class="step-desc">Collaborative editor, live PDF, AI edits that cite your real library.</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-step"><div class="step-num">04 · SUBMIT</div><div class="step-title">Export manuscript</div><div class="step-desc">Journal-ready PDF, BibTeX, references &mdash; in one click.</div></div>
+    </div>
+    <div class="foot"><span>Discover → Discuss → Write → Submit</span><span class="num">05 / 20</span></div>
+  </section>
+
+  <!-- 06 — Section: Paper Discovery -->
+  <section data-label="Chapter: Discovery" class="section-divider">
+    <div><span class="chapter-num">CHAPTER 01</span></div>
+    <div>
+      <h2 class="chapter-title">Paper<br/>Discovery.</h2>
+      <p class="chapter-desc">Nine databases, one query &mdash; deduped and ranked, not just concatenated.</p>
+    </div>
+    <div class="chapter-foot"><span>ScholarHub</span><span>06 / 20</span></div>
+  </section>
+
+  <!-- 07 — Discovery sources (8+1) -->
+  <section data-label="Nine Sources" class="slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Paper Discovery</span><span class="num">07 / 20</span></div>
+    <h3 class="slide-title" style="font-size:60px;margin-bottom:20px;">One search across<br/>nine academic databases.</h3>
+    <p class="body" style="max-width:1500px;margin-bottom:48px;">Every result is saved to your project library with full citation metadata &mdash; authors, venue, DOI, abstract &mdash; already attached.</p>
+    <div class="source-grid" style="grid-template-columns:repeat(4,1fr);gap:18px;max-width:1600px;">
+      <div class="source-pill"><span class="bullet"></span>Semantic Scholar</div>
+      <div class="source-pill"><span class="bullet"></span>arXiv</div>
+      <div class="source-pill"><span class="bullet"></span>Crossref</div>
+      <div class="source-pill"><span class="bullet"></span>OpenAlex</div>
+      <div class="source-pill"><span class="bullet"></span>PubMed</div>
+      <div class="source-pill"><span class="bullet"></span>ScienceDirect</div>
+      <div class="source-pill"><span class="bullet"></span>CORE</div>
+      <div class="source-pill"><span class="bullet"></span>Europe PMC</div>
+    </div>
+    <div style="margin-top:28px;display:flex;align-items:center;gap:16px;font-family:'Inter';font-size:24px;color:var(--ink-mute);">
+      <span style="width:10px;height:10px;border-radius:50%;background:#C9A23A;"></span>
+      <span>Google Scholar &mdash; available as a metered additional source</span>
+    </div>
+    <div class="foot"><span>8 primary sources + Google Scholar (metered)</span><span class="num">07 / 20</span></div>
+  </section>
+
+  <!-- 08 — Discovery UX (simplified) -->
+  <section data-label="Discovery UI" class="slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Discovery in Action</span><span class="num">08 / 20</span></div>
+    <div class="row" style="gap:64px;flex:1;align-items:center;">
+      <div class="col" style="flex:1;gap:28px;">
+        <h3 class="slide-title" style="font-size:58px;">Picks up what's relevant,<br/>drops what's duplicate.</h3>
+        <p class="body">Results from all sources are merged, duplicates are collapsed, and the most relevant papers rise to the top.</p>
+        <div class="col gap-s" style="margin-top:12px;">
+          <div class="feature"><span class="idx">01</span><div class="body-wrap"><div class="feat-title">Presets for speed vs. coverage</div><p class="feat-desc">Scan fast, or cast a wide net &mdash; your choice per query.</p></div></div>
+          <div class="feature"><span class="idx">02</span><div class="body-wrap"><div class="feat-title">Filter by year, venue, open access</div><p class="feat-desc">Plus minimum citation count, so the noise floor stays low.</p></div></div>
+          <div class="feature"><span class="idx">03</span><div class="body-wrap"><div class="feat-title">Promote to library in one click</div><p class="feat-desc">Pending → Promoted → Dismissed. Clean triage, no tab-juggling.</p></div></div>
+        </div>
+      </div>
+      <div class="col" style="flex:1.2;justify-content:center;">
+        <div class="shot-clip"><img src="assets/discovery.png" alt="Paper discovery"/></div>
+      </div>
+    </div>
+    <div class="foot"><span></span><span class="num">08 / 20</span></div>
+  </section>
+
+  <!-- 09 — Section: Discussion AI -->
+  <section data-label="Chapter: Discussion AI" class="section-divider">
+    <div><span class="chapter-num">CHAPTER 02</span></div>
+    <div>
+      <h2 class="chapter-title">Discussion<br/>AI.</h2>
+      <p class="chapter-desc">A project-scoped assistant with real tools &mdash; not a chat bolted on the side.</p>
+    </div>
+    <div class="chapter-foot"><span>ScholarHub</span><span>09 / 20</span></div>
+  </section>
+
+  <!-- 10 — Project-scoped -->
+  <section data-label="Project-Scoped AI" class="slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Project-Scoped</span><span class="num">10 / 20</span></div>
+    <div class="row" style="gap:72px;flex:1;align-items:center;">
+      <div class="col" style="flex:1;gap:24px;">
+        <h3 class="slide-title" style="font-size:60px;">The AI reads<br/>your project.</h3>
+        <p class="body">Every message grounds on your saved papers, your discussion history, and your meeting transcripts &mdash; not just the last 10 turns of chat.</p>
+        <div class="col gap-s" style="margin-top:12px;">
+          <div class="feature"><span class="idx">01</span><div class="body-wrap"><div class="feat-title">Channels per topic</div><p class="feat-desc">Lit Review · Methodology · Results &mdash; each keeps its own thread.</p></div></div>
+          <div class="feature"><span class="idx">02</span><div class="body-wrap"><div class="feat-title">Threaded replies</div><p class="feat-desc">Branch the discussion without losing the main conversation.</p></div></div>
+          <div class="feature"><span class="idx">03</span><div class="body-wrap"><div class="feat-title">AI context selector</div><p class="feat-desc">Pick which papers to include before asking &mdash; explicit, not magic.</p></div></div>
+          <div class="feature"><span class="idx">04</span><div class="body-wrap"><div class="feat-title">No invented citations</div><p class="feat-desc">Citations resolve to real library entries &mdash; or the AI offers to search for one.</p></div></div>
+        </div>
+      </div>
+      <div class="col" style="flex:1.15;justify-content:center;">
+        <div class="shot-clip"><img src="assets/discussion-ai.png" alt="Discussion AI"/></div>
+      </div>
+    </div>
+    <div class="foot"><span></span><span class="num">10 / 20</span></div>
+  </section>
+
+  <!-- 11 — What the AI can do (capabilities only) -->
+  <section data-label="AI Capabilities" class="slide paper">
+    <div class="page-head"><span class="mark"><span class="dot"></span> What the AI Can Do for You</span><span class="num">11 / 20</span></div>
+    <h3 class="slide-title" style="font-size:56px;margin-bottom:16px;">Four capability groups<br/>the assistant reaches for.</h3>
+    <p class="body" style="max-width:1500px;margin-bottom:28px;">Instead of a single text generator, the assistant composes capabilities. It decides what to read, what to fetch, and what to draft &mdash; and it always reports what it used.</p>
+
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:20px;">
+      <div class="ask" style="min-height:unset;padding:28px 32px;">
+        <div class="q-num">SEARCH</div>
+        <div class="q">Find papers &mdash; inside and outside your library.</div>
+        <div class="a">Semantic search across the project, or reach out to the 9 external sources when the library doesn't cover it.</div>
+      </div>
+      <div class="ask" style="min-height:unset;padding:28px 32px;">
+        <div class="q-num">LIBRARY</div>
+        <div class="q">Add, annotate, and analyze references.</div>
+        <div class="a">Pull in promising papers, attach notes, extract key claims &mdash; so later questions have more to work with.</div>
+      </div>
+      <div class="ask" style="min-height:unset;padding:28px 32px;">
+        <div class="q-num">AUTHORING</div>
+        <div class="q">Draft and edit with citations attached.</div>
+        <div class="a">Generate a section, propose an edit to a passage, write an abstract &mdash; always with the source papers linked.</div>
+      </div>
+      <div class="ask" style="min-height:unset;padding:28px 32px;">
+        <div class="q-num">ANALYSIS</div>
+        <div class="q">Compare, refine, and find gaps.</div>
+        <div class="a">Compare two papers, sharpen a research question, surface what's missing from your literature coverage.</div>
+      </div>
+    </div>
+    <div class="foot"><span>Capabilities, not buttons &mdash; the AI picks the right one</span><span class="num">11 / 20</span></div>
+  </section>
+
+  <!-- 12 — Multi-model routing (no versions) -->
+  <section data-label="Multi-Model" class="slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Multi-Model</span><span class="num">12 / 20</span></div>
+    <div class="row" style="gap:72px;flex:1;align-items:center;">
+      <div class="col" style="flex:1.1;gap:28px;">
+        <h3 class="slide-title" style="font-size:58px;">Pick the model<br/>per project.</h3>
+        <p class="body">Different projects want different models. ScholarHub stays model-agnostic &mdash; each project picks the one that fits its work best.</p>
+        <div class="col gap-s" style="margin-top:12px;">
+          <div class="feature"><span class="idx">01</span><div class="body-wrap"><div class="feat-title">Claude</div><p class="feat-desc">Careful literature review and long reasoning chains.</p></div></div>
+          <div class="feature"><span class="idx">02</span><div class="body-wrap"><div class="feat-title">GPT</div><p class="feat-desc">Synthesis and writing when you want polish.</p></div></div>
+          <div class="feature"><span class="idx">03</span><div class="body-wrap"><div class="feat-title">Gemini</div><p class="feat-desc">Long-context reading across multiple PDFs.</p></div></div>
+          <div class="feature"><span class="idx">04</span><div class="body-wrap"><div class="feat-title">DeepSeek</div><p class="feat-desc">Cheap iteration &mdash; when cost matters more than polish.</p></div></div>
+        </div>
+      </div>
+      <div class="col" style="flex:1;justify-content:center;">
+        <div style="background:var(--card);border:1px solid var(--rule);border-radius:14px;padding:48px 44px;max-width:540px;">
+          <div class="eyebrow" style="font-size:22px;">What this means for you</div>
+          <p class="body" style="font-size:28px;margin-top:18px;line-height:1.45;">When the next Claude or GPT drops, you switch in one click. You're never stuck with last year's model on the week your paper is due.</p>
+          <div style="margin-top:28px;padding-top:24px;border-top:1px solid var(--rule);font-family:'Inter';font-size:22px;color:var(--ink-mute);">New models plug in instantly &mdash; no waiting for an update.</div>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span>Right tool for the right task</span><span class="num">12 / 20</span></div>
+  </section>
+
+  <!-- 13 — Section: LaTeX Editor -->
+  <section data-label="Chapter: Editor" class="section-divider">
+    <div><span class="chapter-num">CHAPTER 03</span></div>
+    <div>
+      <h2 class="chapter-title">LaTeX<br/>Editor.</h2>
+      <p class="chapter-desc">Real-time, collaborative &mdash; and the AI cites your actual library.</p>
+    </div>
+    <div class="chapter-foot"><span>ScholarHub</span><span>13 / 20</span></div>
+  </section>
+
+  <!-- 14 — Editor core -->
+  <section data-label="Editor Core" class="slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Collaborative LaTeX Editor</span><span class="num">14 / 20</span></div>
+    <div class="row" style="gap:64px;flex:1;align-items:stretch;">
+      <div class="col" style="flex:1;gap:28px;">
+        <h3 class="slide-title" style="font-size:58px;">Overleaf-grade editing,<br/>with your project<br/>in the loop.</h3>
+        <p class="body">Real-time multi-file LaTeX with live PDF preview. Collaborators can edit simultaneously without conflicts.</p>
+        <div class="col gap-s" style="margin-top:12px;">
+          <div class="feature"><span class="idx">01</span><div class="body-wrap"><div class="feat-title">Multi-file projects</div><p class="feat-desc">main.tex + chapters + bib &mdash; the full tree, not a single buffer.</p></div></div>
+          <div class="feature"><span class="idx">02</span><div class="body-wrap"><div class="feat-title">Live PDF preview</div><p class="feat-desc">Incremental rebuilds with inline error reporting.</p></div></div>
+          <div class="feature"><span class="idx">03</span><div class="body-wrap"><div class="feat-title">Conference templates</div><p class="feat-desc">IEEE, ACM, Springer &mdash; ready to clone into any project.</p></div></div>
+        </div>
+      </div>
+      <div class="col" style="flex:1.3;justify-content:center;">
+        <div class="shot-clip"><img src="assets/latex-editor.png" alt="LaTeX editor"/></div>
+      </div>
+    </div>
+    <div class="foot"><span>Real-time · Multi-file · Live PDF</span><span class="num">14 / 20</span></div>
+  </section>
+
+  <!-- 15 — AI edits with citations -->
+  <section data-label="AI Edits" class="slide paper">
+    <div class="page-head"><span class="mark"><span class="dot"></span> AI Edits That Cite</span><span class="num">15 / 20</span></div>
+    <h3 class="slide-title" style="font-size:58px;margin-bottom:20px;">Propose an edit.<br/>Cite a real paper.</h3>
+    <p class="body" style="max-width:1500px;margin-bottom:48px;">Select a passage, ask for a rewrite or a "support this claim." The assistant reaches into your library, drafts the edit, and attaches the citation &mdash; bound to a real entry, not a fabricated one.</p>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:28px;">
+      <div style="background:var(--card);border:1px solid var(--rule);border-radius:12px;padding:32px;">
+        <div class="q-num" style="color:var(--ink-mute);font-family:'JetBrains Mono';font-size:24px;letter-spacing:0.1em;margin-bottom:16px;">YOU SELECT</div>
+        <div class="mono" style="font-size:24px;line-height:1.6;color:var(--ink-soft);background:var(--bg-alt);padding:20px;border-radius:8px;">NAS methods are computationally expensive.</div>
+        <div style="margin-top:20px;color:var(--accent);font-family:'Inter';font-size:24px;font-weight:500;">&gt; Ask AI: "support this claim"</div>
+      </div>
+      <div style="background:var(--card);border:1px solid var(--rule);border-radius:12px;padding:32px;">
+        <div class="q-num" style="color:var(--accent);font-family:'JetBrains Mono';font-size:24px;letter-spacing:0.1em;margin-bottom:16px;">AI PROPOSES</div>
+        <div class="mono" style="font-size:24px;line-height:1.6;color:var(--ink);background:var(--bg-alt);padding:20px;border-radius:8px;">NAS methods are computationally expensive, often requiring thousands of GPU-hours <span style="color:var(--accent);">\cite{zoph2017}</span>.</div>
+        <div style="margin-top:20px;color:var(--ink-mute);font-family:'Inter';font-size:24px;">Cited entry exists in your library &mdash; Accept / Reject</div>
+      </div>
+    </div>
+    <div class="foot"><span>Edit proposals · Accept / Reject diffs</span><span class="num">15 / 20</span></div>
+  </section>
+
+  <!-- 16 — Related work comparison -->
+  <section data-label="Related Work" class="slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Related Work</span><span class="num">16 / 20</span></div>
+    <h3 class="slide-title" style="font-size:56px;margin-bottom:14px;">How does ScholarHub differ<br/>from what we already use?</h3>
+    <p class="body" style="max-width:1400px;margin-bottom:20px;">Each tool below is excellent in its lane. ScholarHub's claim is that the <em>integration</em> across lanes is where the value compounds.</p>
+
+    <table class="compare">
+      <thead>
+        <tr>
+          <th>Capability</th>
+          <th>Overleaf</th>
+          <th>Zotero</th>
+          <th>Notion / Slack</th>
+          <th>ChatGPT</th>
+          <th class="me">ScholarHub</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="criterion">Realtime multi-file LaTeX</td>
+          <td><span class="check">✓</span></td><td><span class="cross">✕</span></td><td><span class="cross">✕</span></td><td><span class="cross">✕</span></td>
+          <td class="me"><span class="check">✓</span></td>
+        </tr>
+        <tr>
+          <td class="criterion">Cross-source paper discovery</td>
+          <td><span class="cross">✕</span></td><td><span class="partial">~</span></td><td><span class="cross">✕</span></td><td><span class="cross">✕</span></td>
+          <td class="me"><span class="check">✓</span></td>
+        </tr>
+        <tr>
+          <td class="criterion">AI grounded in your library</td>
+          <td><span class="cross">✕</span></td><td><span class="cross">✕</span></td><td><span class="cross">✕</span></td><td><span class="partial">~</span></td>
+          <td class="me"><span class="check">✓</span></td>
+        </tr>
+        <tr>
+          <td class="criterion">Citations bound to real papers (no hallucination)</td>
+          <td>n/a</td><td>n/a</td><td><span class="cross">✕</span></td><td><span class="cross">✕</span></td>
+          <td class="me"><span class="check">✓</span></td>
+        </tr>
+        <tr>
+          <td class="criterion">AI proposes edits that cite library</td>
+          <td><span class="cross">✕</span></td><td><span class="cross">✕</span></td><td><span class="cross">✕</span></td><td><span class="cross">✕</span></td>
+          <td class="me"><span class="check">✓</span></td>
+        </tr>
+        <tr>
+          <td class="criterion">Project-scoped discussion</td>
+          <td><span class="cross">✕</span></td><td><span class="cross">✕</span></td><td><span class="check">✓</span></td><td><span class="cross">✕</span></td>
+          <td class="me"><span class="check">✓</span></td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="foot"><span>✓ supported &nbsp;·&nbsp; ~ partial &nbsp;·&nbsp; ✕ not applicable</span><span class="num">16 / 20</span></div>
+  </section>
+
+  <!-- 17 — Research contribution -->
+  <section data-label="Contribution" class="slide paper">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Research Contribution</span><span class="num">17 / 20</span></div>
+    <h3 class="slide-title" style="font-size:56px;margin-bottom:28px;">Four things that make<br/>ScholarHub different.</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+      <div class="ask" style="min-height:unset;padding:28px 32px;">
+        <div class="q-num">CONTRIBUTION 01</div>
+        <div class="q">The AI actually knows your project.</div>
+        <div class="a">Your library, your discussions, your documents &mdash; every answer is grounded in the papers and context you've already gathered, not a generic model talking into thin air.</div>
+      </div>
+      <div class="ask" style="min-height:unset;padding:28px 32px;">
+        <div class="q-num">CONTRIBUTION 02</div>
+        <div class="q">Citations that always exist.</div>
+        <div class="a">The AI can only cite papers already in your library. No fabricated DOIs, no made-up authors, nothing to chase down in Scholar after the fact.</div>
+      </div>
+      <div class="ask" style="min-height:unset;padding:28px 32px;">
+        <div class="q-num">CONTRIBUTION 03</div>
+        <div class="q">One search instead of nine tabs.</div>
+        <div class="a">Nine databases merged into a single ranked result list &mdash; deduped across sources. Promote what's useful; dismiss the noise. The ranking adapts to your choices.</div>
+      </div>
+      <div class="ask" style="min-height:unset;padding:28px 32px;">
+        <div class="q-num">CONTRIBUTION 04</div>
+        <div class="q">AI edits you can audit, not accept blindly.</div>
+        <div class="a">Every AI suggestion arrives as a reviewable diff with its source citations attached. Accept or reject passage by passage &mdash; your prose stays yours.</div>
+      </div>
+    </div>
+    <div class="foot"><span>What sets it apart from Overleaf + Zotero + ChatGPT</span><span class="num">17 / 20</span></div>
+  </section>
+
+  <!-- 18 — Trust & Your Data -->
+  <section data-label="Trust & Privacy" class="slide paper">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Trust &amp; Your Data</span><span class="num">18 / 20</span></div>
+    <h3 class="slide-title" style="font-size:56px;margin-bottom:14px;">Before you paste<br/>your unpublished draft.</h3>
+    <p class="body" style="max-width:1500px;margin-bottom:28px;">Four questions we expect you to ask &mdash; with straight answers.</p>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+      <div class="ask" style="min-height:unset;padding:28px 32px;">
+        <div class="q-num">QUESTION 01</div>
+        <div class="q">Who can see what I write?</div>
+        <div class="a">Only members you invite to the project. Four roles &mdash; Owner, Admin, Editor, Viewer &mdash; decide who edits vs. who just reads. Papers you haven't shared stay with you.</div>
+      </div>
+      <div class="ask" style="min-height:unset;padding:28px 32px;">
+        <div class="q-num">QUESTION 02</div>
+        <div class="q">Does the AI send my paper to OpenAI?</div>
+        <div class="a">Bring your own OpenRouter or OpenAI key &mdash; encrypted at rest (AES-128), used only for your requests. Your paper goes through your key, billed to your account.</div>
+      </div>
+      <div class="ask" style="min-height:unset;padding:28px 32px;">
+        <div class="q-num">QUESTION 03</div>
+        <div class="q">What context does the AI have?</div>
+        <div class="a">Only the project you're working in &mdash; its library, documents, and discussions. Other projects never enter the prompt.</div>
+      </div>
+      <div class="ask" style="min-height:unset;padding:28px 32px;">
+        <div class="q-num">QUESTION 04</div>
+        <div class="q">Can I take my work with me?</div>
+        <div class="a">Your LaTeX source is copyable, and the BibTeX of any reference is exportable. A one-click project bundle (source + PDF + refs) is on the near roadmap.</div>
+      </div>
+    </div>
+    <div class="foot"><span>Honest answers &mdash; no dark patterns</span><span class="num">18 / 20</span></div>
+  </section>
+
+  <!-- 19 — Current status -->
+  <section data-label="Current Status" class="slide">
+    <div class="page-head"><span class="mark"><span class="dot"></span> Current Status</span><span class="num">19 / 20</span></div>
+    <h2 class="section-title" style="font-size:60px;margin-bottom:48px;">MVP is live.<br/>Deployed on scholarhub.space.</h2>
+    <div class="row" style="gap:56px;flex:1;align-items:flex-start;">
+      <div class="stat" style="flex:1;"><div class="n">9</div><div class="lbl">Academic sources</div><p class="body" style="font-size:24px;margin-top:10px;max-width:380px;">All major open and metered databases &mdash; one query, deduped across all of them.</p></div>
+      <div class="stat" style="flex:1;"><div class="n">4</div><div class="lbl">AI capability groups</div><p class="body" style="font-size:24px;margin-top:10px;max-width:380px;">Search · Library management · Authoring · Analysis &mdash; composed, not bolted on.</p></div>
+      <div class="stat" style="flex:1;"><div class="n ink">5</div><div class="lbl">Core modules shipped</div><p class="body" style="font-size:24px;margin-top:10px;max-width:380px;">Projects, discovery, discussion AI, references library, collaborative LaTeX editor.</p></div>
+    </div>
+    <div style="margin-top:48px;padding:28px 36px;background:var(--card);border:1px solid var(--rule);border-radius:12px;display:flex;align-items:center;justify-content:space-between;">
+      <div style="display:flex;align-items:center;gap:18px;"><span style="width:10px;height:10px;border-radius:50%;background:#22A06B;box-shadow:0 0 0 4px rgba(34,160,107,0.12);"></span><span style="font-family:'Inter';font-size:26px;font-weight:500;color:var(--ink);">Deployed &amp; open to the group</span></div>
+      <div style="font-family:'JetBrains Mono', monospace;font-size:28px;color:var(--accent);font-weight:500;">scholarhub.space</div>
+    </div>
+    <div class="foot"><span>Working MVP &mdash; feedback-ready</span><span class="num">19 / 20</span></div>
+  </section>
+
+  <!-- 20 — How you can help + Thank you combined -->
+  <section data-label="Thank You" class="slide dark" style="padding:80px 100px;">
+    <div style="display:flex;flex-direction:column;height:100%;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:48px;">
+        <div style="display:flex;align-items:center;gap:18px;">
+          <svg width="44" height="44" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+            <defs><linearGradient id="g-end" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#B488F0"/><stop offset="100%" stop-color="#D9C0F7"/></linearGradient></defs>
+            <path d="M24 2L29 20L24 24L19 20Z" fill="url(#g-end)"/>
+            <path d="M46 24L28 29L24 24L28 19Z" fill="url(#g-end)" fill-opacity="0.75"/>
+            <path d="M24 46L19 28L24 24L29 28Z" fill="url(#g-end)" fill-opacity="0.5"/>
+            <path d="M2 24L20 19L24 24L20 29Z" fill="url(#g-end)" fill-opacity="0.35"/>
+            <circle cx="24" cy="24" r="4" fill="url(#g-end)"/>
+          </svg>
+          <span style="font-family:'Inter';font-size:26px;color:#D9C0F7;letter-spacing:0.04em;">ScholarHub</span>
+        </div>
+        <span style="font-family:'JetBrains Mono', monospace;font-size:22px;color:#6E6776;letter-spacing:0.08em;">20 / 20</span>
+      </div>
+
+      <h1 class="title" style="font-size:120px;color:#F4F1EC;margin:0 0 24px 0;line-height:0.95;">Try it. Break it.<br/>Tell me what's wrong.</h1>
+      <p class="lede" style="font-size:30px;color:#C5BED0;max-width:1400px;margin:0 0 56px 0;">Four questions I need honest answers to &mdash; rough ones especially.</p>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:22px;flex:1;">
+        <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(180,136,240,0.25);border-radius:12px;padding:30px 34px;">
+          <div style="color:#B488F0;font-family:'JetBrains Mono';font-size:22px;letter-spacing:0.1em;margin-bottom:14px;">ASK 01</div>
+          <div style="font-family:'Fraunces';font-size:32px;font-weight:500;line-height:1.2;color:#F4F1EC;margin-bottom:12px;">Is the cross-tool integration actually valuable?</div>
+          <p style="font-family:'Inter';font-size:22px;line-height:1.5;color:#9E97A3;margin:0;">Or does it feel like a Swiss-army-knife pile of features?</p>
+        </div>
+        <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(180,136,240,0.25);border-radius:12px;padding:30px 34px;">
+          <div style="color:#B488F0;font-family:'JetBrains Mono';font-size:22px;letter-spacing:0.1em;margin-bottom:14px;">ASK 02</div>
+          <div style="font-family:'Fraunces';font-size:32px;font-weight:500;line-height:1.2;color:#F4F1EC;margin-bottom:12px;">Would you trust the AI's reference suggestions?</div>
+          <p style="font-family:'Inter';font-size:22px;line-height:1.5;color:#9E97A3;margin:0;">Enough to paste them into your own paper &mdash; honestly.</p>
+        </div>
+        <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(180,136,240,0.25);border-radius:12px;padding:30px 34px;">
+          <div style="color:#B488F0;font-family:'JetBrains Mono';font-size:22px;letter-spacing:0.1em;margin-bottom:14px;">ASK 03</div>
+          <div style="font-family:'Fraunces';font-size:32px;font-weight:500;line-height:1.2;color:#F4F1EC;margin-bottom:12px;">Would you switch from Overleaf + Zotero?</div>
+          <p style="font-family:'Inter';font-size:22px;line-height:1.5;color:#9E97A3;margin:0;">For your next paper. If not, what's stopping you?</p>
+        </div>
+        <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(180,136,240,0.25);border-radius:12px;padding:30px 34px;">
+          <div style="color:#B488F0;font-family:'JetBrains Mono';font-size:22px;letter-spacing:0.1em;margin-bottom:14px;">ASK 04</div>
+          <div style="font-family:'Fraunces';font-size:32px;font-weight:500;line-height:1.2;color:#F4F1EC;margin-bottom:12px;">Which feature felt weakest?</div>
+          <p style="font-family:'Inter';font-size:22px;line-height:1.5;color:#9E97A3;margin:0;">And does that weakness undermine the whole product?</p>
+        </div>
+      </div>
+
+      <div style="margin-top:48px;padding-top:32px;border-top:1px solid rgba(180,136,240,0.2);display:flex;justify-content:space-between;align-items:center;">
+        <div style="font-family:'Inter';font-size:24px;color:#9E97A3;line-height:1.5;">
+          Hassan Algizani &nbsp;·&nbsp; KFUPM MX<br/>
+          <span style="color:#6E6776;font-size:22px;">Supervised by Dr. Ahmad Irfan &amp; Mr. Majed Alshaibani</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:16px;padding:18px 30px;border:1px solid rgba(180,136,240,0.35);border-radius:999px;">
+          <span style="font-family:'Inter';font-size:22px;color:#9E97A3;letter-spacing:0.1em;text-transform:uppercase;">Try it</span>
+          <span style="width:1px;height:18px;background:rgba(180,136,240,0.25);"></span>
+          <span style="font-family:'JetBrains Mono', monospace;font-size:26px;color:#D9C0F7;">scholarhub.space</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</deck-stage>
+
+</body>
+</html>

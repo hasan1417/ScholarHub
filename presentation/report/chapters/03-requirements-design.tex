@@ -1,0 +1,107 @@
+\chapter{Requirements and Design}
+\label{ch:requirements}
+
+This chapter presents the requirements that guided the design of \sh{} and the design principles that resolve trade-offs not determined by requirements alone: stakeholders, functional requirements, non-functional requirements with measurable targets, design principles, and canonical end-to-end use cases.
+
+\section{User Roles and Stakeholders}
+\label{sec:req-stakeholders}
+
+\sh{} targets three classes of users. Each is described in terms of role and context rather than specific personas.
+
+\textbf{Primary user: the active researcher.} An academic researcher producing papers, theses, or reports in a STEM or social science discipline. This user typically maintains a working library of dozens to hundreds of references, drafts in LaTeX or rich-text formats, collaborates with one or more co-authors, and increasingly uses AI assistance for paraphrasing and drafting. Surveys of the academic writing workflow indicate this user spends a substantial portion of writing time on context switching between literature search, reference management, document editing, and AI tools \cite{khalifa2024aiwriting,springer2024fragmentation}.
+
+\textbf{Secondary user: the research collaborator.} A co-author, supervisor, or graduate student who participates in writing or reviewing documents owned by a primary user. The secondary user requires real-time visibility into work in progress, the ability to comment and suggest edits, and a low installation burden because participation in any single project is usually short-lived.
+
+\textbf{Institutional stakeholder.} A university IT department, research office, or graduate programme that may host a deployment of the system for affiliated researchers. Institutional concerns include single sign-on, multi-tenancy, data residency, audit logging, and budget alignment with comparable subscription tools. Institutional features are not delivered in this work. They are documented as the productization roadmap in chapter \ref{ch:conclusion}.
+
+The requirements that follow are derived from these role descriptions rather than from a controlled user study. A formal user study with statistical power suitable for HCI publication is identified as future work in chapter \ref{ch:conclusion}.
+
+\section{Functional Requirements}
+\label{sec:req-functional}
+
+The functional requirements are organized by subsystem. Each subsystem is described as a single narrative paragraph; the codes in parentheses (FR-A1, FR-P3, etc.) preserve identifiers for cross-reference in later chapters.
+
+\textbf{Authentication and identity.} The system supports email-and-password authentication with email verification (FR-A1) and OAuth-based sign-in through at least one external identity provider, Google in the current deployment (FR-A2). Browser-side authentication state is held in a secure HTTP-only cookie tied to a server-side session (FR-A3). Password reset is supported via email-mediated tokens with a finite validity window (FR-A4), and a separate token-issuance endpoint is available for browser extension and external client integrations (FR-A5).
+
+\textbf{Project and document management.} A user can create, rename, and delete research projects, each of which is a container for papers, references, discussions, and members (FR-P1) with a configurable membership in at least three roles --- owner, editor, and viewer (FR-P2). A research paper is a document owned by exactly one user and optionally associated with one project (FR-P3); at minimum it carries a title, content in LaTeX or rich-text format, an associated reference list, and revision history (FR-P4). Multi-file LaTeX projects are supported, where a paper consists of a primary file and zero or more auxiliary files (FR-P5), and version snapshots are maintained sufficient to support ``restore to previous version'' operations (FR-P6).
+
+\textbf{Paper discovery.} The discovery layer accepts a free-text query and returns ranked results from nine external scientific sources --- Semantic Scholar, OpenAlex, arXiv, CrossRef, PubMed, CORE, Europe PMC, ScienceDirect, and Google Scholar (FR-D1) --- with deduplication of results from different sources that refer to the same underlying work (FR-D2). Filtering by year range, open-access availability, and minimum citation count is supported (FR-D3), results are streamed as they arrive from each source rather than batched (FR-D4), and a discovered paper can be saved to the user's library with a single action (FR-D5).
+
+\textbf{Reference management and library.} Each user has a personal library of reference papers with title, authors, year, abstract, DOI or arXiv ID, and an optional PDF per entry (FR-L1). References support BibTeX import and export (FR-L2), structured information is extracted from uploaded PDFs (FR-L3), references can be associated with one or more papers and one or more projects (FR-L4), and dense vector embeddings of reference content are maintained to support semantic library search (FR-L5).
+
+\textbf{Real-time collaborative editing.} The LaTeX editor supports real-time concurrent editing on the same document (FR-E1) with conflict-free merging even under temporary network disconnection (FR-E2). Each connected user's cursor and selection is visible to the others (FR-E3) with a stable per-user display color used consistently for cursor markers and authorship attribution (FR-E4). Undo and redo are scoped to the invoking user's edits, not to a global stack (FR-E5), and document state is persisted to durable storage at a write frequency that avoids thrashing while bounding data loss on server failure (FR-E6).
+
+\textbf{LaTeX compilation.} The system compiles LaTeX source to PDF on the server, returning the PDF together with a structured log of compilation errors and warnings (FR-C1, FR-C3). Multi-file projects are supported, including \verb|\input| and \verb|\include| directives (FR-C2). Automatic recompilation is supported on user-initiated triggers --- a manual compile button and optional auto-compile on idle (FR-C4) --- and a SyncTeX file is produced alongside the PDF for bidirectional source-to-PDF cursor synchronization (FR-C5).
+
+\textbf{AI assistance.} The AI assistant is accessible from within the editor, the project view, and the discussion channels (FR-I1), and is implemented as a tool-orchestrated agent with access to a registered set of tools spanning library, search, paper analysis, and content creation (FR-I2). All citations are grounded in the user's library; the agent does not generate citations for papers outside the library (FR-I3). The final response is streamed to the client with intermediate tool execution hidden except as optional metadata (FR-I4). Multiple LLM providers are supported (OpenAI direct and the OpenRouter multi-model gateway) with per-user model selection (FR-I5), and role-based tool permissions restrict destructive tools (such as updating project metadata or deleting references) to users with appropriate project roles (FR-I6).
+
+\textbf{Discussion and collaboration channels.} Each project supports multiple named discussion channels (FR-S1), where a channel may be scoped to a single research paper or to the project as a whole (FR-S2). Users can mention other project members to generate notifications (FR-S3), and the AI assistant is invokable as a participant in any channel (FR-S4).
+
+\section{Non-Functional Requirements}
+\label{sec:req-nonfunctional}
+
+Non-functional requirements are stated with measurable targets where possible.
+
+\textbf{NFR-1: Latency.} The 95th percentile end-to-end latency for paper search across all sources shall not exceed 8 seconds. The 95th percentile latency for incremental LaTeX compile of a 50-page document shall not exceed 12 seconds. The 95th percentile latency for the first token of an AI assistant response shall not exceed 5 seconds.
+
+\textbf{NFR-2: Scalability (concurrent editing).} The system shall support at least 10 concurrent editors per document with sub-200-millisecond local-edit-to-remote-display latency on a typical broadband connection.
+
+\textbf{NFR-3: Availability.} The deployed system shall target 99\% availability over a one-month window during the evaluation period of this work, computed as the fraction of one-minute intervals during which the homepage returns HTTP 200.
+
+\textbf{NFR-4: Security and Privacy.} Authentication tokens shall be transmitted only over TLS-secured channels in production. Passwords shall be stored using a memory-hard hashing algorithm (bcrypt). The collaboration WebSocket shall require a short-lived JWT for connection establishment. User content (papers, references, discussions) shall be accessible only to authenticated users with explicit project membership, enforced at the database query layer so that cross-user data leakage is impossible by construction.
+
+\section{Design Principles}
+\label{sec:req-principles}
+
+The following design principles resolve trade-offs not determined by the requirements above. They are stated because the choices they encode are visible throughout the implementation chapter.
+
+\textbf{P1: Library-grounding over open-domain generation.} The AI subsystem treats the user's library as the authoritative source of citable content. The agent does not invent bibliographic entries. When the agent needs information not present in the library, it uses the search tools to discover it and adds it to the library before citing it. This principle is the structural reason citation fabrication does not occur for in-library references.
+
+\textbf{P2: CRDT over operational transformation for collaboration.} The collaboration layer uses Y.js, a CRDT, rather than an OT-based approach. The reasons are stated in section \ref{sec:lit-collab}: simpler multi-tenant deployment, generalization to non-text data, and a mature ecosystem of editor bindings.
+
+\textbf{P3: Streaming over polling.} User-facing operations that take longer than approximately one second (paper search, LaTeX compilation, AI generation) stream their progress through Server-Sent Events. The user sees results as they arrive rather than waiting for full completion.
+
+\textbf{P4: Aggregation with deduplication, not single-source preference.} The discovery layer queries all available sources for every search and merges results. No source is preferred a priori; preference between duplicate hits is resolved by metadata completeness (richer record wins) and identifier authority (published DOI beats arXiv ID).
+
+\textbf{P5: Stateless backend, stateful collaboration server.} The application backend is stateless except for its database connections. Session state and real-time document state live in the collaboration server (Hocuspocus) and Redis. This separation simplifies horizontal scaling.
+
+\textbf{P6: Explicit tool registry over implicit prompt engineering.} The AI agent's capabilities are encoded in named, schema-typed tools registered with the orchestrator. New capabilities are added by registering new tools, not by editing system prompts. The set of currently registered tools, recoverable from the codebase, is the complete specification of what the agent can do.
+
+\textbf{P7: Open APIs first for discovery.} The discovery layer uses only open scientific APIs (Semantic Scholar, OpenAlex, arXiv, CrossRef, PubMed, CORE, Europe PMC, ScienceDirect, and Google Scholar). The system does not depend on subscription databases. Broader institutional integration with publisher-side full-text resources is reserved for future work.
+
+\section{Canonical Use Cases}
+\label{sec:req-usecases}
+
+The following use cases describe end-to-end interactions that exercise multiple subsystems. Each is presented with its actor, precondition, main flow, and expected outcome.
+
+\textbf{UC-1: Discover and import a paper.}\\
+\textit{Actor:} A registered user with at least one project.\\
+\textit{Precondition:} The user has signed in.\\
+\textit{Main flow:} The user enters a search query in the discovery interface. The system queries up to nine external sources in parallel and streams ranked, deduplicated results to the user. The user clicks ``add to library'' on a result. The system fetches the paper's PDF if available, extracts text and abstract, computes embeddings, and adds the reference to the user's library and to the active project.\\
+\textit{Expected outcome:} The reference is visible in the project library and is available to be cited from the AI assistant.
+
+\textbf{UC-2: Draft a paragraph with grounded citations.}\\
+\textit{Actor:} A registered user with at least three references in the active project.\\
+\textit{Precondition:} The user has opened a paper in the editor.\\
+\textit{Main flow:} The user invokes the AI assistant from the editor with a request such as ``write a one-paragraph related work section on retrieval-augmented generation, citing my library.'' The agent retrieves the relevant references through the \code{get\_project\_references} or \code{semantic\_search\_library} tool, drafts the paragraph with embedded \code{\textbackslash cite\{\}} commands referring to the retrieved papers, and inserts the result at the cursor position.\\
+\textit{Expected outcome:} The paragraph is inserted with citations whose keys correspond to references in the project library. No citation refers to a paper outside the library.
+
+\textbf{UC-3: Co-edit a paper section in real time.}\\
+\textit{Actor:} Two registered users with shared access to the same paper.\\
+\textit{Precondition:} Both users have the paper open in the editor.\\
+\textit{Main flow:} User A and User B make concurrent edits to overlapping regions of the document. The CRDT layer merges their edits. Each sees the other's cursor and selection in real time. User A presses Ctrl-Z; their last edit is reverted but User B's edits are preserved.\\
+\textit{Expected outcome:} The merged document contains both users' contributions. No edit is lost. The undo operation is correctly scoped to the invoking user.
+
+\textbf{UC-4: Compile a multi-file LaTeX document.}\\
+\textit{Actor:} A registered user editing a paper composed of \code{main.tex} and one or more auxiliary files.\\
+\textit{Precondition:} The user has the paper open in the editor with all files loaded.\\
+\textit{Main flow:} The user clicks ``compile.'' The frontend submits all files to the LaTeX compilation endpoint. The backend writes them to a temporary working directory, runs \code{pdflatex} (and \code{biber} if a bibliography file is present), and returns the PDF along with a structured log.\\
+\textit{Expected outcome:} The compiled PDF is displayed in the preview pane. Compilation errors, if any, are highlighted at the corresponding source line.
+
+\textbf{UC-5: Review changes proposed by AI in tracked-changes mode.}\\
+\textit{Actor:} A registered user with track-changes mode active.\\
+\textit{Precondition:} The user has selected a paragraph and invoked the AI ``polish'' action.\\
+\textit{Main flow:} The AI returns a revised version of the paragraph. The system displays the revision as a tracked change with both versions visible. The user accepts or rejects each change.\\
+\textit{Expected outcome:} Accepted changes are committed to the document; rejected changes are discarded. The audit trail records the AI as the author of the proposed edit.
+
+These five use cases are not exhaustive but cover the central interactions that the architecture and implementation chapters must justify. The remainder of the report describes how each is realized.

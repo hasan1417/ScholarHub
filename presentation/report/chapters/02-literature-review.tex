@@ -1,0 +1,213 @@
+\chapter{Literature Review and Related Work}
+\label{ch:literature}
+
+This chapter surveys the work on which \sh{} builds, organized thematically: existing academic writing tools and reference managers, AI-assisted research tools, real-time collaborative editing (operational transformation and CRDTs), retrieval-augmented generation and citation hallucination, tool-use architectures for LLM agents, and a closing gap analysis.
+
+\section{Academic Writing and Reference Management Tools}
+\label{sec:lit-tools}
+
+The dominant tool for collaborative LaTeX writing in 2026 is Overleaf, a web-based editor created by Hammersley and Lees-Miller in 2011 as WriteLaTeX and merged with the open-source ShareLaTeX project in 2017 \cite{overleaf2024}. Overleaf supports browser-based editing, server-side LaTeX compilation, and project sharing through invitation. By 2025 the platform reports more than 20 million users worldwide and is the de facto standard for collaborative academic writing in fields where LaTeX is conventional. Overleaf's strength is its compilation pipeline, which provides a complete TeX Live installation behind the browser, and its document-sharing model. Its weaknesses, from the perspective of this work, are two. First, Overleaf does not include any reference management. Users must maintain their bibliography in an external tool such as Zotero or BibTeX files and copy citation keys manually. Second, Overleaf does not include any AI assistance. While various browser extensions add AI capabilities, the editor itself has no awareness of the user's library or research context.
+
+Reference management is dominated by two open tools. Zotero, developed by the Roy Rosenzweig Center for History and New Media, provides browser-integrated capture, local PDF storage, and BibTeX export \cite{zotero2024}. Mendeley, owned by Elsevier since 2013, provides similar functionality with cloud synchronization \cite{mendeley2024}. Neither Zotero nor Mendeley provides document editing or co-authoring. The handoff from reference manager to writing tool is manual: users export a BibTeX file, place it in their Overleaf project, and copy citation keys by hand.
+
+The fragmentation between these tools imposes a measurable cost. The 2024 review by Khalifa and Albadawy \cite{khalifa2024aiwriting} surveys the productivity impact of AI tools on academic writing and identifies tool fragmentation as a recurring source of friction. The Springer chapter \textit{From Fragmentation to Focus} \cite{springer2024fragmentation} argues that this fragmentation is the primary obstacle to AI-augmented research productivity, because each AI tool that addresses one slice of the workflow adds yet another tool to coordinate.
+
+\section{AI-Powered Research Assistants}
+\label{sec:lit-airesearch}
+
+A new generation of AI-assisted research tools has emerged since the public release of GPT-3.5 in late 2022. These tools differ from general-purpose chat assistants in that they constrain the AI's input to academic sources, attempt to ground their output in retrievable papers, and target specific subtasks of the research workflow.
+
+Elicit \cite{elicit2024} focuses on systematic literature review. The system accepts a research question, retrieves candidate papers from an index of approximately 125 million scholarly works, and extracts structured information (population, intervention, outcome for empirical studies). The Pro tier costs USD 49 per user per month. Elicit's strength is the structured data extraction step, which is well-suited to meta-analysis and randomized controlled trial review. Its limitation is that Elicit produces extracted findings, not finished writing, and does not maintain a stable user library across sessions in the way a reference manager does.
+
+SciSpace \cite{scispace2024}, formerly Typeset, focuses on single-paper comprehension. The system provides a chat-with-PDF interface where the user uploads a paper and asks questions about it. SciSpace also offers paper-database navigation and journal-matching tooling for submission. The Premium tier starts at USD 20 per month. SciSpace's strength is its accessibility for understanding individual papers in unfamiliar fields. Its limitation is that the chat interface treats each paper independently rather than as part of an integrated research project.
+
+OpenScholar, published in \textit{Nature} in 2025 by Asai et al.\ \cite{asai2025openscholar}, is a research-grade retrieval-augmented language model trained on 45 million open-access papers. The system answers scientific queries by identifying relevant passages and synthesizing citation-backed responses. The published evaluation reports citation accuracy on par with human experts, in contrast to GPT-4o, which the same paper reports hallucinates citations between 78\% and 90\% of the time on equivalent queries. OpenScholar is a research artifact rather than a deployed product; it is not currently a tool researchers can incorporate into their writing workflow.
+
+A category of browser-based citation tools has emerged in parallel. Scite, ResearchRabbit, and Consensus apply variations of citation analysis and AI summarization to help users navigate the literature. These tools are valuable for discovery but, like Elicit and SciSpace, do not connect to the writing workflow.
+
+The common limitation across all these tools is that none of them is a writing environment. They are upstream of writing. Once the user has used Elicit to extract findings or SciSpace to understand a paper, the work of incorporating those findings into a draft, with proper citations, in a collaborative document, falls back on the conventional Overleaf-plus-Zotero-plus-ChatGPT stack.
+
+\section{Related Products and Competitive Positioning}
+\label{sec:lit-products}
+
+The technical foundations surveyed above are realized in a fragmented product landscape: each existing tool implements one or two slices of the workflow and leaves the rest to the user. This section consolidates the comparison along three axes that matter for positioning \sh{} against existing tools: feature coverage, pricing, and the integration-breadth-versus-AI-grounding plane.
+
+\subsection{Feature Coverage}
+\label{sec:lit-features}
+
+Table~\ref{tab:feature-matrix} summarizes feature coverage across the leading products. \textbf{Y} indicates the feature is present and well-developed; a dash indicates partial support; a blank indicates absence.
+
+\begin{table}[h]
+\centering
+\caption{Feature matrix across leading academic-research tools. \textbf{Y}~=~well-developed, \textbf{$\sim$}~=~partial, blank~=~absent.}
+\label{tab:feature-matrix}
+\scriptsize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lcccccccc}
+\toprule
+                                  & \textbf{LaTeX} & \textbf{Realtime} & \textbf{Lib.} & \textbf{Paper} & \textbf{AI}  & \textbf{Cite} & \textbf{Multi-} & \textbf{Open} \\
+\textbf{Tool}                     & \textbf{Edit}  & \textbf{Co-edit}  & \textbf{Mgmt} & \textbf{Disc.} & \textbf{Asst}& \textbf{Grnd} & \textbf{file}    & \textbf{Src}  \\
+\midrule
+Overleaf            & Y    & Y    & --   &      & --   &      & Y    & Y    \\
+Zotero              &      &      & Y    & Y    &      &      &      & Y    \\
+Mendeley            &      &      & Y    & Y    &      &      &      &      \\
+Elicit              &      &      & --   & Y    & Y    & Y    &      &      \\
+SciSpace            &      &      & --   & Y    & Y    & --   &      &      \\
+ChatGPT             &      &      &      &      & Y    &      &      &      \\
+ResearchRabbit      &      &      & --   & Y    &      &      &      &      \\
+Notion AI           &      & Y    & --   &      & Y    &      & Y    &      \\
+\midrule
+\textbf{\sh{}}      & \textbf{Y} & \textbf{Y} & \textbf{Y} & \textbf{Y} & \textbf{Y} & \textbf{Y} & \textbf{Y} & \textbf{Y} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+No existing tool delivers more than five of the eight features; most deliver one to three. The user-visible cost of fragmentation observed in surveys of researcher workflow \cite{khalifa2024aiwriting,springer2024fragmentation} is the direct consequence of this product-side fragmentation.
+
+\subsection{Pricing}
+\label{sec:lit-pricing}
+
+Table~\ref{tab:pricing} compares the public pricing of the leading paid tools as of May 2026.
+
+\begin{table}[h]
+\centering
+\caption{Public pricing for academic research tools (May 2026).}
+\label{tab:pricing}
+\small
+\begin{tabularx}{\textwidth}{l l X}
+\toprule
+\textbf{Tool} & \textbf{Paid tier (USD/mo)} & \textbf{What's included} \\
+\midrule
+Overleaf Standard & 19   & Unlimited collaborators per project, full history, Git, Dropbox sync. \\
+Overleaf Pro      & 31   & Symbol palette, advanced reference search, more concurrent sessions. \\
+Zotero            &  0   & Free at the individual level; storage tiers from USD 20/year. \\
+Mendeley          &  0   & Free; institutional plans negotiated. \\
+Elicit Plus       & 12   & Limited monthly searches, basic extraction. \\
+Elicit Pro        & 49   & Unlimited searches, advanced extraction, team workflow. \\
+SciSpace Premium  & 20   & Chat-with-PDF, journal matching, basic writing assistance. \\
+ChatGPT Plus      & 20   & GPT-5 access, Code Interpreter, web browsing. \\
+Claude Pro        & 20   & Claude Opus 4.7 access, file uploads, longer context. \\
+\midrule
+\multicolumn{3}{l}{\textit{Combined cost of the conventional research stack}} \\
+Overleaf + Zotero + ChatGPT  & 39 & Two paid tiers plus a free reference manager. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+A researcher on the conventional three-tool stack pays approximately USD 39 per month and still operates three separate applications. \sh{}'s deployed Pro tier (figure~\ref{fig:ss-pricing}) is positioned at USD 15 per month, below the cost of any single component of that stack, with a free tier (twenty AI calls and ten paper-discovery searches per month, three projects) and a bring-your-own-key tier at USD 0 plus the user's API costs.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\textwidth]{screenshots/new-pricing.png}
+\caption{\sh{}'s public pricing page at \url{scholarhub.space/pricing}. Three tiers cover the free, individual-pro, and bring-your-own-key segments. Pro is positioned at USD 15 per month, below the price of any single component of the conventional Overleaf--Zotero--ChatGPT stack.}
+\label{fig:ss-pricing}
+\end{figure}
+
+\subsection{Positioning and Differentiation}
+\label{sec:lit-positioning}
+
+Figure~\ref{fig:market-positioning} positions the principal tools on two axes: integration breadth (how much of the workflow the tool covers) and AI grounding (whether the AI is anchored in a verifiable knowledge source).
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[scale=0.9, every node/.style={font=\small}]
+\draw[->, thick] (0,0) -- (12,0) node[right]{\textbf{Integration breadth}};
+\draw[->, thick] (0,0) -- (0,7)  node[above]{\textbf{AI grounding}};
+
+\node[anchor=east] at (0,6.3) {High};
+\node[anchor=east] at (0,3.5) {Mid};
+\node[anchor=east] at (0,0.6) {None};
+
+\node[anchor=north] at (2,-0.1)   {Single-purpose};
+\node[anchor=north] at (6,-0.1)   {Multi-tool};
+\node[anchor=north] at (10,-0.1)  {Workspace};
+
+\node[draw, fill=ink!5, rounded corners=2pt, inner sep=3pt] (chatgpt)    at (1.4,1)   {ChatGPT};
+\node[draw, fill=ink!5, rounded corners=2pt, inner sep=3pt] (zotero)     at (1.4,3)   {Zotero};
+\node[draw, fill=ink!5, rounded corners=2pt, inner sep=3pt] (overleaf)   at (4.2,1.3) {Overleaf};
+\node[draw, fill=ink!5, rounded corners=2pt, inner sep=3pt] (mendeley)   at (4.2,3)   {Mendeley};
+\node[draw, fill=ink!5, rounded corners=2pt, inner sep=3pt] (researchr)  at (4.2,4.4) {ResearchRabbit};
+\node[draw, fill=ink!5, rounded corners=2pt, inner sep=3pt] (elicit)     at (6.2,5.6) {Elicit};
+\node[draw, fill=ink!5, rounded corners=2pt, inner sep=3pt] (scispace)   at (7.2,4.7) {SciSpace};
+\node[draw, fill=ink!5, rounded corners=2pt, inner sep=3pt] (notion)     at (7.5,2)   {Notion AI};
+
+\node[draw, very thick, fill=accent!20, rounded corners=2pt, minimum width=2.6cm, inner sep=4pt] (sh) at (10.5,6) {\textbf{\sh{}}};
+
+\draw[thick, dashed, draw=accent] (sh.south west) ++(-0.15,-0.15) rectangle ($(sh.north east) + (0.15,0.15)$);
+\node[anchor=north, font=\scriptsize\itshape, color=accent] at ($(sh.south) + (0,-0.35)$) {market gap};
+\end{tikzpicture}
+\caption{Tool positioning on the axes of integration breadth (horizontal) and AI grounding (vertical). \sh{} occupies the upper-right quadrant where integration breadth and grounding are both high; no existing product currently operates in this quadrant.}
+\label{fig:market-positioning}
+\end{figure}
+
+The bottom of the chart is the unaided-AI region: tools either have no AI (Zotero, Overleaf, Mendeley) or AI without grounding (ChatGPT, Notion). The middle band contains AI-grounded but narrow tools (Elicit, SciSpace) targeting a single subtask. The upper-right quadrant, where a single product would integrate the full workflow with grounded AI, is empty.
+
+\sh{} occupies that quadrant on three structural differentiators. First, the AI assistant runs inside the LaTeX editor and is grounded in the user's curated reference library; no other product combines in-editor AI with library-grounded citation. Second, real-time CRDT-based co-editing on LaTeX documents is present in Overleaf but absent from every AI-research tool, and present in Notion but without LaTeX support. Third, paper discovery aggregates nine open scientific sources in parallel with deduplication, where existing discovery tools query a single index. The implementation of each differentiator is described in chapters~\ref{ch:architecture} and~\ref{ch:implementation}; the empirical effect is measured in chapter~\ref{ch:evaluation}.
+
+\section{Real-Time Collaborative Editing}
+\label{sec:lit-collab}
+
+Real-time collaborative editing of text documents has been the subject of computer science research for over thirty-five years. Two algorithmic families dominate the field: operational transformation (OT) and conflict-free replicated data types (CRDTs).
+
+\subsection{Operational Transformation}
+
+Operational transformation, introduced by Ellis and Gibbs at ACM SIGMOD 1989 \cite{ellis1989operational}, transforms incoming operations against concurrent operations at other replicas so that all replicas converge while preserving each user's intent. The algorithm underlies Google Docs and the original Google Wave. The trade-off is that transformation matrices grow combinatorially with the number of operation types, which is why most OT systems are limited to plain text or a small operation set, and the algorithm requires a central server to act as the canonical transformation point.
+
+\subsection{Conflict-Free Replicated Data Types}
+
+CRDTs were formally defined by Shapiro et al.\ at SSS 2011 \cite{shapiro2011crdt, shapiro2011comprehensive}. The paper introduces strong eventual consistency: any two replicas that have received the same set of operations reach the same state regardless of delivery order. Two families are formalized: state-based CRDTs broadcast full state and merge commutatively at receivers; operation-based CRDTs broadcast individual operations whose concurrent forms must commute. The 2017 paper by Kleppmann and Beresford \cite{kleppmann2017jsoncrdt} extended the technique to nested JSON structures, providing the foundation for the Automerge library.
+
+Y.js, developed by Kevin Jahns since 2014 \cite{yjs2024}, is the CRDT implementation used in this work. Y.js uses the YATA algorithm for text and provides shared types for arrays, maps, and structured data, with low latency, a compact wire format, and a layered architecture that embeds in any networking layer. Y.js is the foundation of Tiptap, BlockSuite, and the Hocuspocus server used in this work \cite{hocuspocus2024}.
+
+\subsection{Choice for \sh{}}
+
+\sh{} uses Y.js with the Hocuspocus server. CRDTs do not require a central server for correctness (simplifying the multi-tenant deployment in the future work chapter), generalize to non-text structures (maps for project metadata, arrays for ordered lists) that OT does not naturally support, and the Y.js ecosystem provides a mature CodeMirror binding (\code{y-codemirror.next}) plus a Hocuspocus server that handles authentication, authorization, and persistence.
+
+\section{Retrieval-Augmented Generation and Citation Hallucination}
+\label{sec:lit-rag}
+
+\subsection{The Hallucination Problem}
+
+Citation hallucination in large language models is the most well-documented failure mode of LLM-assisted academic writing. The foundational empirical study by Walters and Wilder \cite{walters2023fabrication}, published in \textit{Scientific Reports} in 2023, prompted GPT-3.5 and GPT-4 to generate short literature reviews on 42 multidisciplinary topics. The authors then verified each of the 636 resulting bibliographic citations against multiple databases. They report that 55\% of GPT-3.5 citations and 18\% of GPT-4 citations were entirely fabricated, meaning the cited paper could not be found by any search. Of the remaining citations that did refer to real papers, 43\% (GPT-3.5) and 24\% (GPT-4) contained substantive errors, including incorrect authors, incorrect years, incorrect page ranges, and incorrect journals.
+
+Subsequent work has confirmed the generality of the problem. Mugaanyi and colleagues \cite{mugaanyi2024llmcitations}, in a cross-disciplinary study published in the \textit{Journal of Medical Internet Research}, prompted ChatGPT to generate citations for ten topics across the natural sciences and humanities; they found that 27.3\% of natural-science citations and 23.4\% of humanities citations could not be verified, with DOI hallucination rates reaching 89\% in the humanities. The 2025 \textit{ACM Computing Surveys} review by Huang et al.\ \cite{huang2025hallucination} catalogs hallucination as a principal failure mode of contemporary LLMs and notes that citation hallucination is particularly damaging because it appears in well-formed prose that is otherwise plausible.
+
+The implications for academic writing are direct. A researcher who uses an LLM to draft a literature review and trusts the output without verification has, with high probability, included one or more citations to papers that do not exist or whose details are wrong. Manual verification of every citation negates much of the productivity benefit of AI assistance.
+
+\subsection{Retrieval-Augmented Generation}
+
+The retrieval-augmented generation framework was introduced by Lewis et al.\ at NeurIPS 2020 \cite{lewis2020rag}. The idea is to augment a generative language model with a non-parametric memory in the form of a dense vector index over a corpus of documents. At inference time, the model retrieves a small number of relevant passages from the index and conditions its generation on those passages. The original paper used a Wikipedia index and demonstrated improvements on knowledge-intensive question answering, fact verification, and abstractive question answering.
+
+The 2024 survey by Gao et al.\ \cite{gao2024ragsurvey} catalogs the rapid evolution of RAG systems through three generations: naive RAG with single-query retrieval, advanced RAG with query rewriting and multi-step retrieval, and modular RAG with composable retrieval, ranking, and generation components. The survey notes that RAG addresses the citation hallucination problem directly: when the model is conditioned on retrieved passages, it can be prompted to cite those passages explicitly, and the cited content can be verified against the index.
+
+The OpenScholar system \cite{asai2025openscholar} represents a domain-specific application of RAG to scientific literature. By restricting the retrieval index to 45 million open-access papers and training the generator to cite retrieved passages explicitly, OpenScholar achieves citation accuracy comparable to human experts. The system demonstrates that the citation hallucination problem is a property of the LLM-as-stand-alone-tool design pattern, not an inherent limitation of language models, and that retrieval grounding is a sufficient remedy.
+
+\textbf{Architectural contrast with \sh{}.} OpenScholar and \sh{} share the retrieval-grounding insight but differ on three structural axes that matter for production use. \emph{Retrieval target}: OpenScholar retrieves over a fixed 45M-paper corpus; \sh{} retrieves over a per-user library that the user curates as a side-effect of their actual research workflow, so every retrieved citation is one the user has already deemed relevant. \emph{Grounding enforcement}: OpenScholar trains the generator to cite retrieved passages, which is a soft constraint dependent on the generator's discipline; \sh{} adds an unconditional post-generation filter (section~\ref{sec:ai-orchestration}) that drops every citation key not present in the library, making fabrication structurally impossible at the user-visible response layer regardless of model behaviour. \emph{Workflow integration}: OpenScholar produces a citation-backed answer in isolation; \sh{} embeds the AI agent inside a collaborative LaTeX editor with the library, discussion channels, and submission tooling in the same workspace, so the cited output is a draft the user can edit rather than a one-shot artifact. The library-grounded post-filter is, to the author's knowledge, the first deployed combination of these three properties in a single research workspace.
+
+\subsection{Application to \sh{}}
+
+\sh{} adopts the retrieval-grounding strategy. The user's library plays the role of the retrieval index. The AI agent is constrained, by design of its tool registry, to cite only papers that have been retrieved through one of the library access tools (\code{get\_project\_references}, \code{get\_reference\_details}, \code{semantic\_search\_library}, \code{focus\_on\_papers}) or added through the discovery layer (\code{search\_papers}, \code{add\_to\_library}). Citations to papers outside this set are not generated; the agent is instructed to either retrieve a relevant paper or explicitly note the absence of a citable source.
+
+\section{Tool-Use Architectures for LLM Agents}
+\label{sec:lit-toolagent}
+
+The mechanism by which an LLM invokes external tools has matured rapidly since 2023. The Toolformer paper by Schick et al.\ \cite{schick2023toolformer} demonstrated that language models could be fine-tuned to insert tool calls in their generated text, with the calls executed by a host process and the results substituted back into the generation. The ReAct framework by Yao et al.\ \cite{yao2023react} introduced an interleaved reasoning-and-acting pattern that has become the de facto template for agent loops.
+
+OpenAI's function-calling API, introduced in mid-2023 and now standardized as part of the structured-output capability of the Chat Completions and Responses APIs, provides a production-quality interface for tool use. The model receives a list of tool definitions, each with a name, a JSON schema for arguments, and a natural-language description. At inference time, the model can either generate a final response or emit a structured tool-call object. The host application executes the tool, appends the result to the message history, and re-invokes the model. The loop continues until the model returns a non-tool response.
+
+The OpenRouter platform exposes a similar tool-calling interface across a wide range of models from multiple providers (OpenAI, Anthropic, Google, Meta, DeepSeek, and others), abstracting over provider-specific differences. \sh{} uses OpenRouter for its multi-model AI subsystem to allow per-user model selection without changing application code.
+
+The choice to use a tool-orchestrated agent rather than a single-prompt RAG pipeline is motivated by the diversity of operations \sh{} must support. A single user query may require a search across external sources, a fetch of a paper's full text, an analysis of multiple papers, the creation of a new artifact, and the modification of an existing draft. Encoding all these operations as discrete, named tools allows the LLM to compose them as needed, rather than forcing the application designer to anticipate every possible composition in a fixed pipeline.
+
+\section{Gap Analysis}
+\label{sec:lit-gap}
+
+The literature surveyed in this chapter establishes three points relevant to the design of \sh{}.
+
+\textbf{Point 1.} The component technologies needed to build an integrated research workspace are mature. Y.js and Hocuspocus provide production-quality real-time collaboration. Open scientific APIs cover hundreds of millions of papers with reliable metadata. Function-calling APIs make tool-use agents straightforward to implement. Retrieval-augmented generation has been demonstrated to substantially reduce citation hallucination in academic settings, with OpenScholar reporting citation accuracy on par with human experts.
+
+\textbf{Point 2.} No existing system combines these components. Overleaf does collaboration but no AI and no library. Zotero and Mendeley do libraries but no editing. Elicit and SciSpace do AI-assisted reading but no writing. OpenScholar does grounded generation but is a research artifact, not a deployed workspace.
+
+\textbf{Point 3.} The cost of fragmentation is documented and significant. Researchers lose substantial productive time to context switching, and the citation hallucination problem in unaided LLMs creates an academic integrity hazard.
+
+The conclusion is that the contribution of \sh{} lies not in any single algorithmic novelty but in the integration. The decision to combine grounded AI generation with CRDT-based collaboration in a single web application, and to ground that AI explicitly in a curated reference library, addresses a documented problem with mature components. The remainder of this report describes how that integration was designed, implemented, and evaluated.

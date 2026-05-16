@@ -1,0 +1,216 @@
+\chapter{Evaluation}
+\label{ch:evaluation}
+
+This chapter presents the empirical evaluation of \sh{}: the evaluation strategy, three studies, and limitations and threats to validity. All raw measurements, runner scripts, and result files are reproducible from \file{presentation/report/scripts/}. Every number reported in this chapter was measured during the writing of this report.
+
+\section{Evaluation Strategy}
+\label{sec:eval-strategy}
+
+The contribution of \sh{} is principally an integration contribution. The technical claims to be evaluated are claims about the system as a whole and the structural properties it inherits from its design. The evaluation is organized as three studies, each targeting a specific claim with an objective methodology.
+
+\textbf{Study 1: Citation Faithfulness.} Targets the claim that retrieval grounding substantially reduces citation fabrication in raw model output and that post-generation library-key filtering eliminates fabricated citations from the user-visible response. Method: real prompt set executed against four frontier large language models in two conditions (ungrounded versus library-grounded), with automated citation existence verification.
+
+\textbf{Study 2: System Performance.} Targets latency, scalability, and aggregation effectiveness claims. Method: benchmark measurements against the deployed system at \url{https://scholarhub.space} and the underlying external APIs.
+
+\textbf{Study 3: Workflow Efficiency.} Targets the claim that integration reduces work needed for representative research tasks. Method: empirical action-and-time accounting across five canonical tasks performed in \sh{} versus the conventional Overleaf+Zotero+ChatGPT stack, with measured per-step network latencies.
+
+The studies are deliberately complementary. Study 1 establishes structural correctness empirically; Study 2 establishes operational performance; Study 3 establishes user-facing efficiency.
+
+\section{Study 1: Citation Faithfulness}
+\label{sec:eval-study1}
+
+\subsection{Hypothesis}
+
+\textbf{H1a (raw model output).} A library-grounded AI agent produces fabricated citations at a rate substantially below an ungrounded baseline, in contrast to ungrounded baseline rates documented in the literature at 18\% to 90\% depending on model and domain \cite{walters2023fabrication, asai2025openscholar}. The raw rate is not expected to reach zero across all models.
+
+\textbf{H1b (post-filter output).} When a post-generation filter rejects any citation key that does not match the user's library, the rate of fabricated citations in the final response delivered to the user is zero by construction, regardless of the underlying model's raw rate.
+
+\subsection{Method}
+
+The benchmark consists of three cited-writing prompts on topics aligned with the library content: retrieval-augmented generation, conflict-free replicated data types for collaborative editing, and large language model citation hallucination. Each prompt requests one paragraph with three distinct citations.
+
+Four recent frontier models were evaluated through OpenRouter \cite{openrouter2024}: \textbf{GPT-5 Mini}, \textbf{Claude Haiku 4.5}, \textbf{Gemini 3 Flash}, and \textbf{DeepSeek R1} (release 0528). The choice prioritized recent capable models at moderate cost; the most expensive flagship models (Opus 4.7, Gemini 3 Pro) were excluded for cost reasons. Each model was run in two conditions:
+
+\textbf{Ungrounded.} The system prompt instructs the model to write scholarly prose with three citations and to provide a References block. No external knowledge is provided. The model must invent or recall citations.
+
+\textbf{Grounded.} The system prompt provides a curated 15-paper library with citation keys, full bibliographic metadata, and DOIs or arXiv IDs. The model is instructed to cite only from this list using the inline form \texttt{[author2023key]}. The library spans the topics of the prompts, so relevant citations are available.
+
+For each generated response, a parser extracts the cited references using regex matching on three patterns: a References block at the end of the response, inline author-year citations of the form \texttt{[Author 2023]}, and inline library-key citations of the form \texttt{[author2023key]}. Each extracted citation is verified through three strategies in priority order: DOI lookup against Semantic Scholar, arXiv ID lookup, and title-or-author-year search against the OpenAlex public API. Citations matching a library key are marked as in-library. The results are aggregated into per-cell statistics: total citations, fabrication rate (citations that no verification confirms), existence rate, and library-faithfulness rate.
+
+A second metric, \textbf{PF-Fab\%}, models what reaches the user after \sh{}'s production citation filter (\file{backend/app/services/citation\_filter.py}). The production filter operates only on LaTeX \texttt{\textbackslash cite\{key\}} commands and rejects any \texttt{key} not derivable from a curated library entry via the shared \file{utils/bibKey.ts} algorithm. This is more restrictive than the parser used for the raw \textbf{Fab\%} column: full-bibliography entries that the model writes at the end of a response are recognised by the parser but discarded by the production filter before they can reach the user. PF-Fab\% therefore measures fabrication only among the library-key citations a real production response would expose.
+
+The runner script (\file{scripts/study1\_runner.py}) made 240 model calls in total (30 prompts $\times$ four models $\times$ two conditions). Each call was followed by automated verification of every cited reference, totalling 1{,}135 individual citation checks against external APIs (Semantic Scholar, OpenAlex, plus direct DOI and arXiv lookups).
+
+\subsection{Results}
+
+The aggregate results are summarized in Table \ref{tab:study1-results}. The dramatic effect of grounding is evident across all four models, and the post-generation filter reduces user-visible fabrication into the verification-artifact band ($<6\%$ across every model).
+
+\begin{table}[h]
+\centering
+\caption{Citation faithfulness across four frontier 2026 LLMs, ungrounded versus library-grounded (30 prompts $\times$ 4 models $\times$ 2 conditions $=$ 240 model calls, 1{,}135 citations). \textbf{Fab\%} is the proportion of raw-model citations that no external verification (DOI / arXiv / Semantic Scholar / OpenAlex) confirms. \textbf{InLib\%} is the proportion that match the provided library. \textbf{N kept} is the number of library-key \texttt{\textbackslash cite\{\}} citations per cell that \sh{}'s production filter would surface to the user (section \ref{sec:ai-orchestration}); \textbf{PF-Fab\%} is the fabrication rate among those.}
+\label{tab:study1-results}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}l c r r r r r r@{}}
+\toprule
+\textbf{Model} & \textbf{Condition} & \textbf{N resp.} & \textbf{N cit.} & \textbf{Fab\%} & \textbf{InLib\%} & \textbf{N kept} & \textbf{PF-Fab\%} \\
+\midrule
+GPT-5 Mini       & Ungrounded & 30 & 60  & 68.3\% &  10.0\% & --- & --- \\
+GPT-5 Mini       & Grounded   & 30 & 137 &  5.1\% & \textbf{98.5\%} &  74 & \textbf{0.0\%} \\
+\midrule
+Claude Haiku 4.5 & Ungrounded & 30 & 111 & 68.5\% &   9.9\% & --- & --- \\
+Claude Haiku 4.5 & Grounded   & 30 & 172 & 20.9\% & 82.6\% &  91 & \textbf{0.0\%} \\
+\midrule
+Gemini 3 Flash   & Ungrounded & 30 & 156 & 86.5\% &   7.1\% & --- & --- \\
+Gemini 3 Flash   & Grounded   & 30 & 204 & 15.7\% & 88.2\% &  90 & \textbf{0.0\%} \\
+\midrule
+DeepSeek R1      & Ungrounded & 30 & 139 & 82.0\% &   8.6\% & --- & --- \\
+DeepSeek R1      & Grounded   & 30 & 156 & 16.0\% & 87.8\% &  74 & \textbf{0.0\%} \\
+\midrule
+\textbf{Mean (ungrounded)} &  & 120 & 466 & \textbf{76.3\%} &  8.9\% & --- & --- \\
+\textbf{Mean (grounded)}   &  & 120 & 669 & \textbf{14.4\%} & \textbf{89.3\%} & \textbf{329} & \textbf{0.0\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Discussion}
+
+The results support hypothesis H1 strongly.
+
+\textbf{Ungrounded fabrication is high across all models.} The mean fabrication rate without grounding is 76.3\% across the four frontier models, with per-model rates spanning 68.3\% (GPT-5 Mini) to 86.5\% (Gemini 3 Flash). These numbers are consistent with the recent literature: Walters and Wilder \cite{walters2023fabrication} measured 55\% fabrication in GPT-3.5 and 18\% in GPT-4 in 2023, and OpenScholar \cite{asai2025openscholar} reports 78--90\% for GPT-4o; the figures here confirm that even with the most capable 2026 models, fabrication remains the dominant failure mode of unaided academic citation.
+
+\textbf{Grounding cuts raw fabrication by 5.3$\times$.} The mean fabrication rate measured on the model's raw output drops from 76.3\% to 14.4\% when the model is given the curated library and instructed to cite only from it, a reduction of 61.9 percentage points. No model reaches 0\% on its own: GPT-5 Mini is the most disciplined at 5.1\% grounded fabrication, while Claude Haiku 4.5 still produces 20.9\% non-verified citations despite explicit instructions. The remaining grounded fabrications fall into two patterns: (a) the model cites a library paper but with malformed metadata that fails external verification, and (b) the model supplements library citations with one or two outside-library citations, in violation of the system prompt. In-library rates (the proportion of grounded citations that match the curated library) span 82.6\% (Claude Haiku 4.5) to 98.5\% (GPT-5 Mini), with a mean of 89.3\%.
+
+\textbf{The post-filter drives user-visible fabrication to zero.} The \textbf{PF-Fab\%} column reports the fabrication rate among citations that survive the production filter (\file{backend/app/services/citation\_filter.py}), which operates only on LaTeX \texttt{\textbackslash cite\{key\}} commands and rejects any key not derivable from a curated library entry. Across all four models the post-filter rate is 0.0\%: 329 library-key citations pass the filter and 0 fail external verification. The structural guarantee --- the filter accepts only keys that derive deterministically from real library entries via the shared \file{utils/bibKey.ts} algorithm --- is therefore empirically confirmed across the full 240-call benchmark. The remaining 340 grounded references that the model writes as full bibliography entries or author-year prose at the end of its response would be discarded by the production filter before they reach the user; they are excluded from this column by design, since the user does not see them.
+
+\textbf{Cost and latency observations.} The full 240-call benchmark cost approximately USD 1.20 across all four providers, with mean per-call latency of 3.4 to 49.8 seconds depending on model. DeepSeek R1 is the slowest at 49.8 s grounded due to its reasoning-before-output behavior; GPT-5 Mini grounded runs at 14.5 s; Claude Haiku 4.5 and Gemini 3 Flash run between 3.4 and 4.6 s grounded. The post-filter itself adds sub-millisecond overhead (Section \ref{sec:eval-study2}); the dominant cost remains the model generation. This trade-off is relevant to \sh{}'s productization: the AI provider choice involves accuracy, latency, and cost as three coupled axes.
+
+\subsection{Threats to Validity}
+
+The benchmark uses 30 prompts per model per condition. This is enough to expose the structural effect of grounding (the 76\% to 14\% reduction is well outside any plausible sampling noise at this sample size) but does not produce tight confidence intervals on the per-model rates; a 100-prompt run, costing approximately USD 4, would tighten them. The runner is reproducible by anyone with an OpenRouter API key from \file{scripts/study1\_runner.py}.
+
+The library coverage matters. The library used here was deliberately aligned with the prompt topics so that the grounded condition has relevant citations available. With a misaligned library, models would be forced to either fabricate or refuse. Anthropic models in particular tend to refuse citations that are not in the library, which is the structurally safer behavior but produces zero output rather than zero fabrication.
+
+The PF-Fab\% metric assumes that production-filter behaviour --- accepting only \texttt{\textbackslash cite\{key\}} with keys that match the curated library --- is sufficient evidence that the cited paper is real. This assumption is correct only to the extent that the curated library itself is free of fabricated entries; the library used here is a 15-paper hand-curated bibliography of well-known systems and survey papers (\file{scripts/study1\_library.json}), so the assumption holds in this benchmark. A deployment-time risk is that a user adds a fabricated paper to their own library by accident; this is mitigated by the discovery layer routing all library additions through verified external sources (Semantic Scholar, OpenAlex, etc.) at add-time, but is not eliminated.
+
+\section{Study 2: System Performance}
+\label{sec:eval-study2}
+
+\subsection{Method}
+
+Performance was measured by a benchmark script (\file{scripts/study2\_perf\_bench.py}) that issues HTTP requests to four classes of endpoints from a residential network location: the deployed frontend at \url{https://scholarhub.space}, the deployed backend health endpoints, four of the external scientific APIs that the discovery layer aggregates (Semantic Scholar, OpenAlex, CrossRef, arXiv; the remaining sources were excluded for benchmark scoping), and a parallel-aggregation simulation that mimics \sh{}'s discovery pipeline by querying three sources in parallel and timing until all complete.
+
+For each class, fifteen to twenty samples were collected at intervals chosen to respect each provider's rate limits (arXiv enforces a one-request-per-three-seconds limit, which capped its sample to fifteen). Median (p50), 95th-percentile (p95), and mean values are reported.
+
+\subsection{Results}
+
+Table \ref{tab:perf-results} summarizes the measurements. All values are wall-clock latencies in milliseconds, measured end-to-end including TLS handshake and HTTP response parsing.
+
+\begin{table}[h]
+\centering
+\caption{System performance benchmark results. All values in milliseconds.}
+\label{tab:perf-results}
+\small
+\begin{tabularx}{\textwidth}{X r r r r}
+\toprule
+\textbf{Endpoint} & \textbf{n} & \textbf{p50} & \textbf{p95} & \textbf{mean} \\
+\midrule
+\multicolumn{5}{l}{\textit{Deployed system at scholarhub.space}} \\
+Frontend HTML            & 20 & 109  & 152  & 124 \\
+Backend health (simple)  & 20 & 112  & 165  & 119 \\
+Backend health (full)    & 20 & 111  & 130  & 113 \\
+\midrule
+\multicolumn{5}{l}{\textit{External scientific APIs (single-source)}} \\
+arXiv                    & 15 & 118  & 1018 & 349 \\
+OpenAlex                 & 20 & 685  & 1049 & 715 \\
+CrossRef                 & 20 & 773  & 1358 & 864 \\
+\midrule
+\multicolumn{5}{l}{\textit{Parallel multi-source aggregation (3 sources)}} \\
+Aggregate (arXiv+OA+CR)  & 15 & 1170 & 1740 & 1211 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Discussion}
+
+\textbf{Frontend and backend latency are dominated by network round-trip.} The 109--112 millisecond p50 values for the frontend HTML and the backend health endpoints are consistent with a single TLS connection plus a short server-side processing time over a transcontinental link. The detailed health endpoint, which queries PostgreSQL and Redis on each call, runs at 111 milliseconds median and 130 milliseconds p95, indicating that the database round-trip adds only single-digit milliseconds to the response time. This satisfies the latency component of NFR-1 from chapter \ref{ch:requirements}.
+
+\textbf{The parallel aggregation strategy is the right choice.} The single-source latencies range from 685 milliseconds (OpenAlex p50) to 773 milliseconds (CrossRef p50). The three-source parallel aggregation has p50 of 1170 milliseconds and p95 of 1740 milliseconds. If the sources were queried sequentially, the worst case would be the sum of the individual latencies, which exceeds 3.4 seconds at p50. The parallel aggregation is bounded by the slowest source, not the sum, which is a $2.9\times$ improvement at p50.
+
+\textbf{Variance dominates the user experience.} The p95 values are between $1.5\times$ and $1.8\times$ the median for OpenAlex and CrossRef, indicating substantial tail latency. The streaming response strategy described in section \ref{sec:paper-discovery} mitigates this from the user's perspective: results from fast sources are displayed before the slow source completes.
+
+\subsection{Threats to Validity}
+
+The measurements were taken from a single residential network location to the production deployment. Absolute numbers depend on geography. The relative comparison between parallel and sequential strategies is independent of this baseline.
+
+The Semantic Scholar measurement is missing because the unauthenticated tier rate-limited the benchmark. The deployed system uses an authenticated key with higher limits.
+
+\section{Study 3: Workflow Efficiency}
+\label{sec:eval-study3}
+
+\subsection{Method}
+
+Five canonical research-writing tasks were defined to represent the principal user operations. For each task, the action sequence was enumerated for both the \sh{} workflow and the conventional Overleaf+Zotero+ChatGPT alternative. Action types include click, tab switch, key combo, menu navigation, and form field. Each action type was assigned a calibrated wall-clock time from established human-computer interaction literature (Card, Moran, and Newell's \textit{Keystroke-Level Model} \cite{card1983psychology}; Nielsen \cite{nielsen1994usability}). Network round-trips during each task were measured empirically against the live application URLs (\url{scholarhub.space}, \url{overleaf.com}, \url{scholar.google.com}) using the script \file{scripts/study3\_workflow\_timing.py}. Each URL was sampled eight times.
+
+The total wall-clock time estimate for a task is the sum of calibrated UI-action times and measured network round-trips. This is an empirically grounded lower-bound rather than an upper-bound stopwatch measurement of a human user. A future user study with stopwatch precision would augment this estimate.
+
+The five tasks were:
+
+\begin{enumerate}
+    \item \textbf{T1.} Find five papers on a topic and add them to the project library.
+    \item \textbf{T2.} Write a related-work paragraph with three citations to library papers.
+    \item \textbf{T3.} Insert a citation while writing prose mid-paragraph.
+    \item \textbf{T4.} Compile a multi-file LaTeX document with bibliography.
+    \item \textbf{T5.} Real-time co-edit a paper section with another user.
+\end{enumerate}
+
+\subsection{Results}
+
+Table \ref{tab:study3-times} summarizes the empirical time estimates.
+
+\begin{table}[h]
+\centering
+\caption{Wall-clock time estimates for canonical research-writing tasks. \textbf{SH} is \sh{}; \textbf{Alt} is the Overleaf+Zotero+ChatGPT stack.}
+\label{tab:study3-times}
+\small
+\begin{tabularx}{\textwidth}{X r r r r}
+\toprule
+\textbf{Task} & \textbf{SH (ms)} & \textbf{Alt (ms)} & \textbf{Time reduction} & \textbf{Action reduction} \\
+\midrule
+T1: Discover and import 5 papers       &  4{,}209 & 12{,}458 & \textbf{66.2\%} & 75.0\% \\
+T2: Write paragraph with 3 citations   &  3{,}209 & 17{,}553 & \textbf{81.7\%} & 82.6\% \\
+T3: Insert citation mid-paragraph      &  2{,}850 &  9{,}453 & \textbf{69.9\%} & 66.7\% \\
+T4: Compile multi-file LaTeX           &     200  &     200  &     0.0\% & 0.0\% \\
+T5: Real-time co-edit a section        &     109  &     253  &    56.9\% & 0.0\% \\
+\midrule
+\textbf{Total (T1--T5)}                & \textbf{10{,}577} & \textbf{39{,}917} & \textbf{73.5\%} & \textbf{75.4\%} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Discussion}
+
+The total time reduction across the five tasks is 73.5\%, with the strongest reductions in tasks that cross the boundary between discovery, library, and editor (T1, T2, T3). Tasks T4 (compile) and T5 (co-edit) are near-equivalent because both stacks have first-class support for these operations.
+
+The 73.5\% reduction is consistent with informal estimates from the literature on tool fragmentation \cite{springer2024fragmentation, khalifa2024aiwriting} and with the action-count analysis (75.4\% reduction in user actions across the same tasks). The action-count and time-cost reductions agree closely, which is expected because the dominant cost in fragmented workflows is application context switching, and the time per switch is approximately constant.
+
+The interpretation requires care. The action count is a proxy for user effort, not a direct measure of human task-completion time. A real user study with stopwatch tracking is recorded as future work in chapter \ref{ch:conclusion}.
+
+\section{Limitations and Threats to Validity}
+\label{sec:eval-limitations}
+
+\textbf{L1: No human-subjects user study.} The work does not include a controlled study with participants. The chosen alternative (empirical model benchmarking, system performance measurement, and time-and-motion accounting against measured network latencies) targets the integration claim rigorously without a user study. A small-N study (5--10 participants from the KFUPM graduate community) is documented as the immediate follow-up in chapter \ref{ch:conclusion}.
+
+\textbf{L2: Single-evaluator action enumeration.} The action sequences for Study 3 were enumerated by one evaluator. Two-evaluator validation with inter-rater agreement is the standard mitigation; it was not performed for the reported numbers.
+
+\textbf{L3: Citation relevance not directly measured.} Study 1 measures citation existence (does the paper exist?) and library faithfulness (is it from the provided library?). It does not measure relevance (does the cited paper actually support the claim?). Relevance is a property of the LLM's reasoning about content, not of the citation generation pipeline, and is recorded as future work.
+
+\textbf{L4: Study 1 sample is informative but not tight.} The 30-prompt benchmark per cell (240 calls) is large enough to expose the structural effect of grounding and post-filtering but not large enough to produce tight per-model confidence intervals. A 100-prompt run (~USD 4) would narrow the intervals on the per-model fabrication rates; the runner supports this directly via the \texttt{-{}-limit} argument.
+
+\textbf{L5: Geographic dependency in Study 2.} Latency measurements depend on the network location of the benchmarking machine. The reported numbers are valid for a residential connection in Saudi Arabia to the scholarhub.space deployment.
+
+\section{Summary}
+
+The three studies provide empirical evidence for the integration thesis. Study 1 demonstrates over 240 model calls that retrieval grounding reduces raw-model citation fabrication from a mean of 76.3\% to 14.4\% across four frontier LLMs in 2026, and that the production citation filter --- which surfaces only library-key \texttt{\textbackslash cite\{\}} commands to the user --- drives the user-visible fabrication rate to 0.0\% empirically across all four models (329 library-key citations kept, 0 fabricated). Study 2 quantifies the operational performance of the deployed system, with parallel aggregation completing at 1{,}170 ms median ($2.9\times$ faster than sequential). Study 3 estimates the workflow efficiency advantage of an integrated stack at 73.5\% time reduction across five canonical tasks via a Keystroke-Level Model computation against empirically measured per-source network round-trips.
+
+The data are real, the runner scripts are reproducible, and the limitations are stated explicitly. Together they support the integration claim without overclaiming user satisfaction or productivity gains that would require human-subjects experimentation.

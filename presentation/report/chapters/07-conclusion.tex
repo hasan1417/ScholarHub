@@ -1,0 +1,68 @@
+\chapter{Conclusion and Future Work}
+\label{ch:conclusion}
+
+This chapter summarizes the contributions and presents the future work as a productization roadmap reflecting the project's intended trajectory: \sh{} is positioned to become an institutional research workspace.
+
+\section{Summary of Contributions}
+\label{sec:conc-summary}
+
+The work addresses a documented gap in the academic research workflow. The current state of practice forces researchers to coordinate at least four distinct tools with no integration between them \cite{springer2024fragmentation, khalifa2024aiwriting}, and general-purpose AI assistants make the problem worse, with documented citation fabrication rates between 18\% and 90\% \cite{walters2023fabrication, asai2025openscholar}.
+
+\sh{} addresses this gap by combining paper discovery across nine open scientific APIs, a vector-indexed reference library, real-time CRDT-based collaborative LaTeX editing, and a tool-orchestrated AI agent grounded in the user's library. The implementation comprises approximately 117{,}000 lines of code across 522 source files, deployed at \url{https://scholarhub.space}.
+
+The six contributions stated in chapter \ref{ch:introduction} have been delivered:
+
+\textbf{C1: Unified architecture} — three-tier deployment integrating frontend, backend, and collaboration server (chapter \ref{ch:architecture}).
+
+\textbf{C2: Tool-orchestrated AI agent} — \code{ToolOrchestrator} with thirty registered tools across six modules (section \ref{sec:ai-orchestration}).
+
+\textbf{C3: Multi-source paper discovery} — nine source adapters with union-find deduplication, $2.9\times$ faster than sequential querying (chapter \ref{ch:evaluation}).
+
+\textbf{C4: Multi-file CRDT editor} — per-file Y.Text binding scheme with independent undo managers (section \ref{sec:arch-collab}).
+
+\textbf{C5: Empirical citation faithfulness evaluation} — over a 30-prompt-per-cell benchmark (240 model calls, 1{,}135 verified citations), raw grounded fabrication is 14.4\% mean across four frontier 2026 LLMs (down from 76.3\% ungrounded), against published unaided rates of 18\%--90\% from prior work; the production citation filter (\file{backend/app/services/citation\_filter.py}), which operates only on library-key \texttt{\textbackslash cite\{\}} commands, drives the user-visible fabrication rate to 0.0\% empirically across all four models (329 library-key citations kept, 0 fabricated). Benchmark reproducible from \file{scripts/study1\_runner.py}.
+
+\textbf{C6: Productization roadmap} — section \ref{sec:future-work} below.
+
+\section{Future Work}
+\label{sec:future-work}
+
+The future work is organized as a productization roadmap: the changes required to evolve \sh{} from a research project to an institutional product.
+
+\subsection{Multi-Tenancy and Institutional Integration}
+\label{sec:fw-multitenancy}
+
+The current deployment is single-tenant. A multi-tenant deployment requires tenant context propagation through every request, PostgreSQL row-level security policies \cite{aws2023rls} that enforce isolation at the database layer (so SQL injection or application bugs cannot leak data across tenants), per-tenant subdomains with wildcard TLS, and per-tenant configuration for AI keys and retention. Data residency for jurisdictions with localization laws requires multi-region deployment.
+
+Once multi-tenancy is in place, the system must integrate with institutional identity and content infrastructure: SAML 2.0 and OpenID Connect for single sign-on (KFUPM uses Shibboleth, GCC universities commonly use Azure AD), OpenURL link resolvers for institutional full-text access, institutional repository ingestion (DSpace, EPrints), LMS integration (Canvas, Moodle), and SCIM 2.0 for automated user provisioning.
+
+\subsection{AI-Powered Computational Research Assistant}
+\label{sec:fw-aicompute}
+
+The most consequential extension. The current AI subsystem is a writing assistant; the proposed extension adds a computational layer: a sandboxed execution environment where the AI agent runs Python or R code on user-uploaded data, with results integrated directly into the writing.
+
+\textbf{Architecture.} Each chat session is associated with an ephemeral container running a Python or R kernel with the standard scientific stack (NumPy, pandas, SciPy, scikit-learn, tidyverse, matplotlib, ggplot2). Sandboxing uses gVisor or Firecracker microVMs for kernel-level isolation, network egress whitelisted to dataset hosts, with CPU/memory/wall-time quotas. The container is destroyed after each session.
+
+\textbf{Use cases.} (i) Statistical analysis on uploaded data where the agent runs descriptive statistics and the appropriate hypothesis test, then writes a methodology paragraph that references the actual computed values. (ii) Reproducible figure generation with the generating code embedded in document history. (iii) Methodology validation, where the agent executes a suggested statistical method on the data and checks its assumptions before writing the paragraph. (iv) Cross-paper meta-analysis over library content.
+
+\textbf{Differentiator.} The category of ``AI Code Interpreter'' is popularized by ChatGPT's Advanced Data Analysis. \sh{}'s differentiation is paper-awareness: the code-running environment has structured access to the user's library and citations are first-class output of the computation. Compute is the natural metered-billing axis: CPU- and memory-seconds scale with delivered value.
+
+\subsection{Compliance Layer}
+\label{sec:fw-compliance}
+
+Institutional adoption requires per-project compliance flags. A ``human subjects'' flag triggers IRB-aligned controls (audit log, retention schedule, export-on-demand, deletion procedure). HIPAA alignment for US clinical research adds a Business Associate Agreement template, encryption at rest with key management, and a documented breach notification procedure. GDPR alignment adds a data subject rights endpoint, DPIA template, and configurable data residency. A self-hostable enterprise edition packages \sh{} with offline-capable model weights (an open Llama or Mistral derivative) for air-gapped institutions in defense or healthcare.
+
+\subsection{Long-Term Research Directions}
+\label{sec:fw-research}
+
+Independent of the commercial path, three research questions arise from the work.
+
+\textbf{Citation grounding evaluation methodology.} Study 1 establishes that the post-filter makes fabricated citations impossible in the final response by construction, but does not address citation relevance (a library-faithful citation can still be a poor argumentative choice). A general methodology for evaluating citation relevance in AI-generated academic prose, with a reusable benchmark, would extend the work.
+
+\textbf{Hallucination detection in scientific writing.} Beyond citations, LLMs hallucinate scientific claims (numbers, attributions, mechanisms). An automatic checker that verifies factual claims against retrieved passages, built on the library-grounding architecture, would contribute to AI-assisted scientific writing more broadly.
+
+\textbf{Cross-lingual research workspaces.} Arabic-language and bilingual research is underserved. Right-to-left LaTeX editing, Arabic-aware citation formatting, and Arabic-aware paper discovery would broaden the system's relevance and address an underexplored research direction.
+
+\section{Closing Statement}
+
+\sh{} began as a response to the fragmented academic writing workflow and grew into a functional research workspace deployed at \url{https://scholarhub.space} with an integrated AI agent grounded in the user's library, real-time CRDT collaboration, and the architectural foundations for institutional productization. The evaluation in chapter \ref{ch:evaluation} acknowledges the limitations of a systems-only assessment, and the future work is substantial; the trajectory is clear, and the remainder is execution.

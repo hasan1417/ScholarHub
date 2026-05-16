@@ -1,0 +1,9 @@
+model_id,model_label,grounded,n_responses,total_citations,existing,fabricated,in_library,fabrication_rate,existence_rate,library_faithful,post_filter_kept,post_filter_fabricated,post_filter_fab_rate,post_filter_retention,avg_elapsed_ms
+anthropic/claude-haiku-4.5,Claude Haiku 4.5,False,30,111,35,76,11,0.6847,0.3153,0.0991,11,7,0.6364,0.0991,4422
+anthropic/claude-haiku-4.5,Claude Haiku 4.5,True,30,172,136,36,142,0.2093,0.7907,0.8256,142,6,0.0423,0.8256,4591
+deepseek/deepseek-r1-0528,DeepSeek R1,False,30,139,25,114,12,0.8201,0.1799,0.0863,12,8,0.6667,0.0863,49776
+deepseek/deepseek-r1-0528,DeepSeek R1,True,30,156,131,25,137,0.1603,0.8397,0.8782,137,7,0.0511,0.8782,40867
+google/gemini-3-flash-preview,Gemini 3 Flash,False,30,156,21,135,11,0.8654,0.1346,0.0705,11,7,0.6364,0.0705,4082
+google/gemini-3-flash-preview,Gemini 3 Flash,True,30,204,172,32,180,0.1569,0.8431,0.8824,180,8,0.0444,0.8824,3414
+openai/gpt-5-mini,GPT-5 Mini,False,30,60,19,41,6,0.6833,0.3167,0.1000,6,0,0.0000,0.1000,24799
+openai/gpt-5-mini,GPT-5 Mini,True,30,137,130,7,135,0.0511,0.9489,0.9854,135,5,0.0370,0.9854,14519

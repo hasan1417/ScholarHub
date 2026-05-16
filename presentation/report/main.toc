@@ -1,0 +1,124 @@
+\contentsline {chapter}{Acknowledgements}{ii}{chapter*.1}%
+\contentsline {chapter}{Abstract}{iii}{chapter*.2}%
+\contentsline {chapter}{List of Abbreviations}{xv}{chapter*.6}%
+\contentsline {chapter}{\numberline {1}Introduction}{1}{chapter.1}%
+\contentsline {section}{\numberline {1.1}Background}{1}{section.1.1}%
+\contentsline {section}{\numberline {1.2}Problem Statement}{2}{section.1.2}%
+\contentsline {section}{\numberline {1.3}Objectives}{2}{section.1.3}%
+\contentsline {section}{\numberline {1.4}Scope and Limitations}{3}{section.1.4}%
+\contentsline {section}{\numberline {1.5}Contributions}{4}{section.1.5}%
+\contentsline {section}{\numberline {1.6}Report Organization}{5}{section.1.6}%
+\contentsline {chapter}{\numberline {2}Literature Review and Related Work}{7}{chapter.2}%
+\contentsline {section}{\numberline {2.1}Academic Writing and Reference Management Tools}{7}{section.2.1}%
+\contentsline {section}{\numberline {2.2}AI-Powered Research Assistants}{8}{section.2.2}%
+\contentsline {section}{\numberline {2.3}Related Products and Competitive Positioning}{9}{section.2.3}%
+\contentsline {subsection}{\numberline {2.3.1}Feature Coverage}{9}{subsection.2.3.1}%
+\contentsline {subsection}{\numberline {2.3.2}Pricing}{9}{subsection.2.3.2}%
+\contentsline {subsection}{\numberline {2.3.3}Positioning and Differentiation}{10}{subsection.2.3.3}%
+\contentsline {section}{\numberline {2.4}Real-Time Collaborative Editing}{11}{section.2.4}%
+\contentsline {subsection}{\numberline {2.4.1}Operational Transformation}{11}{subsection.2.4.1}%
+\contentsline {subsection}{\numberline {2.4.2}Conflict-Free Replicated Data Types}{11}{subsection.2.4.2}%
+\contentsline {subsection}{\numberline {2.4.3}Choice for ScholarHub{}}{12}{subsection.2.4.3}%
+\contentsline {section}{\numberline {2.5}Retrieval-Augmented Generation and Citation Hallucination}{12}{section.2.5}%
+\contentsline {subsection}{\numberline {2.5.1}The Hallucination Problem}{12}{subsection.2.5.1}%
+\contentsline {subsection}{\numberline {2.5.2}Retrieval-Augmented Generation}{13}{subsection.2.5.2}%
+\contentsline {subsection}{\numberline {2.5.3}Application to ScholarHub{}}{14}{subsection.2.5.3}%
+\contentsline {section}{\numberline {2.6}Tool-Use Architectures for LLM Agents}{14}{section.2.6}%
+\contentsline {section}{\numberline {2.7}Gap Analysis}{15}{section.2.7}%
+\contentsline {chapter}{\numberline {3}Requirements and Design}{19}{chapter.3}%
+\contentsline {section}{\numberline {3.1}User Roles and Stakeholders}{19}{section.3.1}%
+\contentsline {section}{\numberline {3.2}Functional Requirements}{20}{section.3.2}%
+\contentsline {section}{\numberline {3.3}Non-Functional Requirements}{21}{section.3.3}%
+\contentsline {section}{\numberline {3.4}Design Principles}{22}{section.3.4}%
+\contentsline {section}{\numberline {3.5}Canonical Use Cases}{23}{section.3.5}%
+\contentsline {chapter}{\numberline {4}System Architecture}{25}{chapter.4}%
+\contentsline {section}{\numberline {4.1}High-Level Architecture}{25}{section.4.1}%
+\contentsline {section}{\numberline {4.2}Data Model}{26}{section.4.2}%
+\contentsline {section}{\numberline {4.3}API Surface}{27}{section.4.3}%
+\contentsline {section}{\numberline {4.4}AI Orchestration}{28}{section.4.4}%
+\contentsline {subsection}{\numberline {4.4.1}Tool Registry}{29}{subsection.4.4.1}%
+\contentsline {subsection}{\numberline {4.4.2}Library Grounding}{30}{subsection.4.4.2}%
+\contentsline {subsection}{\numberline {4.4.3}Permissions}{31}{subsection.4.4.3}%
+\contentsline {section}{\numberline {4.5}Real-Time Collaboration}{31}{section.4.5}%
+\contentsline {subsection}{\numberline {4.5.1}Multi-File Documents}{31}{subsection.4.5.1}%
+\contentsline {subsection}{\numberline {4.5.2}Awareness}{32}{subsection.4.5.2}%
+\contentsline {subsection}{\numberline {4.5.3}Persistence}{33}{subsection.4.5.3}%
+\contentsline {section}{\numberline {4.6}Paper Discovery}{33}{section.4.6}%
+\contentsline {subsection}{\numberline {4.6.1}Source Adapters}{33}{subsection.4.6.1}%
+\contentsline {subsection}{\numberline {4.6.2}Deduplication}{34}{subsection.4.6.2}%
+\contentsline {subsection}{\numberline {4.6.3}Streaming and Caching}{35}{subsection.4.6.3}%
+\contentsline {section}{\numberline {4.7}Per-Project AI Configuration}{35}{section.4.7}%
+\contentsline {section}{\numberline {4.8}Security Model}{36}{section.4.8}%
+\contentsline {chapter}{\numberline {5}Implementation}{37}{chapter.5}%
+\contentsline {section}{\numberline {5.1}Technology Stack and Rationale}{37}{section.5.1}%
+\contentsline {section}{\numberline {5.2}Backend Implementation}{38}{section.5.2}%
+\contentsline {subsection}{\numberline {5.2.1}API Layer}{39}{subsection.5.2.1}%
+\contentsline {subsection}{\numberline {5.2.2}Service Layer}{40}{subsection.5.2.2}%
+\contentsline {subsection}{\numberline {5.2.3}Async I/O}{40}{subsection.5.2.3}%
+\contentsline {section}{\numberline {5.3}Frontend Implementation}{40}{section.5.3}%
+\contentsline {subsection}{\numberline {5.3.1}Project Library and Paper Detail}{40}{subsection.5.3.1}%
+\contentsline {subsection}{\numberline {5.3.2}External Reference Manager Integration (Zotero)}{41}{subsection.5.3.2}%
+\contentsline {subsection}{\numberline {5.3.3}State Management}{43}{subsection.5.3.3}%
+\contentsline {subsection}{\numberline {5.3.4}API Client}{44}{subsection.5.3.4}%
+\contentsline {subsection}{\numberline {5.3.5}Type Safety}{44}{subsection.5.3.5}%
+\contentsline {section}{\numberline {5.4}Collaborative LaTeX Editor}{44}{section.5.4}%
+\contentsline {subsection}{\numberline {5.4.1}CodeMirror Configuration}{45}{subsection.5.4.1}%
+\contentsline {subsection}{\numberline {5.4.2}Multi-File Switching}{45}{subsection.5.4.2}%
+\contentsline {subsection}{\numberline {5.4.3}SyncTeX}{46}{subsection.5.4.3}%
+\contentsline {subsection}{\numberline {5.4.4}File Tree and Project Assets}{46}{subsection.5.4.4}%
+\contentsline {subsection}{\numberline {5.4.5}Template Library}{47}{subsection.5.4.5}%
+\contentsline {subsection}{\numberline {5.4.6}Writing Quality Analysis}{48}{subsection.5.4.6}%
+\contentsline {subsection}{\numberline {5.4.7}Submission Package Builder}{48}{subsection.5.4.7}%
+\contentsline {section}{\numberline {5.5}AI Tool Orchestrator}{49}{section.5.5}%
+\contentsline {subsection}{\numberline {5.5.1}Tool Definition}{50}{subsection.5.5.1}%
+\contentsline {subsection}{\numberline {5.5.2}Citation Key Generation}{52}{subsection.5.5.2}%
+\contentsline {section}{\numberline {5.6}Paper Discovery Pipeline}{52}{section.5.6}%
+\contentsline {subsection}{\numberline {5.6.1}Streaming Implementation}{52}{subsection.5.6.1}%
+\contentsline {section}{\numberline {5.7}Sync Space: Video Meetings with AI Transcription}{53}{section.5.7}%
+\contentsline {section}{\numberline {5.8}LaTeX Compilation}{54}{section.5.8}%
+\contentsline {section}{\numberline {5.9}Auxiliary Subsystems}{56}{section.5.9}%
+\contentsline {subsection}{\numberline {5.9.1}PDF Text Extraction (Mistral OCR)}{56}{subsection.5.9.1}%
+\contentsline {subsection}{\numberline {5.9.2}Embedding Worker and Semantic Library Search}{57}{subsection.5.9.2}%
+\contentsline {subsection}{\numberline {5.9.3}Deep Research Streaming Agent}{57}{subsection.5.9.3}%
+\contentsline {subsection}{\numberline {5.9.4}Institutional PDF Proxy Access}{58}{subsection.5.9.4}%
+\contentsline {subsection}{\numberline {5.9.5}Activity Feed and Notifications}{58}{subsection.5.9.5}%
+\contentsline {subsection}{\numberline {5.9.6}Subscription and Usage Quotas}{58}{subsection.5.9.6}%
+\contentsline {section}{\numberline {5.10}Production Deployment}{59}{section.5.10}%
+\contentsline {chapter}{\numberline {6}Evaluation}{61}{chapter.6}%
+\contentsline {section}{\numberline {6.1}Evaluation Strategy}{61}{section.6.1}%
+\contentsline {section}{\numberline {6.2}Study 1: Citation Faithfulness}{62}{section.6.2}%
+\contentsline {subsection}{\numberline {6.2.1}Hypothesis}{62}{subsection.6.2.1}%
+\contentsline {subsection}{\numberline {6.2.2}Method}{62}{subsection.6.2.2}%
+\contentsline {subsection}{\numberline {6.2.3}Results}{63}{subsection.6.2.3}%
+\contentsline {subsection}{\numberline {6.2.4}Discussion}{63}{subsection.6.2.4}%
+\contentsline {subsection}{\numberline {6.2.5}Threats to Validity}{65}{subsection.6.2.5}%
+\contentsline {section}{\numberline {6.3}Study 2: System Performance}{65}{section.6.3}%
+\contentsline {subsection}{\numberline {6.3.1}Method}{65}{subsection.6.3.1}%
+\contentsline {subsection}{\numberline {6.3.2}Results}{66}{subsection.6.3.2}%
+\contentsline {subsection}{\numberline {6.3.3}Discussion}{66}{subsection.6.3.3}%
+\contentsline {subsection}{\numberline {6.3.4}Threats to Validity}{67}{subsection.6.3.4}%
+\contentsline {section}{\numberline {6.4}Study 3: Workflow Efficiency}{67}{section.6.4}%
+\contentsline {subsection}{\numberline {6.4.1}Method}{67}{subsection.6.4.1}%
+\contentsline {subsection}{\numberline {6.4.2}Results}{68}{subsection.6.4.2}%
+\contentsline {subsection}{\numberline {6.4.3}Discussion}{68}{subsection.6.4.3}%
+\contentsline {section}{\numberline {6.5}Limitations and Threats to Validity}{69}{section.6.5}%
+\contentsline {section}{\numberline {6.6}Summary}{70}{section.6.6}%
+\contentsline {chapter}{\numberline {7}Conclusion and Future Work}{71}{chapter.7}%
+\contentsline {section}{\numberline {7.1}Summary of Contributions}{71}{section.7.1}%
+\contentsline {section}{\numberline {7.2}Future Work}{72}{section.7.2}%
+\contentsline {subsection}{\numberline {7.2.1}Multi-Tenancy and Institutional Integration}{72}{subsection.7.2.1}%
+\contentsline {subsection}{\numberline {7.2.2}AI-Powered Computational Research Assistant}{72}{subsection.7.2.2}%
+\contentsline {subsection}{\numberline {7.2.3}Compliance Layer}{73}{subsection.7.2.3}%
+\contentsline {subsection}{\numberline {7.2.4}Long-Term Research Directions}{73}{subsection.7.2.4}%
+\contentsline {section}{\numberline {7.3}Closing Statement}{74}{section.7.3}%
+\contentsline {chapter}{References}{75}{section.7.3}%
+\contentsline {chapter}{\numberline {A}API Reference}{78}{appendix.A}%
+\contentsline {chapter}{\numberline {B}Database Schema}{80}{appendix.B}%
+\contentsline {chapter}{\numberline {C}Screenshots of the Deployed System}{82}{appendix.C}%
+\contentsline {chapter}{\numberline {D}Production Deployment Configuration}{85}{appendix.D}%
+\contentsline {section}{\numberline {D.1}Service Topology}{85}{section.D.1}%
+\contentsline {section}{\numberline {D.2}Environment Variables}{85}{section.D.2}%
+\contentsline {section}{\numberline {D.3}Nginx Routing}{86}{section.D.3}%
+\contentsline {section}{\numberline {D.4}Persistence and Volumes}{87}{section.D.4}%
+\contentsline {section}{\numberline {D.5}Health and Monitoring}{87}{section.D.5}%
+\contentsline {section}{\numberline {D.6}Disaster Recovery}{87}{section.D.6}%

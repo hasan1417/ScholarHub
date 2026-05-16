@@ -1,0 +1,27 @@
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {table}{\numberline {2.1}{\ignorespaces Feature matrix across leading academic-research tools. \textbf {Y}~=~well-developed, \textbf {$\sim $}~=~partial, blank~=~absent.}}{9}{table.caption.8}%
+\contentsline {table}{\numberline {2.2}{\ignorespaces Public pricing for academic research tools (May 2026).}}{10}{table.caption.9}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {table}{\numberline {4.1}{\ignorespaces Production services and their responsibilities.}}{26}{table.caption.13}%
+\contentsline {table}{\numberline {4.2}{\ignorespaces Data model groups and their principal tables.}}{27}{table.caption.14}%
+\contentsline {table}{\numberline {4.3}{\ignorespaces Principal API router groups.}}{28}{table.caption.15}%
+\contentsline {table}{\numberline {4.4}{\ignorespaces Representative tools registered with the AI orchestrator.}}{29}{table.caption.18}%
+\addvspace {10\p@ }
+\contentsline {table}{\numberline {5.1}{\ignorespaces Code metrics for ScholarHub{}.}}{37}{table.caption.24}%
+\contentsline {table}{\numberline {5.2}{\ignorespaces Technology stack and rationale.}}{38}{table.caption.25}%
+\contentsline {table}{\numberline {5.3}{\ignorespaces Principal modules in the LaTeX editor.}}{52}{table.caption.37}%
+\contentsline {table}{\numberline {5.4}{\ignorespaces Modules in the paper discovery pipeline.}}{53}{table.caption.42}%
+\addvspace {10\p@ }
+\contentsline {table}{\numberline {6.1}{\ignorespaces Citation faithfulness across four frontier 2026 LLMs, ungrounded versus library-grounded (30 prompts $\times $ 4 models $\times $ 2 conditions $=$ 240 model calls, 1{,}135 citations). \textbf {Fab\%} is the proportion of raw-model citations that no external verification (DOI / arXiv / Semantic Scholar / OpenAlex) confirms. \textbf {InLib\%} is the proportion that match the provided library. \textbf {N kept} is the number of library-key \texttt {\textbackslash cite\{\}} citations per cell that ScholarHub{}'s production filter would surface to the user (section \ref {sec:ai-orchestration}); \textbf {PF-Fab\%} is the fabrication rate among those.}}{64}{table.caption.47}%
+\contentsline {table}{\numberline {6.2}{\ignorespaces System performance benchmark results. All values in milliseconds.}}{66}{table.caption.48}%
+\contentsline {table}{\numberline {6.3}{\ignorespaces Wall-clock time estimates for canonical research-writing tasks. \textbf {SH} is ScholarHub{}; \textbf {Alt} is the Overleaf+Zotero+ChatGPT stack.}}{68}{table.caption.49}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {table}{\numberline {A.1}{\ignorespaces Router groups exposed at \texttt {/api/v1/}. The endpoint counts are taken from the deployed OpenAPI document at the time of writing.}}{78}{table.A.1}%
+\addvspace {10\p@ }
+\contentsline {table}{\numberline {B.1}{\ignorespaces Principal database tables, grouped by subsystem.}}{80}{table.B.1}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {table}{\numberline {D.1}{\ignorespaces Principal backend environment variables.}}{85}{table.D.1}%

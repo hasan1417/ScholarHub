@@ -1,0 +1,46 @@
+\chapter{Database Schema}
+\label{app:schema}
+
+The \sh{} database schema is implemented as SQLAlchemy ORM classes in \file{backend/app/models/} and migrated through seventy-two Alembic migration scripts under \file{backend/alembic/versions/}. The authoritative source of column types, foreign-key cascade rules, check constraints, indexes, and the chronological evolution of the schema is those two locations together; this appendix is a navigational summary rather than a substitute. Cross-cutting columns (\code{id UUID PRIMARY KEY}, \code{created\_at}, \code{updated\_at}) are present on most tables and are omitted from the column lists for brevity.
+
+\footnotesize
+\begin{longtable}{@{}>{\raggedright\arraybackslash\ttfamily\footnotesize}p{5.0cm} >{\raggedright\arraybackslash}p{\dimexpr\textwidth-5.6cm\relax}@{}}
+\caption{Principal database tables, grouped by subsystem.}
+\label{tab:schema-summary}\\
+\toprule
+\normalfont\textbf{Table} & \textbf{Purpose and notable columns} \\
+\midrule
+\multicolumn{2}{@{}l}{\normalfont\textit{Identity and sessions}} \\*
+users             & Account: \code{email} (unique), \code{password\_hash}, \code{google\_id} (unique), \code{full\_name}, \code{avatar\_url}, \code{openrouter\_api\_key} and \code{zotero\_api\_key} (encrypted at rest), \code{is\_email\_verified}. \\
+\midrule
+\multicolumn{2}{@{}l}{\normalfont\textit{Projects and membership}} \\*
+projects             & Project container: \code{title}, \code{slug}, \code{short\_id} (unique), \code{idea}, \code{scope}, \code{status}, \code{keywords TEXT[]}, JSONB columns for discussion and discovery settings, \code{owner\_id}. \\
+project\_members     & Membership junction with composite PK (\code{user\_id}, \code{project\_id}); roles \{owner, editor, viewer\} and status \{pending, active, removed\}. \\
+\midrule
+\multicolumn{2}{@{}l}{\normalfont\textit{Papers and versions}} \\*
+research\_papers     & Editable paper: \code{title}, \code{short\_id}, \code{content} (plain or LaTeX), \code{content\_json} (TipTap rich text), \code{latex\_files JSONB} (multi-file map), \code{latex\_crdt\_state BYTEA} (serialized Y.Doc), \code{format} \{latex, rich-text\}, \code{owner\_id}, optional \code{project\_id}. \\
+paper\_members       & Per-paper membership with display color, separate from project membership. \\
+paper\_versions      & Snapshot history for non-CRDT-format papers. \\
+branches             & Named branches alongside \code{paper\_versions}. \\
+\midrule
+\multicolumn{2}{@{}l}{\normalfont\textit{References and library}} \\*
+references           & Reference record: \code{title}, \code{authors TEXT[]}, \code{year}, \code{abstract}, \code{doi}, \code{url}, \code{pdf\_url}, \code{status} \{pending, ingested, analyzed\}, \code{source}, \code{metadata JSONB}. \\
+document\_chunks     & RAG-indexed chunks: \code{document\_id}, optional \code{reference\_id}, \code{chunk\_index}, \code{chunk\_text}, \code{embedding VECTOR(1536)} (pgvector). HNSW index on the embedding column for approximate nearest-neighbor search. \\
+project\_references  & Many-to-many junction associating references with projects. \\
+paper\_references    & Many-to-many junction associating references with papers. \\
+\midrule
+\multicolumn{2}{@{}l}{\normalfont\textit{AI and discussion}} \\*
+project\_discussion\_channels & Per-project chat channels with optional paper scope. \\
+project\_discussion\_messages & Channel messages; \code{tool\_calls JSONB} records AI tool invocations and \code{message\_sources JSONB} records citation links. \\
+ai\_artifacts        & Standalone AI-generated artifacts: outlines, methodology drafts, abstracts. \\
+ai\_chat\_sessions   & Per-session audit trail of AI chat interactions. \\
+\midrule
+\multicolumn{2}{@{}l}{\normalfont\textit{Collaboration sessions}} \\*
+collaboration\_sessions      & Active editing sessions. \\
+collaboration\_participants  & Per-participant identity and display color in an active session. \\
+section\_locks               & Optional section-level locks for guarded edits. \\
+\midrule
+\multicolumn{2}{@{}l}{\normalfont\textit{Notifications}} \\*
+notifications        & \code{user\_id}, optional \code{project\_id}, \code{type} \{mention, comment, reference\_added, \ldots\}, \code{content}, \code{read\_at}. Partial index on \code{read\_at IS NULL} for the unread-count query path. B-tree indexes back the unique lookups on \code{users.email}, \code{projects.slug}, \code{research\_papers.short\_id}, and \code{references.doi}; composite indexes on the membership tables support role-filtered access checks. \\
+\bottomrule
+\end{longtable}

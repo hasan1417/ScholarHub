@@ -1,0 +1,527 @@
+\chapter{Implementation}
+\label{ch:implementation}
+
+This chapter describes the implementation of \sh{}. Section \ref{sec:impl-stack} states the technology stack and the rationale for each choice. Section \ref{sec:impl-backend} describes the backend implementation. Section \ref{sec:impl-frontend} describes the frontend. Section \ref{sec:impl-editor} covers the collaborative LaTeX editor in detail. Section \ref{sec:impl-orchestrator} describes the AI orchestrator. Section \ref{sec:impl-discovery} covers the paper discovery pipeline. Section \ref{sec:impl-latex} covers the LaTeX compilation service. Section \ref{sec:impl-deployment} closes with the production deployment configuration. Table~\ref{tab:metrics} summarizes the code metrics that contextualize the implementation effort.
+
+\begin{table}[h]
+\centering
+\caption{Code metrics for \sh{}.}
+\label{tab:metrics}
+\small
+\begin{tabularx}{\textwidth}{l r r X}
+\toprule
+\textbf{Component} & \textbf{Files} & \textbf{Lines} & \textbf{Notes} \\
+\midrule
+Backend application code & 189 & 59{,}886 & Python 3.11, FastAPI, SQLAlchemy 2.0 \\
+Backend non-blank, non-comment & --- & 48{,}425 & Logical lines of code \\
+Frontend application code & 198 & 57{,}559 & TypeScript and TSX \\
+Frontend non-blank, non-comment & --- & 51{,}387 & Logical lines of code \\
+Backend test files & 39 & --- & pytest \\
+Frontend test files & 24 & --- & Vitest \\
+Database migrations & 72 & --- & Alembic \\
+\midrule
+\textbf{Total} & \textbf{522} & \textbf{117{,}445} & Excluding generated and vendored code \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Technology Stack and Rationale}
+\label{sec:impl-stack}
+
+The technology stack was selected to satisfy the requirements with mature, well-supported components, and to minimize the surface area of in-house infrastructure. Table~\ref{tab:stack} lists the principal choices and their justifications.
+
+\begin{table}[h]
+\centering
+\caption{Technology stack and rationale.}
+\label{tab:stack}
+\small
+\begin{tabularx}{\textwidth}{l l X}
+\toprule
+\textbf{Layer} & \textbf{Choice} & \textbf{Reason} \\
+\midrule
+Backend framework & FastAPI \cite{fastapi2024}      & Async-native; automatic OpenAPI; Pydantic validation. \\
+Backend language  & Python 3.11                      & Mature LLM SDKs; dominant in scientific tooling. \\
+ORM               & SQLAlchemy 2.0                   & Async support; first-class with FastAPI. \\
+Database          & PostgreSQL 15 + pgvector \cite{pgvector2024} & Vector embeddings co-located with relational data. \\
+Cache             & Redis 7                          & Standard in production for session and queue state. \\
+Frontend          & React 18 \cite{react2024}        & Largest UI ecosystem; component model fits the editor. \\
+Build tool        & Vite 5                           & Fast HMR; appropriate for SPA. \\
+Editor engine     & CodeMirror 6 \cite{codemirror2024} & Modular extensions; first-class Y.js binding. \\
+Collaboration     & Y.js + Hocuspocus \cite{yjs2024, hocuspocus2024} & Production-grade CRDT; mature server. \\
+AI provider       & OpenAI direct + OpenRouter       & Dual support enables both first-party and multi-model. \\
+Containerization  & Docker Compose                   & Sufficient for single-host deployment. \\
+TLS               & Let's Encrypt via certbot        & Free; automated renewal. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Two choices warrant elaboration. The decision to use FastAPI rather than Django was driven by the need for streaming endpoints (Server-Sent Events for search and AI response) and the preference for async I/O in code paths that fan out to multiple external APIs. FastAPI's async-first model fits these patterns directly. The decision to use Y.js with Hocuspocus rather than building a custom CRDT or using an OT-based system is described in section \ref{sec:lit-collab}. The Hocuspocus server adds authentication, persistence hooks, and Redis coordination that would otherwise need to be implemented separately.
+
+\section{Backend Implementation}
+\label{sec:impl-backend}
+
+The backend follows a layered structure with clear boundaries between API, service, and data layers. The directory structure is shown in listing~\ref{lst:backend-structure}.
+
+\begin{lstlisting}[caption={Backend directory structure (selected entries).}, label={lst:backend-structure}, basicstyle=\ttfamily\small]
+backend/app/
+  api/v1/                    # Thirty-one router modules
+  core/                      # Auth, settings, dependencies
+  database.py                # Async SQLAlchemy engine and sessionmaker
+  models/                    # SQLAlchemy ORM classes
+  schemas/                   # Pydantic request and response models
+  services/
+    ai_service.py            # OpenAI direct integration
+    discussion_ai/           # Tool-orchestrated AI agent
+      tool_orchestrator.py
+      openrouter_orchestrator.py
+      tools/                 # Modular tool definitions
+      mixins/                # Shared tool behaviour
+    paper_discovery/         # Multi-source aggregator
+      searchers.py
+      dedup.py
+      cache.py
+      rankers.py
+      query_builder.py
+    ai_guardrails.py         # Permission and quota enforcement
+  scripts/                   # One-off operational scripts
+  utils/                     # Cross-cutting helpers
+\end{lstlisting}
+
+\subsection{API Layer}
+
+API endpoints are implemented as FastAPI routers, one per domain (\file{api/v1/auth.py}, \file{api/v1/research\_papers.py}, etc.). Each router uses dependency injection to obtain the current authenticated user and a database session. The pattern is illustrated in listing~\ref{lst:fastapi-pattern}.
+
+\begin{lstlisting}[caption={Representative FastAPI endpoint with dependency injection (simplified).}, label={lst:fastapi-pattern}, language=Python]
+@router.get("/papers/{paper_id}", response_model=PaperResponse)
+async def get_paper(
+    paper_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    paper = await paper_service.get_paper_for_user(
+        db, paper_id=paper_id, user_id=current_user.id
+    )
+    if paper is None:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    return PaperResponse.from_orm(paper)
+\end{lstlisting}
+
+The \code{get\_current\_user} dependency reads the session cookie, validates it against the database, and returns the authenticated user. Endpoints that allow unauthenticated access use a different dependency that returns \code{None} instead of raising. The \code{get\_db} dependency yields an async session from a connection pool sized at deployment time.
+
+\subsection{Service Layer}
+
+Business logic is implemented in service modules under \file{app/services/}. Services are stateless modules of pure functions; database sessions are passed in by callers rather than held in service-level state. This pattern keeps services testable without a fixture-heavy harness.
+
+\subsection{Async I/O}
+
+Endpoints that interact with external APIs (LLM providers, scientific data sources) are async throughout. The \code{httpx} async client is used for external HTTP. Concurrency between sources in the discovery pipeline is achieved with \code{asyncio.gather}, with per-source timeouts to prevent a slow source from blocking the entire response.
+
+\section{Frontend Implementation}
+\label{sec:impl-frontend}
+
+The frontend is a single-page React 18 application built with Vite 5. The user's entry point after authentication is the global dashboard (figure~\ref{fig:ss-dashboard}), which surfaces the user's recent activity, quick links into discovery and the editor, and a shortcut to project creation. From the dashboard the user reaches the dedicated projects list (figure~\ref{fig:ss-projects-list}), which exposes all projects the user owns or is a member of with their key metadata. Inside an open project, the principal landing point is the project overview (figure~\ref{fig:ss-project-overview}).
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\textwidth]{screenshots/auth-dashboard-empty.png}
+\caption{Global dashboard. The first view after sign-in surfaces the user's project activity, quick links into discovery and the editor, and the entry point for creating a new project. The empty state shown here is what a fresh account encounters before any projects exist.}
+\label{fig:ss-dashboard}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\textwidth]{screenshots/auth-projects-list.png}
+\caption{Projects list. The user's owned and shared projects are shown as cards with title, description, member count, and last-activity timestamp. The list is the main navigation surface for switching between projects.}
+\label{fig:ss-projects-list}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\textwidth]{screenshots/auth-project-overview.png}
+\caption{Project overview view. The dashboard summarizes the project context (description, objectives, keywords), member list, paper and reference counts, and recent activity in a single page. Tab navigation switches between Overview, Papers, Discussion, and Library.}
+\label{fig:ss-project-overview}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.85\textwidth]{screenshots/auth-project-create.png}
+\caption{New project modal. The user provides a title, description, keywords (added by Enter or comma), and one or more objectives. The objectives become the criteria that drive the AI assistant's project-grounded behaviour throughout the project lifetime.}
+\label{fig:ss-project-create}
+\end{figure}
+
+\subsection{Project Library and Paper Detail}
+\label{sec:impl-library}
+
+Each project has a dedicated library that holds the papers the user has saved from discovery or imported from an external reference manager. The library view (figure~\ref{fig:ss-library}) lists the project's saved papers with title, authors, venue, year, source database, and a per-paper action menu (open detail, add to draft as citation, remove from library). Selecting a paper opens the paper detail view (figure~\ref{fig:ss-paper-detail}), which shows the full bibliographic record, the abstract, the source database link, the open-access PDF link when available, and the controls for adding the paper to the project library or to the active draft. The same detail view is reached from a search result in discovery, so the user moves from search to library to draft through a consistent surface.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\textwidth]{screenshots/auth-library.png}
+\caption{Project library, References sub-tab. The view lists papers the user has saved into the project from discovery or imported from an external reference manager (nine here). Each row exposes title, authors, venue, year, source database, an action menu, and per-paper Chat and Cite-in-Paper actions. The toolbar exposes List/Graph layouts and \texttt{.bib} export/import alongside the Zotero import entry point.}
+\label{fig:ss-library}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\textwidth]{screenshots/auth-paper-detail.png}
+\caption{Paper workspace view. Opening a research paper from the Papers list lands the user on a read-only summary that aggregates the paper's research goals (linked to project objectives), its attached references (citations pulled from the project library), the team with their roles, and the paper-level keywords. The \emph{Write} action in the top-right transitions to the LaTeX editor.}
+\label{fig:ss-paper-detail}
+\end{figure}
+
+\subsection{External Reference Manager Integration (Zotero)}
+\label{sec:impl-zotero}
+
+\sh{} supports importing references from Zotero, the dominant open-source reference manager (chapter \ref{ch:literature}). The integration is implemented in the backend at \file{api/v1/zotero.py} using the official \code{pyzotero} client, and in the frontend through the \file{ZoteroImportModal.tsx} component, which is reachable from both the global references page and from inside any project's library.
+
+The linking flow is one-time: the user supplies a personal Zotero API key and Zotero user ID in account settings, where the API key is encrypted at rest using the project's standard credential-encryption helper before persistence. Once linked, the import flow proceeds in two steps. First, the modal calls the backend's collections endpoint, which lists the user's Zotero collections with per-collection item counts. Second, after the user selects a collection, the modal loads the items in that collection and presents them with title, authors, year, journal, and DOI. Items that have already been imported into the current project are marked with an \emph{already-imported} badge so the user does not re-add them. The user selects a subset and triggers the import; the backend converts each selected item into the system's \code{Reference} model and the corresponding \code{ProjectReference} record (tagged with origin \code{ZOTERO} for provenance) and returns the number of items imported and skipped. The import is idempotent: re-running an identical selection skips items the user already has rather than producing duplicates.
+
+This is currently the only third-party reference-manager integration in \sh{}. Mendeley and EndNote import would proceed through the same pattern (per-user encrypted credentials, two-step browse-and-import modal, idempotent reference creation) but are not implemented; they are recorded as productization items in chapter \ref{ch:conclusion}.
+
+Figure~\ref{fig:ss-integrations} shows the user-facing integrations surface in account settings. Two integrations are exposed in the deployed system: the OpenRouter bring-your-own-key field (which routes the project's AI calls through the user's own OpenRouter account when supplied), and the Zotero API-key plus user-ID fields that drive the import flow described above. Both credentials are encrypted at rest using the same helper.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\textwidth]{screenshots/auth-integrations.png}
+\caption{Integrations panel in account settings. The two supported third-party integrations in the deployed system are exposed: \emph{OpenRouter} (a bring-your-own-key field that routes the project's AI calls through the user's own OpenRouter account; shown here in the \emph{Connected} state) and \emph{Zotero} (an API-key and user-ID pair that enables the reference-manager import flow). Both credentials are encrypted at rest.}
+\label{fig:ss-integrations}
+\end{figure}
+
+The directory structure is shown in listing~\ref{lst:frontend-structure}.
+
+\begin{lstlisting}[caption={Frontend directory structure (selected entries).}, label={lst:frontend-structure}, basicstyle=\ttfamily\small]
+frontend/src/
+  components/
+    editor/                  # LaTeX editor and supporting UI
+      LaTeXEditor.tsx        # Top-level editor component
+      hooks/                 # Editor hooks (useRealtimeSync, etc.)
+      extensions/            # CodeMirror extensions
+      components/            # Toolbar, panels, file selector
+      adapters/              # Text-based adapter for non-LaTeX docs
+    discovery/               # Paper discovery UI
+    discussion/              # Project discussion channels and AI chat
+    library/                 # Reference library views
+    project/                 # Project dashboard and settings
+  pages/                     # Route components
+  services/api.ts            # Axios-based API client
+  hooks/                     # Cross-cutting hooks
+  types/                     # TypeScript type definitions
+  utils/                     # Helpers
+\end{lstlisting}
+
+\subsection{State Management}
+
+The frontend uses TanStack React Query for server state and local React state for transient UI state. Server state, including projects, papers, and references, is fetched through React Query hooks that share a query cache. Mutations invalidate the relevant queries automatically, propagating changes through the UI without manual coordination.
+
+\subsection{API Client}
+
+The single API client in \file{services/api.ts} centralizes the base URL, the authentication credentials behavior, and the error normalization. All endpoint calls flow through this client.
+
+\subsection{Type Safety}
+
+The codebase uses TypeScript in strict mode. Backend Pydantic schemas are mirrored in TypeScript type definitions in \file{types/index.ts}. Drift between the two is caught by integration tests that exercise the boundary. A future improvement would be automatic generation of frontend types from the backend's OpenAPI document; this is recorded in chapter \ref{ch:conclusion}.
+
+\section{Collaborative LaTeX Editor}
+\label{sec:impl-editor}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.97\textwidth]{screenshots/auth-editor-fresh.png}
+\caption{The collaborative LaTeX editor. The source pane on the left is bound to a Y.js \texttt{Y.Text} through \texttt{y-codemirror.next}; the PDF pane on the right shows the live compilation. The top toolbar exposes file/edit menus, citation insertion, formatting, and the AI assistant entry point. The image shows a live paper from the \emph{Arabic Character BERT} project deployed at \url{scholarhub.space}.}
+\label{fig:ss-editor-inline}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.97\textwidth]{screenshots/auth-editor-ai-fresh.png}
+\caption{The AI assistant sidebar inside the editor. The sidebar opens beside the PDF pane, hosts a tool-orchestrated agent (here using OpenAI GPT-5.2), and operates against the active paper's full context (LaTeX source, attached references, project objectives). Reasoning mode and chat-history controls are exposed in the header.}
+\label{fig:ss-editor-ai-sidebar}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.97\textwidth]{screenshots/auth-editor-history.png}
+\caption{Document history view. Each save (manual or auto) is a timestamped revision with character-count delta, change summary, and an optional label. The user can preview any past version, compare two versions, or restore. AI-generated initial versions are tagged so the provenance is preserved.}
+\label{fig:ss-editor-history}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\textwidth]{screenshots/auth-editor-format-tools.png}
+\caption{Editor formatting and structural-insertion tools. The main toolbar exposes the most-used actions (\emph{Insert from References}, which pulls a citation from the project library directly into the cursor position, plus \emph{Figure} and \emph{Citation}); the overflow popover shown here groups the secondary actions: \emph{Table}, \emph{Bullet List}, \emph{Numbered List}, \emph{Hyperlink}, \emph{Cross Reference}, \emph{Toggle Comment}, and indent controls. Combined with the AI assistant, these are the principal authoring affordances.}
+\label{fig:ss-editor-format-tools}
+\end{figure}
+
+The editor is implemented as a top-level component (\file{LaTeXEditor.tsx}) that orchestrates hooks (in \file{hooks/}), CodeMirror extensions (in \file{extensions/}), and presentational components (in \file{components/}); the decomposition is in table~\ref{tab:editor-modules}.
+
+\begin{table}[h]
+\centering
+\caption{Principal modules in the LaTeX editor.}
+\label{tab:editor-modules}
+\small
+\begin{tabularx}{\textwidth}{l X}
+\toprule
+\textbf{Module} & \textbf{Purpose} \\
+\midrule
+\file{useRealtimeSync.ts}        & Y.js doc setup, awareness, multi-file binding, per-file undo manager. \\
+\file{useCodeMirrorEditor.ts}    & CodeMirror view lifecycle, change buffering, undo/redo. \\
+\file{useLatexCompilation.ts}    & Compile request, PDF iframe, auto-compile, multi-file payload. \\
+\file{useSplitPane.ts}           & Source-PDF split position state and drag handlers. \\
+\file{useSyncTeX.ts}             & Bidirectional source-to-PDF cursor synchronization. \\
+\file{useDocumentOutline.ts}     & Section and heading outline derived from CodeMirror state. \\
+\file{latexLanguageSetup.ts}     & Lezer parser and language services for LaTeX. \\
+\file{latexAutocomplete.ts}      & Cite and ref completions sourced from the backend. \\
+\file{latexErrorMarkers.ts}      & Inline error markers from the compile log. \\
+\file{latexFoldService.ts}       & LaTeX-aware code folding by environment and section. \\
+\file{remoteSelectionsField.ts}  & CodeMirror StateField for remote cursor decorations. \\
+\file{EditorToolbar.tsx}         & Toolbar with formatting and AI actions. \\
+\file{PdfPreviewPane.tsx}        & PDF preview iframe and compile log. \\
+\file{OutlinePanel.tsx}          & Document outline sidebar. \\
+\file{FileSelector.tsx}          & Multi-file tab bar. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{CodeMirror Configuration}
+
+CodeMirror 6 is configured with a stack of extensions. The base extensions include line numbers, syntax highlighting, history, autocompletion, search, and the language pack for LaTeX. On top of these sit the application-specific extensions: \code{remoteSelectionsField} for remote cursors, \code{latexErrorMarkers} for compile error overlay, \code{latexFoldService} for code folding, and the Y.js binding through \code{y-codemirror.next}.
+
+The Y.js binding consumes a \code{Y.Text} and produces a CodeMirror extension. The binding handles the bidirectional translation: local CodeMirror changes are applied to the \code{Y.Text}, and remote \code{Y.Text} updates are applied to CodeMirror as edits.
+
+\subsection{Multi-File Switching}
+
+The editor maintains a single CodeMirror view per visible pane. When the user switches files, the existing view is reconfigured to bind to the new \code{Y.Text} rather than destroyed. Reconfiguration preserves the editor state (cursor position, scroll position, selection) and avoids the cost of recreating the view's DOM.
+
+The undo manager is reattached at the same time. The previous file's undo manager is preserved in memory but is not active until the user switches back. This design means switching files does not lose undo history.
+
+\subsection{SyncTeX}
+
+SyncTeX is a tool that produces a mapping between source positions (file, line) and output positions (page, x, y) in the compiled PDF. \sh{} parses the SyncTeX output on the client using \code{synctex-js}. When the user clicks in the PDF, the editor jumps to the corresponding source line. When the user moves the cursor in the source, the PDF preview scrolls to the corresponding page.
+
+\subsection{File Tree and Project Assets}
+
+The file tree sidebar exposes the multi-file LaTeX project as four asset classes: \emph{TEX files} (the primary source and any auxiliary \code{.tex} files), \emph{Support files} (\code{.cls}, \code{.sty}, \code{.bst}, \code{.bib}, \code{.def}, \code{.fd}), \emph{Figures} (PNG, JPG, PDF assets referenced from \code{\textbackslash includegraphics}), and \emph{Templates} (a curated library of venue templates plus optional user uploads, described separately below). Each section accepts drag-and-drop uploads. Below the asset lists, a \emph{File outline} pane derives a section heading tree from the active file's CodeMirror state through \file{useDocumentOutline.ts}; clicking a heading scrolls the editor to that section. Figure~\ref{fig:ss-file-tree} shows the file tree alongside the editor and PDF panes.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\textwidth]{screenshots/auth-file-tree.png}
+\caption{The file tree sidebar inside the editor. Four asset classes are exposed (TEX files, support files, figures, templates), each accepting drag-and-drop uploads. The lower pane derives a section outline from CodeMirror state and supports click-to-scroll navigation.}
+\label{fig:ss-file-tree}
+\end{figure}
+
+\subsection{Template Library}
+\label{sec:impl-templates}
+
+\sh{} ships a curated library of twenty-two pre-built LaTeX templates spanning the major venues at which the system's users publish. The templates are exposed in the file tree under the \emph{Templates} section (figure~\ref{fig:ss-templates}); clicking a template replaces the active document's preamble and document-class with the selected template's, preserving section content. The library covers four categories.
+
+\textbf{NLP and ML conferences.} ACL (also EMNLP, NAACL), NeurIPS, ICML, ICLR, IJCAI, AAAI, JMLR.
+
+\textbf{Computer vision conferences.} CVPR, ICCV, ECCV.
+
+\textbf{ACM and IEEE venues.} IEEE Conference, ACM (CHI/SIGCHI), KDD.
+
+\textbf{Journals and general-purpose formats.} Nature, PNAS, PLOS ONE, Springer LNCS, Springer Basic Journal, Elsevier Journal, Generic Article, APA 7th Edition, Chicago/Turabian.
+
+Each template is registered through a manifest entry in the frontend that specifies its document class, default packages, page geometry, abstract limit, and reference style. The same manifest drives the Submission Package Builder (section \ref{sec:impl-submission}), so that the template the user selects in the editor and the package format produced at submission time are kept consistent. Users can also upload custom \code{.tex} templates that are stored as project assets and made available alongside the bundled library.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\textwidth]{screenshots/auth-templates.png}
+\caption{Template library inside the file tree. Twenty-two pre-built venue templates are exposed for one-click application to the active document. The library covers NLP and ML conferences (ACL, NeurIPS, ICML, ICLR, IJCAI, AAAI, JMLR), computer vision (CVPR, ICCV, ECCV), ACM and IEEE venues (IEEE Conference, ACM CHI, KDD), and journals (Nature, PNAS, PLOS ONE, Springer LNCS, Elsevier, APA, Chicago/Turabian, plus a generic article default).}
+\label{fig:ss-templates}
+\end{figure}
+
+\subsection{Writing Quality Analysis}
+\label{sec:impl-quality}
+
+The editor exposes a writing quality analyzer that scores the active document on structure, citation density, and venue-specific conventions. The analyzer is invoked from the toolbar; on completion it shows an aggregate score out of 100, a categorized issue list (Structure, Style, Citations), and document statistics (word count, citation count, sections, average paragraph length, citations per thousand words). When a target venue is selected from the dropdown (IEEE, ACM, Nature, Springer, arXiv), the analyzer additionally checks for venue-specific structural requirements; figure~\ref{fig:ss-writing-quality} shows the analyzer flagging four missing standard sections in a draft against the generic ``no specific venue'' profile.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\textwidth]{screenshots/auth-writing-quality.png}
+\caption{Writing quality analysis sidebar. The analyzer scores the document, lists categorized issues with concrete suggestions (here: four missing standard sections), and reports document statistics including a normalized citations-per-thousand-words density. The target-venue dropdown switches between generic and venue-specific rule sets.}
+\label{fig:ss-writing-quality}
+\end{figure}
+
+\subsection{Submission Package Builder}
+\label{sec:impl-submission}
+
+The submission package builder produces a venue-ready archive from the user's source. The user selects a target venue from a dropdown (IEEE, ACM, Springer LNCS, Elsevier, arXiv); the dialog displays the venue's structural requirements (document class, font size, abstract word limit, reference style, required packages, expected section list). The \emph{Validate} action checks the active source against the requirements and reports gaps; the \emph{Build Package} action assembles a \code{.zip} containing the rewritten \code{.tex} with the venue's document class, the renamed bibliography file, all referenced figures, and any required \code{.cls} or \code{.sty} dependencies. Figure~\ref{fig:ss-submission-package} shows the dialog with IEEE selected.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.85\textwidth]{screenshots/auth-submission-package.png}
+\caption{Submission Package Builder dialog. The target venue dropdown exposes five publisher profiles (IEEE, ACM, Springer LNCS, Elsevier, arXiv). The dialog renders the selected venue's required document class, font size, abstract word limit, reference style, packages, and section structure; the \emph{Validate} and \emph{Build Package} actions check and assemble the submission-ready archive respectively.}
+\label{fig:ss-submission-package}
+\end{figure}
+
+\section{AI Tool Orchestrator}
+\label{sec:impl-orchestrator}
+
+The orchestrator implementation lives in \file{tool\_orchestrator.py} under \\\file{backend/app/services/discussion\_ai/}. The class structure is summarized in listing~\ref{lst:orchestrator}.
+
+\begin{lstlisting}[caption={Orchestrator class structure (simplified).}, label={lst:orchestrator}, language=Python]
+class ToolOrchestrator:
+    def __init__(self, db, user, project, paper, role):
+        self.db = db
+        self.user = user
+        self.project = project
+        self.paper = paper
+        self.role = role
+        self.tools = self._register_tools()  # role-filtered
+
+    async def run(self, message: str) -> AsyncIterator[str]:
+        history = self._build_initial_messages(message)
+        while True:
+            response = await self._call_model(history, tools=self.tools)
+            if response.tool_calls:
+                for call in response.tool_calls:
+                    result = await self._execute_tool(call)
+                    history.append(self._format_tool_result(call, result))
+                continue
+            async for chunk in response.stream:
+                yield chunk
+            return
+\end{lstlisting}
+
+The OpenRouter variant overrides \code{\_call\_model} to route through the OpenRouter API and to apply provider-specific behaviors (reasoning content filtering, headers). The tool registry, the message history management, and the streaming output remain identical.
+
+\subsection{Tool Definition}
+
+Tools are defined as async Python functions decorated with \code{@register\_tool}. The decorator extracts the JSON schema from the function's type annotations using Pydantic's schema generation, and the natural-language description from the docstring. The registry is a module-level singleton that the orchestrator queries at startup.
+
+\begin{lstlisting}[caption={Representative tool definition.}, label={lst:tool-def}, language=Python]
+@register_tool(category="library")
+async def semantic_search_library(
+    ctx: ToolContext,
+    query: str,
+    limit: int = 10,
+) -> List[ReferenceSnippet]:
+    """Search the user's library by semantic similarity to a query.
+    Returns up to `limit` reference snippets ranked by relevance."""
+    embedding = await ctx.embed(query)
+    return await ctx.db.execute(
+        select(DocumentChunk)
+        .where(DocumentChunk.user_id == ctx.user.id)
+        .order_by(DocumentChunk.embedding.cosine_distance(embedding))
+        .limit(limit)
+    ).scalars().all()
+\end{lstlisting}
+
+\subsection{Citation Key Generation}
+
+When a tool returns a paper, its bibliographic metadata is added to the orchestrator's working set. Citation keys are generated deterministically from the first author's surname, the publication year, and the first salient noun in the title (using a small stop-word filter). The shared \file{utils/bibKey.ts} contains the algorithm so that frontend and backend produce identical keys for the same paper.
+
+\section{Paper Discovery Pipeline}
+\label{sec:impl-discovery}
+
+The discovery pipeline is implemented in \file{backend/app/services/paper\_discovery/}. The principal modules are summarized in table~\ref{tab:discovery-modules}.
+
+\begin{table}[h]
+\centering
+\caption{Modules in the paper discovery pipeline.}
+\label{tab:discovery-modules}
+\small
+\begin{tabularx}{\textwidth}{l X}
+\toprule
+\textbf{Module} & \textbf{Purpose} \\
+\midrule
+\file{searchers.py}     & Per-source adapters. One async class per source. \\
+\file{query\_builder.py} & Source-specific query syntax construction. \\
+\file{dedup.py}         & Union-find deduplication with three-tier preference. \\
+\file{rankers.py}       & Initial result ranking by source score and metadata completeness. \\
+\file{reranker.py}      & Optional semantic reranking using OpenAI embeddings. \\
+\file{cache.py}         & LRU async cache with TTL for repeated queries. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Streaming Implementation}
+
+The streaming endpoint uses an async generator pattern. Each source adapter is invoked in a separate task. As tasks complete, their results are pushed into a shared queue. The endpoint reads from the queue and yields Server-Sent Events. The deduplicator runs incrementally: when a new result arrives, the union-find structure is updated and the affected display rows are re-emitted.
+
+\section{Sync Space: Video Meetings with AI Transcription}
+\label{sec:impl-meetings}
+
+\sh{} integrates a video meeting feature, branded as Sync Space, that allows project members to start a live call directly from the project overview. The feature is implemented through the Daily.co video API. When a user starts a call, the backend creates a Daily.co room scoped to the project and issues a per-user meeting token. The frontend embeds Daily.co's prebuilt UI in an iframe; the room ID and token are passed in via URL parameters.
+
+The integration extends the basic video call with two AI features. First, the call audio is captured by Daily.co's recording layer and routed to a transcription pipeline that produces a timestamped transcript stored alongside the project. Second, when a call ends, the transcript is fed to the project's configured LLM (GPT-5.2 by default) with a summarization prompt that produces meeting notes, action items, and decisions. The notes are saved as an artifact in the project and can be referenced from subsequent AI conversations.
+
+Figure \ref{fig:ss-meetings} shows the Sync Space view inside the deployed project, with a live session active and the AI follow-up controls available.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\textwidth]{screenshots/auth-meetings-active.png}
+\caption{Sync Space: the in-project video meetings view. A live call is shown in the active state. The page header explains the value proposition (live call, persistent transcript, GPT-5 follow-ups for the team) and the per-call card exposes Join and End actions.}
+\label{fig:ss-meetings}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\textwidth]{screenshots/auth-meetings-daily.png}
+\caption{The Daily.co prebuilt UI inside a Sync Space call. The room name is derived from the project's short identifier and the session UUID, and the meeting token is scoped to the project's membership. The recording layer routes audio into the transcription pipeline.}
+\label{fig:ss-meetings-daily}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\textwidth]{screenshots/auth-meetings-ended.png}
+\caption{Post-call state. After the call ends, the session is queued for transcription (\emph{Transcribing\ldots}); once complete, the transcript and AI-generated meeting notes become available through the \emph{View details} button. Sessions can be cleared from the project history when no longer needed.}
+\label{fig:ss-meetings-ended}
+\end{figure}
+
+The Sync Space implementation lives in the backend at \\\file{backend/app/api/v1/project\_meetings.py} (Daily.co room creation, token issuance) and in the frontend at \\\file{frontend/src/components/project/Meetings/}. The transcription and summarization pipeline is implemented as background tasks in the backend.
+
+\section{LaTeX Compilation}
+\label{sec:impl-latex}
+
+LaTeX compilation is implemented in \file{backend/app/api/v1/latex.py}. The compilation flow is as follows.
+
+\begin{enumerate}
+    \item The frontend submits the project's files (a primary file and zero or more auxiliary files) and a configuration record (engine selection, bibliography handling).
+    \item The backend writes the files to a temporary working directory.
+    \item The backend invokes \code{pdflatex} (or \code{xelatex} or \code{lualatex} depending on configuration) with output capture.
+    \item If a \code{.bib} file is present and \code{biber} is configured, the backend invokes \code{biber} after the first \code{pdflatex} pass and reruns \code{pdflatex} twice more to resolve cross-references.
+    \item The PDF is read from disk and returned to the client as a binary stream.
+    \item The compilation log is parsed for errors and warnings; structured records are returned alongside the PDF.
+    \item The SyncTeX file is parsed (see section \ref{sec:impl-editor}) and made available for source-to-PDF mapping.
+    \item The temporary working directory is deleted.
+\end{enumerate}
+
+When a compilation fails, the parsed log records are rendered as an in-editor diagnostics panel below the PDF preview, with each record showing the source filename, line number, and the raw TeX engine message. The previously successful PDF remains visible in the preview pane so the user retains context while resolving the error. A \emph{Fix with AI} button on the diagnostics panel forwards the failed log and the source neighborhood to the AI orchestrator, which proposes a patch as a diff the user can accept. Figure~\ref{fig:ss-editor-errors} shows the failed-compile state, with five engine errors surfaced from a deliberately broken source.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.97\textwidth]{screenshots/auth-editor-errors.png}
+\caption{Editor in the failed-compile state. The left pane shows the source with an undefined command at line~17 and an unclosed brace at line~18; the right pane retains the last successfully compiled PDF (so the user keeps context) and renders a diagnostics panel below it with five structured engine errors parsed from the \code{pdflatex} log. The \emph{Fix with AI} action sends the failed log and the source neighborhood to the AI orchestrator for a proposed patch.}
+\label{fig:ss-editor-errors}
+\end{figure}
+
+The streaming variant of this endpoint emits progressive log lines as Server-Sent Events while the compilation runs, allowing the user to see compilation activity in near real time.
+
+\section{Auxiliary Subsystems}
+\label{sec:impl-auxiliary}
+
+Six supporting subsystems are described briefly here for completeness. Each is implemented but is auxiliary to the principal subsystems covered above.
+
+\subsection{PDF Text Extraction (Mistral OCR)}
+Reference papers uploaded as scanned PDFs (or PDFs whose text layer is missing or unreliable) are routed to an OCR pipeline implemented in \file{services/mistral\_ocr\_service.py} that calls the Mistral OCR API. The extracted text is then ingested by the same embedding worker that handles native-text PDFs, so OCR'd references become first-class library entries searchable through the semantic-search tool.
+
+\subsection{Embedding Worker and Semantic Library Search}
+The semantic search over a project library mentioned in section~\ref{sec:impl-orchestrator} is backed by a background worker (\file{services/embedding\_worker.py} and \file{services/embedding\_service.py}). When a reference is added to a project, the worker chunks the text, computes 1{,}536-dimensional embeddings via OpenAI's embedding endpoint, and writes them to the \code{document\_chunks} table indexed by pgvector HNSW for approximate nearest-neighbor search. The \code{semantic\_search\_library} tool issues cosine-distance queries against this index at runtime.
+
+\subsection{Deep Research Streaming Agent}
+A second AI surface, implemented in \file{api/v1/discussion/deep\_research.py}, runs a longer-horizon streaming agent intended for exploratory research questions that take several minutes. It uses the same tool registry as the discussion-channel orchestrator but issues many more tool calls per response and streams intermediate progress to the client so the user can follow the agent's reasoning path. The endpoint is separated from the main discussion route to keep the synchronous chat path responsive while a deep-research session is in flight.
+
+\subsection{Institutional PDF Proxy Access}
+\file{services/university\_proxy\_access.py} and \file{services/enhanced\_paper\_access.py} implement opportunistic access to publisher full-text when a paper's DOI resolves through a university proxy chain. The current deployment uses this as a fallback for the open-access link discovery in the reference ingestion path; broader institutional integration (SAML SSO into per-university EZproxy and OpenURL link resolvers) is the productization extension described in chapter~\ref{ch:conclusion}.
+
+\subsection{Activity Feed and Notifications}
+Project events (member joined, paper created, reference added, AI artifact generated, comment posted, meeting started) are written to a per-project activity log in \file{services/activity\_feed.py}. The frontend's project overview surfaces the most recent events; mentions and a small set of high-signal events also fan out to per-user notifications through the \file{api/v1/project\_notifications.py} router, surfaced as a notification badge in the global navigation.
+
+\subsection{Subscription and Usage Quotas}
+A subscription layer (\file{api/v1/subscription.py} and \file{services/subscription\_service.py}) enforces per-tier usage quotas on the AI assistant and paper-discovery features: AI call counts per month, paper-discovery searches per month, and active-project limits. The Free, Pro, and BYOK (bring-your-own-key) tiers exposed on the public pricing page (figure~\ref{fig:ss-pricing}) map to concrete quota records in the database, checked on each metered request.
+
+\section{Production Deployment}
+\label{sec:impl-deployment}
+
+The production deployment uses Docker Compose; the compose file lives at the repository root. Nginx terminates TLS, rate-limits requests, and routes by path: the frontend bundle on \code{/}, the FastAPI backend on \code{/api/}, the Hocuspocus WebSocket on \code{/collab/}, and the certbot HTTP challenge path under \code{/.well-known/}. PostgreSQL, Redis, and user-uploaded PDFs are mounted to Docker volumes; TLS certificates are managed by Let's Encrypt via certbot. Secrets are passed through environment variables stored on the host outside the source repository. Each service defines a Docker health check, container restart policy is \code{unless-stopped}, and centralized log aggregation is deferred to the productization roadmap. The complete configuration, environment variable list, and operational procedures are documented in appendix \ref{app:deployment}.

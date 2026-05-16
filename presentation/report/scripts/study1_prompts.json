@@ -1,0 +1,45 @@
+{
+  "version": "1.0",
+  "description": "Citation Faithfulness Benchmark: 30 cited-writing prompts across 4 categories. For Study 1 in the ScholarHub evaluation chapter.",
+  "categories": {
+    "introduction": "Open a paper with a 1-paragraph context and citations",
+    "related_work": "Synthesize a 1-paragraph related-work section",
+    "methodology": "Justify a methodological choice with citations",
+    "discussion": "Place a finding in the literature with citations"
+  },
+  "prompts": [
+    {"id": 1,  "category": "introduction", "topic": "transformer architecture",            "prompt": "Write a one-paragraph introduction to a paper on long-context transformer architectures. Include 3 citations to seminal work."},
+    {"id": 2,  "category": "introduction", "topic": "diffusion image generation",          "prompt": "Write a one-paragraph introduction to a paper on diffusion-based image generation. Cite 3 foundational papers."},
+    {"id": 3,  "category": "introduction", "topic": "graph neural networks",                "prompt": "Write a one-paragraph introduction to a paper on graph neural networks for molecular property prediction. Cite 3 prior works."},
+    {"id": 4,  "category": "introduction", "topic": "RLHF",                                 "prompt": "Write a one-paragraph introduction to a paper on reinforcement learning from human feedback. Cite 3 relevant papers."},
+    {"id": 5,  "category": "introduction", "topic": "neural machine translation",           "prompt": "Write a one-paragraph introduction motivating low-resource neural machine translation. Cite 3 prior works."},
+    {"id": 6,  "category": "introduction", "topic": "federated learning",                   "prompt": "Write a one-paragraph introduction to a paper on federated learning for healthcare data. Cite 3 prior works."},
+    {"id": 7,  "category": "introduction", "topic": "neural architecture search",           "prompt": "Write a one-paragraph introduction to a paper on neural architecture search. Cite 3 prior works."},
+    {"id": 8,  "category": "introduction", "topic": "self-supervised vision",               "prompt": "Write a one-paragraph introduction to a paper on self-supervised representation learning for vision. Cite 3 prior works."},
+
+    {"id": 9,  "category": "related_work", "topic": "RAG systems",                          "prompt": "Write a one-paragraph related-work section synthesizing the literature on retrieval-augmented generation. Cite 3 papers."},
+    {"id": 10, "category": "related_work", "topic": "CRDTs for collaboration",              "prompt": "Write a one-paragraph related-work section on conflict-free replicated data types for collaborative editing. Cite 3 papers."},
+    {"id": 11, "category": "related_work", "topic": "operational transformation",           "prompt": "Write a one-paragraph related-work section on operational transformation in groupware systems. Cite 3 papers."},
+    {"id": 12, "category": "related_work", "topic": "academic writing AI",                  "prompt": "Write a one-paragraph related-work section on AI-assisted academic writing tools. Cite 3 papers."},
+    {"id": 13, "category": "related_work", "topic": "LLM citation hallucination",           "prompt": "Write a one-paragraph related-work section on citation hallucination in large language models. Cite 3 papers."},
+    {"id": 14, "category": "related_work", "topic": "vector databases",                     "prompt": "Write a one-paragraph related-work section on vector database systems for semantic search. Cite 3 papers."},
+    {"id": 15, "category": "related_work", "topic": "tool-use agents",                      "prompt": "Write a one-paragraph related-work section on tool-use architectures for LLM agents. Cite 3 papers."},
+    {"id": 16, "category": "related_work", "topic": "CRDT vs OT trade-off",                 "prompt": "Write a one-paragraph related-work section comparing CRDTs and operational transformation for real-time collaboration. Cite 3 papers."},
+
+    {"id": 17, "category": "methodology",  "topic": "BLEU evaluation",                      "prompt": "Justify the use of BLEU score for evaluating a machine translation system in a one-paragraph methodology section. Cite 3 papers."},
+    {"id": 18, "category": "methodology",  "topic": "k-fold cross-validation",              "prompt": "Justify the choice of 5-fold cross-validation for a small medical imaging dataset in a one-paragraph methodology section. Cite 3 papers."},
+    {"id": 19, "category": "methodology",  "topic": "GPT-4 as evaluator",                   "prompt": "Justify using GPT-4 as a judge for evaluating LLM outputs in a one-paragraph methodology section. Cite 3 papers."},
+    {"id": 20, "category": "methodology",  "topic": "Bonferroni correction",                "prompt": "Justify the use of Bonferroni correction for multiple hypothesis testing in a one-paragraph methodology section. Cite 3 papers."},
+    {"id": 21, "category": "methodology",  "topic": "pgvector for similarity",              "prompt": "Justify using pgvector for vector similarity search in a one-paragraph methodology section. Cite 3 papers."},
+    {"id": 22, "category": "methodology",  "topic": "Y.js for collaboration",               "prompt": "Justify using Y.js for collaborative document editing in a one-paragraph methodology section. Cite 3 papers."},
+    {"id": 23, "category": "methodology",  "topic": "function calling for tools",           "prompt": "Justify using OpenAI function calling for tool orchestration in a one-paragraph methodology section. Cite 3 papers."},
+
+    {"id": 24, "category": "discussion",   "topic": "low fabrication rate",                 "prompt": "Place this finding in the literature: a retrieval-grounded LLM achieved a 0% citation fabrication rate. One paragraph, 3 citations."},
+    {"id": 25, "category": "discussion",   "topic": "concurrent edit latency",              "prompt": "Discuss this finding in context: 95th-percentile concurrent edit latency below 200ms with 10 editors. One paragraph, 3 citations."},
+    {"id": 26, "category": "discussion",   "topic": "multi-source dedup gain",              "prompt": "Discuss this finding: aggregating five paper sources increased recall by 35% over the best single source. One paragraph, 3 citations."},
+    {"id": 27, "category": "discussion",   "topic": "tool-orchestrator coverage",           "prompt": "Discuss this finding: a 30-tool agent covered 92% of researcher requests without further prompt tuning. One paragraph, 3 citations."},
+    {"id": 28, "category": "discussion",   "topic": "context-switch reduction",             "prompt": "Discuss this finding: an integrated workspace reduced application context switches per task by 78%. One paragraph, 3 citations."},
+    {"id": 29, "category": "discussion",   "topic": "CRDT scalability",                     "prompt": "Discuss this finding: a CRDT-based editor scaled to 50 concurrent users without throughput degradation. One paragraph, 3 citations."},
+    {"id": 30, "category": "discussion",   "topic": "multi-tenant isolation",               "prompt": "Discuss the design implications of using PostgreSQL row-level security for multi-tenant isolation. One paragraph, 3 citations."}
+  ]
+}

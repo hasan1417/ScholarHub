@@ -1,0 +1,37 @@
+\chapter{API Reference}
+\label{app:api}
+
+The \sh{} backend exposes a versioned REST API at \code{/api/v1/} composed of thirty-one router modules. The complete, authoritative endpoint list with full request and response schemas is the OpenAPI document served by the deployed system at \url{https://scholarhub.space/openapi.json} (machine-readable) and \url{https://scholarhub.space/docs} (interactive Swagger UI). This appendix summarizes the router groups; for any specific endpoint signature the OpenAPI document is the source of truth.
+
+All endpoints require a valid session cookie unless explicitly marked otherwise. The patterns are consistent across routers: GET returns lists or single records, POST creates, PUT updates, DELETE removes; streaming endpoints have a \code{/stream} suffix and use Server-Sent Events; per-resource endpoints use UUID path parameters; and dependency injection consistently provides the current user and a database session.
+
+\small
+\begin{longtable}{@{}>{\raggedright\arraybackslash\ttfamily\small}p{4.8cm} >{\centering\arraybackslash}p{1.6cm} >{\raggedright\arraybackslash}p{\dimexpr\textwidth-7.0cm\relax}@{}}
+\caption{Router groups exposed at \code{/api/v1/}. The endpoint counts are taken from the deployed OpenAPI document at the time of writing.}
+\label{tab:api-summary}\\
+\toprule
+\normalfont\textbf{Router} & \textbf{\#~endpoints} & \textbf{Purpose} \\
+\midrule
+\endfirsthead
+\multicolumn{3}{@{}l}{\textit{Table~\thetable{} (continued from previous page)}}\\
+\toprule
+\normalfont\textbf{Router} & \textbf{\#~endpoints} & \textbf{Purpose} \\
+\midrule
+\endhead
+\bottomrule
+\multicolumn{3}{r@{}}{\textit{continued on next page}} \\
+\endfoot
+\bottomrule
+\endlastfoot
+auth                 & 11 & Registration, login, logout, session refresh, password reset, email verification, Google OAuth, current-user lookup, and long-lived browser-extension tokens. \\
+research-papers      &  8 & CRUD over user-owned research papers, including branches, version snapshots, and restore-to-version. \\
+papers (discovery)   &  7 & Single- and multi-source paper search (the multi-source variant is streaming), discovered-paper save-to-library, structured-content fetch, recommendations, trending, and an automated literature-review generator (streaming). \\
+ai                   & 10 & RAG chat over documents and references (both streaming and non-streaming), AI writing actions (generate, grammar check, research-context enhancement), text utilities (paraphrase, summarize, explain), and reference ingestion. \\
+projects             & 14 & Project CRUD plus member management, AI-artifact generation, saved-discovery runs (streaming), reference quick-add and BibTeX import/export, citation graph, Daily.co meeting scheduling, and sync-session token issuance. \\
+latex                &  8 & PDF compilation (single-shot and streaming), AI-assisted error correction, template listing, DOCX and source-zip export, venue-list, and submission-package validation. \\
+discussion-ai        &  6 & Tool-orchestrated AI in project channels, OpenRouter-routed channel agent, streaming agent chat, chat history retrieval and clear, and the available-models listing. \\
+collab               &  4 & Hocuspocus WebSocket token issuance, sync-state bootstrap, persistence, and load. \\
+documents, comments, branches, metrics & 7+ & Indexed document chunks for RAG, paper-section comments with resolve semantics, branch listing, and AI quality metrics. \\
+\midrule
+\normalfont\textbf{Other domain routers} & --- & Twenty-two additional router modules cover authentication helpers, project sub-resources (overview, settings, references, papers, library, meetings, snapshots, section locks), subscriptions, team management, and operational endpoints. They follow the same patterns as the groups above. \\
+\end{longtable}

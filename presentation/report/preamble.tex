@@ -1,0 +1,112 @@
+% ============================================================
+% Packages
+% ============================================================
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amssymb}  % for \checkmark
+
+\usepackage[a4paper, top=3cm, bottom=3cm, left=3.5cm, right=2.5cm]{geometry}
+\usepackage{setspace}
+\onehalfspacing
+
+\usepackage{graphicx}
+\graphicspath{{figures/}{figures/screenshots/}}
+
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\captionsetup{font=small, labelfont=bf}
+
+\usepackage{xcolor}
+\definecolor{accent}{HTML}{4A1E92}
+\definecolor{ink}{HTML}{1A1820}
+\definecolor{rule}{HTML}{C8BFB0}
+\definecolor{codebg}{HTML}{F7F4EE}
+
+\usepackage[hidelinks, colorlinks=true, linkcolor=accent, citecolor=accent, urlcolor=accent,
+            pdftitle={ScholarHub: A Unified Research Workspace from Discovery to Draft},
+            pdfauthor={Hassan Algizani},
+            pdfsubject={KFUPM MX (Master of Artificial Intelligence) Final Project Report},
+            pdfkeywords={collaborative editing, CRDT, retrieval-augmented generation, academic writing tools, paper discovery}]{hyperref}
+
+% Cleveref replacement: define minimal \Cref using context-sensitive label rendering
+\newcommand{\Cref}[1]{\ref{#1}}
+\newcommand{\cref}[1]{\ref{#1}}
+
+\usepackage{listings}
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  framerule=0pt,
+  rulecolor=\color{rule},
+  showstringspaces=false,
+  breaklines=true,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  numbersep=8pt,
+  xleftmargin=0pt,
+  keywordstyle=\color{accent}\bfseries,
+  commentstyle=\color{gray}\itshape,
+  stringstyle=\color{ink},
+}
+
+\usepackage{tikz}
+\usetikzlibrary{shapes, arrows.meta, positioning, fit, backgrounds, calc}
+
+\usepackage[numbers]{natbib}
+
+\usepackage{enumitem}
+\setlist{itemsep=0.2em, topsep=0.4em}
+
+\usepackage{titlesec}
+\titleformat{\chapter}[display]
+  {\normalfont\Large\bfseries}
+  {\textcolor{accent}{\chaptertitlename\ \thechapter}}
+  {0.5em}
+  {\Huge}
+\titlespacing*{\chapter}{0pt}{-30pt}{20pt}
+
+\usepackage{fancyhdr}
+\setlength{\headheight}{15pt}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\textit{\nouppercase\leftmark}}
+\fancyhead[R]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0pt}
+
+% ============================================================
+% Acronyms / Macros
+% ============================================================
+\newcommand{\sh}{ScholarHub}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\file}[1]{\texttt{\small #1}}
+\newcommand{\ie}{i.e.,}
+\newcommand{\eg}{e.g.,}
+\newcommand{\etal}{et~al.}
+
+% ============================================================
+% Front matter / Mainmatter
+% ============================================================
+\makeatletter
+\renewcommand{\frontmatter}{%
+  \cleardoublepage
+  \pagenumbering{roman}
+  \pagestyle{plain}
+}
+\renewcommand{\mainmatter}{%
+  \cleardoublepage
+  \pagenumbering{arabic}
+  \pagestyle{fancy}
+}
+\renewcommand{\backmatter}{%
+  \cleardoublepage
+}
+\makeatother
