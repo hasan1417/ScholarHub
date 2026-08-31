@@ -176,9 +176,9 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
               <span className="text-indigo-600 dark:text-indigo-400">five.</span>
             </h1>
             <p className="mt-5 text-base sm:text-lg text-gray-600 dark:text-slate-300 max-w-xl mx-auto lg:mx-0 leading-relaxed">
-              Discover across 9 academic databases, keep what matters in your library,
-              and write in LaTeX with a project-grounded AI assistant that cites only
-              papers you've saved.
+              Search nine academic databases at once, keep what matters in your library,
+              and write in LaTeX with an assistant that can only cite the papers you have
+              actually saved.
             </p>
             <div className="mt-7 flex flex-col sm:flex-row items-center lg:items-start lg:justify-start justify-center gap-3">
               <Link

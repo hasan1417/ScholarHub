@@ -18,27 +18,27 @@ import HeroAnimatedMockup from '../components/landing/HeroAnimatedMockup'
 
 const heroFeaturePills = [
   {
-    label: 'LaTeX + Rich Text',
-    sublabel: 'Write in your preferred format',
+    label: 'LaTeX editor',
+    sublabel: 'Live PDF preview as you type',
   },
   {
-    label: 'Real-time Collaboration',
-    sublabel: 'Work together seamlessly',
+    label: 'Real-time collaboration',
+    sublabel: 'Live cursors and section locks',
   },
   {
-    label: 'IEEE, ACM, NeurIPS & More',
-    sublabel: 'Templates for every major venue',
+    label: 'IEEE, ACM, NeurIPS',
+    sublabel: 'Export to your venue format',
   },
   {
-    label: 'AI-Powered Discovery',
-    sublabel: 'Find relevant papers instantly',
+    label: 'Paper discovery',
+    sublabel: 'Nine databases, one search',
   },
 ]
 
 const heroPlatformHighlight = {
-  headline: 'Built for Academic Teams',
+  headline: 'Built for academic teams',
   description:
-    'Unified search across 8 major academic databases including PubMed, ArXiv, and Semantic Scholar. Import references from Zotero, collaborate in real-time, and export publication-ready manuscripts.',
+    'One search covers nine academic databases, PubMed, ArXiv and Semantic Scholar among them. Your Zotero references come across intact, and what your team writes exports as a manuscript ready to submit.',
 }
 
 // Custom hook for intersection observer animations
@@ -110,38 +110,38 @@ const Landing = () => {
   const featuresList = [
     {
       Icon: Bot,
-      title: 'AI Research Assistant',
-      description: 'Chat with an AI that knows your project. It searches papers, analyzes your library, summarizes findings, and answers questions — right inside your discussion channels.',
+      title: 'AI research assistant',
+      description: 'An assistant that can see your project. It searches papers, reads and summarizes your library, and answers questions without you leaving the discussion channel.',
       gradient: 'from-violet-500 to-purple-500',
     },
     {
       Icon: PenTool,
-      title: 'AI Editor Copilot',
-      description: 'Context-aware writing help built into the editor. Extend paragraphs, improve academic tone, fix grammar, and get inline suggestions as you write.',
+      title: 'AI editor copilot',
+      description: 'Writing help built into the editor itself. Extend a paragraph, tighten the academic tone, or fix grammar, with suggestions appearing inline as you write.',
       gradient: 'from-pink-500 to-rose-500',
     },
     {
       Icon: Search,
-      title: 'Smart Paper Discovery',
-      description: 'Search across Semantic Scholar, PubMed, ArXiv, and 5 more databases. Get citation snippets ready to attach in one click.',
+      title: 'Paper discovery',
+      description: 'One query searches Semantic Scholar, PubMed, ArXiv and six other databases. Results come back deduplicated across sources, with citation snippets you can attach in a click.',
       gradient: 'from-blue-500 to-cyan-500',
     },
     {
       Icon: MessageSquare,
-      title: 'Team Discussions',
-      description: 'Built-in channels for research talk. Run lab meetings, capture decisions, and assign tasks — all alongside your papers.',
+      title: 'Team discussions',
+      description: 'Channels for the research conversation, sitting next to the papers they are about. Run a lab meeting, record what was decided, and assign the follow-ups.',
       gradient: 'from-amber-500 to-orange-500',
     },
     {
       Icon: GitBranch,
-      title: 'Real-time Collaboration',
-      description: 'Write together in LaTeX or rich text with live cursors, section locks, role-based access, and full revision history. LaTeX compiles in real time with the Tectonic engine, full package support, and a live PDF preview right in the editor.',
+      title: 'Real-time collaboration',
+      description: 'Write together in LaTeX with live cursors, section locks, role-based access and full revision history. Tectonic compiles as you type, with full package support and a live PDF preview beside the source.',
       gradient: 'from-emerald-500 to-teal-500',
     },
     {
       Icon: Globe,
-      title: 'Reference Management',
-      description: 'Import from Zotero or BibTeX, organize collections, and auto-format citations for any journal style.',
+      title: 'Reference management',
+      description: 'Import from Zotero or BibTeX and organize your collections. Citations reformat themselves to whichever journal style you need.',
       gradient: 'from-indigo-500 to-blue-500',
     },
   ]
@@ -150,17 +150,17 @@ const Landing = () => {
     {
       icon: Zap,
       title: 'Import your existing work',
-      detail: 'Bring your Zotero library, BibTeX files, and existing papers. Set up a project and invite your co-authors in under a minute.',
+      detail: 'Bring your Zotero library, your BibTeX files, and papers you have already started. Setting up a project and inviting your co-authors takes under a minute.',
     },
     {
       icon: BookOpen,
-      title: 'Write with AI by your side',
-      detail: 'Draft in LaTeX with an AI copilot that helps you write, an AI assistant that answers research questions, and paper discovery across 8 databases — all in one editor.',
+      title: 'Draft with AI in the editor',
+      detail: 'Write in LaTeX with a copilot for the prose, an assistant for research questions, and discovery across nine databases. All of it in the same editor.',
     },
     {
       icon: Shield,
       title: 'Export and submit anywhere',
-      detail: 'Generate publication-ready PDFs in IEEE, ACM, NeurIPS, or any format. Download your .tex source and .bib files anytime.',
+      detail: 'Generate submission-ready PDFs in IEEE, ACM, NeurIPS or another format. Your .tex source and .bib files stay downloadable at any point.',
     },
   ]
 
@@ -274,17 +274,17 @@ const Landing = () => {
           <div className={`text-center mb-10 sm:mb-16 transition-all duration-700 ${features.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
             <div className="inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-purple-200 bg-purple-50 px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-purple-700 dark:border-purple-500/30 dark:bg-purple-500/10 dark:text-purple-300 mb-4 sm:mb-6">
               <Zap className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-              <span>Powerful Features</span>
+              <span>Features</span>
             </div>
             <h2 className="font-serif text-2xl sm:text-4xl md:text-5xl font-bold text-gray-900 dark:text-white">
-              Everything you need to
+              What replaces
               <br />
               <span className="text-indigo-600 dark:text-indigo-400">
-                accelerate your research
+                your other five tabs
               </span>
             </h2>
             <p className="mt-4 sm:mt-6 text-base sm:text-xl text-gray-600 max-w-2xl mx-auto dark:text-slate-400 px-2 sm:px-0">
-              One platform to write, collaborate, discover, and publish. No more juggling between tools.
+              Writing, references, discovery and team discussion all live in the same workspace.
             </p>
           </div>
 
@@ -315,7 +315,7 @@ const Landing = () => {
             <div className={`transition-all duration-700 ${howItWorks.isVisible ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-10'}`}>
               <div className="inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300 mb-4 sm:mb-6">
                 <CheckCircle2 className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${prefersReducedMotion ? '' : 'animate-bounce-subtle'}`} />
-                <span>Simple Workflow</span>
+                <span>How it works</span>
               </div>
               <h2 className="font-serif text-2xl sm:text-4xl md:text-5xl font-bold text-gray-900 dark:text-white leading-tight">
                 From first draft to
@@ -325,7 +325,7 @@ const Landing = () => {
                 </span>
               </h2>
               <p className="mt-4 sm:mt-6 text-base sm:text-lg text-gray-600 dark:text-slate-400">
-                Move your research workflow into one place. No more context-switching between your editor, reference manager, and team chat.
+                Your editor, your reference manager and your team chat stop being three separate places you have to keep open.
               </p>
             </div>
 
@@ -369,13 +369,13 @@ const Landing = () => {
           <div className="relative rounded-2xl sm:rounded-[40px] bg-slate-900 p-1 group">
             <div className="relative rounded-xl sm:rounded-[36px] bg-slate-900 px-5 py-10 sm:px-16 sm:py-20 text-center overflow-hidden">
               <h2 className="font-serif relative text-2xl sm:text-4xl md:text-5xl font-bold text-white mb-4 sm:mb-6">
-                Ready to transform your
+                Ready to stop
                 <br />
-                research workflow?
+                switching tabs?
               </h2>
               <p className="relative text-base sm:text-xl text-slate-300 mb-8 sm:mb-10 max-w-2xl mx-auto px-2 sm:px-0">
-                Write, collaborate, and publish research papers with your team.
-                Start free, no credit card required.
+                Write and publish with your team in one workspace.
+                Free to start, and we do not ask for a card.
               </p>
               <div className="relative flex flex-col items-center gap-3 sm:gap-4">
                 <Link
@@ -402,12 +402,13 @@ const Landing = () => {
       <section ref={aboutSection.ref} className="relative px-4 sm:px-6 py-12 sm:py-20">
         <div className={`max-w-2xl mx-auto text-center transition-all duration-700 ${aboutSection.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
           <h3 className="font-serif text-lg sm:text-xl font-semibold text-gray-900 dark:text-white mb-3 sm:mb-4">
-            Built by researchers, for researchers
+            Why we built it
           </h3>
           <p className="text-sm sm:text-base text-gray-600 dark:text-slate-400 leading-relaxed">
-            ScholarHub started as a frustration project — juggling Overleaf, Zotero, Slack, and Semantic Scholar for every paper.
-            We built the tool we wished existed: one workspace where you can write LaTeX, manage references,
-            discuss with your team, and get AI assistance — without switching tabs.
+            ScholarHub started as a frustration project. Every paper meant juggling Overleaf, Zotero, Slack and
+            Semantic Scholar at the same time, so we built the thing we kept wishing existed: one workspace for
+            writing LaTeX, keeping references straight, talking to your team and asking an AI for help, without
+            switching tabs.
           </p>
         </div>
       </section>
@@ -422,7 +423,7 @@ const Landing = () => {
                 <Logo className="group-hover:scale-105 transition-transform" />
               </Link>
               <p className="mt-3 sm:mt-4 text-sm sm:text-base text-gray-600 dark:text-slate-400">
-                The modern workspace for research teams. Write, collaborate, and publish together.
+                A workspace for research teams, from the first search to the submitted manuscript.
               </p>
             </div>
 
@@ -445,7 +446,7 @@ const Landing = () => {
                 </ul>
               </div>
               <div>
-                <h4 className="font-semibold text-gray-900 dark:text-white mb-3 sm:mb-4 text-xs sm:text-sm">Get Started</h4>
+                <h4 className="font-semibold text-gray-900 dark:text-white mb-3 sm:mb-4 text-xs sm:text-sm">Get started</h4>
                 <ul className="space-y-2 sm:space-y-3">
                   <li><Link to="/register" className="text-xs sm:text-sm text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors hover:translate-x-1 inline-block">Create account</Link></li>
                   <li><Link to="/login" className="text-xs sm:text-sm text-gray-600 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white transition-colors hover:translate-x-1 inline-block">Sign in</Link></li>
