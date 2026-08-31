@@ -14,6 +14,10 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.core.discussion_ai_limits import (
+    CONVERSATION_HISTORY_MAX_ITEMS,
+    CONVERSATION_HISTORY_TOKEN_BUDGET as SHARED_HISTORY_TOKEN_BUDGET,
+)
 from app.services.discussion_ai.utils import sanitize_for_context
 
 if TYPE_CHECKING:
@@ -41,10 +45,10 @@ class MemoryMixin:
         "key_quotes": 300,         # Important verbatim statements
     }
     # Legacy: message-count based window (deprecated, kept for fallback)
-    SLIDING_WINDOW_SIZE = 20  # Number of recent messages to keep in full
+    SLIDING_WINDOW_SIZE = CONVERSATION_HISTORY_MAX_ITEMS
 
     # Token-based context management
-    CONVERSATION_HISTORY_TOKEN_BUDGET = 16000  # Max tokens for conversation history
+    CONVERSATION_HISTORY_TOKEN_BUDGET = SHARED_HISTORY_TOKEN_BUDGET
 
     # Research stages for state tracking
     RESEARCH_STAGES = [

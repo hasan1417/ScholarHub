@@ -566,13 +566,12 @@ If asked to perform write actions, explain that editor/admin access is required.
             history_budget = min(available_for_history, self.CONVERSATION_HISTORY_TOKEN_BUDGET)
 
             # Apply count-based cap first (SLIDING_WINDOW_SIZE), then fit by tokens
-            capped_history = conversation_history
-            if len(capped_history) > self.SLIDING_WINDOW_SIZE:
-                capped_history = capped_history[-self.SLIDING_WINDOW_SIZE:]
+            capped_history = conversation_history[-self.SLIDING_WINDOW_SIZE:]
+            safe_history = self._sanitize_conversation_history(capped_history)
 
             # Fit messages within budget (keeping newest)
             fitted_messages, tokens_used = fit_messages_in_budget(
-                capped_history,
+                safe_history,
                 budget=history_budget,
                 model=self.model,
                 keep_newest=True,
@@ -593,6 +592,23 @@ If asked to perform write actions, explain that editor/admin access is required.
         messages.append({"role": "user", "content": message})
         return messages
 
+    @staticmethod
+    def _sanitize_conversation_history(
+        conversation_history: List[Dict[str, str]],
+    ) -> List[Dict[str, str]]:
+        """Prevent non-conversation roles from reaching the provider."""
+        safe_history: List[Dict[str, str]] = []
+        for history_item in conversation_history:
+            role = history_item.get("role")
+            if role != "user" and role != "assistant":
+                logger.warning(
+                    "Invalid conversation history role %r mapped to 'user'",
+                    role,
+                )
+                role = "user"
+            safe_history.append({"role": role, "content": history_item["content"]})
+        return safe_history
+
     def _build_messages_lite(
         self,
         project: "Project",
@@ -603,10 +619,39 @@ If asked to perform write actions, explain that editor/admin access is required.
         """Build a minimal messages array for lite route (no tools, no context summary)."""
         system_prompt = LITE_SYSTEM_PROMPT.format(project_title=project.title)
         messages: List[Dict] = [{"role": "system", "content": system_prompt}]
-        # Include only last 4 messages for coherence
+        # Include only the last 4 messages for coherence, within the shared
+        # history token budget used by the full route.
         if conversation_history:
-            for msg in conversation_history[-4:]:
-                messages.append({"role": msg["role"], "content": msg["content"]})
+            from app.services.discussion_ai.token_utils import (
+                count_message_tokens,
+                fit_messages_in_budget,
+                get_available_context,
+            )
+
+            safe_history = self._sanitize_conversation_history(
+                conversation_history[-4:]
+            )
+            system_and_user_tokens = count_message_tokens(
+                messages[0], self.model
+            ) + count_message_tokens(
+                {"role": "user", "content": message}, self.model
+            )
+            available_for_history = get_available_context(
+                self.model,
+                system_tokens=system_and_user_tokens,
+                reserve_for_response=True,
+                reserve_for_tools=False,
+            )
+            fitted_messages, _ = fit_messages_in_budget(
+                safe_history,
+                budget=min(
+                    available_for_history,
+                    self.CONVERSATION_HISTORY_TOKEN_BUDGET,
+                ),
+                model=self.model,
+                keep_newest=True,
+            )
+            messages.extend(fitted_messages)
         messages.append({"role": "user", "content": message})
         return messages
 
@@ -1174,7 +1219,7 @@ If asked to perform write actions, explain that editor/admin access is required.
         if is_paper_chat and channel.scope:
             ref_ids = (channel.scope or {}).get("reference_ids") or []
             if len(ref_ids) == 1:
-                return self._build_paper_chat_context(ref_ids[0])
+                return self._build_paper_chat_context(project, ref_ids[0])
 
         lines = []
 
@@ -1304,14 +1349,43 @@ If asked to perform write actions, explain that editor/admin access is required.
 
         return "\n".join(lines)
 
-    def _build_paper_chat_context(self, reference_id: str) -> str:
+    def _build_paper_chat_context(
+        self,
+        project: "Project",
+        reference_id: str,
+    ) -> str:
         """Build context focused on a single paper for paper chat mode."""
-        from app.models import Reference
+        from uuid import UUID
+
+        from app.models import ProjectReference, Reference
         from app.models.document_chunk import DocumentChunk
 
-        ref = self.db.query(Reference).filter(Reference.id == reference_id).first()
+        try:
+            reference_uuid = UUID(str(reference_id))
+        except (TypeError, ValueError):
+            logger.warning(
+                "Dropped %d invalid paper-chat reference for project_id=%s",
+                1,
+                project.id,
+            )
+            return ""
+
+        ref = (
+            self.db.query(Reference)
+            .join(ProjectReference, ProjectReference.reference_id == Reference.id)
+            .filter(
+                ProjectReference.project_id == project.id,
+                Reference.id == reference_uuid,
+            )
+            .first()
+        )
         if not ref:
-            return "Paper not found."
+            logger.warning(
+                "Dropped %d missing or out-of-scope paper-chat reference for project_id=%s",
+                1,
+                project.id,
+            )
+            return ""
 
         lines = []
         lines.append("## PAPER UNDER DISCUSSION")

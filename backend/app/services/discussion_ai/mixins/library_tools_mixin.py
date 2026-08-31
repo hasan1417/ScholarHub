@@ -855,11 +855,18 @@ class LibraryToolsMixin:
         except ValueError:
             return {"status": "error", "message": "Invalid paper ID format"}
 
+        project = ctx["project"]
         paper = self.db.query(ResearchPaper).filter(
-            ResearchPaper.id == paper_uuid
+            ResearchPaper.id == paper_uuid,
+            ResearchPaper.project_id == project.id,
         ).first()
 
         if not paper:
+            logger.warning(
+                "Rejected missing or out-of-scope paper update: paper_id=%s project_id=%s",
+                paper_uuid,
+                project.id,
+            )
             return {"status": "error", "message": "Paper not found"}
 
         # Check if paper is in LaTeX mode (content stored in content_json)
