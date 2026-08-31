@@ -31,7 +31,7 @@ const normalizeRole = (role?: string | null): RoleOption => {
 
 const rolePillClasses: Record<RoleOption, string> = {
   owner: 'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-100',
-  admin: 'bg-purple-100 text-purple-800 dark:bg-purple-500/20 dark:text-purple-100',
+  admin: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-500/20 dark:text-indigo-100',
   editor: 'bg-green-100 text-green-800 dark:bg-emerald-500/20 dark:text-emerald-100',
   viewer: 'bg-gray-100 text-gray-800 dark:bg-slate-600/30 dark:text-slate-100',
 }
@@ -41,7 +41,7 @@ const roleIcon = (role: RoleOption) => {
     case 'owner':
       return <Crown className="h-4 w-4 text-amber-600 dark:text-amber-300" />
     case 'admin':
-      return <Shield className="h-4 w-4 text-purple-600 dark:text-purple-300" />
+      return <Shield className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
     case 'editor':
       return <Edit className="h-4 w-4 text-green-600 dark:text-emerald-300" />
     default:
@@ -301,14 +301,14 @@ const ProjectTeamManager: React.FC = () => {
       </div>
 
       {globalError && (
-        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200">
+        <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200">
           {globalError}
         </div>
       )}
 
       <ul className="mt-4 space-y-3">
         {sortedMembers.length === 0 ? (
-          <li className="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-500 dark:border-slate-600 dark:bg-slate-800/50 dark:text-slate-400">
+          <li className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-500 dark:border-slate-600 dark:bg-slate-800/50 dark:text-slate-400">
             No collaborators yet.
           </li>
         ) : (
@@ -333,7 +333,7 @@ const ProjectTeamManager: React.FC = () => {
             return (
               <li
                 key={member.id}
-                className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm transition-colors sm:flex-row sm:items-center sm:justify-between dark:border-slate-700 dark:bg-slate-800/60"
+                className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm transition-colors sm:flex-row sm:items-center sm:justify-between dark:border-slate-700 dark:bg-slate-800/60"
               >
                 <div className="flex items-start gap-3">
                   <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 dark:bg-slate-700">
@@ -343,7 +343,7 @@ const ProjectTeamManager: React.FC = () => {
                     <p className="flex items-center gap-2 truncate text-sm font-semibold text-gray-900 dark:text-slate-100">
                       <span className="truncate">{displayName}</span>
                       {isSelf && (
-                        <span className="text-[10px] uppercase tracking-wide text-indigo-500 dark:text-indigo-300">You</span>
+                        <span className="text-2xs uppercase tracking-wide text-indigo-500 dark:text-indigo-300">You</span>
                       )}
                     </p>
                     {member.user?.email && (
@@ -416,23 +416,23 @@ const ProjectTeamManager: React.FC = () => {
             {pendingInvitations.map((invitation) => (
               <li
                 key={invitation.id}
-                className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-blue-200 bg-blue-50/50 px-4 py-3 dark:border-blue-500/30 dark:bg-blue-500/10"
+                className="flex items-center justify-between gap-3 rounded-xl border border-dashed border-indigo-200 bg-indigo-50/50 px-4 py-3 dark:border-indigo-500/30 dark:bg-indigo-500/10"
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-500/20">
-                    <Mail className="h-4 w-4 text-blue-600 dark:text-blue-300" />
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-500/20">
+                    <Mail className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
                   </div>
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-gray-900 dark:text-slate-100">
                       {invitation.email}
                     </p>
-                    <p className="text-xs text-blue-600 dark:text-blue-300">
+                    <p className="text-xs text-indigo-600 dark:text-indigo-300">
                       Invited • Not yet registered
                     </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-800 dark:bg-blue-500/20 dark:text-blue-100">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-medium text-indigo-800 dark:bg-indigo-500/20 dark:text-indigo-100">
                     <Clock className="h-3 w-3" />
                     <span className="capitalize">{normalizeRole(invitation.role)}</span>
                   </span>
@@ -480,7 +480,7 @@ const ProjectTeamManager: React.FC = () => {
             className="absolute inset-0 bg-black/50 backdrop-blur-sm"
             onClick={() => setMembersModalOpen(false)}
           />
-          <div className="relative z-10 w-full max-w-lg mx-4 max-h-[80vh] flex flex-col rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-800">
+          <div className="relative z-10 w-full max-w-lg mx-4 max-h-[80vh] flex flex-col rounded-xl border border-gray-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-800">
             {/* Header */}
             <div className="flex items-center justify-between p-5 border-b border-gray-200 dark:border-slate-700">
               <div className="flex items-center gap-2">
@@ -491,7 +491,7 @@ const ProjectTeamManager: React.FC = () => {
               </div>
               <button
                 onClick={() => setMembersModalOpen(false)}
-                className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:text-slate-200 dark:hover:bg-slate-700 transition-colors"
+                className="p-1 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:text-slate-200 dark:hover:bg-slate-700 transition-colors"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -513,7 +513,7 @@ const ProjectTeamManager: React.FC = () => {
                   return (
                     <li
                       key={`modal-${member.id}`}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-800/60"
+                      className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-800/60"
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 dark:bg-slate-700 flex-shrink-0">
@@ -523,7 +523,7 @@ const ProjectTeamManager: React.FC = () => {
                           <p className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-slate-100">
                             <span className="truncate">{displayName}</span>
                             {isSelf && (
-                              <span className="text-[10px] uppercase tracking-wide text-indigo-500 dark:text-indigo-300">You</span>
+                              <span className="text-2xs uppercase tracking-wide text-indigo-500 dark:text-indigo-300">You</span>
                             )}
                           </p>
                           {member.user?.email && (

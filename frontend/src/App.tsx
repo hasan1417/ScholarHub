@@ -14,7 +14,7 @@ function App() {
   }, [])
 
   return (
-    <div className="min-h-screen font-sans bg-slate-50 text-slate-900 transition-colors duration-300 dark:bg-slate-900 dark:text-slate-100">
+    <div className="min-h-screen font-sans bg-gray-50 text-gray-900 transition-colors duration-300 dark:bg-slate-900 dark:text-slate-100">
       <ToastProvider>
         <AuthProvider>
           <OnboardingProvider>

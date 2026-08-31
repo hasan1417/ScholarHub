@@ -145,7 +145,7 @@ const VisualDiffTool: React.FC<VisualDiffToolProps> = ({
   }
 
   return (
-    <div className={`bg-white rounded-lg shadow-lg ${className}`}>
+    <div className={`bg-white rounded-xl shadow-lg ${className}`}>
       {/* Conflict List */}
       <div className="border-b border-gray-200">
         <div className="px-6 py-4">
@@ -154,9 +154,9 @@ const VisualDiffTool: React.FC<VisualDiffToolProps> = ({
             {conflicts.map((conflict) => (
               <div
                 key={conflict.id}
-                className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                className={`p-3 rounded-xl border cursor-pointer transition-colors ${
                   selectedConflict?.id === conflict.id
-                    ? 'border-blue-500 bg-blue-50'
+                    ? 'border-indigo-500 bg-indigo-50'
                     : 'border-gray-200 hover:border-gray-300'
                 }`}
                 onClick={() => handleConflictSelect(conflict)}
@@ -191,7 +191,7 @@ const VisualDiffTool: React.FC<VisualDiffToolProps> = ({
             <div className="flex items-center space-x-2">
               <button
                 onClick={() => onAutoResolve(selectedConflict.id, 'source-wins')}
-                className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                className="px-3 py-1 text-sm bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200"
               >
                 Use Source
               </button>
@@ -205,7 +205,7 @@ const VisualDiffTool: React.FC<VisualDiffToolProps> = ({
           </div>
 
           {/* Diff Display */}
-          <div className="bg-gray-50 rounded-lg p-4 mb-4">
+          <div className="bg-gray-50 rounded-xl p-4 mb-4">
             <div className="text-sm text-gray-600 mb-2">Visual Diff:</div>
             <div className="bg-white rounded border overflow-hidden">
               {diffLines.map((line, index) => (
@@ -238,7 +238,7 @@ const VisualDiffTool: React.FC<VisualDiffToolProps> = ({
             <textarea
               value={resolvedContent}
               onChange={(e) => setResolvedContent(e.target.value)}
-              className="w-full h-32 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full h-32 p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               placeholder="Edit the content to resolve the conflict..."
             />
           </div>
@@ -250,14 +250,14 @@ const VisualDiffTool: React.FC<VisualDiffToolProps> = ({
                 setSelectedConflict(null)
                 setResolvedContent('')
               }}
-              className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+              className="px-4 py-2 text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200"
             >
               Cancel
             </button>
             <button
               onClick={handleResolve}
               disabled={!resolvedContent.trim()}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Resolve Conflict
             </button>

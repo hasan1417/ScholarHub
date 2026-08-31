@@ -4,7 +4,7 @@ import { Logo } from '../components/brand/Logo'
 
 const PrivacyPolicy = () => {
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white dark:from-slate-950 dark:to-slate-900">
+    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white dark:from-slate-950 dark:to-slate-900">
       {/* Navigation */}
       <nav className="sticky top-0 z-50 border-b border-gray-200/50 bg-white/80 backdrop-blur-xl dark:border-slate-800/50 dark:bg-slate-950/80">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
@@ -234,7 +234,7 @@ const PrivacyPolicy = () => {
 
       {/* Footer */}
       <footer className="border-t border-gray-200 dark:border-slate-800 py-8 px-4">
-        <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-gray-500 dark:text-slate-500">
+        <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-gray-500 dark:text-slate-400">
           <p>&copy; {new Date().getFullYear()} ScholarHub. All rights reserved.</p>
           <div className="flex items-center gap-4">
             <Link to="/terms" className="hover:text-gray-900 dark:hover:text-white transition-colors">

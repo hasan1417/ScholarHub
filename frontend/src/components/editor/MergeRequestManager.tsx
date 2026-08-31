@@ -154,7 +154,7 @@ const MergeRequestManager: React.FC<MergeRequestManagerProps> = ({
   const getStatusIcon = (status: MergeRequest['status']) => {
     switch (status) {
       case 'open':
-        return <Clock className="w-4 h-4 text-blue-500" />
+        return <Clock className="w-4 h-4 text-indigo-500" />
       case 'merged':
         return <CheckCircle className="w-4 h-4 text-green-500" />
       case 'closed':
@@ -169,7 +169,7 @@ const MergeRequestManager: React.FC<MergeRequestManagerProps> = ({
   const getStatusColor = (status: MergeRequest['status']) => {
     switch (status) {
       case 'open':
-        return 'bg-blue-100 text-blue-800'
+        return 'bg-indigo-100 text-indigo-800'
       case 'merged':
         return 'bg-green-100 text-green-800'
       case 'closed':
@@ -191,7 +191,7 @@ const MergeRequestManager: React.FC<MergeRequestManagerProps> = ({
   }
 
   return (
-    <div className={`bg-white rounded-lg shadow-lg ${className}`}>
+    <div className={`bg-white rounded-xl shadow-lg ${className}`}>
       {/* Header */}
       <div className="px-6 py-4 border-b border-gray-200">
         <div className="flex items-center justify-between">
@@ -201,7 +201,7 @@ const MergeRequestManager: React.FC<MergeRequestManagerProps> = ({
           </h3>
           <button
             onClick={() => setShowCreateMR(true)}
-            className="px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center text-sm"
+            className="px-3 py-1 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 flex items-center text-sm"
           >
             <GitMerge className="w-4 h-4 mr-1" />
             New Merge Request
@@ -215,9 +215,9 @@ const MergeRequestManager: React.FC<MergeRequestManagerProps> = ({
           {mergeRequests.map((mr) => (
             <div
               key={mr.id}
-              className={`p-4 border rounded-lg cursor-pointer transition-colors ${
+              className={`p-4 border rounded-xl cursor-pointer transition-colors ${
                 selectedMR?.id === mr.id
-                  ? 'border-blue-500 bg-blue-50'
+                  ? 'border-indigo-500 bg-indigo-50'
                   : 'border-gray-200 hover:border-gray-300'
               }`}
               onClick={() => setSelectedMR(mr)}
@@ -295,7 +295,7 @@ const MergeRequestManager: React.FC<MergeRequestManagerProps> = ({
       {/* Create Merge Request Modal */}
       {showCreateMR && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-96">
+          <div className="bg-white rounded-xl p-6 w-96">
             <h3 className="text-lg font-medium text-gray-900 mb-4">Create Merge Request</h3>
             
             <div className="mb-4">
@@ -305,7 +305,7 @@ const MergeRequestManager: React.FC<MergeRequestManagerProps> = ({
               <select
                 value={sourceBranchId}
                 onChange={(e) => setSourceBranchId(e.target.value)}
-                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full p-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               >
                 <option value="">Select source branch</option>
                 {branches.map((branch) => (
@@ -323,7 +323,7 @@ const MergeRequestManager: React.FC<MergeRequestManagerProps> = ({
               <select
                 value={targetBranchId}
                 onChange={(e) => setTargetBranchId(e.target.value)}
-                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full p-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               >
                 <option value="">Select target branch</option>
                 {branches.map((branch) => (
@@ -343,7 +343,7 @@ const MergeRequestManager: React.FC<MergeRequestManagerProps> = ({
                 value={mrTitle}
                 onChange={(e) => setMrTitle(e.target.value)}
                 placeholder="Brief description of changes"
-                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full p-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               />
             </div>
 
@@ -356,7 +356,7 @@ const MergeRequestManager: React.FC<MergeRequestManagerProps> = ({
                 onChange={(e) => setMrDescription(e.target.value)}
                 placeholder="Detailed description of changes..."
                 rows={3}
-                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full p-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               />
             </div>
 
@@ -366,14 +366,14 @@ const MergeRequestManager: React.FC<MergeRequestManagerProps> = ({
                   setShowCreateMR(false)
                   resetForm()
                 }}
-                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200"
               >
                 Cancel
               </button>
               <button
                 onClick={handleCreateMR}
                 disabled={!sourceBranchId || !targetBranchId || !mrTitle.trim() || loading}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? 'Creating...' : 'Create MR'}
               </button>

@@ -356,11 +356,11 @@ const PaperDetail: React.FC = () => {
 
   const getPaperTypeColor = (type: string) => {
     const normalized = type?.toLowerCase() || ''
-    if (normalized.includes('research')) return 'text-blue-600 dark:text-blue-400'
+    if (normalized.includes('research')) return 'text-indigo-600 dark:text-indigo-400'
     if (normalized.includes('review') || normalized.includes('literature')) return 'text-emerald-600 dark:text-emerald-400'
     if (normalized.includes('case') || normalized.includes('study')) return 'text-cyan-600 dark:text-cyan-400'
-    if (normalized.includes('methodology')) return 'text-violet-600 dark:text-violet-400'
-    if (normalized.includes('theoretical')) return 'text-purple-600 dark:text-purple-400'
+    if (normalized.includes('methodology')) return 'text-indigo-600 dark:text-indigo-400'
+    if (normalized.includes('theoretical')) return 'text-indigo-600 dark:text-indigo-400'
     if (normalized.includes('experimental')) return 'text-orange-600 dark:text-orange-400'
     return 'text-gray-600 dark:text-slate-300'
   }
@@ -502,7 +502,7 @@ const PaperDetail: React.FC = () => {
                 <>
                   <button
                     onClick={handleViewPaper}
-                    className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                    className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
                   >
                     <Eye className="h-4 w-4" />
                     View
@@ -510,7 +510,7 @@ const PaperDetail: React.FC = () => {
                   {canEditPaper && (
                     <button
                       onClick={handleStartWriting}
-                      className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+                      className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-400"
                     >
                       <Pencil className="h-4 w-4" />
                       Write
@@ -520,7 +520,7 @@ const PaperDetail: React.FC = () => {
                     <div className="relative" ref={actionsMenuRef}>
                       <button
                         onClick={() => setIsActionsMenuOpen((prev) => !prev)}
-                        className="inline-flex items-center justify-center rounded-lg border border-gray-200 p-1.5 text-gray-500 transition-colors hover:bg-gray-50 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-800"
+                        className="inline-flex items-center justify-center rounded-xl border border-gray-200 p-1.5 text-gray-500 transition-colors hover:bg-gray-50 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-800"
                         aria-haspopup="menu"
                         aria-expanded={isActionsMenuOpen}
                         aria-label="Paper actions"
@@ -528,7 +528,7 @@ const PaperDetail: React.FC = () => {
                         <MoreHorizontal className="h-4 w-4" />
                       </button>
                       {isActionsMenuOpen && (
-                        <div className="absolute right-0 z-20 mt-2 w-48 rounded-lg border border-gray-200 bg-white py-1 shadow-lg transition-colors dark:border-slate-700 dark:bg-slate-900">
+                        <div className="absolute right-0 z-20 mt-2 w-48 rounded-xl border border-gray-200 bg-white py-1 shadow-lg transition-colors dark:border-slate-700 dark:bg-slate-900">
                           {canEditPaper && (
                             <button
                               onClick={() => {
@@ -562,7 +562,7 @@ const PaperDetail: React.FC = () => {
                 <>
                   <button
                     onClick={handleCancelEdit}
-                    className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-600 transition-colors hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                    className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-1.5 text-sm text-gray-600 transition-colors hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
                   >
                     <X className="h-4 w-4" />
                     Cancel
@@ -570,7 +570,7 @@ const PaperDetail: React.FC = () => {
                   <button
                     onClick={handleSaveChanges}
                     disabled={isSaving}
-                    className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-60 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+                    className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-60 dark:bg-indigo-500 dark:hover:bg-indigo-400"
                   >
                     <Save className="h-4 w-4" />
                     {isSaving ? 'Saving…' : 'Save changes'}
@@ -590,7 +590,7 @@ const PaperDetail: React.FC = () => {
               <input
                 value={editForm.title || ''}
                 onChange={(e) => setEditForm((prev) => ({ ...prev, title: e.target.value }))}
-                className="mb-5 w-full rounded-lg border border-gray-200 bg-white px-4 py-3 text-xl font-semibold text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                className="mb-5 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-xl font-semibold text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                 placeholder="Paper title"
               />
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -604,7 +604,7 @@ const PaperDetail: React.FC = () => {
                   <select
                     value={editForm.status || paper.status}
                     onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))}
-                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                   >
                     <option value="draft">Draft</option>
                     <option value="in_progress">In Progress</option>
@@ -614,15 +614,15 @@ const PaperDetail: React.FC = () => {
                 </div>
                 <div>
                   <label className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-slate-300">
-                    <div className="flex h-6 w-6 items-center justify-center rounded-md bg-blue-100 dark:bg-blue-500/20">
-                      <FileText className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                    <div className="flex h-6 w-6 items-center justify-center rounded-md bg-indigo-100 dark:bg-indigo-500/20">
+                      <FileText className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
                     </div>
                     Type
                   </label>
                   <select
                     value={editForm.paper_type || paper.paper_type}
                     onChange={(e) => setEditForm((prev) => ({ ...prev, paper_type: e.target.value }))}
-                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                   >
                     <option value="research">Research</option>
                     <option value="review">Literature Review</option>
@@ -642,7 +642,7 @@ const PaperDetail: React.FC = () => {
                   <select
                     value={(editForm.is_public ?? paper.is_public) ? 'true' : 'false'}
                     onChange={(e) => setEditForm((prev) => ({ ...prev, is_public: e.target.value === 'true' }))}
-                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                   >
                     <option value="false">Private</option>
                     <option value="true">Public</option>
@@ -658,7 +658,7 @@ const PaperDetail: React.FC = () => {
               <div className="mt-2 flex items-center gap-2 text-sm text-gray-500 dark:text-slate-400">
                 <span className={`capitalize font-medium ${
                   paper.status === 'draft' ? 'text-amber-600 dark:text-amber-400' :
-                  paper.status === 'in_progress' ? 'text-blue-600 dark:text-blue-400' :
+                  paper.status === 'in_progress' ? 'text-indigo-600 dark:text-indigo-400' :
                   paper.status === 'completed' ? 'text-emerald-600 dark:text-emerald-400' :
                   paper.status === 'published' ? 'text-indigo-600 dark:text-indigo-400' :
                   'text-gray-600 dark:text-slate-300'
@@ -694,7 +694,7 @@ const PaperDetail: React.FC = () => {
                 {canEditPaper && projectObjectives.length > 0 && (
                   <button
                     onClick={handleOpenObjectivesModal}
-                    className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-600 transition-colors hover:bg-indigo-100 dark:border-indigo-400/40 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20"
+                    className="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-600 transition-colors hover:bg-indigo-100 dark:border-indigo-400/40 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20"
                   >
                     <Target className="h-4 w-4" />
                     Edit
@@ -716,7 +716,7 @@ const PaperDetail: React.FC = () => {
                   ))}
                 </ol>
               ) : (
-                <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-center dark:border-slate-700 dark:bg-slate-800/40">
+                <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-4 text-center dark:border-slate-700 dark:bg-slate-800/40">
                   <Target className="mx-auto h-8 w-8 text-gray-300 dark:text-slate-600" />
                   <p className="mt-2 text-sm text-gray-500 dark:text-slate-400">
                     No goals linked to this paper yet.
@@ -729,7 +729,7 @@ const PaperDetail: React.FC = () => {
                       Link project goals
                     </button>
                   ) : (
-                    <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">
+                    <p className="mt-1 text-xs text-gray-400 dark:text-slate-400">
                       {projectObjectives.length === 0
                         ? 'Define objectives in project settings first'
                         : 'Goals can be linked by editors'}
@@ -756,7 +756,7 @@ const PaperDetail: React.FC = () => {
                 {canManageReferences && (
                   <button
                     onClick={() => setShowAttachModal(true)}
-                    className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-600 transition-colors hover:bg-indigo-100 dark:border-indigo-400/40 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20"
+                    className="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-600 transition-colors hover:bg-indigo-100 dark:border-indigo-400/40 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20"
                   >
                     <Plus className="h-4 w-4" />
                     Manage
@@ -765,7 +765,7 @@ const PaperDetail: React.FC = () => {
               </div>
 
               {referenceUploadError && (
-                <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-400/40 dark:bg-rose-500/10 dark:text-rose-200">
+                <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-400/40 dark:bg-rose-500/10 dark:text-rose-200">
                   {referenceUploadError}
                 </div>
               )}
@@ -776,7 +776,7 @@ const PaperDetail: React.FC = () => {
                   <p className="mt-2 text-sm text-gray-600 dark:text-slate-300">
                     No references attached yet
                   </p>
-                  <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">
+                  <p className="mt-1 text-xs text-gray-400 dark:text-slate-400">
                     Add references from your project library to cite them in this paper
                   </p>
                 </div>
@@ -817,7 +817,7 @@ const PaperDetail: React.FC = () => {
                                   toast.error('Unable to detach this reference right now.')
                                 }
                               }}
-                              className="flex-shrink-0 rounded-lg border border-gray-200 p-1.5 text-gray-400 opacity-0 transition-all hover:border-gray-300 hover:bg-gray-50 hover:text-gray-600 group-hover:opacity-100 dark:border-slate-600 dark:text-slate-500 dark:hover:border-slate-500 dark:hover:bg-slate-700 dark:hover:text-slate-300"
+                              className="flex-shrink-0 rounded-xl border border-gray-200 p-1.5 text-gray-400 opacity-0 transition-all hover:border-gray-300 hover:bg-gray-50 hover:text-gray-600 group-hover:opacity-100 dark:border-slate-600 dark:text-slate-400 dark:hover:border-slate-500 dark:hover:bg-slate-700 dark:hover:text-slate-300"
                               title="Remove from paper"
                             >
                               <Unlink className="h-3.5 w-3.5" />
@@ -947,7 +947,7 @@ const PaperDetail: React.FC = () => {
                             )}
                           </div>
                           {ref.attached_at && (
-                            <span className="text-gray-400 dark:text-slate-500">
+                            <span className="text-gray-400 dark:text-slate-400">
                               Added {new Date(ref.attached_at).toLocaleDateString()}
                             </span>
                           )}
@@ -985,11 +985,11 @@ const PaperDetail: React.FC = () => {
                 <input
                   value={keywordInputValue}
                   onChange={(e) => setEditForm((prev) => ({ ...prev, keywords: e.target.value }))}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                  className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                   placeholder="e.g. generative AI, survey design"
                 />
               ) : keywordDisplay.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-center dark:border-slate-700 dark:bg-slate-800/40">
+                <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-4 text-center dark:border-slate-700 dark:bg-slate-800/40">
                   <p className="text-sm text-gray-500 dark:text-slate-400">No keywords yet</p>
                 </div>
               ) : (
@@ -1065,7 +1065,7 @@ const PaperDetail: React.FC = () => {
       {showObjectivesModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
           <div
-            className="relative w-full max-w-lg rounded-2xl bg-white shadow-2xl dark:bg-slate-800"
+            className="relative w-full max-w-lg rounded-xl bg-white shadow-xl dark:bg-slate-800"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-slate-700">
@@ -1079,7 +1079,7 @@ const PaperDetail: React.FC = () => {
               </div>
               <button
                 onClick={() => setShowObjectivesModal(false)}
-                className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                className="rounded-xl p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-slate-700 dark:hover:text-slate-200"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -1099,7 +1099,7 @@ const PaperDetail: React.FC = () => {
                         key={objective}
                         type="button"
                         onClick={() => toggleObjectiveSelection(objective)}
-                        className={`flex w-full items-start gap-3 rounded-lg border px-4 py-3 text-left transition-colors ${
+                        className={`flex w-full items-start gap-3 rounded-xl border px-4 py-3 text-left transition-colors ${
                           isSelected
                             ? 'border-indigo-500 bg-indigo-50 dark:border-indigo-400 dark:bg-indigo-900/30'
                             : 'border-gray-200 bg-white hover:border-indigo-300 hover:bg-gray-50 dark:border-slate-600 dark:bg-slate-800 dark:hover:border-indigo-500 dark:hover:bg-slate-700'
@@ -1137,14 +1137,14 @@ const PaperDetail: React.FC = () => {
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setShowObjectivesModal(false)}
-                  className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-700"
+                  className="rounded-xl px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-700"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleSaveObjectives}
                   disabled={isSavingObjectives}
-                  className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-60 dark:bg-indigo-500 dark:hover:bg-indigo-600"
+                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-60 dark:bg-indigo-500 dark:hover:bg-indigo-600"
                 >
                   {isSavingObjectives ? (
                     <>

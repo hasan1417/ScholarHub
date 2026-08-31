@@ -50,12 +50,12 @@ const SectionHeader: React.FC<{
     <button
       type="button"
       onClick={onToggle}
-      className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+      className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400"
     >
       {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
       <span>{title}</span>
       {count != null && count > 0 && (
-        <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+        <span className="rounded-full bg-gray-200 px-1.5 py-0.5 text-2xs font-medium text-gray-600 dark:bg-slate-700 dark:text-slate-300">
           {count}
         </span>
       )}
@@ -443,12 +443,12 @@ export const FilePanel: React.FC<FilePanelProps> = ({
   })
 
   return (
-    <div ref={containerRef} className="flex h-full w-[240px] flex-shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+    <div ref={containerRef} className="flex h-full w-[240px] flex-shrink-0 flex-col overflow-hidden border-r border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-900">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2.5 dark:border-slate-700">
+      <div className="flex items-center justify-between border-b border-gray-200 px-3 py-2.5 dark:border-slate-700">
         <div className="flex items-center gap-2">
-          <FolderOpen className="h-4 w-4 text-slate-500 dark:text-slate-400" />
-          <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+          <FolderOpen className="h-4 w-4 text-gray-500 dark:text-slate-400" />
+          <span className="text-sm font-semibold text-gray-700 dark:text-slate-200">
             Files
           </span>
         </div>
@@ -466,7 +466,7 @@ export const FilePanel: React.FC<FilePanelProps> = ({
             <button
               type="button"
               onClick={() => setIsCreating(true)}
-              className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
+              className="rounded p-1 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
               title="New .tex file"
             >
               <Plus className="h-3.5 w-3.5" />
@@ -488,7 +488,7 @@ export const FilePanel: React.FC<FilePanelProps> = ({
                       else if (e.key === 'Escape') { setRenamingFile(null); setRenameValue('') }
                     }}
                     onBlur={handleFinishRename}
-                    className="w-full rounded border border-slate-300 bg-white px-1.5 py-0.5 text-xs outline-none focus:border-indigo-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                    className="w-full rounded border border-gray-300 bg-white px-1.5 py-0.5 text-xs outline-none focus:border-indigo-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
                   />
                 </div>
               ) : (
@@ -500,7 +500,7 @@ export const FilePanel: React.FC<FilePanelProps> = ({
                   className={`group flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs transition-colors ${
                     file === activeFile
                       ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300'
-                      : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
+                      : 'text-gray-600 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-800'
                   }`}
                 >
                   <FileText className="h-3 w-3 flex-shrink-0" />
@@ -513,7 +513,7 @@ export const FilePanel: React.FC<FilePanelProps> = ({
                         e.stopPropagation()
                         if (confirm(`Delete ${file}?`)) onDeleteFile(file)
                       }}
-                      className="hidden rounded p-0.5 text-slate-400 hover:bg-rose-100 hover:text-rose-500 group-hover:inline-flex dark:hover:bg-rose-900/30 dark:hover:text-rose-400"
+                      className="hidden rounded p-0.5 text-gray-400 hover:bg-rose-100 hover:text-rose-500 group-hover:inline-flex dark:hover:bg-rose-900/30 dark:hover:text-rose-400"
                     >
                       <Trash2 className="h-3 w-3" />
                     </button>
@@ -537,14 +537,14 @@ export const FilePanel: React.FC<FilePanelProps> = ({
                     else setIsCreating(false)
                   }}
                   placeholder="filename.tex"
-                  className="w-full rounded border border-slate-300 bg-white px-1.5 py-0.5 text-xs outline-none focus:border-indigo-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                  className="w-full rounded border border-gray-300 bg-white px-1.5 py-0.5 text-xs outline-none focus:border-indigo-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
                 />
               </div>
             )}
           </div>
         )}
 
-        <div className="mx-3 border-t border-slate-200 dark:border-slate-700" />
+        <div className="mx-3 border-t border-gray-200 dark:border-slate-700" />
 
         {/* Section 2: Support Files */}
         <SectionHeader
@@ -557,7 +557,7 @@ export const FilePanel: React.FC<FilePanelProps> = ({
               type="button"
               onClick={() => supportInputRef.current?.click()}
               disabled={supportUploading}
-              className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
+              className="rounded p-1 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
               title="Upload support file"
             >
               {supportUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
@@ -575,10 +575,10 @@ export const FilePanel: React.FC<FilePanelProps> = ({
           <div className="px-1 pb-2">
             {supportLoading ? (
               <div className="flex items-center justify-center py-3">
-                <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+                <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
               </div>
             ) : supportFiles.length === 0 ? (
-              <p className="px-3 py-2 text-[11px] text-slate-400 dark:text-slate-500">
+              <p className="px-3 py-2 text-2xs text-gray-400 dark:text-slate-400">
                 Upload .cls, .sty, .bst, .bib, .def, .fd files
               </p>
             ) : (
@@ -586,22 +586,22 @@ export const FilePanel: React.FC<FilePanelProps> = ({
                 {supportFiles.map(f => (
                   <div
                     key={f.filename}
-                    className="group flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-slate-600 dark:text-slate-300"
+                    className="group flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-gray-600 dark:text-slate-300"
                   >
-                    <FileCode className="h-3 w-3 flex-shrink-0 text-slate-400" />
+                    <FileCode className="h-3 w-3 flex-shrink-0 text-gray-400" />
                     <span className="flex-1 truncate" title={f.filename}>{f.filename}</span>
                     {!readOnly && (
                       <button
                         type="button"
                         onClick={() => handleSupportDelete(f.filename)}
-                        className="hidden rounded p-0.5 text-slate-400 hover:bg-rose-100 hover:text-rose-500 group-hover:inline-flex dark:hover:bg-rose-900/30 dark:hover:text-rose-400"
+                        className="hidden rounded p-0.5 text-gray-400 hover:bg-rose-100 hover:text-rose-500 group-hover:inline-flex dark:hover:bg-rose-900/30 dark:hover:text-rose-400"
                       >
                         <Trash2 className="h-3 w-3" />
                       </button>
                     )}
                   </div>
                 ))}
-                <p className="mt-1 px-3 text-[10px] text-slate-400 dark:text-slate-500">
+                <p className="mt-1 px-3 text-2xs text-gray-400 dark:text-slate-400">
                   Available during compilation
                 </p>
               </>
@@ -609,7 +609,7 @@ export const FilePanel: React.FC<FilePanelProps> = ({
           </div>
         )}
 
-        <div className="mx-3 border-t border-slate-200 dark:border-slate-700" />
+        <div className="mx-3 border-t border-gray-200 dark:border-slate-700" />
 
         {/* Section 3: Figures */}
         <SectionHeader
@@ -622,7 +622,7 @@ export const FilePanel: React.FC<FilePanelProps> = ({
               type="button"
               onClick={() => figureInputRef.current?.click()}
               disabled={figureUploading}
-              className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
+              className="rounded p-1 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
               title="Upload figure"
             >
               {figureUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
@@ -640,19 +640,19 @@ export const FilePanel: React.FC<FilePanelProps> = ({
           <div className="px-1 pb-2">
             {figuresLoading ? (
               <div className="flex items-center justify-center py-3">
-                <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+                <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
               </div>
             ) : figures.length === 0 ? (
-              <p className="px-3 py-2 text-[11px] text-slate-400 dark:text-slate-500">
+              <p className="px-3 py-2 text-2xs text-gray-400 dark:text-slate-400">
                 No figures uploaded
               </p>
             ) : (
               figures.map(f => (
                 <div
                   key={f.filename}
-                  className="group flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-slate-600 dark:text-slate-300"
+                  className="group flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-gray-600 dark:text-slate-300"
                 >
-                  <Image className="h-3 w-3 flex-shrink-0 text-slate-400" />
+                  <Image className="h-3 w-3 flex-shrink-0 text-gray-400" />
                   <span className="flex-1 truncate" title={f.filename}>{f.filename}</span>
                   {!readOnly && editorViewRef && (
                     <button
@@ -666,7 +666,7 @@ export const FilePanel: React.FC<FilePanelProps> = ({
                         view.dispatch({ changes: { from: sel.from, to: sel.to, insert: snippet } })
                         view.focus()
                       }}
-                      className="hidden rounded p-0.5 text-slate-400 transition-colors hover:bg-indigo-100 hover:text-indigo-600 group-hover:inline-flex dark:hover:bg-indigo-900/30 dark:hover:text-indigo-400"
+                      className="hidden rounded p-0.5 text-gray-400 transition-colors hover:bg-indigo-100 hover:text-indigo-600 group-hover:inline-flex dark:hover:bg-indigo-900/30 dark:hover:text-indigo-400"
                     >
                       <Plus className="h-3 w-3" />
                     </button>
@@ -677,7 +677,7 @@ export const FilePanel: React.FC<FilePanelProps> = ({
           </div>
         )}
 
-        <div className="mx-3 border-t border-slate-200 dark:border-slate-700" />
+        <div className="mx-3 border-t border-gray-200 dark:border-slate-700" />
 
         {/* Section 4: Templates */}
         <SectionHeader
@@ -690,7 +690,7 @@ export const FilePanel: React.FC<FilePanelProps> = ({
               type="button"
               onClick={() => templateInputRef.current?.click()}
               disabled={userTemplateUploading}
-              className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
+              className="rounded p-1 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
               title="Upload .tex template"
             >
               {userTemplateUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
@@ -709,11 +709,11 @@ export const FilePanel: React.FC<FilePanelProps> = ({
             {/* User-uploaded templates */}
             {userTemplates.length > 0 && (
               <div className="mb-1">
-                <p className="px-2 pb-1 text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">Your templates</p>
+                <p className="px-2 pb-1 text-2xs font-medium uppercase tracking-wider text-gray-400 dark:text-slate-400">Your templates</p>
                 {userTemplates.map(t => (
                   <div
                     key={t.filename}
-                    className="group flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                    className="group flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs text-gray-600 transition-colors hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-800"
                   >
                     <FileCode className="h-3 w-3 flex-shrink-0 text-indigo-400" />
                     <button
@@ -723,7 +723,7 @@ export const FilePanel: React.FC<FilePanelProps> = ({
                       className="flex-1 min-w-0 text-left disabled:opacity-50"
                     >
                       <div className="truncate font-medium">{t.name}</div>
-                      <div className="truncate text-[10px] text-slate-400 dark:text-slate-500">
+                      <div className="truncate text-2xs text-gray-400 dark:text-slate-400">
                         {(t.size / 1024).toFixed(1)} KB
                       </div>
                     </button>
@@ -731,7 +731,7 @@ export const FilePanel: React.FC<FilePanelProps> = ({
                       <button
                         type="button"
                         onClick={() => handleUserTemplateDelete(t.filename)}
-                        className="hidden rounded p-0.5 text-slate-400 hover:bg-rose-100 hover:text-rose-500 group-hover:inline-flex dark:hover:bg-rose-900/30 dark:hover:text-rose-400"
+                        className="hidden rounded p-0.5 text-gray-400 hover:bg-rose-100 hover:text-rose-500 group-hover:inline-flex dark:hover:bg-rose-900/30 dark:hover:text-rose-400"
                       >
                         <Trash2 className="h-3 w-3" />
                       </button>
@@ -744,16 +744,16 @@ export const FilePanel: React.FC<FilePanelProps> = ({
             {/* Built-in templates */}
             {templatesLoading ? (
               <div className="flex items-center justify-center py-3">
-                <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+                <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
               </div>
             ) : templates.length === 0 && userTemplates.length === 0 ? (
-              <p className="px-2 py-2 text-[11px] text-slate-400 dark:text-slate-500">
+              <p className="px-2 py-2 text-2xs text-gray-400 dark:text-slate-400">
                 Upload .tex starter documents. Upload .cls/.sty files under Support Files.
               </p>
             ) : templates.length > 0 ? (
               <div>
                 {userTemplates.length > 0 && (
-                  <p className="px-2 pb-1 text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">Built-in</p>
+                  <p className="px-2 pb-1 text-2xs font-medium uppercase tracking-wider text-gray-400 dark:text-slate-400">Built-in</p>
                 )}
                 {templates.map(t => (
                   <button
@@ -761,13 +761,13 @@ export const FilePanel: React.FC<FilePanelProps> = ({
                     type="button"
                     onClick={() => handleApplyTemplate(t)}
                     disabled={readOnly}
-                    className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-800"
+                    className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs text-gray-600 transition-colors hover:bg-gray-100 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-800"
                   >
-                    <BookTemplate className="h-3 w-3 flex-shrink-0 text-slate-400" />
+                    <BookTemplate className="h-3 w-3 flex-shrink-0 text-gray-400" />
                     <div className="flex-1 min-w-0">
                       <div className="truncate font-medium">{t.name}</div>
                       {t.description && (
-                        <div className="truncate text-[10px] text-slate-400 dark:text-slate-500">{t.description}</div>
+                        <div className="truncate text-2xs text-gray-400 dark:text-slate-400">{t.description}</div>
                       )}
                     </div>
                   </button>
@@ -781,15 +781,15 @@ export const FilePanel: React.FC<FilePanelProps> = ({
       {/* Draggable resize handle between file list and outline */}
       {outlineItems !== undefined && (
         <div
-          className="group flex h-2 cursor-row-resize items-center justify-center border-y border-slate-200 bg-slate-50 transition-colors hover:bg-indigo-50 dark:border-slate-700 dark:bg-slate-800/50 dark:hover:bg-slate-750"
+          className="group flex h-2 cursor-row-resize items-center justify-center border-y border-gray-200 bg-gray-50 transition-colors hover:bg-indigo-50 dark:border-slate-700 dark:bg-slate-800/50 dark:hover:bg-slate-750"
           onMouseDown={handleResizeStart}
         >
           <div className="flex gap-0.5">
-            <div className="h-0.5 w-0.5 rounded-full bg-slate-400 dark:bg-slate-500" />
-            <div className="h-0.5 w-0.5 rounded-full bg-slate-400 dark:bg-slate-500" />
-            <div className="h-0.5 w-0.5 rounded-full bg-slate-400 dark:bg-slate-500" />
-            <div className="h-0.5 w-0.5 rounded-full bg-slate-400 dark:bg-slate-500" />
-            <div className="h-0.5 w-0.5 rounded-full bg-slate-400 dark:bg-slate-500" />
+            <div className="h-0.5 w-0.5 rounded-full bg-gray-400 dark:bg-slate-500" />
+            <div className="h-0.5 w-0.5 rounded-full bg-gray-400 dark:bg-slate-500" />
+            <div className="h-0.5 w-0.5 rounded-full bg-gray-400 dark:bg-slate-500" />
+            <div className="h-0.5 w-0.5 rounded-full bg-gray-400 dark:bg-slate-500" />
+            <div className="h-0.5 w-0.5 rounded-full bg-gray-400 dark:bg-slate-500" />
           </div>
         </div>
       )}
@@ -806,13 +806,13 @@ export const FilePanel: React.FC<FilePanelProps> = ({
             expanded={outlineExpanded}
             onToggle={() => setOutlineExpanded(p => !p)}
             action={
-              <ListTree className="h-3.5 w-3.5 text-slate-400" />
+              <ListTree className="h-3.5 w-3.5 text-gray-400" />
             }
           />
           {outlineExpanded && (
             <div className="flex-1 overflow-y-auto px-1 pb-2">
               {outlineItems.length === 0 ? (
-                <p className="px-3 py-2 text-[11px] text-slate-400 dark:text-slate-500">
+                <p className="px-3 py-2 text-2xs text-gray-400 dark:text-slate-400">
                   No sections found
                 </p>
               ) : (
@@ -823,7 +823,7 @@ export const FilePanel: React.FC<FilePanelProps> = ({
                       key={`${item.from}-${i}`}
                       type="button"
                       onClick={() => onScrollToSection?.(item.from)}
-                      className="flex w-full items-center gap-1 rounded-md px-2 py-0.5 text-left text-xs text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                      className="flex w-full items-center gap-1 rounded-md px-2 py-0.5 text-left text-xs text-gray-600 transition-colors hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-800"
                       style={{ paddingLeft: `${8 + indent}px` }}
                     >
                       <span className="truncate">

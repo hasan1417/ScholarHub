@@ -142,7 +142,7 @@ const ZoteroImportModal: React.FC<ZoteroImportModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 dark:bg-black/60">
-      <div className="w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-2xl transition-colors dark:bg-slate-800">
+      <div className="w-full max-w-xl overflow-hidden rounded-xl bg-white shadow-xl transition-colors dark:bg-slate-800">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4 dark:border-slate-700">
           <div className="flex items-center gap-2">
@@ -153,7 +153,7 @@ const ZoteroImportModal: React.FC<ZoteroImportModalProps> = ({
                   setStep('collections')
                   setResult(null)
                 }}
-                className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                className="rounded-xl p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
               >
                 <ArrowLeft className="h-4 w-4" />
               </button>
@@ -166,7 +166,7 @@ const ZoteroImportModal: React.FC<ZoteroImportModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+            className="rounded-xl p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
           >
             <X className="h-5 w-5" />
           </button>
@@ -175,13 +175,13 @@ const ZoteroImportModal: React.FC<ZoteroImportModalProps> = ({
         {/* Body */}
         <div className="max-h-[60vh] overflow-y-auto px-5 py-4">
           {error && (
-            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-300">
+            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-300">
               {error}
             </div>
           )}
 
           {result && (
-            <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
+            <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
               Imported {result.imported} reference{result.imported !== 1 ? 's' : ''}
               {result.skipped > 0 && `, ${result.skipped} already existed`}.
             </div>
@@ -200,7 +200,7 @@ const ZoteroImportModal: React.FC<ZoteroImportModalProps> = ({
                 <button
                   type="button"
                   onClick={() => selectCollection(null, 'All Items')}
-                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-gray-100 dark:hover:bg-slate-700"
+                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition hover:bg-gray-100 dark:hover:bg-slate-700"
                 >
                   <BookOpen className="h-4 w-4 text-indigo-500" />
                   <span className="flex-1 font-medium text-gray-900 dark:text-slate-100">All Items</span>
@@ -211,11 +211,11 @@ const ZoteroImportModal: React.FC<ZoteroImportModalProps> = ({
                     key={c.key}
                     type="button"
                     onClick={() => selectCollection(c.key, c.name)}
-                    className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-gray-100 dark:hover:bg-slate-700"
+                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition hover:bg-gray-100 dark:hover:bg-slate-700"
                   >
                     <FolderOpen className="h-4 w-4 text-amber-500" />
                     <span className="flex-1 text-gray-900 dark:text-slate-100">{c.name}</span>
-                    <span className="text-xs text-gray-400 dark:text-slate-500">{c.num_items}</span>
+                    <span className="text-xs text-gray-400 dark:text-slate-400">{c.num_items}</span>
                   </button>
                 ))}
 
@@ -265,7 +265,7 @@ const ZoteroImportModal: React.FC<ZoteroImportModalProps> = ({
                   return (
                     <label
                       key={item.key}
-                      className={`flex items-start gap-3 rounded-lg px-3 py-2.5 text-sm transition ${
+                      className={`flex items-start gap-3 rounded-xl px-3 py-2.5 text-sm transition ${
                         disabled
                           ? 'cursor-not-allowed opacity-50'
                           : 'cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700'
@@ -337,7 +337,7 @@ const ZoteroImportModal: React.FC<ZoteroImportModalProps> = ({
               type="button"
               onClick={handleImport}
               disabled={selectedKeys.size === 0 || importing}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed"
             >
               {importing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               {importing

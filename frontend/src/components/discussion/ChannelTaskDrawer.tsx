@@ -127,19 +127,19 @@ const ChannelTaskDrawer = ({
         )}
 
         {error && !loading && (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200">
+          <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200">
             Unable to load channel tasks.
           </div>
         )}
 
         {!loading && !error && tasks.length === 0 && !isCreating && (
-          <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-xs text-gray-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+          <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-4 text-xs text-gray-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
             No tasks yet. Track action items from this channel to keep the team aligned.
           </div>
         )}
 
         {isCreating && allowCreate && (
-          <form className="mb-4 space-y-3 rounded-lg border border-indigo-100 bg-indigo-50/40 p-3 transition-colors dark:border-indigo-400/40 dark:bg-slate-800/60" onSubmit={handleSubmit}>
+          <form className="mb-4 space-y-3 rounded-xl border border-indigo-100 bg-indigo-50/40 p-3 transition-colors dark:border-indigo-400/40 dark:bg-slate-800/60" onSubmit={handleSubmit}>
             <div>
               <label htmlFor="task-title" className="text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-slate-300">
                 Task title
@@ -149,7 +149,7 @@ const ChannelTaskDrawer = ({
                 type="text"
                 value={newTitle}
                 onChange={(event) => setNewTitle(event.target.value)}
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
+                className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
                 maxLength={255}
                 placeholder="Capture the next action"
                 required
@@ -157,13 +157,13 @@ const ChannelTaskDrawer = ({
             </div>
             <div>
               <label htmlFor="task-description" className="text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-slate-300">
-                Description <span className="text-gray-400 dark:text-slate-500">(optional)</span>
+                Description <span className="text-gray-400 dark:text-slate-400">(optional)</span>
               </label>
               <textarea
                 id="task-description"
                 value={newDescription}
                 onChange={(event) => setNewDescription(event.target.value)}
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
+                className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
                 rows={3}
                 maxLength={2000}
                 placeholder="Add details or context for the assignee"
@@ -173,13 +173,13 @@ const ChannelTaskDrawer = ({
               <button
                 type="button"
                 onClick={() => setIsCreating(false)}
-                className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                className="rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700"
+                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700"
               >
                 Create task
               </button>
@@ -190,7 +190,7 @@ const ChannelTaskDrawer = ({
         {!loading && !error && sortedTasks.length > 0 && (
           <ul className="space-y-3">
             {sortedTasks.map((task) => (
-              <li key={task.id} className="rounded-lg border border-gray-100 bg-gray-50/60 p-3 transition-colors dark:border-slate-700 dark:bg-slate-800/60">
+              <li key={task.id} className="rounded-xl border border-gray-100 bg-gray-50/60 p-3 transition-colors dark:border-slate-700 dark:bg-slate-800/60">
                 <div className="flex items-start justify-between">
                   <div className="flex items-start gap-3">
                     <button
@@ -206,7 +206,7 @@ const ChannelTaskDrawer = ({
                       {task.description && (
                         <p className="mt-1 text-xs text-gray-500 dark:text-slate-300">{task.description}</p>
                       )}
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wide text-gray-400 dark:text-slate-500">
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-2xs uppercase tracking-wide text-gray-400 dark:text-slate-400">
                         <span>Status: {task.status.replace('_', ' ')}</span>
                         {task.due_date && <span>Due {new Date(task.due_date).toLocaleDateString()}</span>}
                       </div>

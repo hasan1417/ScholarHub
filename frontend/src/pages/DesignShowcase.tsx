@@ -26,13 +26,13 @@ const DesignShowcase: React.FC = () => {
 
         {/* Option 1: Hero Card Style */}
         <div
-          className={`rounded-2xl border-2 transition-all cursor-pointer ${selectedOption === 1 ? 'border-indigo-500 ring-4 ring-indigo-100 dark:ring-indigo-900' : 'border-transparent'}`}
+          className={`rounded-xl border-2 transition-all cursor-pointer ${selectedOption === 1 ? 'border-indigo-500 ring-4 ring-indigo-100 dark:ring-indigo-900' : 'border-transparent'}`}
           onClick={() => setSelectedOption(1)}
         >
-          <div className="p-4 bg-white dark:bg-slate-800 rounded-t-2xl border-b border-gray-100 dark:border-slate-700">
+          <div className="p-4 bg-white dark:bg-slate-800 rounded-t-xl border-b border-gray-100 dark:border-slate-700">
             <span className="text-sm font-semibold text-gray-500 dark:text-slate-400">Option 1: Hero Card Style</span>
           </div>
-          <div className="bg-gray-50 dark:bg-slate-900 p-6 rounded-b-2xl">
+          <div className="bg-gray-50 dark:bg-slate-900 p-6 rounded-b-xl">
             {/* Header */}
             <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-100 dark:border-slate-700">
@@ -61,15 +61,15 @@ const DesignShowcase: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 dark:border-slate-600 text-sm font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700">
+                    <button className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 dark:border-slate-600 text-sm font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700">
                       <Eye className="h-4 w-4" />
                       View
                     </button>
-                    <button className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700">
+                    <button className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700">
                       <Edit className="h-4 w-4" />
                       Edit
                     </button>
-                    <button className="p-2.5 rounded-lg border border-gray-200 dark:border-slate-600 text-gray-500 hover:bg-gray-50 dark:hover:bg-slate-700">
+                    <button className="p-2.5 rounded-xl border border-gray-200 dark:border-slate-600 text-gray-500 hover:bg-gray-50 dark:hover:bg-slate-700">
                       <MoreHorizontal className="h-4 w-4" />
                     </button>
                   </div>
@@ -81,13 +81,13 @@ const DesignShowcase: React.FC = () => {
 
         {/* Option 2: Split Layout with Visual Status */}
         <div
-          className={`rounded-2xl border-2 transition-all cursor-pointer ${selectedOption === 2 ? 'border-indigo-500 ring-4 ring-indigo-100 dark:ring-indigo-900' : 'border-transparent'}`}
+          className={`rounded-xl border-2 transition-all cursor-pointer ${selectedOption === 2 ? 'border-indigo-500 ring-4 ring-indigo-100 dark:ring-indigo-900' : 'border-transparent'}`}
           onClick={() => setSelectedOption(2)}
         >
-          <div className="p-4 bg-white dark:bg-slate-800 rounded-t-2xl border-b border-gray-100 dark:border-slate-700">
+          <div className="p-4 bg-white dark:bg-slate-800 rounded-t-xl border-b border-gray-100 dark:border-slate-700">
             <span className="text-sm font-semibold text-gray-500 dark:text-slate-400">Option 2: Split Layout with Visual Status</span>
           </div>
-          <div className="bg-gray-50 dark:bg-slate-900 p-6 rounded-b-2xl">
+          <div className="bg-gray-50 dark:bg-slate-900 p-6 rounded-b-xl">
             <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700">
               <div className="px-6 py-3 border-b border-gray-100 dark:border-slate-700">
                 <button className="flex items-center gap-2 text-sm text-gray-500 dark:text-slate-400 hover:text-gray-700">
@@ -112,11 +112,11 @@ const DesignShowcase: React.FC = () => {
                   </div>
                   {/* Actions */}
                   <div className="flex items-center gap-2">
-                    <button className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 dark:border-slate-600 text-sm font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-50">
+                    <button className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 dark:border-slate-600 text-sm font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-50">
                       <Eye className="h-4 w-4" />
                       View
                     </button>
-                    <button className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700">
+                    <button className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700">
                       <Edit className="h-4 w-4" />
                       Edit
                     </button>
@@ -129,14 +129,14 @@ const DesignShowcase: React.FC = () => {
 
         {/* Option 3: Minimal Modern (Recommended) */}
         <div
-          className={`rounded-2xl border-2 transition-all cursor-pointer ${selectedOption === 3 ? 'border-indigo-500 ring-4 ring-indigo-100 dark:ring-indigo-900' : 'border-transparent'}`}
+          className={`rounded-xl border-2 transition-all cursor-pointer ${selectedOption === 3 ? 'border-indigo-500 ring-4 ring-indigo-100 dark:ring-indigo-900' : 'border-transparent'}`}
           onClick={() => setSelectedOption(3)}
         >
-          <div className="p-4 bg-white dark:bg-slate-800 rounded-t-2xl border-b border-gray-100 dark:border-slate-700 flex items-center justify-between">
+          <div className="p-4 bg-white dark:bg-slate-800 rounded-t-xl border-b border-gray-100 dark:border-slate-700 flex items-center justify-between">
             <span className="text-sm font-semibold text-gray-500 dark:text-slate-400">Option 3: Minimal Modern</span>
             <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-1 rounded-full">Recommended</span>
           </div>
-          <div className="bg-gray-50 dark:bg-slate-900 p-6 rounded-b-2xl">
+          <div className="bg-gray-50 dark:bg-slate-900 p-6 rounded-b-xl">
             <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 p-6">
               {/* Top row */}
               <div className="flex items-center justify-between mb-4">
@@ -145,15 +145,15 @@ const DesignShowcase: React.FC = () => {
                   Papers
                 </button>
                 <div className="flex items-center gap-2">
-                  <button className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-600">
+                  <button className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm font-medium text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-600">
                     <Eye className="h-4 w-4" />
                     View
                   </button>
-                  <button className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700">
+                  <button className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700">
                     <Edit className="h-4 w-4" />
                     Write
                   </button>
-                  <button className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-600">
+                  <button className="p-1.5 rounded-xl text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-600">
                     <MoreHorizontal className="h-4 w-4" />
                   </button>
                 </div>
@@ -167,7 +167,7 @@ const DesignShowcase: React.FC = () => {
                 <span>{paper.type}</span>
               </div>
               {/* Last edited */}
-              <p className="text-xs text-gray-400 dark:text-slate-500 mt-4">
+              <p className="text-xs text-gray-400 dark:text-slate-400 mt-4">
                 Last edited Jan 21, 2026
               </p>
             </div>
@@ -176,13 +176,13 @@ const DesignShowcase: React.FC = () => {
 
         {/* Option 4: Notion-style */}
         <div
-          className={`rounded-2xl border-2 transition-all cursor-pointer ${selectedOption === 4 ? 'border-indigo-500 ring-4 ring-indigo-100 dark:ring-indigo-900' : 'border-transparent'}`}
+          className={`rounded-xl border-2 transition-all cursor-pointer ${selectedOption === 4 ? 'border-indigo-500 ring-4 ring-indigo-100 dark:ring-indigo-900' : 'border-transparent'}`}
           onClick={() => setSelectedOption(4)}
         >
-          <div className="p-4 bg-white dark:bg-slate-800 rounded-t-2xl border-b border-gray-100 dark:border-slate-700">
+          <div className="p-4 bg-white dark:bg-slate-800 rounded-t-xl border-b border-gray-100 dark:border-slate-700">
             <span className="text-sm font-semibold text-gray-500 dark:text-slate-400">Option 4: Notion-style Properties</span>
           </div>
-          <div className="bg-gray-50 dark:bg-slate-900 p-6 rounded-b-2xl">
+          <div className="bg-gray-50 dark:bg-slate-900 p-6 rounded-b-xl">
             <div className="mb-4">
               <button className="flex items-center gap-2 text-sm text-gray-500 dark:text-slate-400 hover:text-gray-700">
                 <ArrowLeft className="h-4 w-4" />
@@ -193,16 +193,16 @@ const DesignShowcase: React.FC = () => {
               {/* Title row */}
               <div className="flex items-start justify-between gap-4 mb-6">
                 <div className="flex items-center gap-3">
-                  <div className="flex items-center justify-center h-10 w-10 rounded-lg bg-gray-100 dark:bg-slate-700">
+                  <div className="flex items-center justify-center h-10 w-10 rounded-xl bg-gray-100 dark:bg-slate-700">
                     <FileText className="h-5 w-5 text-gray-600 dark:text-slate-300" />
                   </div>
                   <h1 className="text-xl font-bold text-gray-900 dark:text-white">{paper.title}</h1>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button className="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700">
+                  <button className="px-3 py-1.5 rounded-xl text-sm font-medium text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700">
                     Edit
                   </button>
-                  <button className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700">
+                  <button className="p-1.5 rounded-xl text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700">
                     <MoreHorizontal className="h-4 w-4" />
                   </button>
                 </div>
@@ -210,18 +210,18 @@ const DesignShowcase: React.FC = () => {
               {/* Properties grid */}
               <div className="grid grid-cols-3 gap-4 text-sm">
                 <div>
-                  <p className="text-xs font-medium text-gray-400 dark:text-slate-500 uppercase tracking-wide mb-1">Status</p>
+                  <p className="text-xs font-medium text-gray-400 dark:text-slate-400 uppercase tracking-wide mb-1">Status</p>
                   <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 font-medium">
                     <span className="h-2 w-2 rounded-full bg-amber-500"></span>
                     Draft
                   </span>
                 </div>
                 <div>
-                  <p className="text-xs font-medium text-gray-400 dark:text-slate-500 uppercase tracking-wide mb-1">Type</p>
+                  <p className="text-xs font-medium text-gray-400 dark:text-slate-400 uppercase tracking-wide mb-1">Type</p>
                   <span className="text-gray-700 dark:text-slate-300">{paper.type}</span>
                 </div>
                 <div>
-                  <p className="text-xs font-medium text-gray-400 dark:text-slate-500 uppercase tracking-wide mb-1">Last edited</p>
+                  <p className="text-xs font-medium text-gray-400 dark:text-slate-400 uppercase tracking-wide mb-1">Last edited</p>
                   <span className="text-gray-700 dark:text-slate-300">Jan 21, 2026</span>
                 </div>
               </div>
@@ -231,20 +231,20 @@ const DesignShowcase: React.FC = () => {
 
         {/* Option 5: Compact with Progress */}
         <div
-          className={`rounded-2xl border-2 transition-all cursor-pointer ${selectedOption === 5 ? 'border-indigo-500 ring-4 ring-indigo-100 dark:ring-indigo-900' : 'border-transparent'}`}
+          className={`rounded-xl border-2 transition-all cursor-pointer ${selectedOption === 5 ? 'border-indigo-500 ring-4 ring-indigo-100 dark:ring-indigo-900' : 'border-transparent'}`}
           onClick={() => setSelectedOption(5)}
         >
-          <div className="p-4 bg-white dark:bg-slate-800 rounded-t-2xl border-b border-gray-100 dark:border-slate-700">
+          <div className="p-4 bg-white dark:bg-slate-800 rounded-t-xl border-b border-gray-100 dark:border-slate-700">
             <span className="text-sm font-semibold text-gray-500 dark:text-slate-400">Option 5: Compact with Color Accent</span>
           </div>
-          <div className="bg-gray-50 dark:bg-slate-900 p-6 rounded-b-2xl">
+          <div className="bg-gray-50 dark:bg-slate-900 p-6 rounded-b-xl">
             <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
               {/* Color bar */}
               <div className="h-1 bg-gradient-to-r from-amber-400 to-amber-500"></div>
               <div className="p-5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
-                    <button className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-400">
+                    <button className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-400">
                       <ArrowLeft className="h-5 w-5" />
                     </button>
                     <div>
@@ -258,22 +258,22 @@ const DesignShowcase: React.FC = () => {
                         <span className="h-2.5 w-2.5 rounded-full bg-amber-400"></span>
                         <span className="text-gray-600 dark:text-slate-300">Draft</span>
                       </div>
-                      <div className="text-gray-400 dark:text-slate-500">|</div>
+                      <div className="text-gray-400 dark:text-slate-400">|</div>
                       <div className="flex items-center gap-1.5 text-gray-500 dark:text-slate-400">
                         <BookOpen className="h-4 w-4" />
                         <span>{paper.type}</span>
                       </div>
-                      <div className="text-gray-400 dark:text-slate-500">|</div>
+                      <div className="text-gray-400 dark:text-slate-400">|</div>
                       <div className="flex items-center gap-1.5 text-gray-500 dark:text-slate-400">
                         <Clock className="h-4 w-4" />
                         <span>2h ago</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <button className="px-4 py-2 rounded-lg border border-gray-200 dark:border-slate-600 text-sm font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-50">
+                      <button className="px-4 py-2 rounded-xl border border-gray-200 dark:border-slate-600 text-sm font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-50">
                         View
                       </button>
-                      <button className="px-4 py-2 rounded-lg bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700">
+                      <button className="px-4 py-2 rounded-xl bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700">
                         Edit
                       </button>
                     </div>

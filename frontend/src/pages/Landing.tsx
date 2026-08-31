@@ -224,7 +224,7 @@ const Landing = () => {
             {workflowSteps.map((step, index) => (
               <li key={step.title} className="relative pb-8 pl-8 last:pb-0 sm:pl-10">
                 <span
-                  className="absolute -left-[9px] top-1 flex h-[18px] w-[18px] items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white"
+                  className="absolute -left-[9px] top-1 flex h-[18px] w-[18px] items-center justify-center rounded-full bg-indigo-600 text-2xs font-bold text-white"
                   aria-hidden
                 >
                   {index + 1}
@@ -257,20 +257,20 @@ const Landing = () => {
       </section>
 
       {/* CTA band. Left-biased, not a centred hero-in-a-box. */}
-      <section className="bg-slate-900 px-4 py-14 sm:px-6 sm:py-16 dark:bg-slate-800/60">
+      <section className="bg-gray-900 px-4 py-14 sm:px-6 sm:py-16 dark:bg-slate-800/60">
         <div className="mx-auto flex max-w-6xl flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="font-serif text-2xl font-semibold leading-tight text-white sm:text-4xl">
               Ready to stop switching tabs?
             </h2>
-            <p className="mt-3 max-w-md text-sm text-slate-300 sm:text-base">
+            <p className="mt-3 max-w-md text-sm text-gray-300 sm:text-base">
               Write and publish with your team in one workspace. Free to start, and we do not ask for
               a card.
             </p>
           </div>
           <Link
             to="/register"
-            className="group inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-white px-6 py-3 text-sm font-semibold text-slate-900 transition-[background-color] duration-150 ease-out hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 sm:text-base"
+            className="group inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-white px-6 py-3 text-sm font-semibold text-gray-900 transition-[background-color] duration-150 ease-out hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 sm:text-base"
           >
             Start for free
             <ArrowRight
@@ -311,7 +311,7 @@ const Landing = () => {
                 )
               )}
             </div>
-            <p className="text-xs text-gray-500 dark:text-slate-500">
+            <p className="text-xs text-gray-500 dark:text-slate-400">
               © {new Date().getFullYear()} ScholarHub
             </p>
           </div>

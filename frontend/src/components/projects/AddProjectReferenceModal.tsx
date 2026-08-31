@@ -166,7 +166,7 @@ const AddProjectReferenceModal: React.FC<AddProjectReferenceModalProps> = ({ isO
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 dark:bg-black/60">
-      <div className="w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-2xl transition-colors dark:bg-slate-800">
+      <div className="w-full max-w-xl overflow-hidden rounded-xl bg-white shadow-xl transition-colors dark:bg-slate-800">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4 dark:border-slate-700">
           <div className="flex items-center gap-3">
@@ -191,7 +191,7 @@ const AddProjectReferenceModal: React.FC<AddProjectReferenceModalProps> = ({ isO
         <form onSubmit={handleSubmit} className="max-h-[70vh] overflow-y-auto">
           <div className="space-y-5 px-6 py-5">
             {error && (
-              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200">
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200">
                 {error}
               </div>
             )}
@@ -211,14 +211,14 @@ const AddProjectReferenceModal: React.FC<AddProjectReferenceModalProps> = ({ isO
                   value={doi}
                   onChange={(e) => setDoi(e.target.value)}
                   placeholder="10.1234/example or https://doi.org/..."
-                  className="flex-1 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-indigo-500/40 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500"
+                  className="flex-1 rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-indigo-500/40 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500"
                   disabled={isSubmitting || isLookingUp}
                 />
                 <button
                   type="button"
                   onClick={handleDoiLookup}
                   disabled={!doi.trim() || isLookingUp || isSubmitting}
-                  className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {isLookingUp ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -254,7 +254,7 @@ const AddProjectReferenceModal: React.FC<AddProjectReferenceModalProps> = ({ isO
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                className="mt-1.5 w-full rounded-lg border border-gray-200 bg-gray-50/50 px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800/50 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:bg-slate-800"
+                className="mt-1.5 w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800/50 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:bg-slate-800"
                 placeholder="Enter the paper title"
                 disabled={isSubmitting}
                 required
@@ -272,7 +272,7 @@ const AddProjectReferenceModal: React.FC<AddProjectReferenceModalProps> = ({ isO
                   type="text"
                   value={authors}
                   onChange={(e) => setAuthors(e.target.value)}
-                  className="mt-1.5 w-full rounded-lg border border-gray-200 bg-gray-50/50 px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800/50 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:bg-slate-800"
+                  className="mt-1.5 w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800/50 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:bg-slate-800"
                   placeholder="John Smith, Jane Doe"
                   disabled={isSubmitting}
                 />
@@ -286,7 +286,7 @@ const AddProjectReferenceModal: React.FC<AddProjectReferenceModalProps> = ({ isO
                   type="number"
                   value={year}
                   onChange={(e) => setYear(e.target.value)}
-                  className="mt-1.5 w-full rounded-lg border border-gray-200 bg-gray-50/50 px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800/50 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:bg-slate-800"
+                  className="mt-1.5 w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800/50 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:bg-slate-800"
                   placeholder="2024"
                   disabled={isSubmitting}
                   min="1900"
@@ -301,7 +301,7 @@ const AddProjectReferenceModal: React.FC<AddProjectReferenceModalProps> = ({ isO
                 PDF attachment
               </label>
               <div
-                className={`mt-1.5 rounded-lg border-2 border-dashed transition-colors ${
+                className={`mt-1.5 rounded-xl border-2 border-dashed transition-colors ${
                   isDragging
                     ? 'border-indigo-400 bg-indigo-50 dark:border-indigo-500 dark:bg-indigo-950/50'
                     : pdfFile
@@ -315,7 +315,7 @@ const AddProjectReferenceModal: React.FC<AddProjectReferenceModalProps> = ({ isO
                 {pdfFile ? (
                   <div className="flex items-center justify-between px-4 py-3">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-500/20">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 dark:bg-emerald-500/20">
                         <FileText className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
                       </div>
                       <div>
@@ -338,12 +338,12 @@ const AddProjectReferenceModal: React.FC<AddProjectReferenceModalProps> = ({ isO
                 ) : (
                   <label className="flex cursor-pointer flex-col items-center px-4 py-6">
                     <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 dark:bg-slate-700">
-                      <Upload className="h-6 w-6 text-gray-400 dark:text-slate-500" />
+                      <Upload className="h-6 w-6 text-gray-400 dark:text-slate-400" />
                     </div>
                     <p className="mt-2 text-sm text-gray-600 dark:text-slate-300">
                       <span className="font-medium text-indigo-600 dark:text-indigo-400">Click to upload</span> or drag and drop
                     </p>
-                    <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">PDF files only</p>
+                    <p className="mt-1 text-xs text-gray-400 dark:text-slate-400">PDF files only</p>
                     <input
                       ref={fileInputRef}
                       type="file"
@@ -364,7 +364,7 @@ const AddProjectReferenceModal: React.FC<AddProjectReferenceModalProps> = ({ isO
             <button
               type="button"
               onClick={() => setShowOptional(!showOptional)}
-              className="flex w-full items-center justify-between rounded-lg border border-gray-200 px-4 py-2.5 text-sm text-gray-600 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-700/50"
+              className="flex w-full items-center justify-between rounded-xl border border-gray-200 px-4 py-2.5 text-sm text-gray-600 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-700/50"
             >
               <span className="flex items-center gap-2">
                 <Link2 className="h-4 w-4" />
@@ -375,7 +375,7 @@ const AddProjectReferenceModal: React.FC<AddProjectReferenceModalProps> = ({ isO
 
             {/* Optional Fields */}
             {showOptional && (
-              <div className="space-y-4 rounded-lg border border-gray-100 bg-gray-50/50 p-4 dark:border-slate-700 dark:bg-slate-800/30">
+              <div className="space-y-4 rounded-xl border border-gray-100 bg-gray-50/50 p-4 dark:border-slate-700 dark:bg-slate-800/30">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <label className="text-xs font-medium text-gray-600 dark:text-slate-400" htmlFor="ref-url">
@@ -386,7 +386,7 @@ const AddProjectReferenceModal: React.FC<AddProjectReferenceModalProps> = ({ isO
                       type="url"
                       value={url}
                       onChange={(e) => setUrl(e.target.value)}
-                      className="mt-1.5 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500"
+                      className="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500"
                       placeholder="https://..."
                       disabled={isSubmitting}
                     />
@@ -400,7 +400,7 @@ const AddProjectReferenceModal: React.FC<AddProjectReferenceModalProps> = ({ isO
                       type="text"
                       value={journal}
                       onChange={(e) => setJournal(e.target.value)}
-                      className="mt-1.5 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500"
+                      className="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500"
                       placeholder="Nature, NeurIPS, etc."
                       disabled={isSubmitting}
                     />
@@ -414,7 +414,7 @@ const AddProjectReferenceModal: React.FC<AddProjectReferenceModalProps> = ({ isO
                     id="ref-abstract"
                     value={abstractText}
                     onChange={(e) => setAbstractText(e.target.value)}
-                    className="mt-1.5 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500"
+                    className="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500"
                     rows={3}
                     placeholder="Paper abstract or summary..."
                     disabled={isSubmitting}
@@ -429,14 +429,14 @@ const AddProjectReferenceModal: React.FC<AddProjectReferenceModalProps> = ({ isO
             <button
               type="button"
               onClick={handleClose}
-              className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+              className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
               disabled={isSubmitting}
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
               disabled={isSubmitting || !title.trim()}
             >
               {isSubmitting ? (

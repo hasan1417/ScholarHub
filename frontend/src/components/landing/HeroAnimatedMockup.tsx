@@ -196,26 +196,26 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
                 See what's inside
               </a>
             </div>
-            <p className="mt-3 text-xs sm:text-sm text-gray-500 dark:text-slate-500">
+            <p className="mt-3 text-xs sm:text-sm text-gray-500 dark:text-slate-400">
               Free for research teams · Your keys, your models
             </p>
           </div>
 
           {/* RIGHT — mockup window */}
           <div className="relative">
-            <div className="relative rounded-2xl border border-gray-200 dark:border-slate-700/70 bg-white dark:bg-slate-900 shadow-2xl overflow-hidden">
+            <div className="relative rounded-xl border border-gray-200 dark:border-slate-700/70 bg-white dark:bg-slate-900 shadow-xl overflow-hidden">
               {/* Caption bar: names the surface on show. Not fake browser chrome. */}
               <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-200 dark:border-slate-700/70 bg-gray-50 dark:bg-slate-800/70">
-                <div className="flex-1 text-[11px] font-medium text-gray-500 dark:text-slate-400 transition-[opacity] duration-300">
+                <div className="flex-1 text-2xs font-medium text-gray-500 dark:text-slate-400 transition-[opacity] duration-300">
                   {windowTitle}
                 </div>
-                <div className="inline-flex items-center gap-1 text-[10px] text-gray-500 dark:text-slate-400">
+                <div className="inline-flex items-center gap-1 text-2xs text-gray-500 dark:text-slate-400">
                   <Users className="h-3 w-3" /> 2
                 </div>
               </div>
 
               {/* Tab strip — shows current product surface */}
-              <div className="flex items-center gap-1 px-3 py-1.5 border-b border-gray-200 dark:border-slate-700/70 bg-slate-50 dark:bg-slate-900/60 text-[11px]">
+              <div className="flex items-center gap-1 px-3 py-1.5 border-b border-gray-200 dark:border-slate-700/70 bg-slate-50 dark:bg-slate-900/60 text-2xs">
                 <SceneTab icon={<Search className="h-3 w-3" />} label="Discover" active={scene === 'discover'} />
                 <SceneTab icon={<BookmarkPlus className="h-3 w-3" />} label="Library" active={scene === 'library'} />
                 <SceneTab icon={<FileText className="h-3 w-3" />} label="Editor" active={scene === 'editor'} />
@@ -229,7 +229,7 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
                     {/* Search bar */}
                     <div className="flex items-center gap-2 rounded-md bg-slate-800/60 border border-slate-700/60 px-3 py-2">
                       <Search className="h-3.5 w-3.5 text-slate-400" />
-                      <span className="flex-1 text-[12px] text-slate-200 truncate">
+                      <span className="flex-1 text-xs text-slate-200 truncate">
                         {phase === 'idle' ? (
                           <span className="text-slate-500">Search 9 academic databases…</span>
                         ) : (
@@ -241,7 +241,7 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
                           </>
                         )}
                       </span>
-                      <span className="text-[10px] text-slate-500">⌘K</span>
+                      <span className="text-2xs text-slate-500">⌘K</span>
                     </div>
 
                     {/* Source chips */}
@@ -262,16 +262,16 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
                         PAPERS.map((p, i) => (
                           <div
                             key={p.title}
-                            className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2 flex items-start gap-2 paper-enter"
+                            className="rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2 flex items-start gap-2 paper-enter"
                             style={{ animationDelay: `${i * 140}ms` }}
                           >
                             <div className="flex-1 min-w-0">
-                              <div className="text-[12px] font-semibold text-slate-100 truncate">{p.title}</div>
-                              <div className="text-[10.5px] text-slate-400 truncate">
+                              <div className="text-xs font-semibold text-slate-100 truncate">{p.title}</div>
+                              <div className="text-2xs text-slate-400 truncate">
                                 {p.authors} · {p.year}
                               </div>
                             </div>
-                            <span className="shrink-0 text-[9.5px] font-medium text-indigo-300 bg-indigo-500/15 border border-indigo-400/30 rounded px-1.5 py-0.5">
+                            <span className="shrink-0 text-2xs font-medium text-indigo-300 bg-indigo-500/15 border border-indigo-400/30 rounded px-1.5 py-0.5">
                               {p.source}
                             </span>
                             <span
@@ -285,12 +285,12 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
                           </div>
                         ))
                       ) : dSearching ? (
-                        <div className="flex-1 flex items-center justify-center text-[11.5px] text-slate-400">
+                        <div className="flex-1 flex items-center justify-center text-2xs text-slate-400">
                           <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin text-indigo-400" />
                           Searching 9 sources, deduping across them…
                         </div>
                       ) : (
-                        <div className="flex-1 flex items-center justify-center text-[11.5px] text-slate-600">
+                        <div className="flex-1 flex items-center justify-center text-2xs text-slate-600">
                           Ask a question. Search 9 databases at once.
                         </div>
                       )}
@@ -302,8 +302,8 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
                 {scene === 'library' && (
                   <div key="library" className="absolute inset-0 p-4 flex flex-col gap-3 scene-enter">
                     <div className="flex items-center justify-between">
-                      <div className="text-[12px] font-semibold text-slate-200">Your library</div>
-                      <div className="text-[10.5px] text-emerald-400 inline-flex items-center gap-1 paper-enter">
+                      <div className="text-xs font-semibold text-slate-200">Your library</div>
+                      <div className="text-2xs text-emerald-400 inline-flex items-center gap-1 paper-enter">
                         <Check className="h-3 w-3" /> 3 added to project
                       </div>
                     </div>
@@ -311,24 +311,24 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
                       {PAPERS.map((p, i) => (
                         <div
                           key={p.title}
-                          className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2 paper-enter"
+                          className="rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 paper-enter"
                           style={{ animationDelay: `${i * 110}ms` }}
                         >
                           <div className="flex items-start gap-2">
                             <div className="flex-1 min-w-0">
-                              <div className="text-[12px] font-semibold text-slate-100 truncate">{p.title}</div>
-                              <div className="text-[10.5px] text-slate-400 truncate">
+                              <div className="text-xs font-semibold text-slate-100 truncate">{p.title}</div>
+                              <div className="text-2xs text-slate-400 truncate">
                                 {p.authors} · {p.year} · <span className="text-indigo-300">{p.source}</span>
                               </div>
                             </div>
-                            <span className="shrink-0 text-[9.5px] font-mono text-slate-400 bg-slate-800/70 border border-slate-700/70 rounded px-1.5 py-0.5">
+                            <span className="shrink-0 text-2xs font-mono text-slate-400 bg-slate-800/70 border border-slate-700/70 rounded px-1.5 py-0.5">
                               {p.authors.split(',')[0].toLowerCase()}{p.year}
                             </span>
                           </div>
                         </div>
                       ))}
                     </div>
-                    <div className="text-[10.5px] text-slate-500 text-center">
+                    <div className="text-2xs text-slate-500 text-center">
                       Ready to cite. Open the editor to start writing.
                     </div>
                   </div>
@@ -339,11 +339,11 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
                   <div key="editor" className="absolute inset-0 grid grid-cols-[1.05fr_1fr] scene-enter">
                     {/* Editor */}
                     <div className="relative min-w-0 border-r border-slate-800">
-                      <div className="flex items-center gap-1 px-3 py-1.5 border-b border-slate-800 bg-slate-900/80 text-[11px]">
+                      <div className="flex items-center gap-1 px-3 py-1.5 border-b border-slate-800 bg-slate-900/80 text-2xs">
                         <span className="rounded-md bg-slate-800 text-slate-200 px-2 py-0.5">main.tex</span>
                         <span className="text-slate-500 px-2 py-0.5">refs.bib</span>
                       </div>
-                      <div className="flex font-mono text-[11.5px] sm:text-[12px] leading-[1.75]">
+                      <div className="flex font-mono text-2xs sm:text-xs leading-[1.75]">
                         <div className="text-right select-none text-slate-600 px-2 pt-3 pb-3 w-8">
                           {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
                             <div key={n}>{n}</div>
@@ -356,10 +356,10 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
 <span className="text-slate-500">% TODO: sharpen</span>{'\n'}
                           {editIsApplied ? (
                             <>
-                              <span className="block rounded-sm bg-emerald-500/15 ring-1 ring-emerald-400/40 px-0.5 transition-colors duration-300">
+                              <span className="block rounded-md bg-emerald-500/15 ring-1 ring-emerald-400/40 px-0.5 transition-colors duration-300">
                                 {NEW_LINE_1}
                               </span>
-                              <span className="block rounded-sm bg-emerald-500/15 ring-1 ring-emerald-400/40 px-0.5">
+                              <span className="block rounded-md bg-emerald-500/15 ring-1 ring-emerald-400/40 px-0.5">
                                 {NEW_LINE_2}
                               </span>
                             </>
@@ -381,8 +381,8 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
                         <span className="inline-flex items-center justify-center h-5 w-5 rounded-md bg-indigo-600">
                           <Sparkles className="h-3 w-3 text-white" />
                         </span>
-                        <span className="text-[11px] font-semibold text-slate-200">AI Assistant</span>
-                        <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-slate-400">
+                        <span className="text-2xs font-semibold text-slate-200">AI Assistant</span>
+                        <span className="ml-auto inline-flex items-center gap-1 text-2xs text-slate-400">
                           <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> connected
                         </span>
                       </div>
@@ -393,13 +393,13 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
                             editUserVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'
                           }`}
                         >
-                          <div className="max-w-[85%] rounded-lg rounded-br-sm bg-indigo-600 text-white px-2.5 py-1.5 text-[11.5px] leading-snug shadow">
+                          <div className="max-w-[85%] rounded-xl rounded-br-md bg-indigo-600 text-white px-2.5 py-1.5 text-2xs leading-snug shadow">
                             {editUserVisible ? EDITOR_PROMPT : ''}
                           </div>
                         </div>
 
                         {editThinking && (
-                          <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                          <div className="flex items-center gap-1.5 text-2xs text-slate-400">
                             <Loader2 className="h-3 w-3 animate-spin text-indigo-400" />
                             Reading main.tex · checking library
                           </div>
@@ -407,7 +407,7 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
 
                         {editReplyVisible && (
                           <div className="flex justify-start">
-                            <div className="max-w-[92%] rounded-lg rounded-bl-sm bg-slate-800/70 text-slate-200 px-2.5 py-1.5 text-[11.5px] leading-snug border border-slate-700/60">
+                            <div className="max-w-[92%] rounded-xl rounded-bl-md bg-slate-800/70 text-slate-200 px-2.5 py-1.5 text-2xs leading-snug border border-slate-700/60">
                               {replyTyped}
                               {replyTyped.length < AI_REPLY.length && (
                                 <span className="inline-block w-[5px] h-[10px] translate-y-[1px] bg-slate-400 animate-pulse ml-0.5" />
@@ -418,7 +418,7 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
 
                         {editProposalVisible && (
                           <div
-                            className={`rounded-lg border transition-[background-color,border-color,color,opacity] duration-300 ${
+                            className={`rounded-xl border transition-[background-color,border-color,color,opacity] duration-300 ${
                               editIsApplied
                                 ? 'border-emerald-500/40 bg-emerald-500/5'
                                 : 'border-indigo-400/40 bg-slate-900/60'
@@ -426,16 +426,16 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
                             style={{ animation: 'edit-in 400ms ease-out both' }}
                           >
                             <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-slate-800">
-                              <div className="flex items-center gap-1.5 text-[10.5px] text-slate-300">
+                              <div className="flex items-center gap-1.5 text-2xs text-slate-300">
                                 <span className="inline-flex items-center justify-center h-4 w-4 rounded bg-indigo-500/20 text-indigo-300 font-bold">1</span>
                                 <span className="font-semibold">main.tex</span>
                                 <span className="text-slate-500">· L5</span>
                               </div>
-                              <span className="text-[9.5px] uppercase tracking-wide text-slate-500">
+                              <span className="text-2xs uppercase tracking-wide text-slate-500">
                                 {editIsApplied ? 'applied' : 'proposed'}
                               </span>
                             </div>
-                            <div className="px-2.5 py-1.5 font-mono text-[10.5px] leading-[1.5] space-y-0.5">
+                            <div className="px-2.5 py-1.5 font-mono text-2xs leading-[1.5] space-y-0.5">
                               <div className="flex gap-1.5 items-start rounded bg-rose-500/10 text-rose-200 px-1 py-0.5">
                                 <span className="text-rose-400 font-bold">−</span>
                                 <span className="truncate">{OLD_LINE}</span>
@@ -449,7 +449,7 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
                             </div>
                             <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-t border-slate-800">
                               <button
-                                className={`inline-flex items-center gap-1 text-[10.5px] font-semibold rounded px-2 py-1 transition-[background-color,border-color,color,opacity] ${
+                                className={`inline-flex items-center gap-1 text-2xs font-semibold rounded px-2 py-1 transition-[background-color,border-color,color,opacity] ${
                                   editIsApplied
                                     ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-400/40'
                                     : editIsApplying
@@ -461,7 +461,7 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
                                 {editIsApplied ? 'Applied' : 'Apply'}
                               </button>
                               {!editIsApplied && (
-                                <button className="text-[10.5px] text-slate-400 rounded px-2 py-1">
+                                <button className="text-2xs text-slate-400 rounded px-2 py-1">
                                   Reject
                                 </button>
                               )}
@@ -472,7 +472,7 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
 
                       <div className="border-t border-slate-800 bg-slate-900/80 px-3 py-2">
                         <div className="flex items-center gap-2 rounded-md bg-slate-800/70 border border-slate-700/60 px-2 py-1.5">
-                          <span className="text-[11px] text-slate-300 flex-1 truncate">
+                          <span className="text-2xs text-slate-300 flex-1 truncate">
                             {phase === 'edit-prompting' ? (
                               <>
                                 {promptTyped}
@@ -499,7 +499,7 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
               </div>
 
               {/* Status bar */}
-              <div className="flex items-center justify-between px-4 py-1.5 border-t border-slate-800 bg-slate-900 text-[10px] text-slate-400">
+              <div className="flex items-center justify-between px-4 py-1.5 border-t border-slate-800 bg-slate-900 text-2xs text-slate-400">
                 <div className="flex items-center gap-3">
                   <span className="inline-flex items-center gap-1">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -513,7 +513,7 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
               </div>
             </div>
 
-            <div className="mt-5 flex flex-wrap justify-center lg:justify-start gap-2 text-[11px] text-gray-600 dark:text-slate-400">
+            <div className="mt-5 flex flex-wrap justify-center lg:justify-start gap-2 text-2xs text-gray-600 dark:text-slate-400">
               <span className="rounded-full bg-white/70 dark:bg-slate-800/70 border border-gray-200 dark:border-slate-700 px-2.5 py-1">9 paper sources</span>
               <span className="rounded-full bg-white/70 dark:bg-slate-800/70 border border-gray-200 dark:border-slate-700 px-2.5 py-1">Project-grounded AI</span>
               <span className="rounded-full bg-white/70 dark:bg-slate-800/70 border border-gray-200 dark:border-slate-700 px-2.5 py-1">LaTeX + live PDF</span>
@@ -588,7 +588,7 @@ const SourceChip = ({
 
   return (
     <span
-      className={`inline-flex items-center gap-1 text-[10px] font-medium rounded-full border px-2 py-0.5 transition-[background-color,border-color,color,opacity] ${cls}`}
+      className={`inline-flex items-center gap-1 text-2xs font-medium rounded-full border px-2 py-0.5 transition-[background-color,border-color,color,opacity] ${cls}`}
       style={{ animation: visible ? `source-in 240ms ease-out both` : undefined }}
     >
       {state === 'done' ? (

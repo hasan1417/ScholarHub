@@ -136,7 +136,7 @@ const AttachProjectReferenceModal: React.FC<AttachProjectReferenceModalProps> = 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-3xl overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl transition-colors dark:border-slate-700 dark:bg-slate-900">
+      <div className="w-full max-w-3xl overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl transition-colors dark:border-slate-700 dark:bg-slate-900">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-100 px-6 py-5 dark:border-slate-800">
           <div>
@@ -147,7 +147,7 @@ const AttachProjectReferenceModal: React.FC<AttachProjectReferenceModalProps> = 
           </div>
           <button
             onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+            className="flex h-8 w-8 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-300"
             title="Close"
             disabled={isSaving}
           >
@@ -158,7 +158,7 @@ const AttachProjectReferenceModal: React.FC<AttachProjectReferenceModalProps> = 
         {/* Search */}
         <div className="border-b border-gray-100 px-6 py-4 dark:border-slate-800">
           <div className="relative">
-            <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-slate-500" />
+            <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-slate-400" />
             <input
               type="text"
               className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-4 text-sm text-gray-900 placeholder-gray-400 transition focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:bg-slate-800"
@@ -171,7 +171,7 @@ const AttachProjectReferenceModal: React.FC<AttachProjectReferenceModalProps> = 
 
         {/* Error */}
         {error && (
-          <div className="mx-6 mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-400/40 dark:bg-rose-900/30 dark:text-rose-100">
+          <div className="mx-6 mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-400/40 dark:bg-rose-900/30 dark:text-rose-100">
             {error}
           </div>
         )}
@@ -299,7 +299,7 @@ const AttachProjectReferenceModal: React.FC<AttachProjectReferenceModalProps> = 
                 </span>
               </>
             ) : (
-              <span className="text-gray-400 dark:text-slate-500">No references selected</span>
+              <span className="text-gray-400 dark:text-slate-400">No references selected</span>
             )}
           </div>
           <div className="flex items-center gap-3">

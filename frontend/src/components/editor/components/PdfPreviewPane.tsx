@@ -250,7 +250,7 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
       {/* Left: [Recompile v] [⬇]  ···spacer···  Right: [timestamp] [◐] [≡] | [−] [+] [100%▼] */}
       <div
         ref={toolbarRef}
-        className="flex items-center gap-1 border-b border-slate-200 bg-slate-50 px-1.5 py-1 text-xs dark:border-slate-800 dark:bg-slate-900/60"
+        className="flex items-center gap-1 border-b border-gray-200 bg-gray-50 px-1.5 py-1 text-xs dark:border-slate-800 dark:bg-slate-900/60"
       >
         {/* ── Left group ── */}
 
@@ -260,7 +260,7 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
             <button
               onClick={onCompile}
               disabled={compileStatus === 'compiling'}
-              className="flex items-center gap-1 rounded-l px-1.5 py-0.5 text-[11px] font-medium bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="flex items-center gap-1 rounded-l px-1.5 py-0.5 text-2xs font-medium bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               title={`Recompile (${compileShortcut})`}
             >
               {compileStatus === 'compiling' ? (
@@ -286,13 +286,13 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
             {compileDropdownOpen && (
               <>
                 <div className="fixed inset-0 z-30" onClick={() => setCompileDropdownOpen(false)} />
-                <div className="absolute left-0 top-full z-40 mt-1 w-48 rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                <div className="absolute left-0 top-full z-40 mt-1 w-48 rounded-md border border-gray-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
                   <button
                     onClick={() => { onToggleAutoCompile?.(); setCompileDropdownOpen(false) }}
-                    className="flex w-full items-center justify-between px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                    className="flex w-full items-center justify-between px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-700"
                   >
                     Auto Compile
-                    <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${autoCompileEnabled ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400'}`}>
+                    <span className={`rounded px-1.5 py-0.5 text-2xs font-medium ${autoCompileEnabled ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-slate-400'}`}>
                       {autoCompileEnabled ? 'ON' : 'OFF'}
                     </span>
                   </button>
@@ -307,7 +307,7 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
           <div className="relative shrink-0">
             <button
               onClick={() => setExportDropdownOpen(o => !o)}
-              className={`rounded p-1 transition-colors ${exportDropdownOpen ? 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200' : 'text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300'}`}
+              className={`rounded p-1 transition-colors ${exportDropdownOpen ? 'bg-gray-200 text-gray-700 dark:bg-slate-700 dark:text-slate-200' : 'text-gray-400 hover:text-gray-600 dark:text-slate-400 dark:hover:text-slate-300'}`}
               title="Download"
             >
               <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -319,11 +319,11 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
             {exportDropdownOpen && (
               <>
                 <div className="fixed inset-0 z-30" onClick={() => setExportDropdownOpen(false)} />
-                <div className="absolute left-0 top-full z-40 mt-1 w-48 rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                <div className="absolute left-0 top-full z-40 mt-1 w-48 rounded-md border border-gray-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
                   {onExportPdf && (
                     <button
                       onClick={() => { onExportPdf(); setExportDropdownOpen(false) }}
-                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-700"
                     >
                       Download PDF
                     </button>
@@ -332,7 +332,7 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
                     <button
                       onClick={() => { onExportDocx(); setExportDropdownOpen(false) }}
                       disabled={exportDocxLoading}
-                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-200 dark:hover:bg-slate-700"
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:text-slate-200 dark:hover:bg-slate-700"
                     >
                       {exportDocxLoading && (
                         <svg className="h-3 w-3 animate-spin shrink-0" viewBox="0 0 16 16" fill="none">
@@ -345,11 +345,11 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
                   )}
                   {onExportSourceZip && (
                     <>
-                      <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
+                      <div className="my-1 border-t border-gray-200 dark:border-slate-700" />
                       <button
                         onClick={() => { onExportSourceZip(); setExportDropdownOpen(false) }}
                         disabled={exportSourceZipLoading}
-                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-200 dark:hover:bg-slate-700"
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:text-slate-200 dark:hover:bg-slate-700"
                       >
                         {exportSourceZipLoading && (
                           <svg className="h-3 w-3 animate-spin shrink-0" viewBox="0 0 16 16" fill="none">
@@ -380,7 +380,7 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
           </svg>
         )}
         {compileStatus === 'success' && lastCompileAt && !compact && (
-          <span className="text-[10px] text-slate-400 dark:text-slate-500 whitespace-nowrap tabular-nums shrink-0">
+          <span className="text-2xs text-gray-400 dark:text-slate-400 whitespace-nowrap tabular-nums shrink-0">
             {(() => {
               const secs = Math.max(1, Math.round((Date.now() - lastCompileAt) / 1000))
               if (secs < 60) return `${secs}s ago`
@@ -391,7 +391,7 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
           </span>
         )}
         {compileStatus === 'error' && compileError && (
-          <span className="text-[10px] text-rose-500 dark:text-rose-400 shrink-0" title={compileError}>
+          <span className="text-2xs text-rose-500 dark:text-rose-400 shrink-0" title={compileError}>
             Failed
           </span>
         )}
@@ -399,7 +399,7 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
         {/* Invert colors */}
         <button
           onClick={() => setInvertColors(i => !i)}
-          className={`rounded p-1 transition-colors shrink-0 ${invertColors ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-400' : 'text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300'}`}
+          className={`rounded p-1 transition-colors shrink-0 ${invertColors ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-400' : 'text-gray-400 hover:text-gray-600 dark:text-slate-400 dark:hover:text-slate-300'}`}
           title="Invert colors (dark reading mode)"
         >
           <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="currentColor">
@@ -410,14 +410,14 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
         {/* Logs toggle */}
         <button
           onClick={() => setLogsVisible(v => !v)}
-          className={`relative rounded p-1 transition-colors shrink-0 ${logsVisible ? 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200' : 'text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300'}`}
+          className={`relative rounded p-1 transition-colors shrink-0 ${logsVisible ? 'bg-gray-200 text-gray-700 dark:bg-slate-700 dark:text-slate-200' : 'text-gray-400 hover:text-gray-600 dark:text-slate-400 dark:hover:text-slate-300'}`}
           title="Toggle compile logs"
         >
           <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="currentColor">
             <path d="M2 3h12v1H2V3zm0 3h12v1H2V6zm0 3h10v1H2V9zm0 3h8v1H2v-1z" />
           </svg>
           {errorCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-red-500 text-[8px] font-bold text-white">
+            <span className="absolute -top-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-red-500 text-2xs font-bold text-white">
               {errorCount > 9 ? '9+' : errorCount}
             </span>
           )}
@@ -430,7 +430,7 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
             <button
               onClick={() => goToPage(currentPage - 1)}
               disabled={currentPage <= 1}
-              className="rounded p-0.5 text-slate-400 hover:text-slate-600 disabled:opacity-30 dark:text-slate-500 dark:hover:text-slate-300"
+              className="rounded p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30 dark:text-slate-400 dark:hover:text-slate-300"
               title="Previous page"
             >
               <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="currentColor">
@@ -441,7 +441,7 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
             <button
               onClick={() => goToPage(currentPage + 1)}
               disabled={currentPage >= totalPages}
-              className="rounded p-0.5 text-slate-400 hover:text-slate-600 disabled:opacity-30 dark:text-slate-500 dark:hover:text-slate-300"
+              className="rounded p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30 dark:text-slate-400 dark:hover:text-slate-300"
               title="Next page"
             >
               <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="currentColor">
@@ -452,7 +452,7 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
             <input
               type="text"
               inputMode="numeric"
-              className="w-7 rounded border border-slate-300 bg-white px-1 py-0.5 text-center text-[11px] tabular-nums text-slate-700 outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400/30 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+              className="w-7 rounded border border-gray-300 bg-white px-1 py-0.5 text-center text-2xs tabular-nums text-gray-700 outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400/30 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
               value={pageInputValue || String(currentPage)}
               onFocus={() => setPageInputValue(String(currentPage))}
               onChange={(e) => setPageInputValue(e.target.value.replace(/\D/g, ''))}
@@ -470,18 +470,18 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
                 }
               }}
             />
-            <span className="text-[11px] text-slate-400 dark:text-slate-500 tabular-nums">/ {totalPages}</span>
+            <span className="text-2xs text-gray-400 dark:text-slate-400 tabular-nums">/ {totalPages}</span>
           </div>
         )}
 
         {/* Divider */}
-        <div className="mx-0.5 h-4 w-px bg-slate-300 dark:bg-slate-700 shrink-0" />
+        <div className="mx-0.5 h-4 w-px bg-gray-300 dark:bg-slate-700 shrink-0" />
 
         {/* Zoom out */}
         <button
           onClick={handleZoomOut}
           disabled={zoomLevel <= ZOOM_MIN}
-          className="rounded p-0.5 text-slate-400 hover:text-slate-600 disabled:opacity-30 dark:text-slate-500 dark:hover:text-slate-300 shrink-0"
+          className="rounded p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30 dark:text-slate-400 dark:hover:text-slate-300 shrink-0"
           title="Zoom out"
         >
           <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
@@ -493,7 +493,7 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
         <button
           onClick={handleZoomIn}
           disabled={zoomLevel >= ZOOM_MAX}
-          className="rounded p-0.5 text-slate-400 hover:text-slate-600 disabled:opacity-30 dark:text-slate-500 dark:hover:text-slate-300 shrink-0"
+          className="rounded p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30 dark:text-slate-400 dark:hover:text-slate-300 shrink-0"
           title="Zoom in"
         >
           <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
@@ -506,7 +506,7 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
         <div className="relative shrink-0">
           <button
             onClick={() => setZoomDropdownOpen(z => !z)}
-            className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[11px] font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 tabular-nums"
+            className="flex items-center gap-0.5 rounded px-1 py-0.5 text-2xs font-medium text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200 tabular-nums"
           >
             {zoomLevel}%
             <svg className="h-2.5 w-2.5" viewBox="0 0 16 16" fill="currentColor">
@@ -516,20 +516,20 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
           {zoomDropdownOpen && (
             <>
               <div className="fixed inset-0 z-30" onClick={() => setZoomDropdownOpen(false)} />
-              <div className="absolute right-0 top-full z-40 mt-1 w-28 rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+              <div className="absolute right-0 top-full z-40 mt-1 w-28 rounded-md border border-gray-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
                 {ZOOM_PRESETS.map(p => (
                   <button
                     key={p}
                     onClick={() => handleZoomPreset(p)}
-                    className={`block w-full px-3 py-1 text-left text-xs hover:bg-slate-100 dark:hover:bg-slate-700 ${zoomLevel === p ? 'font-medium text-indigo-600 dark:text-indigo-400' : 'text-slate-700 dark:text-slate-200'}`}
+                    className={`block w-full px-3 py-1 text-left text-xs hover:bg-gray-100 dark:hover:bg-slate-700 ${zoomLevel === p ? 'font-medium text-indigo-600 dark:text-indigo-400' : 'text-gray-700 dark:text-slate-200'}`}
                   >
                     {p}%
                   </button>
                 ))}
-                <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
+                <div className="my-1 border-t border-gray-200 dark:border-slate-700" />
                 <button
                   onClick={() => handleZoomPreset(100)}
-                  className="block w-full px-3 py-1 text-left text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                  className="block w-full px-3 py-1 text-left text-xs text-gray-700 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-700"
                 >
                   Fit width
                 </button>
@@ -554,12 +554,12 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
 
       {/* ─── Compile Logs Panel ───────────────────────────── */}
       {logsVisible && (
-        <div className="flex flex-col overflow-hidden border-t border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/80" style={{ maxHeight: '40%', minHeight: '120px' }}>
+        <div className="flex flex-col overflow-hidden border-t border-gray-200 bg-gray-50 dark:border-slate-700 dark:bg-slate-900/80" style={{ maxHeight: '40%', minHeight: '120px' }}>
           {/* Status + summary bar */}
-          <div className="flex min-w-0 items-center gap-2 border-b border-slate-200 px-3 py-1.5 dark:border-slate-800">
+          <div className="flex min-w-0 items-center gap-2 border-b border-gray-200 px-3 py-1.5 dark:border-slate-800">
             {/* Compilation status indicator */}
             {compileStatus === 'compiling' ? (
-              <span className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+              <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-slate-400">
                 <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 16 16" fill="none">
                   <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
                   <path d="M14 8a6 6 0 0 0-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
@@ -582,16 +582,16 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
               </span>
             )}
 
-            <div className="mx-2 h-4 w-px bg-slate-300 dark:bg-slate-700" />
+            <div className="mx-2 h-4 w-px bg-gray-300 dark:bg-slate-700" />
 
             {/* Filter tabs */}
-            <div className="flex flex-1 min-w-0 items-center gap-0.5 text-[11px] overflow-x-auto">
+            <div className="flex flex-1 min-w-0 items-center gap-0.5 text-2xs overflow-x-auto">
               <FilterTab
                 label="All logs"
                 count={totalLogCount}
                 active={logFilter === 'all'}
                 onClick={() => setLogFilter('all')}
-                color="text-slate-600 dark:text-slate-300"
+                color="text-gray-600 dark:text-slate-300"
               />
               <FilterTab
                 label="Errors"
@@ -612,18 +612,18 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
                 count={infoCount}
                 active={logFilter === 'info'}
                 onClick={() => setLogFilter('info')}
-                color="text-blue-400"
+                color="text-indigo-400"
               />
             </div>
 
             {/* Fix with AI button */}
             {onFixErrors && errorCount > 0 && (
               <>
-                <div className="mx-1 h-4 w-px bg-slate-300 dark:bg-slate-700" />
+                <div className="mx-1 h-4 w-px bg-gray-300 dark:bg-slate-700" />
                 <button
                   onClick={onFixErrors}
                   disabled={fixLoading}
-                  className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0"
+                  className="flex items-center gap-1 rounded px-1.5 py-0.5 text-2xs font-medium bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0"
                   title="Ask AI to fix compilation errors"
                 >
                   {fixLoading ? (
@@ -650,7 +650,7 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
           {/* Log entries */}
           <div className="flex-1 min-w-0 overflow-auto px-2 py-1.5 text-xs">
             {filteredLogs.length === 0 && (
-              <div className="py-4 text-center text-xs text-slate-400 dark:text-slate-500">
+              <div className="py-4 text-center text-xs text-gray-400 dark:text-slate-400">
                 {compileLogs.length === 0 ? 'No compile output yet' : 'No entries matching this filter'}
               </div>
             )}
@@ -669,10 +669,10 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
 
             {/* Raw logs (collapsible) */}
             {compileLogs.length > 0 && (
-              <div className="mt-2 border-t border-slate-200 pt-2 dark:border-slate-800">
+              <div className="mt-2 border-t border-gray-200 pt-2 dark:border-slate-800">
                 <button
                   onClick={() => setRawLogsExpanded(r => !r)}
-                  className="flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                  className="flex items-center gap-1 text-2xs font-medium text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200"
                 >
                   <svg
                     className={`h-3 w-3 transition-transform ${rawLogsExpanded ? 'rotate-90' : ''}`}
@@ -684,7 +684,7 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
                   Raw logs ({compileLogs.length} lines)
                 </button>
                 {rawLogsExpanded && (
-                  <pre className="mt-1 max-h-48 overflow-auto rounded bg-slate-900 p-2 text-[10px] leading-relaxed text-slate-300 font-mono dark:bg-slate-950">
+                  <pre className="mt-1 max-h-48 overflow-auto rounded bg-gray-900 p-2 text-2xs leading-relaxed text-gray-300 font-mono dark:bg-slate-950">
                     {compileLogs.join('\n')}
                   </pre>
                 )}
@@ -698,7 +698,7 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
       {!logsVisible && compileLogs.length > 0 && (errorCount > 0 || warningCount > 0) && (
         <button
           onClick={() => setLogsVisible(true)}
-          className="flex items-center gap-2 border-t border-slate-200 bg-slate-50 px-3 py-1 text-[11px] dark:border-slate-700 dark:bg-slate-900/70 hover:bg-slate-100 dark:hover:bg-slate-800/70 transition-colors"
+          className="flex items-center gap-2 border-t border-gray-200 bg-gray-50 px-3 py-1 text-2xs dark:border-slate-700 dark:bg-slate-900/70 hover:bg-gray-100 dark:hover:bg-slate-800/70 transition-colors"
         >
           {errorCount > 0 && (
             <span className="flex items-center gap-0.5 text-red-500 dark:text-red-400">
@@ -710,7 +710,7 @@ export const PdfPreviewPane: React.FC<PdfPreviewPaneProps> = ({
               <span>&#9888;&#65039;</span> {warningCount} warning{warningCount !== 1 ? 's' : ''}
             </span>
           )}
-          <span className="ml-auto text-slate-400">Click to view logs</span>
+          <span className="ml-auto text-gray-400">Click to view logs</span>
         </button>
       )}
     </>
@@ -732,12 +732,12 @@ const FilterTab: React.FC<FilterTabProps> = ({ label, count, active, onClick, co
     onClick={onClick}
     className={`flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors ${
       active
-        ? 'bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-100 font-medium'
-        : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+        ? 'bg-gray-200 text-gray-800 dark:bg-slate-700 dark:text-slate-100 font-medium'
+        : 'text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200'
     }`}
   >
     {label}
-    <span className={`rounded px-1 py-px text-[10px] font-medium tabular-nums ${active ? color : 'text-slate-400 dark:text-slate-500'}`}>
+    <span className={`rounded px-1 py-px text-2xs font-medium tabular-nums ${active ? color : 'text-gray-400 dark:text-slate-400'}`}>
       {count}
     </span>
   </button>
@@ -756,29 +756,29 @@ const LogEntryCard: React.FC<LogEntryCardProps> = ({ entry, expanded, onToggle }
       ? 'border-red-500/30 dark:border-red-500/20'
       : entry.type === 'warning'
         ? 'border-amber-500/30 dark:border-amber-500/20'
-        : 'border-blue-500/30 dark:border-blue-500/20'
+        : 'border-indigo-500/30 dark:border-indigo-500/20'
   const bgColor =
     entry.type === 'error'
       ? 'bg-red-50/50 dark:bg-red-950/20'
       : entry.type === 'warning'
         ? 'bg-amber-50/50 dark:bg-amber-950/20'
-        : 'bg-blue-50/50 dark:bg-blue-950/20'
+        : 'bg-indigo-50/50 dark:bg-indigo-950/20'
 
   return (
     <div className={`mb-1 min-w-0 rounded border ${borderColor} ${bgColor} overflow-hidden`}>
       <button
         onClick={onToggle}
-        className="flex w-full min-w-0 items-start gap-1.5 px-2 py-1.5 text-left text-xs text-slate-700 hover:bg-white/50 dark:text-slate-200 dark:hover:bg-white/5"
+        className="flex w-full min-w-0 items-start gap-1.5 px-2 py-1.5 text-left text-xs text-gray-700 hover:bg-white/50 dark:text-slate-200 dark:hover:bg-white/5"
       >
-        <span className="shrink-0 text-[11px] leading-4">{icon}</span>
+        <span className="shrink-0 text-2xs leading-4">{icon}</span>
         <span className="flex-1 min-w-0 break-all leading-4">{entry.message}</span>
         {(entry.file || entry.line != null) && (
-          <span className="shrink-0 text-[10px] text-slate-400 dark:text-slate-500 tabular-nums">
+          <span className="shrink-0 text-2xs text-gray-400 dark:text-slate-400 tabular-nums">
             {entry.file && entry.file}{entry.file && entry.line != null && ':'}{entry.line != null && `l.${entry.line}`}
           </span>
         )}
         <svg
-          className={`h-3 w-3 shrink-0 text-slate-400 transition-transform ${expanded ? 'rotate-90' : ''}`}
+          className={`h-3 w-3 shrink-0 text-gray-400 transition-transform ${expanded ? 'rotate-90' : ''}`}
           viewBox="0 0 16 16"
           fill="currentColor"
         >
@@ -786,7 +786,7 @@ const LogEntryCard: React.FC<LogEntryCardProps> = ({ entry, expanded, onToggle }
         </svg>
       </button>
       {expanded && (
-        <pre className="border-t border-slate-200 bg-slate-900/80 px-2 py-1.5 text-[10px] leading-relaxed text-slate-300 font-mono dark:border-slate-800 overflow-x-auto">
+        <pre className="border-t border-gray-200 bg-gray-900 px-2 py-1.5 text-2xs leading-relaxed text-gray-300 font-mono dark:border-slate-800 overflow-x-auto">
           {entry.fullContext}
         </pre>
       )}
@@ -807,15 +807,15 @@ const FixProposalsPanel: React.FC<FixProposalsPanelProps> = ({ proposals, onAppl
   const pendingCount = proposals.filter(p => p.status === 'pending').length
 
   return (
-    <div className="border-b border-slate-200 bg-indigo-50/50 px-2 py-1.5 dark:border-slate-700 dark:bg-indigo-950/20">
+    <div className="border-b border-gray-200 bg-indigo-50/50 px-2 py-1.5 dark:border-slate-700 dark:bg-indigo-950/20">
       <div className="flex items-center justify-between mb-1">
-        <span className="text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
+        <span className="text-2xs font-medium text-indigo-700 dark:text-indigo-300">
           AI Fixes ({proposals.length})
         </span>
         {pendingCount > 1 && onApplyAll && (
           <button
             onClick={onApplyAll}
-            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-indigo-600 text-white hover:bg-indigo-700 transition-colors"
+            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-2xs font-medium bg-indigo-600 text-white hover:bg-indigo-700 transition-colors"
           >
             <Check className="h-2.5 w-2.5" />
             Apply All ({pendingCount})
@@ -843,22 +843,22 @@ const FixProposalCard: React.FC<FixProposalCardProps> = ({ proposal, onApply, on
   const isRejected = proposal.status === 'rejected'
 
   return (
-    <div className={`flex items-start gap-1.5 rounded border px-2 py-1 text-[11px] ${
+    <div className={`flex items-start gap-1.5 rounded border px-2 py-1 text-2xs ${
       isApproved
         ? 'border-emerald-300/50 bg-emerald-50/50 dark:border-emerald-700/30 dark:bg-emerald-950/20'
         : isRejected
-          ? 'border-slate-200/50 bg-slate-50/50 opacity-50 dark:border-slate-700/30 dark:bg-slate-900/20'
+          ? 'border-gray-200 bg-gray-50 opacity-50 dark:border-slate-700/30 dark:bg-slate-900/20'
           : 'border-indigo-200/50 bg-white/60 dark:border-indigo-800/30 dark:bg-slate-800/40'
     }`}>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
           {isApproved && <Check className="h-3 w-3 text-emerald-600 dark:text-emerald-400 shrink-0" />}
-          {isRejected && <X className="h-3 w-3 text-slate-400 shrink-0" />}
-          <span className={`leading-4 ${isRejected ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-200'}`}>
+          {isRejected && <X className="h-3 w-3 text-gray-400 shrink-0" />}
+          <span className={`leading-4 ${isRejected ? 'line-through text-gray-400' : 'text-gray-700 dark:text-slate-200'}`}>
             {proposal.description}
           </span>
         </div>
-        <span className="text-[10px] text-slate-400 dark:text-slate-500 tabular-nums">
+        <span className="text-2xs text-gray-400 dark:text-slate-400 tabular-nums">
           Lines {proposal.startLine}-{proposal.endLine}
         </span>
       </div>
@@ -873,7 +873,7 @@ const FixProposalCard: React.FC<FixProposalCardProps> = ({ proposal, onApply, on
           </button>
           <button
             onClick={() => onReject?.(proposal.id)}
-            className="rounded p-0.5 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+            className="rounded p-0.5 text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors"
             title="Reject fix"
           >
             <X className="h-3.5 w-3.5" />

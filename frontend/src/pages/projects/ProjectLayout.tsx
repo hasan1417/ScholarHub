@@ -265,15 +265,15 @@ const ProjectLayout = () => {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <div className="h-28 w-full animate-pulse rounded-2xl bg-white shadow-sm" />
-        <div className="h-64 w-full animate-pulse rounded-2xl bg-white shadow-sm" />
+        <div className="h-28 w-full animate-pulse rounded-xl bg-white shadow-sm" />
+        <div className="h-64 w-full animate-pulse rounded-xl bg-white shadow-sm" />
       </div>
     )
   }
 
   if (isError || !project) {
     return (
-      <div className="max-w-xl rounded-2xl border border-red-200 bg-red-50 p-8 text-sm text-red-700">
+      <div className="max-w-xl rounded-xl border border-red-200 bg-red-50 p-8 text-sm text-red-700">
         <h2 className="text-base font-semibold">Project unavailable</h2>
         <p className="mt-2">
           We couldn&apos;t load that project. It may have been removed or you may no longer have access.
@@ -301,7 +301,7 @@ const ProjectLayout = () => {
   return (
     <div className="space-y-8">
       {!hideProjectChrome && (
-      <div className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800">
+      <div className="rounded-xl border border-gray-200 bg-white p-4 sm:p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800">
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <button
             type="button"

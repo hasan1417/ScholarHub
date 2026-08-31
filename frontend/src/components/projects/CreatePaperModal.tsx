@@ -138,7 +138,7 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
   return (
     <>
     <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl dark:shadow-slate-900/50 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl dark:shadow-slate-900/50 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-gray-200 dark:border-slate-700">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold text-gray-900 dark:text-slate-100">Create New Research Paper</h2>
@@ -165,7 +165,7 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
               id="title"
               value={formData.title}
               onChange={(e) => handleInputChange('title', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-slate-700 dark:text-slate-100 ${
+              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-slate-700 dark:text-slate-100 ${
                 errors.title || duplicateTitle ? 'border-red-500' : 'border-gray-300 dark:border-slate-600'
               }`}
               placeholder="Enter paper title"
@@ -207,7 +207,7 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
                 )
               })}
             </div>
-            <div className="mt-3 rounded-lg border border-dashed border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/50 p-3">
+            <div className="mt-3 rounded-xl border border-dashed border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/50 p-3">
               <p className="text-xs font-semibold uppercase text-gray-500 dark:text-slate-400">Template sections</p>
               <ul className="mt-1 list-disc pl-5 text-xs text-gray-700 dark:text-slate-300">
                 {selectedTemplateDefinition.sections.map((section) => (
@@ -227,7 +227,7 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
               value={formData.abstract}
               onChange={(e) => handleInputChange('abstract', e.target.value)}
               rows={4}
-              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-slate-700 dark:text-slate-100 ${
+              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-slate-700 dark:text-slate-100 ${
                 errors.abstract ? 'border-red-500' : 'border-gray-300 dark:border-slate-600'
               }`}
               placeholder="Enter paper abstract (optional)"
@@ -281,7 +281,7 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
               id="keywords"
               value={formData.keywords}
               onChange={(e) => handleInputChange('keywords', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-slate-700 dark:text-slate-100"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-slate-700 dark:text-slate-100"
               placeholder="Enter keywords separated by commas"
             />
             <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
@@ -298,7 +298,7 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
               id="is_public"
               checked={formData.is_public}
               onChange={(e) => handleInputChange('is_public', e.target.checked)}
-              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-slate-600 rounded"
+              className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 dark:border-slate-600 rounded"
             />
             <label htmlFor="is_public" className="ml-2 block text-sm text-gray-700 dark:text-slate-300">
               Make this paper public (visible to other users)
@@ -310,7 +310,7 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-slate-200 bg-white dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded-md hover:bg-gray-50 dark:hover:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-slate-200 bg-white dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded-md hover:bg-gray-50 dark:hover:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
               disabled={isLoading}
             >
               Cancel
@@ -318,7 +318,7 @@ const CreatePaperModal: React.FC<CreatePaperModalProps> = ({
             <button
               type="submit"
               disabled={isLoading || duplicateTitle || !normalizePaperTitle(formData.title)}
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+              className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 border border-transparent rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
             >
               {isLoading ? 'Creating...' : 'Create Paper'}
             </button>

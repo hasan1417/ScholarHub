@@ -59,7 +59,7 @@ const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({ annotations, onNo
             title={ann.content || 'Note'}
           >
             <div
-              className="flex h-6 w-6 items-center justify-center rounded-full shadow-md border border-white/50 transition-transform group-hover:scale-110"
+              className="flex h-6 w-6 items-center justify-center rounded-full shadow-lg border border-white/50 transition-transform group-hover:scale-110"
               style={{ backgroundColor: ann.color }}
             >
               <StickyNote className="h-3.5 w-3.5 text-white" />
@@ -71,7 +71,7 @@ const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({ annotations, onNo
       return (ann.position_data?.rects ?? []).map((r, i) => (
         <div
           key={`${ann.id}-${i}`}
-          className="absolute rounded-sm pointer-events-auto"
+          className="absolute rounded-md pointer-events-auto"
           style={{
             left: `${r.x}%`,
             top: `${r.y}%`,
@@ -102,7 +102,7 @@ const SelectionToolbar: React.FC<SelectionToolbarProps> = ({
   onHighlightWithNote,
 }) => (
   <div
-    className="absolute z-20 flex items-center gap-1 rounded-lg border border-gray-200 bg-white p-1 shadow-lg dark:border-slate-600 dark:bg-slate-800"
+    className="absolute z-20 flex items-center gap-1 rounded-xl border border-gray-200 bg-white p-1 shadow-lg dark:border-slate-600 dark:bg-slate-800"
     style={{ left: position.x, top: position.y }}
     onMouseDown={(e) => e.preventDefault()}
   >
@@ -469,16 +469,16 @@ const PdfAnnotationViewer: React.FC<PdfAnnotationViewerProps> = ({
         {/* Toolbar */}
         <div className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-2 dark:border-slate-700 dark:bg-slate-900">
           <div className="flex items-center gap-3">
-            <button onClick={onClose} className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-800" title="Close">
+            <button onClick={onClose} className="rounded-xl p-2 text-gray-500 transition-colors hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-800" title="Close">
               <X className="h-5 w-5" />
             </button>
             <div className="h-5 w-px bg-gray-200 dark:bg-slate-700" />
-            <FileText className="h-5 w-5 text-gray-400 dark:text-slate-500" />
+            <FileText className="h-5 w-5 text-gray-400 dark:text-slate-400" />
             <span className="text-sm font-medium text-gray-700 dark:text-slate-300">
               PDF Annotations
             </span>
             {numPages > 0 && (
-              <span className="text-xs text-gray-400 dark:text-slate-500">
+              <span className="text-xs text-gray-400 dark:text-slate-400">
                 Page {currentPage} / {numPages}
               </span>
             )}
@@ -486,7 +486,7 @@ const PdfAnnotationViewer: React.FC<PdfAnnotationViewerProps> = ({
 
           <div className="flex items-center gap-2">
             {/* Zoom controls */}
-            <div className="flex items-center gap-1 rounded-lg border border-gray-200 dark:border-slate-600">
+            <div className="flex items-center gap-1 rounded-xl border border-gray-200 dark:border-slate-600">
               <button onClick={zoomOut} className="p-1.5 text-gray-500 hover:bg-gray-50 dark:text-slate-400 dark:hover:bg-slate-800" title="Zoom out">
                 <Minus className="h-3.5 w-3.5" />
               </button>
@@ -504,14 +504,14 @@ const PdfAnnotationViewer: React.FC<PdfAnnotationViewerProps> = ({
             <div className="relative">
               <button
                 onClick={() => setShowColorPicker(!showColorPicker)}
-                className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm transition-colors hover:bg-gray-50 dark:border-slate-600 dark:hover:bg-slate-800"
+                className="flex items-center gap-1.5 rounded-xl border border-gray-200 px-2.5 py-1.5 text-sm transition-colors hover:bg-gray-50 dark:border-slate-600 dark:hover:bg-slate-800"
                 title="Highlight color"
               >
                 <div className="h-4 w-4 rounded-full border border-gray-300 dark:border-slate-500" style={{ backgroundColor: activeColor }} />
                 <Palette className="h-3.5 w-3.5 text-gray-500 dark:text-slate-400" />
               </button>
               {showColorPicker && (
-                <div className="absolute right-0 top-full z-10 mt-1 rounded-lg border border-gray-200 bg-white p-2 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                <div className="absolute right-0 top-full z-10 mt-1 rounded-xl border border-gray-200 bg-white p-2 shadow-lg dark:border-slate-700 dark:bg-slate-800">
                   <div className="flex gap-1.5">
                     {HIGHLIGHT_COLORS.map((c) => (
                       <button
@@ -530,7 +530,7 @@ const PdfAnnotationViewer: React.FC<PdfAnnotationViewerProps> = ({
             {/* Add note mode toggle */}
             <button
               onClick={() => { setIsCreatingNote(!isCreatingNote); if (isCreatingNote) setNotePrompt(null) }}
-              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm transition-colors ${
+              className={`flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-sm transition-colors ${
                 isCreatingNote
                   ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-500 dark:bg-indigo-500/10 dark:text-indigo-300'
                   : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800'
@@ -546,7 +546,7 @@ const PdfAnnotationViewer: React.FC<PdfAnnotationViewerProps> = ({
             {/* Toggle sidebar */}
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-800"
+              className="rounded-xl p-2 text-gray-500 transition-colors hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-800"
               title={sidebarOpen ? 'Hide annotations panel' : 'Show annotations panel'}
             >
               {sidebarOpen ? <PanelRightClose className="h-5 w-5" /> : <PanelRightOpen className="h-5 w-5" />}
@@ -642,7 +642,7 @@ const PdfAnnotationViewer: React.FC<PdfAnnotationViewerProps> = ({
                         style={{ left: `${notePrompt.position.x}%`, top: `${notePrompt.position.y}%` }}
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <div className="flex flex-col gap-1 rounded-lg border border-gray-200 bg-white p-2 shadow-lg dark:border-slate-600 dark:bg-slate-800" style={{ width: 220 }}>
+                        <div className="flex flex-col gap-1 rounded-xl border border-gray-200 bg-white p-2 shadow-lg dark:border-slate-600 dark:bg-slate-800" style={{ width: 220 }}>
                           <textarea
                             value={noteText}
                             onChange={(e) => setNoteText(e.target.value)}
@@ -654,14 +654,14 @@ const PdfAnnotationViewer: React.FC<PdfAnnotationViewerProps> = ({
                           <div className="flex gap-1 justify-end">
                             <button
                               onClick={() => { setNotePrompt(null); setNoteText('') }}
-                              className="rounded px-2 py-1 text-[10px] text-gray-500 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-700"
+                              className="rounded px-2 py-1 text-2xs text-gray-500 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-700"
                             >
                               Cancel
                             </button>
                             <button
                               onClick={handleSaveNote}
                               disabled={!noteText.trim()}
-                              className="rounded bg-indigo-600 px-2 py-1 text-[10px] font-medium text-white hover:bg-indigo-700 disabled:opacity-50 dark:bg-indigo-500"
+                              className="rounded bg-indigo-600 px-2 py-1 text-2xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50 dark:bg-indigo-500"
                             >
                               Save
                             </button>
@@ -708,7 +708,7 @@ const PdfAnnotationViewer: React.FC<PdfAnnotationViewerProps> = ({
               <div className="px-4 py-12 text-center">
                 <StickyNote className="mx-auto h-8 w-8 text-gray-300 dark:text-slate-600" />
                 <p className="mt-2 text-sm text-gray-500 dark:text-slate-400">No annotations yet</p>
-                <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">
+                <p className="mt-1 text-xs text-gray-400 dark:text-slate-400">
                   Select text on the PDF to highlight, or use &quot;Add Note&quot; mode
                 </p>
               </div>
@@ -733,10 +733,10 @@ const PdfAnnotationViewer: React.FC<PdfAnnotationViewerProps> = ({
                           <div className="mt-1 h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: ann.color }} />
                           <div className="min-w-0 flex-1">
                             <div className="mb-1 flex items-center gap-2">
-                              <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-600 dark:bg-slate-700 dark:text-slate-300">
+                              <span className="rounded bg-gray-100 px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wide text-gray-600 dark:bg-slate-700 dark:text-slate-300">
                                 {ann.type}
                               </span>
-                              <span className="text-[10px] text-gray-400 dark:text-slate-500">
+                              <span className="text-2xs text-gray-400 dark:text-slate-400">
                                 p.{ann.page_number + 1}
                               </span>
                             </div>
@@ -766,13 +766,13 @@ const PdfAnnotationViewer: React.FC<PdfAnnotationViewerProps> = ({
                                 <div className="mt-1.5 flex gap-1">
                                   <button
                                     onClick={(e) => { e.stopPropagation(); handleUpdateAnnotation(ann.id) }}
-                                    className="rounded bg-indigo-600 px-2 py-1 text-[10px] font-medium text-white hover:bg-indigo-700 dark:bg-indigo-500"
+                                    className="rounded bg-indigo-600 px-2 py-1 text-2xs font-medium text-white hover:bg-indigo-700 dark:bg-indigo-500"
                                   >
                                     Save
                                   </button>
                                   <button
                                     onClick={(e) => { e.stopPropagation(); setEditingAnnotationId(null) }}
-                                    className="rounded px-2 py-1 text-[10px] text-gray-500 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-700"
+                                    className="rounded px-2 py-1 text-2xs text-gray-500 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-700"
                                   >
                                     Cancel
                                   </button>
@@ -784,7 +784,7 @@ const PdfAnnotationViewer: React.FC<PdfAnnotationViewerProps> = ({
                               </p>
                             ) : null}
 
-                            <p className="mt-1 text-[10px] text-gray-400 dark:text-slate-500">
+                            <p className="mt-1 text-2xs text-gray-400 dark:text-slate-400">
                               {new Date(ann.created_at).toLocaleDateString(undefined, {
                                 month: 'short',
                                 day: 'numeric',
@@ -797,14 +797,14 @@ const PdfAnnotationViewer: React.FC<PdfAnnotationViewerProps> = ({
                           <div className="flex flex-shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
                             <button
                               onClick={(e) => { e.stopPropagation(); setEditingAnnotationId(ann.id); setEditContent(ann.content || '') }}
-                              className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-slate-300"
+                              className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-300"
                               title="Edit note"
                             >
                               <MessageSquare className="h-3.5 w-3.5" />
                             </button>
                             <button
                               onClick={(e) => { e.stopPropagation(); handleDeleteAnnotation(ann.id) }}
-                              className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:text-slate-500 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+                              className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:text-slate-400 dark:hover:bg-red-500/10 dark:hover:text-red-400"
                               title="Delete"
                             >
                               <Trash2 className="h-3.5 w-3.5" />

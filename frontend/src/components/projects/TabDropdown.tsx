@@ -108,7 +108,7 @@ const TabDropdown: React.FC<TabDropdownProps> = ({ label, icon: Icon, items, pro
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div className="absolute left-0 top-full mt-1 min-w-[200px] rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 py-1 shadow-lg dark:shadow-slate-900/50 z-50">
+        <div className="absolute left-0 top-full mt-1 min-w-[200px] rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 py-1 shadow-lg dark:shadow-slate-900/50 z-50">
           {items.map((item) => {
             const ItemIcon = item.icon
             const isActive = location.pathname.includes(item.path)

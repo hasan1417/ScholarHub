@@ -81,7 +81,7 @@ export const Logo = ({
     <div className={`flex items-center gap-2 ${className}`}>
       <LogoIcon className={iconClassName} variant="gradient" />
       {showText && (
-        <span className={`bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-300 bg-clip-text text-transparent ${textClassName}`}>
+        <span className={`bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-slate-300 bg-clip-text text-transparent ${textClassName}`}>
           ScholarHub
         </span>
       )}

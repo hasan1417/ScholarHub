@@ -285,8 +285,8 @@ export function ReferenceSearchResults({
 
   if (isSearching) {
     return (
-      <div className="mt-3 border border-gray-200 dark:border-slate-700/60 rounded-lg p-4 bg-gray-50/50 dark:bg-slate-800/40">
-        <div className="flex items-center justify-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+      <div className="mt-3 border border-gray-200 dark:border-slate-700/60 rounded-xl p-4 bg-gray-50/50 dark:bg-slate-800/40">
+        <div className="flex items-center justify-center gap-2 text-sm text-gray-500 dark:text-slate-400">
           <Loader2 className="h-4 w-4 animate-spin" />
           <span>Searching for papers about "{query}"...</span>
         </div>
@@ -296,9 +296,9 @@ export function ReferenceSearchResults({
 
   if (papers.length === 0) {
     return (
-      <div className="mt-3 border border-gray-200 dark:border-slate-700/60 rounded-lg p-4 bg-gray-50/50 dark:bg-slate-800/40">
+      <div className="mt-3 border border-gray-200 dark:border-slate-700/60 rounded-xl p-4 bg-gray-50/50 dark:bg-slate-800/40">
         <div className="flex items-center justify-between mb-2">
-          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
+          <h4 className="text-sm font-medium text-gray-700 dark:text-slate-300 flex items-center gap-2">
             <Search className="h-4 w-4" />
             Search Results
           </h4>
@@ -311,7 +311,7 @@ export function ReferenceSearchResults({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-slate-400">
           <AlertCircle className="h-4 w-4" />
           <span>No papers found for "{query}". Try a different search term.</span>
         </div>
@@ -330,13 +330,13 @@ export function ReferenceSearchResults({
   const failedCount = Object.values(ingestionStates).filter(s => s.status === 'failed').length
 
   return (
-    <div className="mt-3 border border-gray-200 dark:border-slate-700/60 rounded-lg p-3 bg-gray-50/50 dark:bg-slate-800/40">
+    <div className="mt-3 border border-gray-200 dark:border-slate-700/60 rounded-xl p-3 bg-gray-50/50 dark:bg-slate-800/40">
       <div className="flex items-center justify-between mb-3">
-        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
+        <h4 className="text-sm font-medium text-gray-700 dark:text-slate-300 flex items-center gap-2">
           <Search className="h-4 w-4" />
           Found {visiblePapers.length} papers for "{query}"
           {addedCount > 0 && (
-            <span className="text-xs font-normal text-gray-500 dark:text-gray-400">
+            <span className="text-xs font-normal text-gray-500 dark:text-slate-400">
               ({successCount} with full text{failedCount > 0 && `, ${failedCount} need PDF`})
             </span>
           )}
@@ -366,8 +366,8 @@ export function ReferenceSearchResults({
           />
         ))}
       </div>
-      <div className="mt-3 pt-2 border-t border-gray-200 dark:border-gray-700">
-        <p className="text-[10px] text-gray-400 dark:text-gray-500">
+      <div className="mt-3 pt-2 border-t border-gray-200 dark:border-slate-700">
+        <p className="text-2xs text-gray-400 dark:text-slate-400">
           Click "Add" to add a paper to your project references. Papers marked "PDF failed" can have PDFs uploaded manually.
         </p>
       </div>

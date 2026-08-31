@@ -28,7 +28,7 @@ const formatIcon = (format: string) => {
     case 'latex':
       return <FileCode className="h-4 w-4 text-green-500" />
     case 'markdown':
-      return <FileText className="h-4 w-4 text-blue-500" />
+      return <FileText className="h-4 w-4 text-indigo-500" />
     default:
       return <File className="h-4 w-4 text-gray-500" />
   }
@@ -126,7 +126,7 @@ export default function ChannelArtifactsPanel({ projectId, channelId, refreshKey
         <p className="mt-2 text-sm text-gray-500 dark:text-slate-400">
           No artifacts yet
         </p>
-        <p className="mt-1 text-xs text-gray-400 dark:text-slate-500">
+        <p className="mt-1 text-xs text-gray-400 dark:text-slate-400">
           Ask the AI to generate downloadable content
         </p>
       </div>
@@ -138,7 +138,7 @@ export default function ChannelArtifactsPanel({ projectId, channelId, refreshKey
       {artifacts.map((artifact) => (
         <div
           key={artifact.id}
-          className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors"
+          className="flex items-center justify-between rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors"
         >
           <div className="flex items-center gap-3 min-w-0 flex-1">
             {formatIcon(artifact.format)}

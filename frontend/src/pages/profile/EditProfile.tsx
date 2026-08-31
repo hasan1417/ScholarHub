@@ -286,10 +286,10 @@ const EditProfile = () => {
               <img
                 src={avatarUrl}
                 alt="Profile"
-                className="h-24 w-24 rounded-full object-cover shadow-lg ring-4 ring-white dark:ring-gray-800"
+                className="h-24 w-24 rounded-full object-cover shadow-lg ring-4 ring-white dark:ring-slate-800"
               />
             ) : (
-              <div className="h-24 w-24 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-3xl font-semibold shadow-lg ring-4 ring-white dark:ring-gray-800">
+              <div className="h-24 w-24 rounded-full bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center text-white text-3xl font-semibold shadow-lg ring-4 ring-white dark:ring-slate-800">
                 {getInitials()}
               </div>
             )}
@@ -311,7 +311,7 @@ const EditProfile = () => {
             </div>
 
             {/* Verified badge */}
-            <div className="absolute -bottom-1 -right-1 h-7 w-7 rounded-full bg-emerald-500 border-3 border-white dark:border-gray-800 flex items-center justify-center shadow-sm">
+            <div className="absolute -bottom-1 -right-1 h-7 w-7 rounded-full bg-emerald-500 border-3 border-white dark:border-slate-800 flex items-center justify-center shadow-sm">
               <CheckCircle className="h-4 w-4 text-white" />
             </div>
 
@@ -326,12 +326,12 @@ const EditProfile = () => {
           </div>
 
           <div className="flex-1">
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">
               {formData.first_name || formData.last_name
                 ? `${formData.first_name} ${formData.last_name}`.trim()
                 : 'Your Profile'}
             </h1>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
               Manage your account settings and preferences
             </p>
 
@@ -348,7 +348,7 @@ const EditProfile = () => {
               </button>
               {avatarUrl && (
                 <>
-                  <span className="text-gray-300 dark:text-gray-600">|</span>
+                  <span className="text-gray-300 dark:text-slate-600">|</span>
                   <button
                     type="button"
                     onClick={handleAvatarDelete}
@@ -367,14 +367,14 @@ const EditProfile = () => {
 
       {/* Messages */}
       {message && (
-        <div className="mb-6 flex items-center gap-2 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 px-4 py-3 rounded-lg">
+        <div className="mb-6 flex items-center gap-2 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 px-4 py-3 rounded-xl">
           <CheckCircle className="h-5 w-5 flex-shrink-0" />
           <span>{message}</span>
         </div>
       )}
 
       {error && (
-        <div className="mb-6 flex items-center gap-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 px-4 py-3 rounded-lg">
+        <div className="mb-6 flex items-center gap-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 px-4 py-3 rounded-xl">
           <AlertCircle className="h-5 w-5 flex-shrink-0" />
           <span>{error}</span>
         </div>
@@ -384,15 +384,15 @@ const EditProfile = () => {
         {/* Left Column - Profile & Password */}
         <div className="lg:col-span-2 space-y-6">
           {/* Profile Information Form */}
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 dark:border-slate-700 bg-gray-50/50 dark:bg-slate-800/50">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-900/30">
+                <div className="p-2 rounded-xl bg-indigo-100 dark:bg-indigo-900/30">
                   <User className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
                 </div>
                 <div>
-                  <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Profile Information</h2>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Update your personal details</p>
+                  <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">Profile Information</h2>
+                  <p className="text-xs text-gray-500 dark:text-slate-400">Update your personal details</p>
                 </div>
               </div>
             </div>
@@ -400,7 +400,7 @@ const EditProfile = () => {
             <form onSubmit={handleProfileUpdate} className="p-6 space-y-5">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="first_name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                  <label htmlFor="first_name" className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">
                     First Name
                   </label>
                   <input
@@ -408,13 +408,13 @@ const EditProfile = () => {
                     type="text"
                     value={formData.first_name}
                     onChange={(e) => setFormData(prev => ({ ...prev, first_name: e.target.value }))}
-                    className="w-full px-3.5 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                    className="w-full px-3.5 py-2.5 border border-gray-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                     placeholder="Enter your first name"
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="last_name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                  <label htmlFor="last_name" className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">
                     Last Name
                   </label>
                   <input
@@ -422,14 +422,14 @@ const EditProfile = () => {
                     type="text"
                     value={formData.last_name}
                     onChange={(e) => setFormData(prev => ({ ...prev, last_name: e.target.value }))}
-                    className="w-full px-3.5 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                    className="w-full px-3.5 py-2.5 border border-gray-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                     placeholder="Enter your last name"
                   />
                 </div>
               </div>
 
               <div>
-                <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">
                   Email Address
                 </label>
                 <div className="relative">
@@ -439,10 +439,10 @@ const EditProfile = () => {
                     type="email"
                     value={user.email}
                     disabled
-                    className="w-full pl-10 pr-3.5 py-2.5 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900/50 text-gray-500 dark:text-gray-400 cursor-not-allowed"
+                    className="w-full pl-10 pr-3.5 py-2.5 border border-gray-200 dark:border-slate-700 rounded-xl bg-gray-50 dark:bg-slate-900/50 text-gray-500 dark:text-slate-400 cursor-not-allowed"
                   />
                 </div>
-                <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                <p className="mt-1.5 text-xs text-gray-500 dark:text-slate-400 flex items-center gap-1">
                   <Lock className="h-3 w-3" />
                   Email cannot be changed
                 </p>
@@ -452,7 +452,7 @@ const EditProfile = () => {
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-medium py-2.5 px-5 rounded-lg transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                  className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-medium py-2.5 px-5 rounded-xl transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
                 >
                   {isLoading ? (
                     <>
@@ -471,22 +471,22 @@ const EditProfile = () => {
           </div>
 
           {/* Password Change Form */}
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 dark:border-slate-700 bg-gray-50/50 dark:bg-slate-800/50">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-amber-100 dark:bg-amber-900/30">
+                <div className="p-2 rounded-xl bg-amber-100 dark:bg-amber-900/30">
                   <Key className="h-5 w-5 text-amber-600 dark:text-amber-400" />
                 </div>
                 <div>
-                  <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Security</h2>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Update your password</p>
+                  <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">Security</h2>
+                  <p className="text-xs text-gray-500 dark:text-slate-400">Update your password</p>
                 </div>
               </div>
             </div>
 
             <form onSubmit={handlePasswordChange} className="p-6 space-y-5">
               <div>
-                <label htmlFor="current_password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                <label htmlFor="current_password" className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">
                   Current Password
                 </label>
                 <div className="relative">
@@ -496,7 +496,7 @@ const EditProfile = () => {
                     type={showCurrentPassword ? 'text' : 'password'}
                     value={passwordData.current_password}
                     onChange={(e) => setPasswordData(prev => ({ ...prev, current_password: e.target.value }))}
-                    className="w-full pl-10 pr-10 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                    className="w-full pl-10 pr-10 py-2.5 border border-gray-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                     placeholder="Enter current password"
                     required
                   />
@@ -511,7 +511,7 @@ const EditProfile = () => {
               </div>
 
               <div>
-                <label htmlFor="new_password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                <label htmlFor="new_password" className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">
                   New Password
                 </label>
                 <div className="relative">
@@ -521,7 +521,7 @@ const EditProfile = () => {
                     type={showNewPassword ? 'text' : 'password'}
                     value={passwordData.new_password}
                     onChange={(e) => setPasswordData(prev => ({ ...prev, new_password: e.target.value }))}
-                    className="w-full pl-10 pr-10 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                    className="w-full pl-10 pr-10 py-2.5 border border-gray-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                     placeholder="Enter new password"
                     required
                   />
@@ -544,7 +544,7 @@ const EditProfile = () => {
                           className={`h-1 flex-1 rounded-full transition-colors ${
                             level <= passwordStrength.score
                               ? passwordStrength.color
-                              : 'bg-gray-200 dark:bg-gray-700'
+                              : 'bg-gray-200 dark:bg-slate-700'
                           }`}
                         />
                       ))}
@@ -561,7 +561,7 @@ const EditProfile = () => {
               </div>
 
               <div>
-                <label htmlFor="confirm_password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                <label htmlFor="confirm_password" className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">
                   Confirm New Password
                 </label>
                 <div className="relative">
@@ -571,12 +571,12 @@ const EditProfile = () => {
                     type={showConfirmPassword ? 'text' : 'password'}
                     value={passwordData.confirm_password}
                     onChange={(e) => setPasswordData(prev => ({ ...prev, confirm_password: e.target.value }))}
-                    className={`w-full pl-10 pr-10 py-2.5 border rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all ${
+                    className={`w-full pl-10 pr-10 py-2.5 border rounded-xl bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all ${
                       passwordData.confirm_password && passwordData.confirm_password !== passwordData.new_password
                         ? 'border-red-300 dark:border-red-600'
                         : passwordData.confirm_password && passwordData.confirm_password === passwordData.new_password
                         ? 'border-emerald-300 dark:border-emerald-600'
-                        : 'border-gray-300 dark:border-gray-600'
+                        : 'border-gray-300 dark:border-slate-600'
                     }`}
                     placeholder="Confirm new password"
                     required
@@ -604,7 +604,7 @@ const EditProfile = () => {
                 <button
                   type="submit"
                   disabled={isPasswordLoading || !passwordData.current_password || !passwordData.new_password || passwordData.new_password !== passwordData.confirm_password}
-                  className="inline-flex items-center gap-2 bg-amber-600 hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600 text-white font-medium py-2.5 px-5 rounded-lg transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                  className="inline-flex items-center gap-2 bg-amber-600 hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600 text-white font-medium py-2.5 px-5 rounded-xl transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
                 >
                   {isPasswordLoading ? (
                     <>
@@ -627,15 +627,15 @@ const EditProfile = () => {
         {/* Right Column - Account Info */}
         <div className="space-y-6">
           {/* Account Information */}
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 dark:border-slate-700 bg-gray-50/50 dark:bg-slate-800/50">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
-                  <Info className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                <div className="p-2 rounded-xl bg-indigo-100 dark:bg-indigo-900/30">
+                  <Info className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
                 </div>
                 <div>
-                  <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Account</h2>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Account details</p>
+                  <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">Account</h2>
+                  <p className="text-xs text-gray-500 dark:text-slate-400">Account details</p>
                 </div>
               </div>
             </div>
@@ -644,9 +644,9 @@ const EditProfile = () => {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <Calendar className="h-4 w-4 text-gray-400" />
-                  <span className="text-sm text-gray-600 dark:text-gray-400">Created</span>
+                  <span className="text-sm text-gray-600 dark:text-slate-400">Created</span>
                 </div>
-                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                <span className="text-sm font-medium text-gray-900 dark:text-slate-100">
                   {new Date(user.created_at).toLocaleDateString('en-US', {
                     month: 'short',
                     day: 'numeric',
@@ -655,14 +655,14 @@ const EditProfile = () => {
                 </span>
               </div>
 
-              <div className="h-px bg-gray-100 dark:bg-gray-700" />
+              <div className="h-px bg-gray-100 dark:bg-slate-700" />
 
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <Calendar className="h-4 w-4 text-gray-400" />
-                  <span className="text-sm text-gray-600 dark:text-gray-400">Updated</span>
+                  <span className="text-sm text-gray-600 dark:text-slate-400">Updated</span>
                 </div>
-                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                <span className="text-sm font-medium text-gray-900 dark:text-slate-100">
                   {new Date(user.updated_at).toLocaleDateString('en-US', {
                     month: 'short',
                     day: 'numeric',
@@ -671,12 +671,12 @@ const EditProfile = () => {
                 </span>
               </div>
 
-              <div className="h-px bg-gray-100 dark:bg-gray-700" />
+              <div className="h-px bg-gray-100 dark:bg-slate-700" />
 
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <UserCircle className="h-4 w-4 text-gray-400" />
-                  <span className="text-sm text-gray-600 dark:text-gray-400">Status</span>
+                  <span className="text-sm text-gray-600 dark:text-slate-400">Status</span>
                 </div>
                 <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
                   user.is_active
@@ -691,7 +691,7 @@ const EditProfile = () => {
           </div>
 
           {/* Quick Stats */}
-          <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl shadow-sm p-6 text-white">
+          <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-xl shadow-sm p-6 text-white">
             <h3 className="text-sm font-medium text-indigo-100 mb-4">Account Summary</h3>
             <div className="space-y-3">
               <div className="flex items-center justify-between">
@@ -711,15 +711,15 @@ const EditProfile = () => {
           </div>
 
           {/* Integrations */}
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 dark:border-slate-700 bg-gray-50/50 dark:bg-slate-800/50">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-900/30">
+                <div className="p-2 rounded-xl bg-emerald-100 dark:bg-emerald-900/30">
                   <Plug className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
                 </div>
                 <div>
-                  <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Integrations</h2>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Connect external services</p>
+                  <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">Integrations</h2>
+                  <p className="text-xs text-gray-500 dark:text-slate-400">Connect external services</p>
                 </div>
               </div>
             </div>
@@ -728,7 +728,7 @@ const EditProfile = () => {
               {/* OpenRouter */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">OpenRouter</label>
+                  <label className="text-sm font-medium text-gray-700 dark:text-slate-300">OpenRouter</label>
                   {openRouterKeyConfigured && (
                     <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                       <CheckCircle className="h-3 w-3" />
@@ -742,7 +742,7 @@ const EditProfile = () => {
                     value={openRouterKey}
                     onChange={(e) => setOpenRouterKey(e.target.value)}
                     placeholder={openRouterKeyMasked || 'sk-or-...'}
-                    className="w-full px-3 py-2 pr-9 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                    className="w-full px-3 py-2 pr-9 border border-gray-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                   />
                   <button
                     type="button"
@@ -775,7 +775,7 @@ const EditProfile = () => {
                           }
                         }}
                         disabled={savingApiKey}
-                        className="inline-flex items-center gap-1 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white font-medium py-1.5 px-3 rounded-lg text-xs transition-colors"
+                        className="inline-flex items-center gap-1 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white font-medium py-1.5 px-3 rounded-xl text-xs transition-colors"
                       >
                         Remove
                       </button>
@@ -784,7 +784,7 @@ const EditProfile = () => {
                       type="button"
                       onClick={handleSaveOpenRouterKey}
                       disabled={savingApiKey}
-                      className="inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-medium py-1.5 px-3 rounded-lg text-xs transition-colors"
+                      className="inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-medium py-1.5 px-3 rounded-xl text-xs transition-colors"
                     >
                       {savingApiKey ? <Loader2 className="h-3 w-3 animate-spin" /> : apiKeySaved ? <Check className="h-3 w-3" /> : null}
                       {savingApiKey ? 'Validating...' : apiKeySaved ? 'Saved' : 'Save'}
@@ -793,12 +793,12 @@ const EditProfile = () => {
                 </div>
               </div>
 
-              <div className="h-px bg-gray-100 dark:bg-gray-700" />
+              <div className="h-px bg-gray-100 dark:bg-slate-700" />
 
               {/* Zotero */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Zotero</label>
+                  <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Zotero</label>
                   {zoteroConfigured && (
                     <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                       <CheckCircle className="h-3 w-3" />
@@ -812,14 +812,14 @@ const EditProfile = () => {
                     value={zoteroApiKey}
                     onChange={(e) => setZoteroApiKey(e.target.value)}
                     placeholder={zoteroMaskedKey || 'API key'}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                   />
                   <input
                     type="text"
                     value={zoteroUserId}
                     onChange={(e) => setZoteroUserId(e.target.value)}
                     placeholder="User ID (numeric)"
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                   />
                 </div>
                 <div className="mt-2 flex items-center justify-between">
@@ -846,7 +846,7 @@ const EditProfile = () => {
                           }
                         }}
                         disabled={savingZotero}
-                        className="inline-flex items-center gap-1 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white font-medium py-1.5 px-3 rounded-lg text-xs transition-colors"
+                        className="inline-flex items-center gap-1 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white font-medium py-1.5 px-3 rounded-xl text-xs transition-colors"
                       >
                         Remove
                       </button>
@@ -855,7 +855,7 @@ const EditProfile = () => {
                       type="button"
                       onClick={handleSaveZoteroKey}
                       disabled={savingZotero || (!zoteroApiKey && !zoteroUserId)}
-                      className="inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-medium py-1.5 px-3 rounded-lg text-xs transition-colors"
+                      className="inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-medium py-1.5 px-3 rounded-xl text-xs transition-colors"
                     >
                       {savingZotero ? <Loader2 className="h-3 w-3 animate-spin" /> : zoteroSaved ? <Check className="h-3 w-3" /> : null}
                       {savingZotero ? 'Validating...' : zoteroSaved ? 'Saved' : 'Save'}

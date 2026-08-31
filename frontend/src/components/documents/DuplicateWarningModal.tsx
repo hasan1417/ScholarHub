@@ -45,7 +45,7 @@ const DuplicateWarningModal: React.FC<DuplicateWarningModalProps> = ({
     switch (level) {
       case 'high': return 'text-red-600 bg-red-50 border-red-200'
       case 'medium': return 'text-yellow-600 bg-yellow-50 border-yellow-200'
-      case 'low': return 'text-blue-600 bg-blue-50 border-blue-200'
+      case 'low': return 'text-indigo-600 bg-indigo-50 border-indigo-200'
       default: return 'text-gray-600 bg-gray-50 border-gray-200'
     }
   }
@@ -63,7 +63,7 @@ const DuplicateWarningModal: React.FC<DuplicateWarningModalProps> = ({
         </svg>
       )
       case 'low': return (
-        <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
       )
@@ -79,7 +79,7 @@ const DuplicateWarningModal: React.FC<DuplicateWarningModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-gray-200">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
@@ -99,7 +99,7 @@ const DuplicateWarningModal: React.FC<DuplicateWarningModalProps> = ({
 
         <div className="p-6">
           {/* Warning Message */}
-          <div className={`mb-6 p-4 rounded-lg border ${getWarningColor(warningLevel)}`}>
+          <div className={`mb-6 p-4 rounded-xl border ${getWarningColor(warningLevel)}`}>
             <div className="flex items-start space-x-3">
               {getWarningIcon(warningLevel)}
               <div>
@@ -116,7 +116,7 @@ const DuplicateWarningModal: React.FC<DuplicateWarningModalProps> = ({
 
 
           {/* Recommendations */}
-          <div className="bg-gray-50 rounded-lg p-4 mb-6">
+          <div className="bg-gray-50 rounded-xl p-4 mb-6">
             <h3 className="font-medium text-gray-900 mb-2">Recommendations</h3>
             <ul className="text-sm text-gray-600 space-y-1">
               {warningLevel === 'high' && (
@@ -156,7 +156,7 @@ const DuplicateWarningModal: React.FC<DuplicateWarningModalProps> = ({
                   ? 'bg-red-600 text-white hover:bg-red-700' 
                   : warningLevel === 'medium'
                   ? 'bg-yellow-600 text-white hover:bg-yellow-700'
-                  : 'bg-blue-600 text-white hover:bg-blue-700'
+                  : 'bg-indigo-600 text-white hover:bg-indigo-700'
               }`}
             >
               {warningLevel === 'high' ? 'Upload Anyway (Not Recommended)' :

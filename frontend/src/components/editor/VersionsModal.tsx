@@ -52,7 +52,7 @@ const VersionsModal: React.FC<VersionsModalProps> = ({ paperId, open, onClose, o
 
   return (
     <div className="fixed inset-0 z-50 bg-black bg-opacity-30 flex items-center justify-center" onClick={onClose}>
-      <div className="bg-white w-[720px] max-h-[80vh] rounded-lg shadow-xl overflow-hidden" onClick={e=>e.stopPropagation()}>
+      <div className="bg-white w-[720px] max-h-[80vh] rounded-xl shadow-xl overflow-hidden" onClick={e=>e.stopPropagation()}>
         <div className="px-4 py-3 border-b flex items-center justify-between">
           <div className="text-base font-semibold">Versions</div>
           <button className="text-sm px-2 py-1 border rounded" onClick={onClose}>Close</button>
@@ -63,11 +63,11 @@ const VersionsModal: React.FC<VersionsModalProps> = ({ paperId, open, onClose, o
           <div className="p-2 overflow-auto" style={{ maxHeight: 'calc(80vh - 56px)' }}>
             <div className="flex items-center gap-2 px-1 pb-2">
               <button
-                className={`text-xs px-2 py-1 rounded-md border ${tab === 'commits' ? 'border-blue-500 text-blue-600 bg-blue-50' : 'border-slate-200 text-slate-600'}`}
+                className={`text-xs px-2 py-1 rounded-md border ${tab === 'commits' ? 'border-indigo-500 text-indigo-600 bg-indigo-50' : 'border-gray-200 text-gray-600'}`}
                 onClick={() => setTab('commits')}
               >Saved commits</button>
               <button
-                className={`text-xs px-2 py-1 rounded-md border ${tab === 'autosave' ? 'border-blue-500 text-blue-600 bg-blue-50' : 'border-slate-200 text-slate-600'}`}
+                className={`text-xs px-2 py-1 rounded-md border ${tab === 'autosave' ? 'border-indigo-500 text-indigo-600 bg-indigo-50' : 'border-gray-200 text-gray-600'}`}
                 onClick={() => setTab('autosave')}
               >Autosaves</button>
             </div>
@@ -92,14 +92,14 @@ const VersionsModal: React.FC<VersionsModalProps> = ({ paperId, open, onClose, o
                     <div key={v.id} className="px-3 py-2 flex items-start gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium text-gray-900 truncate">{label}</div>
-                        <div className="text-[11px] text-gray-600">{when}{author ? ` • by ${author}` : ''}{len ? ` • ${len} chars` : ''}</div>
+                        <div className="text-2xs text-gray-600">{when}{author ? ` • by ${author}` : ''}{len ? ` • ${len} chars` : ''}</div>
                         <div className="flex items-center gap-2 mt-1 flex-wrap">
                           {summary && <span className="text-xs text-gray-700">{summary}</span>}
                           {isCurrent && (
-                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">Default</span>
+                            <span className="text-2xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">Default</span>
                           )}
                           {isPending && (
-                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">Awaiting approval</span>
+                            <span className="text-2xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">Awaiting approval</span>
                           )}
                         </div>
                       </div>
@@ -110,7 +110,7 @@ const VersionsModal: React.FC<VersionsModalProps> = ({ paperId, open, onClose, o
                           onClose()
                         }}>Load</button>
                         {!isCurrent && (
-                          <button className="px-2 py-1 text-xs border rounded bg-purple-600 text-white hover:bg-purple-700" onClick={async () => {
+                          <button className="px-2 py-1 text-xs border rounded bg-indigo-600 text-white hover:bg-indigo-700" onClick={async () => {
                             try {
                               await researchPapersAPI.restorePaperVersion(paperId, v.version_number)
                               const resp = await researchPapersAPI.getPaperVersions(paperId)
@@ -138,9 +138,9 @@ const VersionsModal: React.FC<VersionsModalProps> = ({ paperId, open, onClose, o
                   const label = v.version_number || 'Autosave'
                   const len = (v.content_json && v.content_json.latex_source) ? v.content_json.latex_source.length : (v.content || '').length
                   return (
-                    <div key={v.id} className="px-3 py-2 flex items-start gap-3 text-xs text-slate-600">
+                    <div key={v.id} className="px-3 py-2 flex items-start gap-3 text-xs text-gray-600">
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium text-slate-700 truncate">{label}</div>
+                        <div className="font-medium text-gray-700 truncate">{label}</div>
                         <div>{when}{len ? ` • ${len} chars` : ''}</div>
                       </div>
                       <div className="flex items-center gap-2">

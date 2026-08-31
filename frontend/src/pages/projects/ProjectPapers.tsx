@@ -80,7 +80,7 @@ const ProjectPapers = () => {
       case 'draft':
         return 'bg-amber-100 text-amber-700 dark:bg-amber-400/10 dark:text-amber-300'
       case 'in_progress':
-        return 'bg-blue-100 text-blue-700 dark:bg-blue-400/10 dark:text-blue-300'
+        return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-400/10 dark:text-indigo-300'
       case 'completed':
         return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300'
       case 'published':
@@ -137,19 +137,19 @@ const ProjectPapers = () => {
     // Research - blue
     if (type.includes('research')) {
       return {
-        border: 'border-l-blue-500',
-        badge: 'bg-blue-100 text-blue-700 dark:bg-blue-400/10 dark:text-blue-300',
-        icon: 'bg-blue-100 dark:bg-blue-500/20',
-        iconColor: 'text-blue-600 dark:text-blue-400',
+        border: 'border-l-indigo-500',
+        badge: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-400/10 dark:text-indigo-300',
+        icon: 'bg-indigo-100 dark:bg-indigo-500/20',
+        iconColor: 'text-indigo-600 dark:text-indigo-400',
       }
     }
     // Survey - violet
     if (type.includes('survey')) {
       return {
-        border: 'border-l-violet-500',
-        badge: 'bg-violet-100 text-violet-700 dark:bg-violet-400/10 dark:text-violet-300',
-        icon: 'bg-violet-100 dark:bg-violet-500/20',
-        iconColor: 'text-violet-600 dark:text-violet-400',
+        border: 'border-l-indigo-500',
+        badge: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-400/10 dark:text-indigo-300',
+        icon: 'bg-indigo-100 dark:bg-indigo-500/20',
+        iconColor: 'text-indigo-600 dark:text-indigo-400',
       }
     }
     // Case Study - cyan
@@ -171,7 +171,7 @@ const ProjectPapers = () => {
   }
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+    <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <FileText className="h-4 w-4 text-indigo-600" />
@@ -200,7 +200,7 @@ const ProjectPapers = () => {
               placeholder="Search papers..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="h-9 w-full rounded-lg border border-gray-200 bg-gray-50 pl-9 pr-3 text-sm placeholder:text-gray-400 focus:border-indigo-300 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+              className="h-9 w-full rounded-xl border border-gray-200 bg-gray-50 pl-9 pr-3 text-sm placeholder:text-gray-400 focus:border-indigo-300 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
             />
           </div>
 
@@ -209,7 +209,7 @@ const ProjectPapers = () => {
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value as CategoryFilter)}
-              className="h-9 appearance-none rounded-lg border border-gray-200 bg-gray-50 pl-3 pr-8 text-sm font-medium text-gray-700 focus:border-indigo-300 focus:outline-none focus:ring-1 focus:ring-indigo-300 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+              className="h-9 appearance-none rounded-xl border border-gray-200 bg-gray-50 pl-3 pr-8 text-sm font-medium text-gray-700 focus:border-indigo-300 focus:outline-none focus:ring-1 focus:ring-indigo-300 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
             >
               <option value="all">All Categories</option>
               <option value="literature_review">Literature Review</option>
@@ -226,7 +226,7 @@ const ProjectPapers = () => {
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as SortOption)}
-              className="h-9 appearance-none rounded-lg border border-gray-200 bg-gray-50 pl-3 pr-8 text-sm font-medium text-gray-700 focus:border-indigo-300 focus:outline-none focus:ring-1 focus:ring-indigo-300 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+              className="h-9 appearance-none rounded-xl border border-gray-200 bg-gray-50 pl-3 pr-8 text-sm font-medium text-gray-700 focus:border-indigo-300 focus:outline-none focus:ring-1 focus:ring-indigo-300 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
             >
               <option value="newest">Newest First</option>
               <option value="oldest">Oldest First</option>
@@ -246,7 +246,7 @@ const ProjectPapers = () => {
       {isLoading ? (
         <div className="mt-6 space-y-3">
           {Array.from({ length: 3 }).map((_, idx) => (
-            <div key={idx} className="h-20 animate-pulse rounded-lg bg-gray-100 dark:bg-slate-800/60" />
+            <div key={idx} className="h-20 animate-pulse rounded-xl bg-gray-100 dark:bg-slate-800/60" />
           ))}
         </div>
       ) : papers.length === 0 ? (
@@ -273,7 +273,7 @@ const ProjectPapers = () => {
                 className={`group flex items-center gap-4 rounded-xl border border-l-4 border-gray-100 bg-gray-50/50 px-4 py-3.5 transition hover:bg-white hover:shadow-sm dark:border-slate-700 dark:bg-slate-800/50 dark:hover:bg-slate-800 ${categoryStyle.border}`}
               >
                 {/* Icon - color based on category */}
-                <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg ${categoryStyle.icon}`}>
+                <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${categoryStyle.icon}`}>
                   <FileCode className={`h-5 w-5 ${categoryStyle.iconColor}`} />
                 </div>
 
@@ -288,13 +288,13 @@ const ProjectPapers = () => {
                     {/* Metadata row - fixed order: time | category | editor */}
                     <div className="mt-1.5 flex items-center gap-2 text-xs">
                       {/* Time - always first, fixed width */}
-                      <span className="text-gray-400 dark:text-slate-500 w-16 flex-shrink-0">
+                      <span className="text-gray-400 dark:text-slate-400 w-16 flex-shrink-0">
                         {formatRelativeTime(paper.updated_at)}
                       </span>
 
                       {/* Category badge - colored based on type */}
                       {formattedType && (
-                        <span className={`inline-flex rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${categoryStyle.badge}`}>
+                        <span className={`inline-flex rounded px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide ${categoryStyle.badge}`}>
                           {formattedType}
                         </span>
                       )}

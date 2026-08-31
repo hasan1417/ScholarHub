@@ -381,7 +381,7 @@ const CitationGraph: React.FC<Props> = ({ projectId }) => {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center gap-3 rounded-2xl border border-gray-200 bg-white p-12 text-sm text-gray-600 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
+      <div className="flex items-center justify-center gap-3 rounded-xl border border-gray-200 bg-white p-12 text-sm text-gray-600 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
         <Loader2 className="h-5 w-5 animate-spin text-indigo-600 dark:text-indigo-300" />
         Building citation graph...
       </div>
@@ -390,7 +390,7 @@ const CitationGraph: React.FC<Props> = ({ projectId }) => {
 
   if (error) {
     return (
-      <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-8 text-center text-sm text-gray-500 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-400">
+      <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-8 text-center text-sm text-gray-500 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-400">
         Failed to load citation graph. Please try again later.
       </div>
     )
@@ -398,7 +398,7 @@ const CitationGraph: React.FC<Props> = ({ projectId }) => {
 
   if (!data || data.nodes.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-8 text-center text-sm text-gray-500 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-400">
+      <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-8 text-center text-sm text-gray-500 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-400">
         <p className="font-medium text-gray-700 dark:text-slate-200">No citation data available</p>
         <p className="mt-1">Add papers with DOIs to your library to see how they cite each other.</p>
       </div>
@@ -425,7 +425,7 @@ const CitationGraph: React.FC<Props> = ({ projectId }) => {
             <span className="inline-block h-3 w-3 rounded-full" style={{ background: NODE_COLORS.citing.fill }} />
             Newer work that cites them
           </span>
-          <span className="flex items-center gap-1.5 text-gray-400 dark:text-slate-500">
+          <span className="flex items-center gap-1.5 text-gray-400 dark:text-slate-400">
             <svg width="20" height="10"><line x1="0" y1="5" x2="14" y2="5" stroke="currentColor" strokeWidth="1.5" /><polygon points="14,2 20,5 14,8" fill="currentColor" /></svg>
             Cites
           </span>
@@ -433,21 +433,21 @@ const CitationGraph: React.FC<Props> = ({ projectId }) => {
         <div className="flex items-center gap-1">
           <button
             onClick={zoomIn}
-            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+            className="rounded-xl p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-300"
             title="Zoom in"
           >
             <ZoomIn className="h-4 w-4" />
           </button>
           <button
             onClick={zoomOut}
-            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+            className="rounded-xl p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-300"
             title="Zoom out"
           >
             <ZoomOut className="h-4 w-4" />
           </button>
           <button
             onClick={resetView}
-            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+            className="rounded-xl p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-300"
             title="Reset view"
           >
             <Maximize2 className="h-4 w-4" />
@@ -458,7 +458,7 @@ const CitationGraph: React.FC<Props> = ({ projectId }) => {
       {/* Graph */}
       <div
         ref={containerRef}
-        className="relative overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-900/50"
+        className="relative overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-900/50"
         style={{ height: 500 }}
       >
         <svg
@@ -589,7 +589,7 @@ const CitationGraph: React.FC<Props> = ({ projectId }) => {
         {/* Tooltip */}
         {tooltip && (
           <div
-            className="pointer-events-none absolute z-50 max-w-xs rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs shadow-lg dark:border-slate-600 dark:bg-slate-800"
+            className="pointer-events-none absolute z-50 max-w-xs rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs shadow-lg dark:border-slate-600 dark:bg-slate-800"
             style={{
               left: tooltip.x,
               top: tooltip.y,
@@ -602,11 +602,11 @@ const CitationGraph: React.FC<Props> = ({ projectId }) => {
                 {tooltip.node.authors.join(', ')}
               </p>
             )}
-            <div className="mt-1 flex items-center gap-2 text-gray-400 dark:text-slate-500">
+            <div className="mt-1 flex items-center gap-2 text-gray-400 dark:text-slate-400">
               {tooltip.node.year && <span>{tooltip.node.year}</span>}
               {tooltip.node.doi && <span>DOI: {tooltip.node.doi}</span>}
               <span
-                className="rounded px-1 py-0.5 text-[10px] font-medium"
+                className="rounded px-1 py-0.5 text-2xs font-medium"
                 style={{
                   background:
                     tooltip.node.type === 'library'
@@ -636,7 +636,7 @@ const CitationGraph: React.FC<Props> = ({ projectId }) => {
         )}
 
         {/* Node count badge */}
-        <div className="absolute bottom-3 left-3 rounded-full border border-gray-200 bg-white/90 px-2.5 py-1 text-[10px] font-medium text-gray-500 backdrop-blur dark:border-slate-700 dark:bg-slate-900/90 dark:text-slate-400">
+        <div className="absolute bottom-3 left-3 rounded-full border border-gray-200 bg-white/90 px-2.5 py-1 text-2xs font-medium text-gray-500 backdrop-blur dark:border-slate-700 dark:bg-slate-900/90 dark:text-slate-400">
           {data.nodes.length} nodes &middot; {data.edges.length} edges
         </div>
       </div>

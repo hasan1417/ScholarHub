@@ -29,6 +29,10 @@ export default {
           700: '#334155',
         }
       },
+      fontSize: {
+        // 2xs closes the gap that ~280 arbitrary text-[8px..11.5px] values were filling.
+        '2xs': ['0.6875rem', { lineHeight: '0.875rem' }], // 11px
+      },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
         serif: ['"Source Serif 4"', 'Georgia', '"Times New Roman"', 'serif'],

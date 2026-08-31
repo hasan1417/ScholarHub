@@ -79,7 +79,7 @@ const PaperEditor: React.FC = () => {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50 transition-colors dark:bg-slate-950">
         <div className="text-center">
-          <div className="mx-auto h-16 w-16 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600 dark:border-blue-900 dark:border-t-blue-400"></div>
+          <div className="mx-auto h-16 w-16 animate-spin rounded-full border-4 border-indigo-200 border-t-indigo-600 dark:border-indigo-900 dark:border-t-indigo-400"></div>
           <p className="mt-6 text-lg font-medium text-gray-600 dark:text-slate-300">Loading paper...</p>
         </div>
       </div>
@@ -100,7 +100,7 @@ const PaperEditor: React.FC = () => {
           <div className="space-y-3">
             <button
               onClick={loadPaper}
-              className="rounded-md bg-blue-600 px-4 py-2 text-white transition-colors hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
+              className="rounded-md bg-indigo-600 px-4 py-2 text-white transition-colors hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-400"
             >
               Try Again
             </button>
@@ -124,7 +124,7 @@ const PaperEditor: React.FC = () => {
           <p className="mb-4 text-gray-600 dark:text-slate-400">The paper you're looking for doesn't exist.</p>
           <button
             onClick={navigateBackToProject}
-            className="rounded-md bg-blue-600 px-4 py-2 text-white transition-colors hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
+            className="rounded-md bg-indigo-600 px-4 py-2 text-white transition-colors hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-400"
           >
             Back to Papers
           </button>

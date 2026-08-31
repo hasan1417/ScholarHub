@@ -43,17 +43,17 @@ const MessageBubble = ({
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="mb-1 flex flex-wrap items-center gap-1.5 sm:gap-2">
             <span className="text-xs sm:text-sm font-medium text-gray-900 dark:text-slate-100 truncate max-w-[120px] sm:max-w-none">{displayName}</span>
-            <span className="text-[10px] sm:text-xs text-gray-500">{timeAgo}</span>
+            <span className="text-2xs sm:text-xs text-gray-500">{timeAgo}</span>
             {message.is_edited && (
-              <span className="text-[10px] sm:text-xs text-gray-400">(edited)</span>
+              <span className="text-2xs sm:text-xs text-gray-400">(edited)</span>
             )}
           </div>
 
           <div
             className={clsx(
-              'inline-block max-w-full sm:max-w-fit rounded-xl sm:rounded-2xl px-3 py-1.5 sm:px-4 sm:py-2 transition',
+              'inline-block max-w-full sm:max-w-fit rounded-xl sm:rounded-xl px-3 py-1.5 sm:px-4 sm:py-2 transition',
               isAuthor
-                ? 'bg-indigo-100 shadow-sm ring-1 ring-indigo-200 dark:bg-indigo-500/20 dark:ring-indigo-400/40 dark:shadow-indigo-900/30'
+                ? 'bg-indigo-100 shadow-sm ring-1 ring-indigo-200 dark:bg-indigo-500/20 dark:ring-indigo-400/40 dark:'
                 : 'bg-gray-50 ring-1 ring-gray-200 dark:bg-slate-800/70 dark:ring-slate-700'
             )}
           >
@@ -70,14 +70,14 @@ const MessageBubble = ({
             {!message.is_deleted && onReply && (
               <button
                 onClick={() => onReply(message)}
-                className="inline-flex items-center gap-1 text-[10px] sm:text-xs text-gray-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-300"
+                className="inline-flex items-center gap-1 text-2xs sm:text-xs text-gray-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-300"
               >
                 <Reply className="h-3 w-3" />
                 Reply
               </button>
             )}
             {message.reply_count > 0 && (
-              <span className="text-[10px] sm:text-xs text-gray-500">
+              <span className="text-2xs sm:text-xs text-gray-500">
                 {message.reply_count} {message.reply_count === 1 ? 'reply' : 'replies'}
               </span>
             )}
@@ -95,7 +95,7 @@ const MessageBubble = ({
             </button>
 
             {showActions && (
-              <div className="absolute right-0 top-6 z-10 w-28 sm:w-32 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800 dark:shadow-black/30">
+              <div className="absolute right-0 top-6 z-10 w-28 sm:w-32 rounded-xl border border-gray-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800 dark:shadow-black/30">
                 {canEdit && onEdit && (
                   <button
                     onClick={() => {

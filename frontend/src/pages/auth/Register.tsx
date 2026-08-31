@@ -121,7 +121,7 @@ const Register = () => {
     <div className="min-h-screen bg-white dark:bg-[#0f172a] flex items-center justify-center relative overflow-hidden">
       {/* Background */}
       <div className="fixed inset-0 -z-10">
-        <div className="absolute inset-0 bg-gradient-to-br from-indigo-50 via-white to-purple-50 dark:opacity-0 transition-opacity duration-500" />
+        <div className="absolute inset-0 bg-gradient-to-br from-indigo-50 via-white to-indigo-50 dark:opacity-0 transition-opacity duration-500" />
         <div className="absolute inset-0 opacity-0 dark:opacity-100 transition-opacity duration-500">
           <div className="absolute inset-0 bg-[#0f172a]" />
         </div>
@@ -134,7 +134,7 @@ const Register = () => {
         </Link>
 
         {/* Card */}
-        <div className="relative bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-2xl border border-gray-200/80 dark:border-slate-600/50 shadow-lg shadow-indigo-500/5 dark:shadow-lg dark:shadow-black/20 p-8">
+        <div className="relative bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-xl border border-gray-200/80 dark:border-slate-600/50 shadow-lg dark:shadow-lg dark:shadow-black/20 p-8">
             {/* Registration Success Screen */}
             {registrationSuccess ? (
               <div className="text-center">
@@ -158,7 +158,7 @@ const Register = () => {
                     </p>
                     <a
                       href={registrationSuccess.devVerificationUrl}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-lg transition-colors"
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-xl transition-colors"
                     >
                       <ExternalLink className="w-4 h-4" />
                       Verify Email Now
@@ -166,7 +166,7 @@ const Register = () => {
                   </div>
                 )}
 
-                <p className="text-sm text-gray-500 dark:text-slate-500 mb-6">
+                <p className="text-sm text-gray-500 dark:text-slate-400 mb-6">
                   Didn't receive the email? Check your spam folder or{' '}
                   <button
                     onClick={() => setRegistrationSuccess(null)}
@@ -205,7 +205,7 @@ const Register = () => {
                   </label>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <User className="h-5 w-5 text-gray-400 dark:text-slate-500" />
+                      <User className="h-5 w-5 text-gray-400 dark:text-slate-400" />
                     </div>
                     <input
                       id="firstName"
@@ -232,7 +232,7 @@ const Register = () => {
                   </label>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <User className="h-5 w-5 text-gray-400 dark:text-slate-500" />
+                      <User className="h-5 w-5 text-gray-400 dark:text-slate-400" />
                     </div>
                     <input
                       id="lastName"
@@ -261,7 +261,7 @@ const Register = () => {
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Mail className="h-5 w-5 text-gray-400 dark:text-slate-500" />
+                    <Mail className="h-5 w-5 text-gray-400 dark:text-slate-400" />
                   </div>
                   <input
                     id="email"
@@ -289,7 +289,7 @@ const Register = () => {
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Lock className="h-5 w-5 text-gray-400 dark:text-slate-500" />
+                    <Lock className="h-5 w-5 text-gray-400 dark:text-slate-400" />
                   </div>
                   <input
                     id="password"
@@ -317,7 +317,7 @@ const Register = () => {
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Lock className="h-5 w-5 text-gray-400 dark:text-slate-500" />
+                    <Lock className="h-5 w-5 text-gray-400 dark:text-slate-400" />
                   </div>
                   <input
                     id="confirmPassword"
@@ -347,7 +347,7 @@ const Register = () => {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-3 px-4 text-white font-semibold bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-lg shadow-indigo-500/25 hover:shadow-xl hover:shadow-indigo-500/30 hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0 flex items-center justify-center gap-2"
+                className="w-full py-3 px-4 text-white font-semibold bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-lg hover:shadow-xl hover: hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0 flex items-center justify-center gap-2"
               >
                 {isLoading ? (
                   <>
@@ -363,7 +363,7 @@ const Register = () => {
             {/* Divider */}
             <div className="mt-8 flex items-center gap-4">
               <div className="flex-1 h-px bg-gray-200 dark:bg-slate-700" />
-              <span className="text-sm text-gray-500 dark:text-slate-500">or continue with</span>
+              <span className="text-sm text-gray-500 dark:text-slate-400">or continue with</span>
               <div className="flex-1 h-px bg-gray-200 dark:bg-slate-700" />
             </div>
 
@@ -375,7 +375,7 @@ const Register = () => {
             {/* Divider */}
             <div className="mt-8 flex items-center gap-4">
               <div className="flex-1 h-px bg-gray-200 dark:bg-slate-700" />
-              <span className="text-sm text-gray-500 dark:text-slate-500">Already a member?</span>
+              <span className="text-sm text-gray-500 dark:text-slate-400">Already a member?</span>
               <div className="flex-1 h-px bg-gray-200 dark:bg-slate-700" />
             </div>
 

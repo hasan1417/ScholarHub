@@ -63,10 +63,10 @@ const ReferencePickerModal: React.FC<ReferencePickerModalProps> = ({ isOpen, onC
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 dark:bg-black/70">
-      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl w-full max-w-3xl max-h-[80vh] overflow-hidden">
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-3xl max-h-[80vh] overflow-hidden">
         <div className="p-4 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Select References</h3>
-          <button onClick={onClose} className="text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300">✕</button>
+          <button onClick={onClose} className="text-gray-400 dark:text-slate-400 hover:text-gray-600 dark:hover:text-slate-300">✕</button>
         </div>
         <div className="p-4">
           <div className="mb-3">
@@ -75,7 +75,7 @@ const ReferencePickerModal: React.FC<ReferencePickerModalProps> = ({ isOpen, onC
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search by title, author, or DOI…"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
           <div className="border border-gray-200 dark:border-slate-700 rounded-md divide-y divide-gray-200 dark:divide-slate-700 max-h-[46vh] overflow-auto">
@@ -114,7 +114,7 @@ const ReferencePickerModal: React.FC<ReferencePickerModalProps> = ({ isOpen, onC
           <button onClick={onClose} className="px-3 py-1.5 text-sm rounded-md border border-gray-200 dark:border-slate-600 text-gray-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700">Cancel</button>
           <button
             onClick={() => { onConfirm(Array.from(localSelected)); onClose() }}
-            className="px-3 py-1.5 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700"
+            className="px-3 py-1.5 text-sm rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
           >
             Add Selected
           </button>

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Logo } from '../components/brand/Logo'
 import {
   Check,
   X,
@@ -132,24 +133,22 @@ const Pricing = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white dark:from-slate-900 dark:to-slate-800">
+    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white dark:from-slate-900 dark:to-slate-800">
       {/* Header */}
-      <header className="border-b border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm sticky top-0 z-10">
+      <header className="border-b border-gray-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
           <button
             onClick={() => navigate('/')}
-            className="flex items-center gap-2 text-xl font-bold text-slate-900 dark:text-white"
+            className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
+            aria-label="ScholarHub home"
           >
-            <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center">
-              <BookOpen className="h-5 w-5 text-white" />
-            </div>
-            ScholarHub
+            <Logo iconClassName="h-8 w-8" textClassName="text-xl font-bold" />
           </button>
           <div className="flex items-center gap-3">
             {user ? (
               <button
                 onClick={() => navigate('/projects')}
-                className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"
+                className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-slate-300 dark:hover:text-white"
               >
                 Dashboard
               </button>
@@ -157,13 +156,13 @@ const Pricing = () => {
               <>
                 <button
                   onClick={() => navigate('/login')}
-                  className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"
+                  className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-slate-300 dark:hover:text-white"
                 >
                   Sign in
                 </button>
                 <button
                   onClick={() => navigate('/register')}
-                  className="px-4 py-2 text-sm font-medium text-white bg-primary-500 rounded-lg hover:bg-primary-600"
+                  className="px-4 py-2 text-sm font-medium text-white bg-primary-500 rounded-xl hover:bg-primary-600"
                 >
                   Get Started
                 </button>
@@ -180,10 +179,10 @@ const Pricing = () => {
             <Sparkles className="h-4 w-4" />
             Simple, transparent pricing
           </div>
-          <h1 className="text-4xl md:text-5xl font-bold text-slate-900 dark:text-white mb-4">
+          <h1 className="text-4xl md:text-5xl font-bold text-gray-900 dark:text-white mb-4">
             Supercharge Your Research
           </h1>
-          <p className="text-xl text-slate-600 dark:text-slate-300 max-w-2xl mx-auto">
+          <p className="text-xl text-gray-600 dark:text-slate-300 max-w-2xl mx-auto">
             Start free and upgrade when you need more power. No hidden fees, cancel anytime.
           </p>
         </div>
@@ -199,32 +198,32 @@ const Pricing = () => {
           ) : (
             <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
               {/* Free Tier */}
-              <div className="relative rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-8 shadow-sm">
+              <div className="relative rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-8 shadow-sm">
                 {currentTier === 'free' && (
-                  <div className="absolute -top-3 left-6 px-3 py-1 bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-200 text-xs font-medium rounded-full">
+                  <div className="absolute -top-3 left-6 px-3 py-1 bg-gray-200 dark:bg-slate-600 text-gray-700 dark:text-slate-200 text-xs font-medium rounded-full">
                     Current Plan
                   </div>
                 )}
                 <div className="mb-6">
-                  <h3 className="text-xl font-semibold text-slate-900 dark:text-white mb-2">Free</h3>
-                  <p className="text-slate-500 dark:text-slate-400 text-sm">Perfect for getting started</p>
+                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">Free</h3>
+                  <p className="text-gray-500 dark:text-slate-400 text-sm">Perfect for getting started</p>
                 </div>
                 <div className="mb-6">
-                  <span className="text-4xl font-bold text-slate-900 dark:text-white">$0</span>
-                  <span className="text-slate-500 dark:text-slate-400">/month</span>
+                  <span className="text-4xl font-bold text-gray-900 dark:text-white">$0</span>
+                  <span className="text-gray-500 dark:text-slate-400">/month</span>
                 </div>
                 <button
                   onClick={handleGetStarted}
                   disabled={currentTier === 'free'}
-                  className="w-full py-3 px-4 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full py-3 px-4 rounded-xl border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-slate-200 font-medium hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {currentTier === 'free' ? 'Current Plan' : 'Get Started Free'}
                 </button>
                 <ul className="mt-8 space-y-4">
                   {features.map((feature) => (
                     <li key={feature.name} className="flex items-start gap-3">
-                      <Check className="h-5 w-5 text-slate-400 dark:text-slate-500 flex-shrink-0 mt-0.5" />
-                      <span className="text-sm text-slate-600 dark:text-slate-300">
+                      <Check className="h-5 w-5 text-gray-400 dark:text-slate-400 flex-shrink-0 mt-0.5" />
+                      <span className="text-sm text-gray-600 dark:text-slate-300">
                         <strong>{feature.free}</strong>{feature.unit} {feature.name.toLowerCase()}
                       </span>
                     </li>
@@ -233,7 +232,7 @@ const Pricing = () => {
               </div>
 
               {/* Pro Tier */}
-              <div className="relative rounded-2xl border-2 border-primary-500 bg-white dark:bg-slate-800 p-8 shadow-xl shadow-primary-500/10">
+              <div className="relative rounded-xl border-2 border-primary-500 bg-white dark:bg-slate-800 p-8 shadow-xl shadow-primary-500/10">
                 <div className="absolute -top-3 left-6 px-3 py-1 bg-gradient-to-r from-amber-400 to-orange-500 text-white text-xs font-medium rounded-full flex items-center gap-1">
                   <Crown className="h-3 w-3" />
                   Coming Soon
@@ -244,15 +243,15 @@ const Pricing = () => {
                   </div>
                 )}
                 <div className="mb-6">
-                  <h3 className="text-xl font-semibold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
+                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
                     Pro
                     <Zap className="h-5 w-5 text-amber-500" />
                   </h3>
-                  <p className="text-slate-500 dark:text-slate-400 text-sm">For serious researchers</p>
+                  <p className="text-gray-500 dark:text-slate-400 text-sm">For serious researchers</p>
                 </div>
                 <div className="mb-6">
-                  <span className="text-4xl font-bold text-slate-900 dark:text-white">$15</span>
-                  <span className="text-slate-500 dark:text-slate-400">/month</span>
+                  <span className="text-4xl font-bold text-gray-900 dark:text-white">$15</span>
+                  <span className="text-gray-500 dark:text-slate-400">/month</span>
                 </div>
                 <button
                   onClick={handleUpgrade}
@@ -272,7 +271,7 @@ const Pricing = () => {
                   {features.map((feature) => (
                     <li key={feature.name} className="flex items-start gap-3">
                       <Check className="h-5 w-5 text-primary-500 flex-shrink-0 mt-0.5" />
-                      <span className="text-sm text-slate-600 dark:text-slate-300">
+                      <span className="text-sm text-gray-600 dark:text-slate-300">
                         <strong className="text-primary-600 dark:text-primary-400">{feature.pro}</strong>{feature.unit} {feature.name.toLowerCase()}
                       </span>
                     </li>
@@ -281,7 +280,7 @@ const Pricing = () => {
               </div>
 
               {/* BYOK Tier */}
-              <div className="relative rounded-2xl border-2 border-emerald-500 bg-white dark:bg-slate-800 p-8 shadow-xl shadow-emerald-500/10">
+              <div className="relative rounded-xl border-2 border-emerald-500 bg-white dark:bg-slate-800 p-8 shadow-xl">
                 <div className="absolute -top-3 left-6 px-3 py-1 bg-gradient-to-r from-emerald-400 to-teal-500 text-white text-xs font-medium rounded-full flex items-center gap-1">
                   <Key className="h-3 w-3" />
                   Unlimited AI
@@ -292,20 +291,20 @@ const Pricing = () => {
                   </div>
                 )}
                 <div className="mb-6">
-                  <h3 className="text-xl font-semibold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
+                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
                     BYOK
                     <Key className="h-5 w-5 text-emerald-500" />
                   </h3>
-                  <p className="text-slate-500 dark:text-slate-400 text-sm">Bring Your Own API Key</p>
+                  <p className="text-gray-500 dark:text-slate-400 text-sm">Bring Your Own API Key</p>
                 </div>
                 <div className="mb-6">
-                  <span className="text-4xl font-bold text-slate-900 dark:text-white">$0</span>
-                  <span className="text-slate-500 dark:text-slate-400"> + your API costs</span>
+                  <span className="text-4xl font-bold text-gray-900 dark:text-white">$0</span>
+                  <span className="text-gray-500 dark:text-slate-400"> + your API costs</span>
                 </div>
                 <button
                   onClick={() => navigate('/profile')}
                   disabled={currentTier === 'byok'}
-                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-medium hover:from-emerald-600 hover:to-teal-700 transition-all shadow-lg shadow-emerald-500/25 hover:shadow-xl hover:shadow-emerald-500/30 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-medium hover:from-emerald-600 hover:to-teal-700 transition-all shadow-lg hover:shadow-xl hover: disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {currentTier === 'byok' ? (
                     'Current Plan'
@@ -319,25 +318,25 @@ const Pricing = () => {
                 <ul className="mt-8 space-y-4">
                   <li className="flex items-start gap-3">
                     <Check className="h-5 w-5 text-emerald-500 flex-shrink-0 mt-0.5" />
-                    <span className="text-sm text-slate-600 dark:text-slate-300">
+                    <span className="text-sm text-gray-600 dark:text-slate-300">
                       <strong className="text-emerald-600 dark:text-emerald-400">Unlimited</strong> AI discussion calls
                     </span>
                   </li>
                   <li className="flex items-start gap-3">
                     <Check className="h-5 w-5 text-emerald-500 flex-shrink-0 mt-0.5" />
-                    <span className="text-sm text-slate-600 dark:text-slate-300">
+                    <span className="text-sm text-gray-600 dark:text-slate-300">
                       <strong className="text-emerald-600 dark:text-emerald-400">All models</strong> via OpenRouter
                     </span>
                   </li>
                   <li className="flex items-start gap-3">
                     <Check className="h-5 w-5 text-emerald-500 flex-shrink-0 mt-0.5" />
-                    <span className="text-sm text-slate-600 dark:text-slate-300">
+                    <span className="text-sm text-gray-600 dark:text-slate-300">
                       Same limits as <strong className="text-emerald-600 dark:text-emerald-400">Free</strong> for projects & refs
                     </span>
                   </li>
                   <li className="flex items-start gap-3">
                     <Check className="h-5 w-5 text-emerald-500 flex-shrink-0 mt-0.5" />
-                    <span className="text-sm text-slate-600 dark:text-slate-300">
+                    <span className="text-sm text-gray-600 dark:text-slate-300">
                       <strong className="text-emerald-600 dark:text-emerald-400">You control</strong> your API spend
                     </span>
                   </li>
@@ -349,23 +348,23 @@ const Pricing = () => {
       </section>
 
       {/* Feature Comparison Table */}
-      <section className="py-16 px-4 bg-slate-50 dark:bg-slate-800/50">
+      <section className="py-16 px-4 bg-gray-50 dark:bg-slate-800/50">
         <div className="max-w-4xl mx-auto">
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white text-center mb-8">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white text-center mb-8">
             Compare Plans
           </h2>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-slate-200 dark:border-slate-700">
-                  <th className="text-left py-4 px-4 text-sm font-medium text-slate-500 dark:text-slate-400">Feature</th>
-                  <th className="text-center py-4 px-4 text-sm font-medium text-slate-500 dark:text-slate-400">Free</th>
-                  <th className="text-center py-4 px-4 text-sm font-medium text-slate-500 dark:text-slate-400">
+                <tr className="border-b border-gray-200 dark:border-slate-700">
+                  <th className="text-left py-4 px-4 text-sm font-medium text-gray-500 dark:text-slate-400">Feature</th>
+                  <th className="text-center py-4 px-4 text-sm font-medium text-gray-500 dark:text-slate-400">Free</th>
+                  <th className="text-center py-4 px-4 text-sm font-medium text-gray-500 dark:text-slate-400">
                     <span className="inline-flex items-center gap-1">
                       Pro <Crown className="h-3 w-3 text-amber-500" />
                     </span>
                   </th>
-                  <th className="text-center py-4 px-4 text-sm font-medium text-slate-500 dark:text-slate-400">
+                  <th className="text-center py-4 px-4 text-sm font-medium text-gray-500 dark:text-slate-400">
                     <span className="inline-flex items-center gap-1">
                       BYOK <Key className="h-3 w-3 text-emerald-500" />
                     </span>
@@ -377,20 +376,20 @@ const Pricing = () => {
                   <tr key={feature.name} className={i % 2 === 0 ? 'bg-white dark:bg-slate-800' : ''}>
                     <td className="py-4 px-4">
                       <div className="flex items-center gap-3">
-                        <feature.icon className="h-5 w-5 text-slate-400 dark:text-slate-500" />
+                        <feature.icon className="h-5 w-5 text-gray-400 dark:text-slate-400" />
                         <div>
-                          <div className="text-sm font-medium text-slate-900 dark:text-white">{feature.name}</div>
-                          <div className="text-xs text-slate-500 dark:text-slate-400">{feature.description}</div>
+                          <div className="text-sm font-medium text-gray-900 dark:text-white">{feature.name}</div>
+                          <div className="text-xs text-gray-500 dark:text-slate-400">{feature.description}</div>
                         </div>
                       </div>
                     </td>
-                    <td className="text-center py-4 px-4 text-sm text-slate-600 dark:text-slate-300">
+                    <td className="text-center py-4 px-4 text-sm text-gray-600 dark:text-slate-300">
                       {feature.free}{feature.unit}
                     </td>
                     <td className="text-center py-4 px-4 text-sm font-medium text-primary-600 dark:text-primary-400">
                       {feature.pro}{feature.unit}
                     </td>
-                    <td className="text-center py-4 px-4 text-sm text-slate-600 dark:text-slate-300">
+                    <td className="text-center py-4 px-4 text-sm text-gray-600 dark:text-slate-300">
                       {feature.name === 'AI Discussion Calls' ? (
                         <strong className="text-emerald-600 dark:text-emerald-400">Unlimited</strong>
                       ) : (
@@ -402,41 +401,41 @@ const Pricing = () => {
                 <tr className="bg-white dark:bg-slate-800">
                   <td className="py-4 px-4">
                     <div className="flex items-center gap-3">
-                      <Sparkles className="h-5 w-5 text-slate-400 dark:text-slate-500" />
+                      <Sparkles className="h-5 w-5 text-gray-400 dark:text-slate-400" />
                       <div>
-                        <div className="text-sm font-medium text-slate-900 dark:text-white">Priority Support</div>
-                        <div className="text-xs text-slate-500 dark:text-slate-400">Get help when you need it</div>
+                        <div className="text-sm font-medium text-gray-900 dark:text-white">Priority Support</div>
+                        <div className="text-xs text-gray-500 dark:text-slate-400">Get help when you need it</div>
                       </div>
                     </div>
                   </td>
                   <td className="text-center py-4 px-4">
-                    <X className="h-5 w-5 text-slate-300 dark:text-slate-600 mx-auto" />
+                    <X className="h-5 w-5 text-gray-300 dark:text-slate-600 mx-auto" />
                   </td>
                   <td className="text-center py-4 px-4">
                     <Check className="h-5 w-5 text-primary-500 mx-auto" />
                   </td>
                   <td className="text-center py-4 px-4">
-                    <X className="h-5 w-5 text-slate-300 dark:text-slate-600 mx-auto" />
+                    <X className="h-5 w-5 text-gray-300 dark:text-slate-600 mx-auto" />
                   </td>
                 </tr>
                 <tr>
                   <td className="py-4 px-4">
                     <div className="flex items-center gap-3">
-                      <Zap className="h-5 w-5 text-slate-400 dark:text-slate-500" />
+                      <Zap className="h-5 w-5 text-gray-400 dark:text-slate-400" />
                       <div>
-                        <div className="text-sm font-medium text-slate-900 dark:text-white">Early Access Features</div>
-                        <div className="text-xs text-slate-500 dark:text-slate-400">Try new features first</div>
+                        <div className="text-sm font-medium text-gray-900 dark:text-white">Early Access Features</div>
+                        <div className="text-xs text-gray-500 dark:text-slate-400">Try new features first</div>
                       </div>
                     </div>
                   </td>
                   <td className="text-center py-4 px-4">
-                    <X className="h-5 w-5 text-slate-300 dark:text-slate-600 mx-auto" />
+                    <X className="h-5 w-5 text-gray-300 dark:text-slate-600 mx-auto" />
                   </td>
                   <td className="text-center py-4 px-4">
                     <Check className="h-5 w-5 text-primary-500 mx-auto" />
                   </td>
                   <td className="text-center py-4 px-4">
-                    <X className="h-5 w-5 text-slate-300 dark:text-slate-600 mx-auto" />
+                    <X className="h-5 w-5 text-gray-300 dark:text-slate-600 mx-auto" />
                   </td>
                 </tr>
               </tbody>
@@ -448,29 +447,29 @@ const Pricing = () => {
       {/* FAQ */}
       <section className="py-16 px-4">
         <div className="max-w-2xl mx-auto">
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white text-center mb-8">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white text-center mb-8">
             Frequently Asked Questions
           </h2>
           <div className="space-y-3">
             {faqs.map((faq, i) => (
               <div
                 key={i}
-                className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden"
+                className="border border-gray-200 dark:border-slate-700 rounded-xl overflow-hidden"
               >
                 <button
                   onClick={() => setExpandedFaq(expandedFaq === i ? null : i)}
-                  className="w-full flex items-center justify-between p-4 text-left bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
+                  className="w-full flex items-center justify-between p-4 text-left bg-white dark:bg-slate-800 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors"
                 >
-                  <span className="font-medium text-slate-900 dark:text-white">{faq.question}</span>
+                  <span className="font-medium text-gray-900 dark:text-white">{faq.question}</span>
                   {expandedFaq === i ? (
-                    <ChevronUp className="h-5 w-5 text-slate-400" />
+                    <ChevronUp className="h-5 w-5 text-gray-400" />
                   ) : (
-                    <ChevronDown className="h-5 w-5 text-slate-400" />
+                    <ChevronDown className="h-5 w-5 text-gray-400" />
                   )}
                 </button>
                 {expandedFaq === i && (
                   <div className="px-4 pb-4 bg-white dark:bg-slate-800">
-                    <p className="text-slate-600 dark:text-slate-300 text-sm">{faq.answer}</p>
+                    <p className="text-gray-600 dark:text-slate-300 text-sm">{faq.answer}</p>
                   </div>
                 )}
               </div>
@@ -507,8 +506,8 @@ const Pricing = () => {
       </section>
 
       {/* Footer */}
-      <footer className="py-8 px-4 border-t border-slate-200 dark:border-slate-700">
-        <div className="max-w-6xl mx-auto text-center text-sm text-slate-500 dark:text-slate-400">
+      <footer className="py-8 px-4 border-t border-gray-200 dark:border-slate-700">
+        <div className="max-w-6xl mx-auto text-center text-sm text-gray-500 dark:text-slate-400">
           © {new Date().getFullYear()} ScholarHub. All rights reserved.
         </div>
       </footer>
@@ -516,20 +515,20 @@ const Pricing = () => {
       {/* Pro Interest Modal */}
       {showProInterest && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 max-w-md mx-4 shadow-2xl">
+          <div className="bg-white dark:bg-slate-800 rounded-xl p-8 max-w-md mx-4 shadow-xl">
             <div className="flex items-center gap-3 mb-4">
               <div className="h-10 w-10 rounded-full bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center">
                 <Crown className="h-5 w-5 text-primary-500" />
               </div>
-              <h3 className="text-xl font-bold text-slate-900 dark:text-white">Pro Plan — Coming Soon</h3>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">Pro Plan — Coming Soon</h3>
             </div>
-            <p className="text-slate-600 dark:text-slate-300 mb-6">
+            <p className="text-gray-600 dark:text-slate-300 mb-6">
               We are still building the Pro plan. In the meantime, you can use the free plan or bring your own API key for unlimited AI calls. We will notify you when Pro is available.
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setShowProInterest(false)}
-                className="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                className="flex-1 py-2.5 px-4 rounded-xl border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-slate-200 font-medium hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
               >
                 Close
               </button>

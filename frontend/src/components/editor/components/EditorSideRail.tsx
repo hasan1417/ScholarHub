@@ -29,8 +29,8 @@ const RailButton: React.FC<{
     onClick={onClick}
     className={`relative flex h-9 w-full items-center justify-center transition-colors ${
       active
-        ? 'text-slate-900 dark:text-white before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-indigo-500 dark:before:bg-indigo-400'
-        : 'text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-300'
+        ? 'text-gray-900 dark:text-white before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-indigo-500 dark:before:bg-indigo-400'
+        : 'text-gray-400 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-300'
     } ${className || ''}`}
   >
     {children}
@@ -50,7 +50,7 @@ export const EditorSideRail: React.FC<EditorSideRailProps> = ({
   writingAnalysisLoading,
 }) => {
   return (
-    <div className="flex h-full w-9 flex-shrink-0 flex-col border-r border-slate-200 bg-slate-100 dark:border-slate-700 dark:bg-slate-900">
+    <div className="flex h-full w-9 flex-shrink-0 flex-col border-r border-gray-200 bg-gray-100 dark:border-slate-700 dark:bg-slate-900">
       {/* Top icons */}
       <div className="flex flex-col">
         <RailButton
@@ -63,7 +63,7 @@ export const EditorSideRail: React.FC<EditorSideRailProps> = ({
       </div>
 
       {/* Divider */}
-      <div className="mx-1.5 border-t border-slate-200 dark:border-slate-700" />
+      <div className="mx-1.5 border-t border-gray-200 dark:border-slate-700" />
 
       {/* Review & analysis */}
       <div className="flex flex-col">

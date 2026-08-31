@@ -72,7 +72,7 @@ const SubscriptionSection = () => {
           <span>Subscription</span>
         </div>
         <div className="flex items-center gap-3 rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-500/10 dark:to-teal-500/10 border border-emerald-200 dark:border-emerald-500/20 p-4">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 shadow-md">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 shadow-lg">
             <Sparkles className="h-5 w-5 text-white" />
           </div>
           <div className="flex-1">
@@ -95,7 +95,7 @@ const SubscriptionSection = () => {
           <span>Subscription</span>
         </div>
         <div className="flex items-center gap-3 rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-500/10 dark:to-orange-500/10 border border-amber-200 dark:border-amber-500/20 p-4">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500 shadow-md">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500 shadow-lg">
             <Crown className="h-5 w-5 text-white" />
           </div>
           <div className="flex-1">
@@ -169,7 +169,7 @@ const SubscriptionSection = () => {
         {/* BYOK option */}
         <button
           onClick={() => navigate('/profile')}
-          className="w-full group flex items-center justify-between gap-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 p-4 text-white shadow-lg shadow-emerald-500/25 transition-all hover:from-emerald-600 hover:to-teal-700 hover:shadow-xl"
+          className="w-full group flex items-center justify-between gap-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 p-4 text-white shadow-lg transition-all hover:from-emerald-600 hover:to-teal-700 hover:shadow-xl"
         >
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20">

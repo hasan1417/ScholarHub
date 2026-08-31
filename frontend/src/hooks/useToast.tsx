@@ -41,7 +41,7 @@ const TYPE_CLASSES: Record<ToastType, string> = {
   error:
     'border-red-200 bg-red-50 text-red-800 dark:border-red-700 dark:bg-red-900/80 dark:text-red-100',
   info:
-    'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-700 dark:bg-blue-900/80 dark:text-blue-100',
+    'border-indigo-200 bg-indigo-50 text-indigo-800 dark:border-indigo-700 dark:bg-indigo-900/80 dark:text-indigo-100',
   warning:
     'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-900/80 dark:text-amber-100',
 }
@@ -49,7 +49,7 @@ const TYPE_CLASSES: Record<ToastType, string> = {
 const ICON_CLASSES: Record<ToastType, string> = {
   success: 'text-green-500 dark:text-green-400',
   error: 'text-red-500 dark:text-red-400',
-  info: 'text-blue-500 dark:text-blue-400',
+  info: 'text-indigo-500 dark:text-indigo-400',
   warning: 'text-amber-500 dark:text-amber-400',
 }
 
@@ -88,7 +88,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           return (
             <div
               key={t.id}
-              className={`pointer-events-auto flex items-start gap-3 rounded-lg border px-4 py-3 shadow-lg backdrop-blur-sm animate-toast-in min-w-[300px] max-w-[420px] ${TYPE_CLASSES[t.type]}`}
+              className={`pointer-events-auto flex items-start gap-3 rounded-xl border px-4 py-3 shadow-lg backdrop-blur-sm animate-toast-in min-w-[300px] max-w-[420px] ${TYPE_CLASSES[t.type]}`}
             >
               <Icon className={`h-5 w-5 flex-shrink-0 mt-0.5 ${ICON_CLASSES[t.type]}`} />
               <div className="flex-1 min-w-0">

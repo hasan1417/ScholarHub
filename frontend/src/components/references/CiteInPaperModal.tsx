@@ -84,7 +84,7 @@ export default function CiteInPaperModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-2xl overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+      <div className="w-full max-w-2xl overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-100 px-6 py-5 dark:border-slate-800">
           <div className="min-w-0 flex-1">
@@ -95,7 +95,7 @@ export default function CiteInPaperModal({
           </div>
           <button
             onClick={onClose}
-            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-300"
           >
             <X className="h-5 w-5" />
           </button>
@@ -104,7 +104,7 @@ export default function CiteInPaperModal({
         {/* Search */}
         <div className="border-b border-gray-100 px-6 py-4 dark:border-slate-800">
           <div className="relative">
-            <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-slate-500" />
+            <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-slate-400" />
             <input
               type="text"
               className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-4 text-sm text-gray-900 placeholder-gray-400 transition focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:bg-slate-800"
@@ -141,7 +141,7 @@ export default function CiteInPaperModal({
                     key={paper.id}
                     className="group flex items-center gap-3 rounded-xl border-2 border-gray-100 bg-gray-50/50 p-4 transition-all hover:border-gray-200 hover:bg-gray-50 dark:border-slate-800 dark:bg-slate-800/50 dark:hover:border-slate-700 dark:hover:bg-slate-800"
                   >
-                    <FileText className="h-5 w-5 flex-shrink-0 text-gray-400 dark:text-slate-500" />
+                    <FileText className="h-5 w-5 flex-shrink-0 text-gray-400 dark:text-slate-400" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium text-gray-900 dark:text-slate-100">
                         {paper.title || 'Untitled'}
@@ -161,7 +161,7 @@ export default function CiteInPaperModal({
                     <button
                       onClick={() => handleCite(paper)}
                       disabled={isAttaching}
-                      className="flex-shrink-0 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-indigo-700 disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+                      className="flex-shrink-0 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-indigo-700 disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400"
                     >
                       {isAttaching ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -180,7 +180,7 @@ export default function CiteInPaperModal({
 
         {/* Footer */}
         <div className="border-t border-gray-100 bg-gray-50 px-6 py-3 dark:border-slate-800 dark:bg-slate-800/50">
-          <p className="text-xs text-gray-400 dark:text-slate-500">
+          <p className="text-xs text-gray-400 dark:text-slate-400">
             {papers.length} paper{papers.length !== 1 ? 's' : ''} in project
           </p>
         </div>

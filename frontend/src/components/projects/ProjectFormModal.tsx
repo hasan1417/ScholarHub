@@ -117,7 +117,7 @@ const ProjectFormModal = ({
       <div className="absolute inset-0 bg-gray-900/50 backdrop-blur-sm dark:bg-black/70" aria-hidden="true" onClick={onClose} />
       <form
         onSubmit={handleSubmit}
-        className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-gray-50 shadow-2xl dark:bg-slate-900"
+        className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl bg-gray-50 shadow-xl dark:bg-slate-900"
       >
         {/* Header */}
         <div className="sticky top-0 z-10 flex items-center justify-between bg-gray-50 px-6 py-4 dark:bg-slate-900">
@@ -136,8 +136,8 @@ const ProjectFormModal = ({
           {/* Title Card */}
           <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
             <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/30">
-                <Folder className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/30">
+                <Folder className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
               </div>
               <div className="flex-1 min-w-0">
                 <label className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-slate-400">
@@ -147,7 +147,7 @@ const ProjectFormModal = ({
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-base font-medium text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                  className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-base font-medium text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
                   placeholder="e.g. Neural Interface Study"
                   autoFocus={mode === 'create'}
                   required
@@ -159,8 +159,8 @@ const ProjectFormModal = ({
           {/* Description Card */}
           <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
             <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-purple-100 dark:bg-purple-900/30">
-                <FileText className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/30">
+                <FileText className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
               </div>
               <div className="flex-1 min-w-0">
                 <label className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-slate-400">
@@ -170,7 +170,7 @@ const ProjectFormModal = ({
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   rows={3}
-                  className="mt-1 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                  className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
                   placeholder="Summarize the project vision or problem statement"
                 />
               </div>
@@ -215,7 +215,7 @@ const ProjectFormModal = ({
                     />
                   </div>
                 </div>
-                <p className="mt-2 text-xs text-gray-400 dark:text-slate-500">Press Enter or comma to add</p>
+                <p className="mt-2 text-xs text-gray-400 dark:text-slate-400">Press Enter or comma to add</p>
               </div>
             </div>
           </div>
@@ -234,7 +234,7 @@ const ProjectFormModal = ({
                   {objectives.map((objective, index) => (
                     <div
                       key={`objective-${index}`}
-                      className="group flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 p-2 transition-colors hover:border-gray-200 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-slate-600"
+                      className="group flex items-center gap-2 rounded-xl border border-gray-100 bg-gray-50 p-2 transition-colors hover:border-gray-200 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-slate-600"
                     >
                       <GripVertical className="h-4 w-4 shrink-0 cursor-grab text-gray-300 dark:text-slate-600" />
                       <input
@@ -283,7 +283,7 @@ const ProjectFormModal = ({
                 <button
                   type="button"
                   onClick={() => setObjectives((prev) => [...prev, ''])}
-                  className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-500 transition-colors hover:border-orange-400 hover:text-orange-600 dark:border-slate-600 dark:text-slate-400 dark:hover:border-orange-500 dark:hover:text-orange-400"
+                  className="mt-3 inline-flex items-center gap-1.5 rounded-xl border border-dashed border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-500 transition-colors hover:border-orange-400 hover:text-orange-600 dark:border-slate-600 dark:text-slate-400 dark:hover:border-orange-500 dark:hover:text-orange-400"
                 >
                   <Plus className="h-4 w-4" />
                   Add objective
@@ -294,7 +294,7 @@ const ProjectFormModal = ({
 
           {/* Error message */}
           {error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-400">
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-400">
               {error}
             </div>
           )}
@@ -305,13 +305,13 @@ const ProjectFormModal = ({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-200 dark:text-slate-300 dark:hover:bg-slate-700"
+            className="rounded-xl px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-200 dark:text-slate-300 dark:hover:bg-slate-700"
           >
             Cancel
           </button>
           <button
             type="submit"
-            className="inline-flex items-center rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 dark:focus:ring-offset-slate-900"
+            className="inline-flex items-center rounded-xl bg-indigo-600 px-5 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 dark:focus:ring-offset-slate-900"
             disabled={isSubmitting || !title.trim()}
           >
             {isSubmitting ? (mode === 'create' ? 'Creating…' : 'Saving…') : mode === 'create' ? 'Create Project' : 'Save Changes'}

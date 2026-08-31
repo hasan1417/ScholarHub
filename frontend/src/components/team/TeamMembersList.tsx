@@ -33,14 +33,14 @@ type RoleOption = 'owner' | 'admin' | 'editor' | 'viewer'
 
 const rolePillClasses: Record<RoleOption, string> = {
   owner: 'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-100',
-  admin: 'bg-purple-100 text-purple-800 dark:bg-purple-500/20 dark:text-purple-100',
+  admin: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-500/20 dark:text-indigo-100',
   editor: 'bg-green-100 text-green-800 dark:bg-emerald-500/20 dark:text-emerald-100',
   viewer: 'bg-gray-100 text-gray-800 dark:bg-slate-600/30 dark:text-slate-100',
 }
 
 const roleIconBgClasses: Record<RoleOption, string> = {
   owner: 'bg-amber-100 dark:bg-amber-500/20',
-  admin: 'bg-purple-100 dark:bg-purple-500/20',
+  admin: 'bg-indigo-100 dark:bg-indigo-500/20',
   editor: 'bg-green-100 dark:bg-emerald-500/20',
   viewer: 'bg-gray-100 dark:bg-slate-700',
 }
@@ -135,7 +135,7 @@ const TeamMembersList: React.FC<TeamMembersListProps> = ({
       case 'owner':
         return <Crown className="h-4 w-4 text-amber-600 dark:text-amber-300" />
       case 'admin':
-        return <Shield className="h-4 w-4 text-purple-600 dark:text-purple-300" />
+        return <Shield className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
       case 'editor':
         return <Edit className="h-4 w-4 text-green-600 dark:text-emerald-300" />
       default:
@@ -192,8 +192,8 @@ const TeamMembersList: React.FC<TeamMembersListProps> = ({
         <div className="animate-pulse space-y-3">
           <div className="h-6 w-1/3 rounded bg-gray-200 dark:bg-slate-700" />
           <div className="space-y-3">
-            <div className="h-16 rounded-lg bg-gray-100 dark:bg-slate-700" />
-            <div className="h-16 rounded-lg bg-gray-100 dark:bg-slate-700" />
+            <div className="h-16 rounded-xl bg-gray-100 dark:bg-slate-700" />
+            <div className="h-16 rounded-xl bg-gray-100 dark:bg-slate-700" />
           </div>
         </div>
       </div>
@@ -239,14 +239,14 @@ const TeamMembersList: React.FC<TeamMembersListProps> = ({
       </div>
 
       {error && (
-        <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200">
+        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200">
           {error}
         </div>
       )}
 
       <ul className="mt-4 space-y-3">
         {members.length === 0 ? (
-          <li className="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-500 dark:border-slate-600 dark:bg-slate-800/50 dark:text-slate-400">
+          <li className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-500 dark:border-slate-600 dark:bg-slate-800/50 dark:text-slate-400">
             No collaborators yet.
             {!isProjectScope && onInviteMember && (
               <button
@@ -269,7 +269,7 @@ const TeamMembersList: React.FC<TeamMembersListProps> = ({
             return (
               <li
                 key={member.id}
-                className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800/60"
+                className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800/60"
               >
                 <div className={clsx(
                   'flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
@@ -281,7 +281,7 @@ const TeamMembersList: React.FC<TeamMembersListProps> = ({
                   <p className="flex items-center gap-2 truncate text-sm font-semibold text-gray-900 dark:text-slate-100">
                     <span className="truncate">{displayName}</span>
                     {isSelf && (
-                      <span className="text-[10px] uppercase tracking-wide text-indigo-500 dark:text-indigo-300">You</span>
+                      <span className="text-2xs uppercase tracking-wide text-indigo-500 dark:text-indigo-300">You</span>
                     )}
                   </p>
                   {member.email && (

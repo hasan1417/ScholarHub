@@ -1145,8 +1145,8 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
   }, [fixProposals, handleApplyAiEditsBatch])
 
   const rootCls = fullBleed
-    ? 'fixed inset-0 flex flex-col overflow-auto bg-slate-100 transition-colors duration-200 dark:bg-slate-900'
-    : 'min-h-screen flex flex-col overflow-auto bg-slate-100 transition-colors duration-200 dark:bg-slate-900'
+    ? 'fixed inset-0 flex flex-col overflow-auto bg-gray-100 transition-colors duration-200 dark:bg-slate-900'
+    : 'min-h-screen flex flex-col overflow-auto bg-gray-100 transition-colors duration-200 dark:bg-slate-900'
 
   const collaborationStatus = useMemo(() => {
     if (!collabFeatureEnabled || readOnly) return null
@@ -1171,7 +1171,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
     <div className={rootCls}>
       <div className="pointer-events-none absolute top-20 right-4 z-30 flex flex-col items-end gap-2">
         {toast?.visible && (
-          <div className={`pointer-events-auto rounded-md border px-3 py-1 text-[11px] font-medium shadow ${
+          <div className={`pointer-events-auto rounded-md border px-3 py-1 text-2xs font-medium shadow ${
             toast.type === 'error'
               ? 'border-red-300 bg-red-100 text-red-800 dark:border-red-500/50 dark:bg-red-500/10 dark:text-red-200'
               : 'border-green-300 bg-green-100 text-green-800 dark:border-green-500/50 dark:bg-green-500/10 dark:text-green-200'
@@ -1182,7 +1182,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
         {pendingVersion && (
           <div className="pointer-events-auto flex items-center gap-3 rounded-md bg-white/80 px-2.5 py-1.5 shadow backdrop-blur dark:bg-slate-800/80 dark:text-slate-100">
             <button
-              className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700 hover:bg-amber-100"
+              className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-2xs font-medium text-amber-700 hover:bg-amber-100"
               onClick={() => setVersionsOpen(true)}
             >
               Version {pendingVersion} ready — review versions
@@ -1194,7 +1194,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
       {!readOnly && !aiChatOpen && (
         <button
           onClick={() => setAiChatOpen(true)}
-          className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 py-2.5 pl-3 pr-4 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-indigo-500/40 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 active:translate-y-0 dark:shadow-indigo-500/20 dark:hover:shadow-indigo-500/30"
+          className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-indigo-500 to-indigo-600 py-2.5 pl-3 pr-4 text-sm font-semibold text-white shadow-lg transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl hover: focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 active:translate-y-0 dark: dark:hover:"
           title="Open AI Assistant (⌘J)"
           aria-label="Open AI Assistant"
         >
@@ -1218,7 +1218,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
         <div className="relative flex-1 min-h-0 overflow-hidden flex">
           <div className="relative min-w-0 flex-1 overflow-hidden">
           {showSyncOverlay && (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-slate-100/95 text-slate-600 dark:bg-slate-900/95 dark:text-slate-300">
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-gray-100 text-gray-600 dark:bg-slate-900/95 dark:text-slate-300">
               <Loader2 className="h-5 w-5 animate-spin" />
               <span className="text-xs font-medium uppercase tracking-wide">Syncing latest draft…</span>
             </div>
@@ -1274,13 +1274,13 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
                 onPointerDown={handleAiChatDragStart}
                 onDoubleClick={() => setAiChatWidth(AI_CHAT_WIDTH_DEFAULT)}
                 title="Drag to resize · double-click to reset"
-                className={`group relative z-10 hidden shrink-0 cursor-col-resize items-center justify-center transition-colors md:flex md:w-1 ${aiChatDragging ? 'bg-indigo-500 dark:bg-indigo-400' : 'bg-slate-200 hover:bg-indigo-400 dark:bg-slate-700 dark:hover:bg-indigo-500'}`}
+                className={`group relative z-10 hidden shrink-0 cursor-col-resize items-center justify-center transition-colors md:flex md:w-1 ${aiChatDragging ? 'bg-indigo-500 dark:bg-indigo-400' : 'bg-gray-200 hover:bg-indigo-400 dark:bg-slate-700 dark:hover:bg-indigo-500'}`}
               >
-                <div className={`absolute flex h-8 w-4 items-center justify-center rounded bg-slate-300 transition-opacity dark:bg-slate-600 ${aiChatDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                <div className={`absolute flex h-8 w-4 items-center justify-center rounded bg-gray-300 transition-opacity dark:bg-slate-600 ${aiChatDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
                   <div className="flex flex-col gap-0.5">
-                    <div className="h-0.5 w-1 rounded-full bg-slate-500 dark:bg-slate-400" />
-                    <div className="h-0.5 w-1 rounded-full bg-slate-500 dark:bg-slate-400" />
-                    <div className="h-0.5 w-1 rounded-full bg-slate-500 dark:bg-slate-400" />
+                    <div className="h-0.5 w-1 rounded-full bg-gray-500 dark:bg-slate-400" />
+                    <div className="h-0.5 w-1 rounded-full bg-gray-500 dark:bg-slate-400" />
+                    <div className="h-0.5 w-1 rounded-full bg-gray-500 dark:bg-slate-400" />
                   </div>
                 </div>
               </div>
@@ -1322,7 +1322,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
 
       {branchOpen && (
         <div className="fixed inset-0 z-50 bg-black bg-opacity-30 flex items-center justify-center" onClick={() => setBranchOpen(false)}>
-          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-[800px] p-4" onClick={(e)=>e.stopPropagation()}>
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-[800px] p-4" onClick={(e)=>e.stopPropagation()}>
             <BranchManager
               paperId={paperId}
               currentBranchId={currentBranchId}
@@ -1373,7 +1373,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
 
       {mergeOpen && (
         <div className="fixed inset-0 z-50 bg-black bg-opacity-30 flex items-center justify-center" onClick={() => setMergeOpen(false)}>
-          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-[900px] p-4" onClick={(e)=>e.stopPropagation()}>
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-[900px] p-4" onClick={(e)=>e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <div className="text-base font-semibold">Merge</div>
               <button className="text-sm px-2 py-1 border rounded" onClick={() => setMergeOpen(false)}>Close</button>
@@ -1394,7 +1394,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
 
       {commitOpen && (
         <div className="fixed inset-0 z-50 bg-black bg-opacity-30 flex items-center justify-center" onClick={() => setCommitOpen(false)}>
-          <div className="bg-white rounded-lg shadow-xl w-[560px] p-5" onClick={(e)=>e.stopPropagation()}>
+          <div className="bg-white rounded-xl shadow-xl w-[560px] p-5" onClick={(e)=>e.stopPropagation()}>
             <div className="text-lg font-semibold mb-2">Commit Changes</div>
             <div className="text-sm text-gray-600 mb-3">Current branch: <span className="font-mono">{currentBranchId || 'unknown'}</span></div>
             <textarea
@@ -1407,7 +1407,7 @@ const DocumentShell: React.FC<DocumentShellProps> = ({ paperId, projectId, paper
             <div className="flex justify-end gap-2">
               <button className="px-3 py-1.5 border rounded-md" onClick={() => setCommitOpen(false)}>Cancel</button>
               <button
-                className="px-3 py-1.5 rounded-md bg-blue-600 text-white"
+                className="px-3 py-1.5 rounded-md bg-indigo-600 text-white"
                 onClick={async () => {
                     try {
                     if (!currentBranchId) throw new Error('No branch selected')

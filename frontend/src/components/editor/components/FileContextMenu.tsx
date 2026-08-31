@@ -95,14 +95,14 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({
   return (
     <div
       ref={menuRef}
-      className="fixed z-[100] min-w-[160px] rounded-lg border border-slate-700 bg-slate-800 py-1 shadow-xl"
+      className="fixed z-[100] min-w-[160px] rounded-xl border border-gray-700 bg-gray-800 py-1 shadow-xl"
       style={{ left: x, top: y }}
     >
       <button
         type="button"
         onClick={handleRename}
         disabled={isMainFile}
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-200 transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:text-slate-500"
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-gray-200 transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:text-gray-500"
       >
         <Pencil className="h-3.5 w-3.5" />
         Rename
@@ -110,7 +110,7 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({
       <button
         type="button"
         onClick={handleDownload}
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-200 transition-colors hover:bg-slate-700"
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-gray-200 transition-colors hover:bg-gray-700"
       >
         <Download className="h-3.5 w-3.5" />
         Download
@@ -119,18 +119,18 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({
         type="button"
         onClick={handleDelete}
         disabled={isMainFile}
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:text-slate-500 enabled:text-red-400"
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:text-gray-500 enabled:text-red-400"
       >
         <Trash2 className="h-3.5 w-3.5" />
         Delete
       </button>
 
-      <div className="mx-2 my-1 border-t border-slate-700" />
+      <div className="mx-2 my-1 border-t border-gray-700" />
 
       <button
         type="button"
         onClick={handleNewFile}
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-200 transition-colors hover:bg-slate-700"
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-gray-200 transition-colors hover:bg-gray-700"
       >
         <FilePlus className="h-3.5 w-3.5" />
         New file
@@ -138,7 +138,7 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({
       <button
         type="button"
         disabled
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-500 cursor-not-allowed"
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-gray-500 cursor-not-allowed"
       >
         <FolderPlus className="h-3.5 w-3.5" />
         New folder

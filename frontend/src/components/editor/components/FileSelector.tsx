@@ -53,8 +53,8 @@ const SortableTab: React.FC<{
       style={style}
       className={`group flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs font-medium transition-colors cursor-pointer select-none ${
         isActive
-          ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white'
-          : 'text-slate-500 hover:bg-slate-200/80 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700/60 dark:hover:text-slate-300'
+          ? 'bg-white text-gray-900 shadow-sm dark:bg-slate-700 dark:text-white'
+          : 'text-gray-500 hover:bg-gray-200 hover:text-gray-700 dark:text-slate-400 dark:hover:bg-slate-700/60 dark:hover:text-slate-300'
       } ${isDragging ? 'opacity-80 shadow-lg ring-1 ring-indigo-400/50' : ''}`}
       onClick={onSelect}
     >
@@ -62,7 +62,7 @@ const SortableTab: React.FC<{
         <span
           {...attributes}
           {...listeners}
-          className="cursor-grab rounded p-0.5 text-slate-300 hover:text-slate-500 active:cursor-grabbing dark:text-slate-600 dark:hover:text-slate-400"
+          className="cursor-grab rounded p-0.5 text-gray-300 hover:text-gray-500 active:cursor-grabbing dark:text-slate-600 dark:hover:text-slate-400"
           onClick={(e) => e.stopPropagation()}
         >
           <GripVertical className="h-3 w-3" />
@@ -134,8 +134,8 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
 
   if (files.length <= 1 && !isCreating) {
     return (
-      <div className="flex items-center gap-1 border-b border-slate-200 bg-slate-100/80 px-2 py-1 dark:border-slate-700 dark:bg-slate-900">
-        <div className="flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium text-slate-600 dark:text-slate-300">
+      <div className="flex items-center gap-1 border-b border-gray-200 bg-gray-100 px-2 py-1 dark:border-slate-700 dark:bg-slate-900">
+        <div className="flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium text-gray-600 dark:text-slate-300">
           <FileText className="h-3 w-3" />
           <span>main.tex</span>
         </div>
@@ -143,7 +143,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
           <button
             type="button"
             onClick={() => setIsCreating(true)}
-            className="rounded p-0.5 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
+            className="rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
             title="Add file"
           >
             <Plus className="h-3.5 w-3.5" />
@@ -161,7 +161,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
               else setIsCreating(false)
             }}
             placeholder="filename.tex"
-            className="ml-1 w-28 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-xs outline-none focus:border-indigo-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+            className="ml-1 w-28 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-xs outline-none focus:border-indigo-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
           />
         )}
       </div>
@@ -169,7 +169,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
   }
 
   return (
-    <div className="flex items-center gap-0.5 overflow-x-auto border-b border-slate-200 bg-slate-100/80 px-2 py-1 dark:border-slate-700 dark:bg-slate-900">
+    <div className="flex items-center gap-0.5 overflow-x-auto border-b border-gray-200 bg-gray-100 px-2 py-1 dark:border-slate-700 dark:bg-slate-900">
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={fileIds} strategy={horizontalListSortingStrategy}>
           {files.map((file) => (
@@ -197,13 +197,13 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
                 else setIsCreating(false)
               }}
               placeholder="filename.tex"
-              className="w-28 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-xs outline-none focus:border-indigo-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+              className="w-28 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-xs outline-none focus:border-indigo-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
             />
           ) : (
             <button
               type="button"
               onClick={() => setIsCreating(true)}
-              className="rounded p-0.5 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
+              className="rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
               title="Add file"
             >
               <Plus className="h-3.5 w-3.5" />
