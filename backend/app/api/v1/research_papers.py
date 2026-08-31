@@ -12,6 +12,7 @@ from app.models.user import User
 from app.models.research_paper import ResearchPaper
 from app.models.paper_version import PaperVersion
 from app.models.paper_member import PaperMember, PaperRole
+from app.models.branch import Branch, Commit
 from app.models.project import Project
 from app.models.project_member import ProjectMember, ProjectRole
 from app.schemas.research_paper import ResearchPaperCreate, ResearchPaperUpdate, ResearchPaperResponse, ResearchPaperList
@@ -132,6 +133,48 @@ def _duplicate_title_error(project_id: Optional[UUID]) -> HTTPException:
     scope = "this project" if project_id else "your workspace"
     return HTTPException(status_code=409, detail=f"A paper with this title already exists in {scope}.")
 
+
+def _bootstrap_main_branch(db: Session, paper: ResearchPaper, creator_id: UUID) -> None:
+    """Create the initial main branch and commit for a newly created paper."""
+    paper_id = paper.id
+    try:
+        existing_branch = db.query(Branch).filter(
+            Branch.paper_id == paper_id,
+            Branch.name == "main",
+        ).first()
+        if existing_branch:
+            return
+
+        main_branch = Branch(
+            name="main",
+            paper_id=paper_id,
+            author_id=creator_id,
+            is_main=True,
+            last_commit_message="Initial commit",
+        )
+        db.add(main_branch)
+        db.flush()
+
+        initial_commit = Commit(
+            branch_id=main_branch.id,
+            message="Initial commit",
+            content="",
+            content_json=paper.content_json,
+            author_id=creator_id,
+            changes=[{
+                "type": "insert",
+                "section": "Initial Content",
+                "newContent": "Document created",
+                "position": 0,
+            }],
+        )
+        db.add(initial_commit)
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to bootstrap main branch for paper %s", paper_id)
+
+
 @router.post("/", response_model=ResearchPaperResponse, status_code=status.HTTP_201_CREATED)
 async def create_research_paper(
     paper_data: ResearchPaperCreate,
@@ -207,6 +250,8 @@ async def create_research_paper(
         snapshot_label="Initial version",
         extra_fields=paper_dict,
     )
+
+    _bootstrap_main_branch(db, paper, current_user.id)
 
     if project:
         record_project_activity(

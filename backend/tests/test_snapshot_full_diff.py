@@ -98,7 +98,7 @@ def test_get_snapshot_full_diff_returns_snapshot_diff_response(
     )
     db = _FakeSession([snapshot1, snapshot2])
 
-    monkeypatch.setattr(snapshots, "_check_paper_access", lambda db, paper_id, user: None)
+    monkeypatch.setattr(snapshots, "require_paper_access", lambda db, paper_id, user: None)
 
     response = snapshots.get_snapshot_full_diff(
         paper_id=paper_id,

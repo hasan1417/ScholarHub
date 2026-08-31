@@ -1,11 +1,12 @@
-from typing import List, Optional
+from typing import List
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import desc
 
 from app.api.deps import get_db, get_current_user
-from app.models import Branch, Commit, MergeRequest, User, ResearchPaper
+from app.api._paper_access import require_paper_access, require_paper_editor
+from app.models import Branch, Commit, MergeRequest, User
 from app.schemas.branch import (
     Branch as BranchSchema,
     BranchCreate,
@@ -27,46 +28,6 @@ from app.schemas.branch import (
 )
 
 router = APIRouter()
-
-
-def _is_valid_uuid(val: str) -> bool:
-    """Check if a string is a valid UUID."""
-    try:
-        UUID(str(val))
-        return True
-    except (ValueError, AttributeError):
-        return False
-
-
-def _parse_short_id(url_id: str) -> Optional[str]:
-    """Extract short_id from a URL identifier (slug-shortid or just shortid)."""
-    if not url_id or _is_valid_uuid(url_id):
-        return None
-    if len(url_id) == 8 and url_id.isalnum():
-        return url_id
-    last_hyphen = url_id.rfind('-')
-    if last_hyphen > 0:
-        potential_short_id = url_id[last_hyphen + 1:]
-        if len(potential_short_id) == 8 and potential_short_id.isalnum():
-            return potential_short_id
-    return None
-
-
-def _get_paper_or_404(db: Session, paper_id: str) -> ResearchPaper:
-    """Get paper by UUID or slug-shortid format."""
-    paper = None
-    if _is_valid_uuid(paper_id):
-        try:
-            paper = db.query(ResearchPaper).filter(ResearchPaper.id == UUID(paper_id)).first()
-        except (ValueError, AttributeError):
-            pass
-    if not paper:
-        short_id = _parse_short_id(paper_id)
-        if short_id:
-            paper = db.query(ResearchPaper).filter(ResearchPaper.short_id == short_id).first()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Paper not found")
-    return paper
 
 
 def _display_name(user: User) -> str:
@@ -101,14 +62,11 @@ def create_branch(
     current_user: User = Depends(get_current_user)
 ):
     """Create a new branch"""
-    # Check if paper exists and user has access
-    paper = db.query(ResearchPaper).filter(ResearchPaper.id == branch.paper_id).first()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Paper not found")
+    paper = require_paper_editor(db, branch.paper_id, current_user)
     
     # Check if branch name already exists for this paper
     existing_branch = db.query(Branch).filter(
-        Branch.paper_id == branch.paper_id,
+        Branch.paper_id == paper.id,
         Branch.name == branch.name
     ).first()
     if existing_branch:
@@ -117,7 +75,7 @@ def create_branch(
     # Create the branch
     db_branch = Branch(
         name=branch.name,
-        paper_id=branch.paper_id,
+        paper_id=paper.id,
         parent_branch_id=branch.parent_branch_id,
         author_id=current_user.id,
         is_main=branch.name.lower() == 'main'
@@ -140,47 +98,13 @@ def get_branches(
     current_user: User = Depends(get_current_user)
 ):
     """Get all branches for a paper"""
-    # Check if paper exists and user has access
-    paper = _get_paper_or_404(db, paper_id)
+    paper = require_paper_access(db, paper_id, current_user)
 
     # Get branches with author info
     branches = db.query(Branch, User).join(User, Branch.author_id == User.id).filter(
         Branch.paper_id == paper.id
     ).all()
 
-    # If no branches exist, create a main branch
-    if not branches:
-        main_branch = Branch(
-            name='main',
-            paper_id=paper.id,
-            author_id=current_user.id,
-            is_main=True,
-            last_commit_message='Initial commit'
-        )
-        db.add(main_branch)
-        db.commit()
-        db.refresh(main_branch)
-        
-        # Create initial commit
-        pj = getattr(paper, 'content_json', None)
-        initial_commit = Commit(
-            branch_id=main_branch.id,
-            message='Initial commit',
-            content='',
-            content_json=pj,
-            author_id=current_user.id,
-            changes=[{
-                'type': 'insert',
-                'section': 'Initial Content',
-                'newContent': 'Document created',
-                'position': 0
-            }]
-        )
-        db.add(initial_commit)
-        db.commit()
-        
-        branches = [(main_branch, current_user)]
-    
     return [_serialize_branch(branch, author) for branch, author in branches]
 
 
@@ -200,6 +124,7 @@ def switch_branch(
         raise HTTPException(status_code=404, detail="Branch not found")
     
     branch_obj, author = branch
+    require_paper_access(db, branch_obj.paper_id, current_user)
     
     # Get the latest commit content for this branch (prefer LaTeX source if applicable)
     latest_commit = db.query(Commit).filter(
@@ -232,6 +157,7 @@ def delete_branch(
     branch = db.query(Branch).filter(Branch.id == branch_id).first()
     if not branch:
         raise HTTPException(status_code=404, detail="Branch not found")
+    require_paper_editor(db, branch.paper_id, current_user)
     
     if branch.is_main:
         raise HTTPException(status_code=400, detail="Cannot delete main branch")
@@ -257,6 +183,7 @@ def commit_changes(
     branch = db.query(Branch).filter(Branch.id == branch_id).first()
     if not branch:
         raise HTTPException(status_code=404, detail="Branch not found")
+    require_paper_editor(db, branch.paper_id, current_user)
     
     # All papers are LaTeX — no HTML diff needed
     changes = []
@@ -299,6 +226,7 @@ def get_commit_history(
     branch = db.query(Branch).filter(Branch.id == branch_id).first()
     if not branch:
         raise HTTPException(status_code=404, detail="Branch not found")
+    require_paper_access(db, branch.paper_id, current_user)
     
     # Get commits with author info, ordered by timestamp desc (newest first)
     q = db.query(Commit, User).join(User, Commit.author_id == User.id).filter(
@@ -327,7 +255,7 @@ def update_commit(
     c = db.query(Commit).filter(Commit.id == commit_id).first()
     if not c:
         raise HTTPException(status_code=404, detail="Commit not found")
-    # For simplicity: allow author or any paper collaborator (omitted full checks)
+    require_paper_editor(db, c.branch.paper_id, current_user)
     if payload.message is not None:
         c.message = payload.message
     if payload.content is not None:
@@ -356,9 +284,17 @@ def create_merge_request(
     current_user: User = Depends(get_current_user)
 ):
     """Create a merge request"""
+    paper = require_paper_editor(db, merge_request.paper_id, current_user)
+
     # Verify branches exist
-    source_branch = db.query(Branch).filter(Branch.id == merge_request.source_branch_id).first()
-    target_branch = db.query(Branch).filter(Branch.id == merge_request.target_branch_id).first()
+    source_branch = db.query(Branch).filter(
+        Branch.id == merge_request.source_branch_id,
+        Branch.paper_id == paper.id,
+    ).first()
+    target_branch = db.query(Branch).filter(
+        Branch.id == merge_request.target_branch_id,
+        Branch.paper_id == paper.id,
+    ).first()
     
     if not source_branch or not target_branch:
         raise HTTPException(status_code=404, detail="Source or target branch not found")
@@ -366,7 +302,7 @@ def create_merge_request(
     db_merge_request = MergeRequest(
         source_branch_id=merge_request.source_branch_id,
         target_branch_id=merge_request.target_branch_id,
-        paper_id=merge_request.paper_id,
+        paper_id=paper.id,
         title=merge_request.title,
         description=merge_request.description,
         author_id=current_user.id
@@ -391,7 +327,7 @@ def get_merge_requests(
     current_user: User = Depends(get_current_user)
 ):
     """Get merge requests for a paper"""
-    paper = _get_paper_or_404(db, paper_id)
+    paper = require_paper_access(db, paper_id, current_user)
 
     merge_requests = db.query(
         MergeRequest,
@@ -432,6 +368,12 @@ def merge_branches(
     
     if not source_branch or not target_branch:
         raise HTTPException(status_code=404, detail="Source or target branch not found")
+    paper = require_paper_editor(db, target_branch.paper_id, current_user)
+    if source_branch.paper_id != paper.id or target_branch.paper_id != paper.id:
+        raise HTTPException(
+            status_code=400,
+            detail="Source and target branches must belong to the same paper",
+        )
     
     # Get latest commits from both branches
     source_commit = db.query(Commit).filter(
@@ -483,6 +425,14 @@ def analyze_conflicts(
     current_user: User = Depends(get_current_user)
 ):
     """Analyze conflicts between branches"""
+    source_branch = db.query(Branch).filter(Branch.id == request.source_branch_id).first()
+    target_branch = db.query(Branch).filter(Branch.id == request.target_branch_id).first()
+    if not source_branch or not target_branch:
+        raise HTTPException(status_code=404, detail="Source or target branch not found")
+    require_paper_access(db, source_branch.paper_id, current_user)
+    if target_branch.paper_id != source_branch.paper_id:
+        require_paper_access(db, target_branch.paper_id, current_user)
+
     # For demo, return mock conflicts
     return [
         Conflict(
