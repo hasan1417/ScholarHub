@@ -240,7 +240,7 @@ const CitationDialog: React.FC<CitationDialogProps> = ({
       {/* Dialog */}
       <div
         ref={dialogRef}
-        className="fixed z-50 w-[600px] rounded-lg bg-white shadow-2xl border border-gray-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+        className="fixed z-50 w-[600px] rounded-xl bg-white shadow-xl border border-gray-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
         style={{ top: position.top, left: position.left }}
       >
         {/* Header */}
@@ -264,7 +264,7 @@ const CitationDialog: React.FC<CitationDialogProps> = ({
             <select
               value={bibliographyStyle}
               onChange={(e) => setBibliographyStyle(e.target.value)}
-              className="flex-1 rounded border border-gray-300 px-2 py-1 text-xs text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-blue-400 dark:focus:ring-blue-400/40"
+              className="flex-1 rounded border border-gray-300 px-2 py-1 text-xs text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-indigo-400 dark:focus:ring-indigo-400/40"
             >
               {bibliographyStyles.map((style) => (
                 <option key={style.value} value={style.value}>
@@ -278,20 +278,20 @@ const CitationDialog: React.FC<CitationDialogProps> = ({
         {/* Search */}
         <div className="border-b border-gray-200 p-2 dark:border-slate-700">
           <div className="relative">
-            <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400 dark:text-slate-500" />
+            <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400 dark:text-slate-400" />
             <input
               ref={searchInputRef}
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Search references..."
-              className="w-full rounded border border-gray-300 py-1.5 pl-8 pr-2 text-xs text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-blue-400 dark:focus:ring-blue-400/40"
+              className="w-full rounded border border-gray-300 py-1.5 pl-8 pr-2 text-xs text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-indigo-400 dark:focus:ring-indigo-400/40"
             />
           </div>
         </div>
 
         {uploadError && (
-          <div className="border-b border-gray-200 px-3 py-2 text-[11px] text-rose-600 dark:border-slate-700 dark:text-rose-300">
+          <div className="border-b border-gray-200 px-3 py-2 text-2xs text-rose-600 dark:border-slate-700 dark:text-rose-300">
             {uploadError}
           </div>
         )}
@@ -335,7 +335,7 @@ const CitationDialog: React.FC<CitationDialogProps> = ({
                         <h4 className="text-xs font-medium text-gray-900 line-clamp-1 dark:text-slate-100">
                           {ref.title}
                         </h4>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] text-gray-600 dark:text-slate-300">
+                        <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-2xs text-gray-600 dark:text-slate-300">
                           {ref.authors && ref.authors.length > 0 && (
                             <span className="line-clamp-1">
                               {ref.authors[0]}
@@ -344,25 +344,25 @@ const CitationDialog: React.FC<CitationDialogProps> = ({
                           )}
                           {ref.year && (
                             <>
-                              <span className="text-gray-400 dark:text-slate-500">•</span>
+                              <span className="text-gray-400 dark:text-slate-400">•</span>
                               <span>{ref.year}</span>
                             </>
                           )}
-                          {hasMetaPrefix && <span className="text-gray-400 dark:text-slate-500">•</span>}
+                          {hasMetaPrefix && <span className="text-gray-400 dark:text-slate-400">•</span>}
                           {hasFullText ? (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-medium text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-2xs font-medium text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200">
                               Full text ready
                             </span>
                           ) : isProcessing ? (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 dark:bg-amber-500/20 dark:text-amber-200">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-2xs font-medium text-amber-700 dark:bg-amber-500/20 dark:text-amber-200">
                               Processing
                             </span>
                           ) : hasPdfLink ? (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-1.5 py-0.5 text-[9px] font-medium text-sky-700 dark:bg-sky-500/20 dark:text-sky-200">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-1.5 py-0.5 text-2xs font-medium text-sky-700 dark:bg-sky-500/20 dark:text-sky-200">
                               PDF linked
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 dark:bg-amber-500/20 dark:text-amber-200">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-2xs font-medium text-amber-700 dark:bg-amber-500/20 dark:text-amber-200">
                               PDF missing
                             </span>
                           )}
@@ -370,7 +370,7 @@ const CitationDialog: React.FC<CitationDialogProps> = ({
                             <button
                               type="button"
                               onClick={() => handleViewPdf(ref.documentDownloadUrl as string)}
-                              className="inline-flex items-center gap-1 rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[9px] font-medium text-indigo-700 hover:bg-indigo-100 dark:border-indigo-400/40 dark:bg-indigo-500/10 dark:text-indigo-200"
+                              className="inline-flex items-center gap-1 rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-2xs font-medium text-indigo-700 hover:bg-indigo-100 dark:border-indigo-400/40 dark:bg-indigo-500/10 dark:text-indigo-200"
                             >
                               View PDF
                             </button>
@@ -378,7 +378,7 @@ const CitationDialog: React.FC<CitationDialogProps> = ({
                           {!hasFullText && (
                             <label
                               htmlFor={`upload-pdf-${ref.id}`}
-                              className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 hover:bg-amber-100 cursor-pointer dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200"
+                              className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-2xs font-medium text-amber-700 hover:bg-amber-100 cursor-pointer dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200"
                               onClick={(event) => event.stopPropagation()}
                             >
                               <Upload className="h-3 w-3" />
@@ -403,7 +403,7 @@ const CitationDialog: React.FC<CitationDialogProps> = ({
                       {/* Insert Citation Button */}
                       <button
                         onClick={() => handleInsertCitation(ref)}
-                        className="flex-shrink-0 rounded border border-gray-300 bg-white px-2 py-1 text-[10px] font-medium text-gray-700 hover:bg-gray-50 transition-colors dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+                        className="flex-shrink-0 rounded border border-gray-300 bg-white px-2 py-1 text-2xs font-medium text-gray-700 hover:bg-gray-50 transition-colors dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                         title="Insert citation"
                       >
                         Insert Citation
@@ -418,7 +418,7 @@ const CitationDialog: React.FC<CitationDialogProps> = ({
 
         {/* Footer */}
         <div className="flex items-center justify-between border-t border-gray-200 bg-gray-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800">
-          <div className="text-[10px] text-gray-500 dark:text-slate-400">
+          <div className="text-2xs text-gray-500 dark:text-slate-400">
             {filteredReferences.length} refs
           </div>
           <div className="flex items-center gap-2">
@@ -435,7 +435,7 @@ const CitationDialog: React.FC<CitationDialogProps> = ({
                   handleClose()
                 }
               }}
-              className="inline-flex items-center gap-1 rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700"
+              className="inline-flex items-center gap-1 rounded bg-indigo-600 px-2 py-1 text-xs font-medium text-white hover:bg-indigo-700"
             >
               <BookOpen className="h-3 w-3" />
               Insert Bibliography

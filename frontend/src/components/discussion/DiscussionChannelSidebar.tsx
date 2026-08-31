@@ -76,7 +76,7 @@ const DiscussionChannelSidebar = ({
   }
 
   return (
-    <aside className="flex h-full w-full md:w-60 flex-col rounded-2xl border border-gray-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900/40">
+    <aside className="flex h-full w-full md:w-60 flex-col rounded-xl border border-gray-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900/40">
       <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-slate-700/80">
         <div className="flex items-center gap-2">
           <MessageCircle className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
@@ -87,7 +87,7 @@ const DiscussionChannelSidebar = ({
                 type="button"
                 onClick={() => setDropdownOpen(!dropdownOpen)}
                 className={clsx(
-                  'flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium transition',
+                  'flex items-center gap-1 rounded-md px-1.5 py-0.5 text-2xs font-medium transition',
                   showArchived
                     ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300'
                     : 'text-gray-500 hover:bg-gray-200 dark:text-slate-400 dark:hover:bg-slate-700'
@@ -107,7 +107,7 @@ const DiscussionChannelSidebar = ({
               </button>
 
               {dropdownOpen && (
-                <div className="absolute left-0 top-full z-50 mt-1 w-36 rounded-md border border-gray-200 bg-white py-0.5 shadow-md dark:border-slate-700 dark:bg-slate-800">
+                <div className="absolute left-0 top-full z-50 mt-1 w-36 rounded-md border border-gray-200 bg-white py-0.5 shadow-lg dark:border-slate-700 dark:bg-slate-800">
                   <button
                     type="button"
                     onClick={() => handleFilterSelect(false)}
@@ -119,7 +119,7 @@ const DiscussionChannelSidebar = ({
                     )}
                   >
                     <span>All</span>
-                    <span className="text-[10px] text-gray-400 dark:text-slate-500">{activeCount}</span>
+                    <span className="text-2xs text-gray-400 dark:text-slate-400">{activeCount}</span>
                   </button>
                   <button
                     type="button"
@@ -135,7 +135,7 @@ const DiscussionChannelSidebar = ({
                       <Archive className="h-3 w-3" />
                       <span>Archived</span>
                     </div>
-                    <span className="text-[10px] text-gray-400 dark:text-slate-500">{archivedCount}</span>
+                    <span className="text-2xs text-gray-400 dark:text-slate-400">{archivedCount}</span>
                   </button>
                 </div>
               )}
@@ -185,7 +185,7 @@ const DiscussionChannelSidebar = ({
                       }
                     }}
                     className={clsx(
-                      'group relative w-full text-left rounded-lg transition-all cursor-pointer border-l-2 px-2.5 py-2.5 touch-manipulation',
+                      'group relative w-full text-left rounded-xl transition-all cursor-pointer border-l-2 px-2.5 py-2.5 touch-manipulation',
                       isActive
                         ? 'bg-indigo-50 border-l-indigo-500 dark:bg-indigo-500/10 dark:border-l-indigo-400'
                         : channel.is_default
@@ -199,7 +199,7 @@ const DiscussionChannelSidebar = ({
                         'h-4 w-4 flex-shrink-0 mt-0.5',
                         isActive
                           ? 'text-indigo-500 dark:text-indigo-400'
-                          : 'text-gray-400 dark:text-slate-500'
+                          : 'text-gray-400 dark:text-slate-400'
                       )} />
 
                       {/* Channel info */}
@@ -223,7 +223,7 @@ const DiscussionChannelSidebar = ({
                               <button
                                 type="button"
                                 className={clsx(
-                                  'rounded p-0.5 text-gray-400 transition hover:bg-gray-200 hover:text-gray-600 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-slate-300',
+                                  'rounded p-0.5 text-gray-400 transition hover:bg-gray-200 hover:text-gray-600 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-300',
                                   isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
                                 )}
                                 onClick={(event) => {
@@ -239,7 +239,7 @@ const DiscussionChannelSidebar = ({
                               <button
                                 type="button"
                                 className={clsx(
-                                  'rounded p-0.5 text-gray-400 transition hover:bg-gray-200 hover:text-gray-600 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-slate-300',
+                                  'rounded p-0.5 text-gray-400 transition hover:bg-gray-200 hover:text-gray-600 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-300',
                                   isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
                                 )}
                                 onClick={(event) => {
@@ -258,7 +258,7 @@ const DiscussionChannelSidebar = ({
 
                             {/* Timestamp - always at far right */}
                             {lastActivity && !channel.is_archived && (
-                              <span className="text-[10px] text-gray-400 dark:text-slate-500">
+                              <span className="text-2xs text-gray-400 dark:text-slate-400">
                                 {lastActivity}
                               </span>
                             )}
@@ -268,24 +268,24 @@ const DiscussionChannelSidebar = ({
                         {/* Second row: badges and message count */}
                         <div className="mt-1 flex items-center gap-2">
                           {channel.is_default && (
-                            <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
+                            <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
                               Default
                             </span>
                           )}
                           {channel.is_archived && (
-                            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:bg-amber-500/20 dark:text-amber-300">
+                            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide text-amber-600 dark:bg-amber-500/20 dark:text-amber-300">
                               Archived
                             </span>
                           )}
                           {messageCount > 0 && !channel.is_archived && (
-                            <span className="text-[10px] text-gray-400 dark:text-slate-500">
+                            <span className="text-2xs text-gray-400 dark:text-slate-400">
                               {messageCount} message{messageCount !== 1 ? 's' : ''}
                             </span>
                           )}
                         </div>
                         {/* Description on its own line */}
                         {channel.description && !channel.is_default && !channel.is_archived && (
-                          <p className="mt-0.5 text-[10px] text-gray-400 dark:text-slate-500 truncate">
+                          <p className="mt-0.5 text-2xs text-gray-400 dark:text-slate-400 truncate">
                             {channel.description}
                           </p>
                         )}

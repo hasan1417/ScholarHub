@@ -1016,7 +1016,7 @@ const ProjectDiscovery = () => {
 
   const renderManualContent = () => (
     <div className="space-y-6">
-      <section className="rounded-2xl border border-indigo-100 bg-white shadow-sm transition-colors dark:border-indigo-500/30 dark:bg-slate-900/40">
+      <section className="rounded-xl border border-indigo-100 bg-white shadow-sm transition-colors dark:border-indigo-500/30 dark:bg-slate-900/40">
         {/* Header */}
         <div className="flex items-center gap-3 border-b border-indigo-50 px-5 py-4 dark:border-indigo-500/20">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-100 dark:bg-indigo-500/20">
@@ -1028,7 +1028,7 @@ const ProjectDiscovery = () => {
               Find relevant papers from academic databases
             </p>
           </div>
-          <div className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-slate-500">
+          <div className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-slate-400">
             <Clock className="h-3.5 w-3.5" />
             <span>{lastManualRun ? formatDateTime(lastManualRun) : 'Never run'}</span>
           </div>
@@ -1037,12 +1037,12 @@ const ProjectDiscovery = () => {
         {/* Main content */}
         <div className="space-y-4 p-5">
           {manualErrorMessage && (
-            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-400/40 dark:bg-rose-500/10 dark:text-rose-200">
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-400/40 dark:bg-rose-500/10 dark:text-rose-200">
               {manualErrorMessage}
             </div>
           )}
           {manualStatusMessage && (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/15 dark:text-emerald-200">
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/15 dark:text-emerald-200">
               {manualStatusMessage}
             </div>
           )}
@@ -1060,7 +1060,7 @@ const ProjectDiscovery = () => {
                   updateManualForm((prev) => ({ ...prev, query: event.target.value }))
                 }
                 placeholder="e.g. transformer architectures for NLP, diffusion models..."
-                className="w-full rounded-lg border border-gray-200 bg-gray-50/50 px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800/50 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:bg-slate-800"
+                className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-800/50 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:bg-slate-800"
               />
             </div>
             {projectKeywordPreset && (
@@ -1093,7 +1093,7 @@ const ProjectDiscovery = () => {
                     {checked && <Check className="h-3 w-3" />}
                     {source.label}
                     {source.metered && (
-                      <span className="ml-0.5 rounded-sm bg-amber-100 px-1 text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
+                      <span className="ml-0.5 rounded-md bg-amber-100 px-1 text-2xs font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
                         metered
                       </span>
                     )}
@@ -1104,7 +1104,7 @@ const ProjectDiscovery = () => {
           </div>
 
           {/* Collapsible advanced options */}
-          <div className="rounded-lg border border-gray-100 dark:border-slate-700/50">
+          <div className="rounded-xl border border-gray-100 dark:border-slate-700/50">
             <button
               type="button"
               onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
@@ -1168,7 +1168,7 @@ const ProjectDiscovery = () => {
             type="button"
             onClick={() => runDiscovery.mutate()}
             disabled={runDiscovery.isPending || discoveryCooldown > 0 || !manualFormState.query.trim()}
-            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {runDiscovery.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -1186,7 +1186,7 @@ const ProjectDiscovery = () => {
 
       {/* Real-time progress indicator during streaming discovery */}
       {isStreaming && streamProgress && (
-        <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-500/30 dark:bg-indigo-950/30">
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-500/30 dark:bg-indigo-950/30">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/50">
               <Loader2 className="h-5 w-5 animate-spin text-indigo-600 dark:text-indigo-300" />
@@ -1219,7 +1219,7 @@ const ProjectDiscovery = () => {
               return (
                 <div
                   key={source}
-                  className={`flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-xs transition-all duration-300 ${
+                  className={`flex items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 text-xs transition-all duration-300 ${
                     isSearching
                       ? 'bg-white/60 dark:bg-slate-900/40'
                       : isSuccess
@@ -1279,7 +1279,7 @@ const ProjectDiscovery = () => {
 
       {/* Source stats after discovery */}
       {!runDiscovery.isPending && lastSourceStats && lastSourceStats.length > 0 && (
-        <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/50">
+        <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/50">
           <div className="flex items-center justify-between gap-2 mb-3">
             <h3 className="text-sm font-medium text-gray-700 dark:text-slate-200">
               Search results by source
@@ -1287,7 +1287,7 @@ const ProjectDiscovery = () => {
             <button
               type="button"
               onClick={() => setLastSourceStats(null)}
-              className="text-gray-400 hover:text-gray-600 dark:text-slate-500 dark:hover:text-slate-300"
+              className="text-gray-400 hover:text-gray-600 dark:text-slate-400 dark:hover:text-slate-300"
             >
               <X className="h-4 w-4" />
             </button>
@@ -1314,7 +1314,7 @@ const ProjectDiscovery = () => {
               return (
                 <div
                   key={stat.source}
-                  className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs ${
+                  className={`flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs ${
                     isSuccess
                       ? 'bg-emerald-50 dark:bg-emerald-900/20'
                       : isRateLimited
@@ -1322,7 +1322,7 @@ const ProjectDiscovery = () => {
                         : isFailed
                           ? 'bg-rose-50 dark:bg-rose-900/20'
                           : isCancelled
-                            ? 'bg-slate-50 dark:bg-slate-800/50'
+                            ? 'bg-gray-50 dark:bg-slate-800/50'
                             : 'bg-gray-50 dark:bg-slate-800/50'
                   }`}
                 >
@@ -1331,7 +1331,7 @@ const ProjectDiscovery = () => {
                     {isTimeout && <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 text-amber-600 dark:text-amber-400" />}
                     {isRateLimited && <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 text-amber-600 dark:text-amber-400" />}
                     {isError && <XCircle className="h-3.5 w-3.5 flex-shrink-0 text-rose-600 dark:text-rose-400" />}
-                    {isCancelled && <MinusCircle className="h-3.5 w-3.5 flex-shrink-0 text-slate-400 dark:text-slate-500" />}
+                    {isCancelled && <MinusCircle className="h-3.5 w-3.5 flex-shrink-0 text-gray-400 dark:text-slate-400" />}
                     <span className={`truncate ${
                       isSuccess
                         ? 'text-emerald-700 dark:text-emerald-300'
@@ -1340,7 +1340,7 @@ const ProjectDiscovery = () => {
                           : isFailed
                             ? 'text-rose-700 dark:text-rose-300'
                             : isCancelled
-                              ? 'text-slate-500 dark:text-slate-400'
+                              ? 'text-gray-500 dark:text-slate-400'
                               : 'text-gray-600 dark:text-slate-400'
                     }`}>
                       {getSourceLabel(stat.source)}
@@ -1368,7 +1368,7 @@ const ProjectDiscovery = () => {
                       </span>
                     )}
                     {isCancelled && (
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600 dark:bg-slate-700/50 dark:text-slate-400" title="Search was skipped (enough results found from other sources)">
+                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600 dark:bg-slate-700/50 dark:text-slate-400" title="Search was skipped (enough results found from other sources)">
                         Skipped
                       </span>
                     )}
@@ -1415,7 +1415,7 @@ const ProjectDiscovery = () => {
         </div>
       )}
 
-      <section className="space-y-4 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900/50">
+      <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900/50">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-slate-100">
             <Sparkles className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
@@ -1493,7 +1493,7 @@ const ProjectDiscovery = () => {
 
         {/* Batch actions for pending results */}
         {pendingManualResults.length > 0 && statusFilter === 'pending' && !isDeleteMode && (
-          <div className="flex items-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-2 dark:border-indigo-500/30 dark:bg-indigo-950/30">
+          <div className="flex items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50/50 px-3 py-2 dark:border-indigo-500/30 dark:bg-indigo-950/30">
             <span className="text-xs text-indigo-700 dark:text-indigo-200">
               {pendingManualResults.length} pending paper{pendingManualResults.length !== 1 ? 's' : ''}
             </span>
@@ -1635,7 +1635,7 @@ const ProjectDiscovery = () => {
 
     return (
       <div className="space-y-6">
-        <section className="rounded-2xl border border-indigo-100 bg-white shadow-sm transition-colors dark:border-indigo-500/30 dark:bg-slate-900/40">
+        <section className="rounded-xl border border-indigo-100 bg-white shadow-sm transition-colors dark:border-indigo-500/30 dark:bg-slate-900/40">
           {/* Header */}
           <div className="flex items-center gap-3 border-b border-indigo-50 px-5 py-4 dark:border-indigo-500/20">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-100 dark:bg-indigo-500/20">
@@ -1649,7 +1649,7 @@ const ProjectDiscovery = () => {
             </div>
             <div className="flex items-center gap-3">
               {settingsQuery.data?.last_run_at && (
-                <div className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-slate-500">
+                <div className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-slate-400">
                   <Clock className="h-3.5 w-3.5" />
                   <span>Last run {formatDateTime(settingsQuery.data.last_run_at)}</span>
                 </div>
@@ -1668,18 +1668,18 @@ const ProjectDiscovery = () => {
           {/* Main content */}
           <div className="space-y-4 p-5">
             {activeErrorMessage && (
-              <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-400/40 dark:bg-rose-500/10 dark:text-rose-200">
+              <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-400/40 dark:bg-rose-500/10 dark:text-rose-200">
                 {activeErrorMessage}
               </div>
             )}
             {activeStatusMessage && (
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/15 dark:text-emerald-200">
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/15 dark:text-emerald-200">
                 {activeStatusMessage}
               </div>
             )}
 
             {/* Auto-refresh toggle - prominent */}
-            <div className={`flex items-center justify-between rounded-lg border p-4 transition-colors ${
+            <div className={`flex items-center justify-between rounded-xl border p-4 transition-colors ${
               activeFormState.autoRefresh
                 ? 'border-emerald-200 bg-emerald-50/50 dark:border-emerald-500/30 dark:bg-emerald-950/20'
                 : 'border-gray-200 bg-gray-50/50 dark:border-slate-700 dark:bg-slate-800/30'
@@ -1747,7 +1747,7 @@ const ProjectDiscovery = () => {
             </div>
 
             {/* Auto-query info */}
-            <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 px-4 py-3 dark:border-indigo-500/20 dark:bg-indigo-950/30">
+            <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 px-4 py-3 dark:border-indigo-500/20 dark:bg-indigo-950/30">
               <p className="text-xs text-indigo-700 dark:text-indigo-300">
                 <Sparkles className="mr-1 inline-block h-3.5 w-3.5" />
                 Search queries are generated automatically from your project context — title, keywords, library references, and papers being written.
@@ -1813,7 +1813,7 @@ const ProjectDiscovery = () => {
                 type="button"
                 onClick={resetActiveForm}
                 disabled={saveSettings.isPending}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
                 Reset
@@ -1822,7 +1822,7 @@ const ProjectDiscovery = () => {
                 type="button"
                 onClick={() => saveSettings.mutate()}
                 disabled={saveSettings.isPending || !isActiveDirty}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {saveSettings.isPending ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1835,7 +1835,7 @@ const ProjectDiscovery = () => {
           </div>
         </section>
 
-        <section className="space-y-4 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900/50">
+        <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900/50">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-slate-100">
               <Clock className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
@@ -1913,26 +1913,26 @@ const ProjectDiscovery = () => {
           </div>
 
           {!activeFormState.autoRefresh && (
-            <div className="rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs text-indigo-700 dark:border-indigo-400/40 dark:bg-indigo-500/15 dark:text-indigo-200">
+            <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs text-indigo-700 dark:border-indigo-400/40 dark:bg-indigo-500/15 dark:text-indigo-200">
               Turn on <span className="font-medium">Enable background auto-refresh</span> above to let ScholarHub refresh this feed automatically.
             </div>
           )}
 
           {hiddenAutoCount > 0 && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-300/40 dark:bg-amber-300/20 dark:text-amber-100">
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-300/40 dark:bg-amber-300/20 dark:text-amber-100">
               Hiding {hiddenAutoCount} duplicate suggestion{hiddenAutoCount === 1 ? '' : 's'} already shown in References.
             </div>
           )}
 
           {storedPreferences?.auto_trimmed_count != null && storedPreferences.auto_trimmed_count > 0 && (
-            <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700 dark:border-sky-400/30 dark:bg-sky-500/10 dark:text-sky-200">
+            <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700 dark:border-sky-400/30 dark:bg-sky-500/10 dark:text-sky-200">
               {storedPreferences.auto_trimmed_count} older result{storedPreferences.auto_trimmed_count === 1 ? ' was' : 's were'} archived to keep your feed fresh.
             </div>
           )}
 
           {/* Batch actions for pending auto results */}
           {(pendingAutoResults.length > 0 || (pendingAutoCountQuery.data ?? 0) > 0) && statusFilter === 'pending' && (
-            <div className="flex items-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-2 dark:border-indigo-500/30 dark:bg-indigo-950/30">
+            <div className="flex items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50/50 px-3 py-2 dark:border-indigo-500/30 dark:bg-indigo-950/30">
               <span className="text-xs text-indigo-700 dark:text-indigo-200">
                 {pendingAutoCountQuery.data ?? pendingAutoResults.length} pending paper{(pendingAutoCountQuery.data ?? pendingAutoResults.length) !== 1 ? 's' : ''}
               </span>
@@ -2029,7 +2029,7 @@ const ProjectDiscovery = () => {
 
   return (
     <div className="space-y-6">
-      <div className="inline-flex items-center gap-2 rounded-2xl border border-gray-200 bg-white p-2 shadow-sm text-sm dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200">
+      <div className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white p-2 shadow-sm text-sm dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200">
         <button
           type="button"
           onClick={() => {

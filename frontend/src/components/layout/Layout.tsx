@@ -146,7 +146,7 @@ const Layout = () => {
         onClick={() => setIsSettingsOpen(false)}
         className="flex items-center gap-4 rounded-xl border border-gray-100 bg-gradient-to-r from-gray-50 to-white p-4 transition-all hover:border-gray-200 hover:shadow-sm dark:border-slate-700 dark:from-slate-800 dark:to-slate-800/50 dark:hover:border-slate-600"
       >
-        <div className="h-12 w-12 flex-shrink-0 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-semibold shadow-md">
+        <div className="h-12 w-12 flex-shrink-0 rounded-full bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center text-white font-semibold shadow-lg">
           {getInitials()}
         </div>
         <div className="flex-1 min-w-0">
@@ -155,7 +155,7 @@ const Layout = () => {
           </div>
           <div className="text-sm text-gray-500 dark:text-slate-400 truncate">{user?.email}</div>
         </div>
-        <ChevronRight className="h-5 w-5 text-gray-400 dark:text-slate-500" />
+        <ChevronRight className="h-5 w-5 text-gray-400 dark:text-slate-400" />
       </Link>
 
       {/* Appearance Section */}
@@ -164,7 +164,7 @@ const Layout = () => {
           <Palette className="h-4 w-4" />
           <span>Appearance</span>
         </div>
-        <div className="flex rounded-lg bg-gray-100 p-1 dark:bg-slate-700/50">
+        <div className="flex rounded-xl bg-gray-100 p-1 dark:bg-slate-700/50">
           <button
             type="button"
             onClick={() => setTheme('light')}
@@ -223,7 +223,7 @@ const Layout = () => {
             {tierLoaded && isFreeTier && (
               <Link
                 to="/pricing"
-                className="group relative mr-3 inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all hover:from-amber-600 hover:to-orange-600 hover:shadow-md overflow-hidden"
+                className="group relative mr-3 inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all hover:from-amber-600 hover:to-orange-600 hover:shadow-lg overflow-hidden"
               >
                 {/* Gleam animation */}
                 <span className="absolute inset-0 animate-gleam bg-gradient-to-r from-transparent via-white/30 to-transparent" />

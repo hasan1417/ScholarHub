@@ -72,7 +72,7 @@ const VerifyEmail = () => {
             </p>
             <button
               onClick={handleVerify}
-              className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl transition-all shadow-lg shadow-indigo-500/25 hover:shadow-xl hover:shadow-indigo-500/30 hover:-translate-y-0.5"
+              className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl transition-all shadow-lg hover:shadow-xl hover: hover:-translate-y-0.5"
             >
               Verify My Email
             </button>
@@ -108,7 +108,7 @@ const VerifyEmail = () => {
             <p className="text-gray-600 dark:text-slate-400 mb-4">
               Your email has been verified successfully. You can now sign in to your account.
             </p>
-            <p className="text-sm text-gray-500 dark:text-slate-500">
+            <p className="text-sm text-gray-500 dark:text-slate-400">
               Redirecting to login...
             </p>
           </>
@@ -137,7 +137,7 @@ const VerifyEmail = () => {
               <form onSubmit={handleResendVerification} className="space-y-3">
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Mail className="h-5 w-5 text-gray-400 dark:text-slate-500" />
+                    <Mail className="h-5 w-5 text-gray-400 dark:text-slate-400" />
                   </div>
                   <input
                     type="email"
@@ -193,7 +193,7 @@ const VerifyEmail = () => {
               <form onSubmit={handleResendVerification} className="space-y-3">
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Mail className="h-5 w-5 text-gray-400 dark:text-slate-500" />
+                    <Mail className="h-5 w-5 text-gray-400 dark:text-slate-400" />
                   </div>
                   <input
                     type="email"
@@ -232,7 +232,7 @@ const VerifyEmail = () => {
     <div className="min-h-screen bg-white dark:bg-[#0f172a] flex items-center justify-center relative overflow-hidden">
       {/* Background */}
       <div className="fixed inset-0 -z-10">
-        <div className="absolute inset-0 bg-gradient-to-br from-indigo-50 via-white to-purple-50 dark:opacity-0 transition-opacity duration-500" />
+        <div className="absolute inset-0 bg-gradient-to-br from-indigo-50 via-white to-indigo-50 dark:opacity-0 transition-opacity duration-500" />
         <div className="absolute inset-0 opacity-0 dark:opacity-100 transition-opacity duration-500">
           <div className="absolute inset-0 bg-[#0f172a]" />
         </div>
@@ -245,7 +245,7 @@ const VerifyEmail = () => {
         </Link>
 
         {/* Card */}
-        <div className="relative bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-2xl border border-gray-200/80 dark:border-slate-600/50 shadow-lg shadow-indigo-500/5 dark:shadow-lg dark:shadow-black/20 p-8 text-center">
+        <div className="relative bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-xl border border-gray-200/80 dark:border-slate-600/50 shadow-lg dark:shadow-lg dark:shadow-black/20 p-8 text-center">
             {renderContent()}
           </div>
 

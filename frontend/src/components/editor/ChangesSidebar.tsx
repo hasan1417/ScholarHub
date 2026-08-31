@@ -64,8 +64,8 @@ const ChangesSidebar: React.FC<ChangesSidebarProps> = ({ paperId, content, onClo
             <button className="text-left text-sm hover:underline" onClick={()=> onJumpToLine(node.lineStart)}>
               {node.title}
             </button>
-            {changed && <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-800">changed</span>}
-            {locked && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 flex items-center gap-1"><Lock className="w-3 h-3"/> {locked.userName}</span>}
+            {changed && <span className="text-2xs px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-800">changed</span>}
+            {locked && <span className="text-2xs px-1.5 py-0.5 rounded bg-red-100 text-red-700 flex items-center gap-1"><Lock className="w-3 h-3"/> {locked.userName}</span>}
           </div>
           <div className="flex items-center gap-1">
             <button title="Compare with HEAD" className="px-1.5 py-0.5 text-xs border rounded flex items-center gap-1" onClick={async ()=>{

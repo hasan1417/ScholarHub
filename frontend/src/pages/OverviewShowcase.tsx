@@ -25,9 +25,9 @@ const mockProject = {
   ],
   keywords: ["machine learning", "drug discovery", "deep learning", "molecular properties", "transformers", "pharmaceutical AI"],
   members: [
-    { name: "Hassan", initials: "HA", color: "bg-blue-500" },
+    { name: "Hassan", initials: "HA", color: "bg-indigo-500" },
     { name: "Ahmed", initials: "AH", color: "bg-emerald-500" },
-    { name: "Sara", initials: "SA", color: "bg-purple-500" },
+    { name: "Sara", initials: "SA", color: "bg-indigo-500" },
     { name: "Omar", initials: "OM", color: "bg-amber-500" },
   ],
   activities: [
@@ -42,7 +42,7 @@ const Option1BentoGrid = () => {
   return (
     <div className="grid grid-cols-4 gap-4" style={{ minHeight: '420px' }}>
       {/* Objectives - Large card spanning 2x2 */}
-      <div className="col-span-2 row-span-2 rounded-2xl bg-gradient-to-br from-orange-50 to-amber-50 dark:from-orange-900/20 dark:to-amber-900/10 border border-orange-200/50 dark:border-orange-800/30 p-6 flex flex-col">
+      <div className="col-span-2 row-span-2 rounded-xl bg-gradient-to-br from-orange-50 to-amber-50 dark:from-orange-900/20 dark:to-amber-900/10 border border-orange-200/50 dark:border-orange-800/30 p-6 flex flex-col">
         <div className="flex items-center gap-2 mb-4">
           <div className="p-2 rounded-xl bg-orange-100 dark:bg-orange-800/50">
             <Target className="h-5 w-5 text-orange-600 dark:text-orange-400" />
@@ -53,7 +53,7 @@ const Option1BentoGrid = () => {
         <ul className="space-y-3 flex-1">
           {mockProject.objectives.map((obj, i) => (
             <li key={i} className="flex items-start gap-3 text-sm text-gray-700 dark:text-slate-300">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-orange-200/70 dark:bg-orange-800/50 text-xs font-bold text-orange-700 dark:text-orange-300">{i + 1}</span>
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-xl bg-orange-200/70 dark:bg-orange-800/50 text-xs font-bold text-orange-700 dark:text-orange-300">{i + 1}</span>
               <span className="leading-relaxed">{obj}</span>
             </li>
           ))}
@@ -61,10 +61,10 @@ const Option1BentoGrid = () => {
       </div>
 
       {/* Description */}
-      <div className="col-span-2 rounded-2xl bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 p-5">
+      <div className="col-span-2 rounded-xl bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 p-5">
         <div className="flex items-center gap-2 mb-3">
-          <div className="p-2 rounded-xl bg-blue-100 dark:bg-blue-900/30">
-            <FileText className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+          <div className="p-2 rounded-xl bg-indigo-100 dark:bg-indigo-900/30">
+            <FileText className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
           </div>
           <h3 className="font-semibold text-gray-900 dark:text-slate-100">Description</h3>
         </div>
@@ -72,10 +72,10 @@ const Option1BentoGrid = () => {
       </div>
 
       {/* Team */}
-      <div className="rounded-2xl bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 p-5">
+      <div className="rounded-xl bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 p-5">
         <div className="flex items-center gap-2 mb-3">
-          <div className="p-2 rounded-xl bg-purple-100 dark:bg-purple-900/30">
-            <Users className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+          <div className="p-2 rounded-xl bg-indigo-100 dark:bg-indigo-900/30">
+            <Users className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
           </div>
           <h3 className="font-medium text-gray-900 dark:text-slate-100 text-sm">Team</h3>
         </div>
@@ -88,7 +88,7 @@ const Option1BentoGrid = () => {
       </div>
 
       {/* Keywords */}
-      <div className="rounded-2xl bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 p-5">
+      <div className="rounded-xl bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 p-5">
         <div className="flex items-center gap-2 mb-3">
           <div className="p-2 rounded-xl bg-green-100 dark:bg-green-900/30">
             <Tag className="h-4 w-4 text-green-600 dark:text-green-400" />
@@ -113,17 +113,17 @@ const Option2TwoColumn = () => {
       {/* Main Content */}
       <div className="flex-1 space-y-8">
         <div>
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500 mb-3">About this project</h3>
-          <p className="text-gray-700 dark:text-slate-300 leading-relaxed text-[15px]">{mockProject.description}</p>
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-400 mb-3">About this project</h3>
+          <p className="text-gray-700 dark:text-slate-300 leading-relaxed text-sm">{mockProject.description}</p>
         </div>
 
         <div>
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500 mb-4">Objectives</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-400 mb-4">Objectives</h3>
           <div className="space-y-2">
             {mockProject.objectives.map((obj, i) => (
               <div key={i} className="flex items-start gap-4 p-4 rounded-xl bg-gray-50 dark:bg-slate-800/50 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors group">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-orange-100 dark:bg-orange-900/30 text-sm font-semibold text-orange-600 dark:text-orange-400 group-hover:scale-110 transition-transform">{i + 1}</div>
-                <span className="text-[15px] text-gray-700 dark:text-slate-300 pt-0.5">{obj}</span>
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-orange-100 dark:bg-orange-900/30 text-sm font-semibold text-orange-600 dark:text-orange-400 group-hover:scale-110 transition-transform">{i + 1}</div>
+                <span className="text-sm text-gray-700 dark:text-slate-300 pt-0.5">{obj}</span>
               </div>
             ))}
           </div>
@@ -132,11 +132,11 @@ const Option2TwoColumn = () => {
 
       {/* Sidebar */}
       <div className="w-80 shrink-0 space-y-5">
-        <div className="rounded-2xl border border-gray-200 dark:border-slate-700 p-5 bg-white dark:bg-slate-800/50">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500 mb-4">Team Members</h3>
+        <div className="rounded-xl border border-gray-200 dark:border-slate-700 p-5 bg-white dark:bg-slate-800/50">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-400 mb-4">Team Members</h3>
           <div className="space-y-3">
             {mockProject.members.map((m, i) => (
-              <div key={i} className="flex items-center gap-3 p-2 -mx-2 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
+              <div key={i} className="flex items-center gap-3 p-2 -mx-2 rounded-xl hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
                 <div className={`h-10 w-10 rounded-full ${m.color} flex items-center justify-center text-white text-sm font-medium shadow-sm`}>{m.initials}</div>
                 <div>
                   <span className="text-sm font-medium text-gray-900 dark:text-slate-100">{m.name}</span>
@@ -147,8 +147,8 @@ const Option2TwoColumn = () => {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-gray-200 dark:border-slate-700 p-5 bg-white dark:bg-slate-800/50">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500 mb-4">Keywords</h3>
+        <div className="rounded-xl border border-gray-200 dark:border-slate-700 p-5 bg-white dark:bg-slate-800/50">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-400 mb-4">Keywords</h3>
           <div className="flex flex-wrap gap-2">
             {mockProject.keywords.map((kw) => (
               <span key={kw} className="text-sm bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-slate-300 px-3 py-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors cursor-default">{kw}</span>
@@ -156,13 +156,13 @@ const Option2TwoColumn = () => {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-gray-200 dark:border-slate-700 p-5 bg-white dark:bg-slate-800/50">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500 mb-4">Activity</h3>
+        <div className="rounded-xl border border-gray-200 dark:border-slate-700 p-5 bg-white dark:bg-slate-800/50">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-400 mb-4">Activity</h3>
           <div className="space-y-3">
             {mockProject.activities.map((a, i) => (
               <div key={i} className="flex items-center justify-between text-sm">
                 <span className="text-gray-700 dark:text-slate-300"><span className="font-medium">{a.actor}</span> {a.action}</span>
-                <span className="text-xs text-gray-400 dark:text-slate-500">{a.time}</span>
+                <span className="text-xs text-gray-400 dark:text-slate-400">{a.time}</span>
               </div>
             ))}
           </div>
@@ -181,7 +181,7 @@ const Option3Horizontal = () => {
         <div className="flex items-center gap-3">
           <div className="flex -space-x-2">
             {mockProject.members.map((m, i) => (
-              <div key={i} className={`h-7 w-7 rounded-full ${m.color} flex items-center justify-center text-white text-[10px] font-medium border-2 border-white dark:border-slate-900`}>{m.initials}</div>
+              <div key={i} className={`h-7 w-7 rounded-full ${m.color} flex items-center justify-center text-white text-2xs font-medium border-2 border-white dark:border-slate-900`}>{m.initials}</div>
             ))}
           </div>
           <span className="text-sm text-gray-600 dark:text-slate-400">{mockProject.members.length} members</span>
@@ -202,7 +202,7 @@ const Option3Horizontal = () => {
 
       {/* Description */}
       <div>
-        <p className="text-[15px] text-gray-700 dark:text-slate-300 leading-relaxed max-w-3xl">{mockProject.description}</p>
+        <p className="text-sm text-gray-700 dark:text-slate-300 leading-relaxed max-w-3xl">{mockProject.description}</p>
       </div>
 
       {/* Objectives grid */}
@@ -214,7 +214,7 @@ const Option3Horizontal = () => {
         <div className="grid md:grid-cols-2 gap-4">
           {mockProject.objectives.map((obj, i) => (
             <div key={i} className="flex items-start gap-4 p-5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800/50 hover:border-orange-300 dark:hover:border-orange-700 transition-colors">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border-2 border-orange-200 dark:border-orange-700 text-sm font-bold text-orange-500">{i + 1}</div>
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border-2 border-orange-200 dark:border-orange-700 text-sm font-bold text-orange-500">{i + 1}</div>
               <span className="text-sm text-gray-700 dark:text-slate-300 leading-relaxed pt-1">{obj}</span>
             </div>
           ))}
@@ -224,12 +224,12 @@ const Option3Horizontal = () => {
       {/* Activity footer */}
       <div className="pt-5 border-t border-gray-200 dark:border-slate-700">
         <div className="flex items-center gap-6">
-          <span className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500">Recent</span>
+          <span className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-400">Recent</span>
           {mockProject.activities.map((a, i) => (
             <div key={i} className="flex items-center gap-2 text-sm text-gray-600 dark:text-slate-400">
               <span className="font-medium text-gray-900 dark:text-slate-200">{a.actor}</span>
               <span>{a.action}</span>
-              <span className="text-gray-400 dark:text-slate-500">· {a.time}</span>
+              <span className="text-gray-400 dark:text-slate-400">· {a.time}</span>
             </div>
           ))}
         </div>
@@ -245,8 +245,8 @@ const Option4Tabbed = () => {
   return (
     <div>
       {/* Hero header */}
-      <div className="rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 p-6 text-white mb-6 shadow-lg">
-        <p className="text-white/90 leading-relaxed text-[15px] max-w-2xl">{mockProject.description}</p>
+      <div className="rounded-xl bg-gradient-to-br from-indigo-500 via-indigo-500 to-pink-500 p-6 text-white mb-6 shadow-lg">
+        <p className="text-white/90 leading-relaxed text-sm max-w-2xl">{mockProject.description}</p>
         <div className="flex items-center gap-8 mt-5 pt-5 border-t border-white/20">
           <div className="flex items-center gap-2">
             <Target className="h-5 w-5 text-white/80" />
@@ -275,7 +275,7 @@ const Option4Tabbed = () => {
               onClick={() => setActiveTab(tab)}
               className={`px-5 py-3 text-sm font-medium border-b-2 transition-all ${
                 activeTab === tab
-                  ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 rounded-t-lg'
+                  ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 rounded-t-xl'
                   : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-300'
               }`}
             >
@@ -301,9 +301,9 @@ const Option4Tabbed = () => {
               <h4 className="text-sm font-semibold text-gray-500 dark:text-slate-400 mb-4 uppercase tracking-wider">Recent Activity</h4>
               <div className="space-y-3">
                 {mockProject.activities.map((a, i) => (
-                  <div key={i} className="flex justify-between items-center p-3 rounded-lg bg-gray-50 dark:bg-slate-800/50">
+                  <div key={i} className="flex justify-between items-center p-3 rounded-xl bg-gray-50 dark:bg-slate-800/50">
                     <span className="text-sm text-gray-700 dark:text-slate-300"><span className="font-semibold">{a.actor}</span> {a.action}</span>
-                    <span className="text-xs text-gray-400 dark:text-slate-500 bg-gray-200 dark:bg-slate-700 px-2 py-1 rounded">{a.time}</span>
+                    <span className="text-xs text-gray-400 dark:text-slate-400 bg-gray-200 dark:bg-slate-700 px-2 py-1 rounded">{a.time}</span>
                   </div>
                 ))}
               </div>
@@ -314,9 +314,9 @@ const Option4Tabbed = () => {
         {activeTab === 'objectives' && (
           <div className="space-y-4">
             {mockProject.objectives.map((obj, i) => (
-              <div key={i} className="flex items-start gap-5 p-5 rounded-xl border border-gray-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-600 hover:shadow-md transition-all bg-white dark:bg-slate-800/50">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 text-white font-bold shadow-sm">{i + 1}</div>
-                <span className="text-gray-700 dark:text-slate-300 pt-2 text-[15px] leading-relaxed">{obj}</span>
+              <div key={i} className="flex items-start gap-5 p-5 rounded-xl border border-gray-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-600 hover:shadow-lg transition-all bg-white dark:bg-slate-800/50">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-500 text-white font-bold shadow-sm">{i + 1}</div>
+                <span className="text-gray-700 dark:text-slate-300 pt-2 text-sm leading-relaxed">{obj}</span>
               </div>
             ))}
           </div>
@@ -325,8 +325,8 @@ const Option4Tabbed = () => {
         {activeTab === 'team' && (
           <div className="grid md:grid-cols-2 gap-4">
             {mockProject.members.map((m, i) => (
-              <div key={i} className="flex items-center gap-4 p-5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800/50 hover:shadow-md transition-shadow">
-                <div className={`h-14 w-14 rounded-2xl ${m.color} flex items-center justify-center text-white text-lg font-semibold shadow-sm`}>{m.initials}</div>
+              <div key={i} className="flex items-center gap-4 p-5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800/50 hover:shadow-lg transition-shadow">
+                <div className={`h-14 w-14 rounded-xl ${m.color} flex items-center justify-center text-white text-lg font-semibold shadow-sm`}>{m.initials}</div>
                 <div>
                   <p className="font-semibold text-gray-900 dark:text-slate-100">{m.name}</p>
                   <p className="text-sm text-gray-500 dark:text-slate-400">Team Member</p>
@@ -366,7 +366,7 @@ const Option5Minimal = () => {
 
       {/* Objectives with large numbers */}
       <div>
-        <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-gray-400 dark:text-slate-500 mb-6">Objectives</h3>
+        <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-gray-400 dark:text-slate-400 mb-6">Objectives</h3>
         <div className="space-y-6">
           {mockProject.objectives.map((obj, i) => (
             <div key={i} className="flex items-start gap-6 group">
@@ -382,7 +382,7 @@ const Option5Minimal = () => {
         <div className="flex items-center gap-6 text-sm text-gray-500 dark:text-slate-400">
           <Clock className="h-4 w-4" />
           {mockProject.activities.slice(0, 2).map((a, i) => (
-            <span key={i}><span className="font-medium text-gray-700 dark:text-slate-300">{a.actor}</span> {a.action} <span className="text-gray-400 dark:text-slate-500">{a.time}</span></span>
+            <span key={i}><span className="font-medium text-gray-700 dark:text-slate-300">{a.actor}</span> {a.action} <span className="text-gray-400 dark:text-slate-400">{a.time}</span></span>
           ))}
         </div>
       </div>
@@ -410,7 +410,7 @@ const OverviewShowcase = () => {
 
         <div className="space-y-12">
           {options.map((option) => (
-            <div key={option.id} className="rounded-2xl bg-white dark:bg-slate-800 shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
+            <div key={option.id} className="rounded-xl bg-white dark:bg-slate-800 shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
               <div className="px-6 py-5 border-b border-gray-200 dark:border-slate-700 bg-gradient-to-r from-gray-50 to-white dark:from-slate-800/80 dark:to-slate-800">
                 <div className="flex items-center gap-4">
                   <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-100 dark:bg-indigo-900/30 shadow-sm">

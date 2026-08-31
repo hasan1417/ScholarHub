@@ -167,19 +167,19 @@ export function ModelSelector({ value, onChange, disabled = false, className, mo
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
         className={clsx(
-          'flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition-all',
+          'flex items-center gap-2 rounded-xl border px-3 py-1.5 text-sm font-medium transition-all',
           'bg-white dark:bg-slate-800',
           disabled
-            ? 'cursor-not-allowed border-gray-200 text-gray-400 dark:border-slate-700 dark:text-slate-500'
+            ? 'cursor-not-allowed border-gray-200 text-gray-400 dark:border-slate-700 dark:text-slate-400'
             : 'border-gray-300 text-gray-700 hover:border-indigo-400 hover:bg-indigo-50 dark:border-slate-600 dark:text-slate-200 dark:hover:border-indigo-500 dark:hover:bg-indigo-900/20'
         )}
       >
         <Sparkles className="h-4 w-4 text-indigo-500 dark:text-indigo-400" />
         <span className="max-w-[120px] truncate">{selectedModel.name}</span>
-        <span className="text-xs text-gray-400 dark:text-slate-500">{selectedModel.provider}</span>
+        <span className="text-xs text-gray-400 dark:text-slate-400">{selectedModel.provider}</span>
         <ChevronDown
           className={clsx(
-            'h-4 w-4 text-gray-400 transition-transform dark:text-slate-500',
+            'h-4 w-4 text-gray-400 transition-transform dark:text-slate-400',
             isOpen && 'rotate-180'
           )}
         />
@@ -195,7 +195,7 @@ export function ModelSelector({ value, onChange, disabled = false, className, mo
           <div className="max-h-80 overflow-y-auto">
             {orderedProviders.map((provider) => (
               <div key={provider}>
-                <div className="sticky top-0 bg-white px-3 py-1.5 text-xs font-semibold text-gray-400 dark:bg-slate-800 dark:text-slate-500">
+                <div className="sticky top-0 bg-white px-3 py-1.5 text-xs font-semibold text-gray-400 dark:bg-slate-800 dark:text-slate-400">
                   {provider}
                 </div>
                 {modelGroups[provider].map((model) => (

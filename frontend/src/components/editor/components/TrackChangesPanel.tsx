@@ -52,15 +52,15 @@ export const TrackChangesPanel: React.FC<TrackChangesPanelProps> = ({
   const multiFile = changesByFile.size > 1
 
   return (
-    <div className="fixed inset-y-0 right-0 z-50 flex w-[300px] flex-col border-l border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900">
+    <div className="fixed inset-y-0 right-0 z-50 flex w-[300px] flex-col border-l border-gray-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2.5 dark:border-slate-700">
+      <div className="flex items-center justify-between border-b border-gray-200 px-3 py-2.5 dark:border-slate-700">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+          <span className="text-sm font-semibold text-gray-700 dark:text-slate-200">
             Track Changes
           </span>
           {changes.length > 0 && (
-            <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+            <span className="rounded-full bg-gray-200 px-1.5 py-0.5 text-2xs font-medium text-gray-600 dark:bg-slate-700 dark:text-slate-300">
               {changes.length} {changes.length === 1 ? 'change' : 'changes'}
             </span>
           )}
@@ -68,7 +68,7 @@ export const TrackChangesPanel: React.FC<TrackChangesPanelProps> = ({
         <button
           type="button"
           onClick={onClose}
-          className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          className="rounded p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
           aria-label="Close track changes"
         >
           <span className="text-lg leading-none">&times;</span>
@@ -77,7 +77,7 @@ export const TrackChangesPanel: React.FC<TrackChangesPanelProps> = ({
 
       {/* Bulk Actions */}
       {changes.length > 0 && (
-        <div className="flex gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-700">
+        <div className="flex gap-2 border-b border-gray-200 px-3 py-2 dark:border-slate-700">
           <button
             type="button"
             onClick={onAcceptAll}
@@ -102,14 +102,14 @@ export const TrackChangesPanel: React.FC<TrackChangesPanelProps> = ({
             {Array.from(changesByFile.entries()).map(([file, fileChanges]) => (
               <div key={file}>
                 {multiFile && (
-                  <div className="sticky top-0 z-10 bg-slate-100/90 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500 backdrop-blur dark:bg-slate-800/90 dark:text-slate-400">
+                  <div className="sticky top-0 z-10 bg-gray-100 px-3 py-1 text-2xs font-semibold uppercase tracking-wider text-gray-500 backdrop-blur dark:bg-slate-800/90 dark:text-slate-400">
                     {file}
                   </div>
                 )}
                 {fileChanges.map((change) => (
                   <div
                     key={change.id}
-                    className="group rounded-md border border-slate-200 px-2.5 py-2 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800/60"
+                    className="group rounded-md border border-gray-200 px-2.5 py-2 transition-colors hover:bg-gray-50 dark:border-slate-700 dark:hover:bg-slate-800/60"
                   >
                     <div className="flex items-start gap-2">
                       {/* Type indicator */}
@@ -134,7 +134,7 @@ export const TrackChangesPanel: React.FC<TrackChangesPanelProps> = ({
                         >
                           {truncate(change.text, 80)}
                         </p>
-                        <div className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500">
+                        <div className="mt-1 flex items-center gap-1.5 text-2xs text-gray-400 dark:text-slate-400">
                           {change.userColor && (
                             <span
                               className="inline-block h-2 w-2 rounded-full"
@@ -152,7 +152,7 @@ export const TrackChangesPanel: React.FC<TrackChangesPanelProps> = ({
                         <button
                           type="button"
                           onClick={() => onAcceptChange(change.id)}
-                          className="rounded p-1 text-slate-400 transition-colors hover:bg-green-100 hover:text-green-700 dark:hover:bg-green-900/40 dark:hover:text-green-400"
+                          className="rounded p-1 text-gray-400 transition-colors hover:bg-green-100 hover:text-green-700 dark:hover:bg-green-900/40 dark:hover:text-green-400"
                           aria-label="Accept change"
                           title="Accept"
                         >
@@ -161,7 +161,7 @@ export const TrackChangesPanel: React.FC<TrackChangesPanelProps> = ({
                         <button
                           type="button"
                           onClick={() => onRejectChange(change.id)}
-                          className="rounded p-1 text-slate-400 transition-colors hover:bg-red-100 hover:text-red-700 dark:hover:bg-red-900/40 dark:hover:text-red-400"
+                          className="rounded p-1 text-gray-400 transition-colors hover:bg-red-100 hover:text-red-700 dark:hover:bg-red-900/40 dark:hover:text-red-400"
                           aria-label="Reject change"
                           title="Reject"
                         >
@@ -176,7 +176,7 @@ export const TrackChangesPanel: React.FC<TrackChangesPanelProps> = ({
           </div>
         ) : (
           <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
-            <p className="text-sm text-slate-500 dark:text-slate-400">
+            <p className="text-sm text-gray-500 dark:text-slate-400">
               No tracked changes
             </p>
           </div>

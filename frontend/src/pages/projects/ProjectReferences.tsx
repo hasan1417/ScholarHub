@@ -334,9 +334,9 @@ const ProjectReferences = () => {
   const toneClasses: Record<BadgeTone, string> = {
     emerald: 'border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-200',
     amber: 'border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-400/40 dark:bg-amber-500/20 dark:text-amber-200',
-    slate: 'border border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-600/60 dark:bg-slate-800/60 dark:text-slate-300',
+    slate: 'border border-gray-200 bg-gray-100 text-gray-600 dark:border-slate-600/60 dark:bg-slate-800/60 dark:text-slate-300',
     sky: 'border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-400/40 dark:bg-sky-500/20 dark:text-sky-200',
-    purple: 'border border-purple-200 bg-purple-50 text-purple-700 dark:border-purple-400/40 dark:bg-purple-500/20 dark:text-purple-200',
+    purple: 'border border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-400/40 dark:bg-indigo-500/20 dark:text-indigo-200',
   }
 
   const Badge = ({ label, tone, icon }: { label: string; tone: BadgeTone; icon?: ReactNode }) => (
@@ -361,7 +361,7 @@ const ProjectReferences = () => {
 
   if (suggestionsQuery.isLoading) {
     return (
-      <div className="flex items-center gap-3 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm text-sm text-gray-600 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
+      <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white p-6 shadow-sm text-sm text-gray-600 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
         <Loader2 className="h-4 w-4 animate-spin text-indigo-600 dark:text-indigo-300" />
         Loading project intelligence…
       </div>
@@ -370,7 +370,7 @@ const ProjectReferences = () => {
 
   if (featureDisabled) {
     return (
-      <div className="rounded-2xl border border-dashed border-gray-200 bg-white p-6 text-sm text-gray-500 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
+      <div className="rounded-xl border border-dashed border-gray-200 bg-white p-6 text-sm text-gray-500 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
         <div className="flex items-center gap-2 text-gray-600 dark:text-slate-300">
           <AlertCircle className="h-4 w-4 text-amber-500" />
           Project reference intelligence is currently disabled for this environment.
@@ -381,14 +381,14 @@ const ProjectReferences = () => {
 
   return (
     <div className="space-y-6">
-      <section className="space-y-4 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900/50">
+      <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900/50">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-2">
             <BookOpen className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
             <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">Related papers</h2>
 
             {/* View mode toggle */}
-            <div className="ml-3 inline-flex rounded-lg border border-gray-200 p-0.5 dark:border-slate-700">
+            <div className="ml-3 inline-flex rounded-xl border border-gray-200 p-0.5 dark:border-slate-700">
               <button
                 type="button"
                 onClick={() => setViewMode('list')}
@@ -474,20 +474,20 @@ const ProjectReferences = () => {
         {viewMode === 'list' && references.length > 0 && (
           <div className="flex items-center gap-2">
             <div className="relative flex-1 max-w-xs">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400 dark:text-slate-500" />
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400 dark:text-slate-400" />
               <input
                 type="text"
                 placeholder="Search by title, author, or journal..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 bg-white py-1.5 pl-8 pr-3 text-xs text-gray-700 placeholder-gray-400 transition focus:border-indigo-300 focus:outline-none focus:ring-1 focus:ring-indigo-300 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200 dark:placeholder-slate-500 dark:focus:border-indigo-500 dark:focus:ring-indigo-500"
+                className="w-full rounded-xl border border-gray-200 bg-white py-1.5 pl-8 pr-3 text-xs text-gray-700 placeholder-gray-400 transition focus:border-indigo-300 focus:outline-none focus:ring-1 focus:ring-indigo-300 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200 dark:placeholder-slate-500 dark:focus:border-indigo-500 dark:focus:ring-indigo-500"
               />
             </div>
             <div className="relative">
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-                className="appearance-none rounded-lg border border-gray-200 bg-white py-1.5 pl-3 pr-7 text-xs text-gray-600 transition focus:border-indigo-300 focus:outline-none focus:ring-1 focus:ring-indigo-300 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300 dark:focus:border-indigo-500 dark:focus:ring-indigo-500"
+                className="appearance-none rounded-xl border border-gray-200 bg-white py-1.5 pl-3 pr-7 text-xs text-gray-600 transition focus:border-indigo-300 focus:outline-none focus:ring-1 focus:ring-indigo-300 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300 dark:focus:border-indigo-500 dark:focus:ring-indigo-500"
               >
                 <option value="recent">Recently added</option>
                 <option value="title-asc">Title A-Z</option>
@@ -495,7 +495,7 @@ const ProjectReferences = () => {
                 <option value="year-desc">Year (newest)</option>
                 <option value="year-asc">Year (oldest)</option>
               </select>
-              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-gray-400 dark:text-slate-500" />
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-gray-400 dark:text-slate-400" />
             </div>
           </div>
         )}
@@ -566,14 +566,14 @@ const ProjectReferences = () => {
                       <div className="relative flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
                         {/* PDF Status/Action Button */}
                         {isPdfProcessed ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-200">
+                          <span className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-200">
                             <CheckCircle2 className="h-3.5 w-3.5" />
                             PDF analyzed
                           </span>
                         ) : showIngestButton && referenceId ? (
                           <button
                             type="button"
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-emerald-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-200 dark:hover:bg-emerald-500/30"
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-emerald-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-200 dark:hover:bg-emerald-500/30"
                             onClick={() => handleIngestExisting(referenceId)}
                             disabled={!!reindexingId}
                             title={canAutoFetch ? 'Fetch PDF from source and analyze' : 'Analyze stored PDF'}
@@ -590,7 +590,7 @@ const ProjectReferences = () => {
                         ) : showUploadButton ? (
                           <button
                             type="button"
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 transition hover:bg-amber-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-400/40 dark:bg-amber-500/20 dark:text-amber-200 dark:hover:bg-amber-500/30"
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 transition hover:bg-amber-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-400/40 dark:bg-amber-500/20 dark:text-amber-200 dark:hover:bg-amber-500/30"
                             onClick={() => referenceId && handleUploadRequest(referenceId)}
                             disabled={!!uploadingId}
                             title="Upload a PDF file for this paper"
@@ -609,7 +609,7 @@ const ProjectReferences = () => {
                           <div className="relative">
                             <button
                               type="button"
-                              className="inline-flex h-11 w-11 sm:h-8 sm:w-8 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-500 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                              className="inline-flex h-11 w-11 sm:h-8 sm:w-8 items-center justify-center rounded-xl text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-500 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-300"
                               onClick={() => setOpenMenuId(openMenuId === item.id ? null : item.id)}
                               aria-label="More options"
                             >
@@ -622,7 +622,7 @@ const ProjectReferences = () => {
                                   className="fixed inset-0 z-10"
                                   onClick={() => setOpenMenuId(null)}
                                 />
-                                <div className="absolute right-0 top-full z-20 mt-1 w-[calc(100vw-3rem)] sm:w-48 max-w-xs rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                                <div className="absolute right-0 top-full z-20 mt-1 w-[calc(100vw-3rem)] sm:w-48 max-w-xs rounded-xl border border-gray-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
                                   <button
                                     type="button"
                                     className="flex w-full items-center gap-2 px-4 py-3 sm:px-3 sm:py-2 text-sm sm:text-xs text-rose-600 transition hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-500/10"
@@ -668,7 +668,7 @@ const ProjectReferences = () => {
                         )}
                         {ref?.journal && <p className="italic">{ref.journal}</p>}
                         {decidedAt && (
-                          <p className="text-[10px] text-gray-400 dark:text-slate-500">Added {decidedAt}</p>
+                          <p className="text-2xs text-gray-400 dark:text-slate-400">Added {decidedAt}</p>
                         )}
                       </div>
                     )}

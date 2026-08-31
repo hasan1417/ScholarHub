@@ -137,7 +137,7 @@ const MergeView: React.FC<MergeViewProps> = ({ paperId, onMerged }) => {
           </select>
         </div>
         <button
-          className="px-3 py-2 bg-blue-600 text-white rounded disabled:opacity-50"
+          className="px-3 py-2 bg-indigo-600 text-white rounded disabled:opacity-50"
           disabled={!sourceBranchId || !targetBranchId}
           onClick={applyAutoMerge}
         >Auto-merge non-overlapping</button>
@@ -168,7 +168,7 @@ const MergeView: React.FC<MergeViewProps> = ({ paperId, onMerged }) => {
             <div>Added: <span className="font-semibold text-green-700">{diff.added.length}</span></div>
             <div>Removed: <span className="font-semibold text-red-700">{diff.removed.length}</span></div>
             <div>Modified: <span className="font-semibold text-yellow-700">{diff.modified.length}</span></div>
-            <div>Reordered: <span className="font-semibold text-blue-700">{diff.reordered.length}</span></div>
+            <div>Reordered: <span className="font-semibold text-indigo-700">{diff.reordered.length}</span></div>
             {conflicts.length > 0 && (
               <div className="flex items-center gap-1 text-red-700"><AlertTriangle className="w-4 h-4" /> Conflicts: {conflicts.length}</div>
             )}
@@ -189,7 +189,7 @@ const MergeView: React.FC<MergeViewProps> = ({ paperId, onMerged }) => {
               </ul>
             </div>
             <div className="border rounded p-2">
-              <div className="font-medium text-blue-700 mb-1">Reordered</div>
+              <div className="font-medium text-indigo-700 mb-1">Reordered</div>
               <ul className="space-y-0.5 max-h-24 overflow-auto">
                 {diff.reordered.map(k => (<li key={k}>{k}</li>))}
                 {diff.reordered.length === 0 && (<li className="text-gray-500">None</li>)}

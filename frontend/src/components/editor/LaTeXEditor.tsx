@@ -552,7 +552,7 @@ function LaTeXEditorImpl(
   }), [realtime])
 
   // Layout classes
-  const containerCls = 'flex flex-1 min-h-0 flex-col bg-white text-slate-900 transition-colors dark:bg-slate-900 dark:text-slate-100'
+  const containerCls = 'flex flex-1 min-h-0 flex-col bg-white text-gray-900 transition-colors dark:bg-slate-900 dark:text-slate-100'
   const showEditor = viewMode === 'code' || viewMode === 'split'
   const showPreview = viewMode === 'pdf' || viewMode === 'split'
   const splitLayout = viewMode === 'split'
@@ -560,11 +560,11 @@ function LaTeXEditorImpl(
     ? 'flex-1 min-h-0 flex overflow-hidden'
     : 'flex-1 min-h-0 flex flex-col'
   const editorPaneCls = splitLayout
-    ? 'min-w-0 overflow-hidden rounded-l-md border border-slate-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900 dark:shadow-slate-950/30'
-    : 'flex-1 min-h-0 overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900 dark:shadow-slate-950/30'
+    ? 'min-w-0 overflow-hidden rounded-l-md border border-gray-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900 dark:shadow-slate-950/30'
+    : 'flex-1 min-h-0 overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900 dark:shadow-slate-950/30'
   const previewPaneCls = splitLayout
-    ? 'min-w-0 flex flex-col overflow-hidden rounded-r-md border border-l-0 border-slate-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900 dark:shadow-slate-950/30'
-    : 'flex-1 min-h-0 flex flex-col overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900 dark:shadow-slate-950/30'
+    ? 'min-w-0 flex flex-col overflow-hidden rounded-r-md border border-l-0 border-gray-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900 dark:shadow-slate-950/30'
+    : 'flex-1 min-h-0 flex flex-col overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900 dark:shadow-slate-950/30'
 
   // Map viewMode to EditorMenuBar's expected format
   const handleToggleView = useCallback((mode: 'split' | 'editor' | 'pdf') => {
@@ -727,7 +727,7 @@ function LaTeXEditorImpl(
                       )}
                       <div ref={handleContainerRef} className={realtime?.doc && sideRailPanel !== 'files' ? 'absolute inset-0 top-auto bottom-0' : 'absolute inset-0'} style={realtime?.doc && fileList.length > 0 && sideRailPanel !== 'files' ? { top: fileList.length > 1 ? '33px' : '29px' } : undefined} />
                       {!editorReady && (
-                        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-white/80 text-xs text-slate-500 dark:bg-slate-950/70 dark:text-slate-300">
+                        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-white/80 text-xs text-gray-500 dark:bg-slate-950/70 dark:text-slate-300">
                           Initializing editor…
                         </div>
                       )}
@@ -738,14 +738,14 @@ function LaTeXEditorImpl(
                 {/* Resizable Divider */}
                 {splitLayout && showEditor && showPreview && (
                   <div
-                    className="group relative z-10 flex w-1 cursor-col-resize items-center justify-center bg-slate-200 transition-colors hover:bg-indigo-400 dark:bg-slate-700 dark:hover:bg-indigo-500"
+                    className="group relative z-10 flex w-1 cursor-col-resize items-center justify-center bg-gray-200 transition-colors hover:bg-indigo-400 dark:bg-slate-700 dark:hover:bg-indigo-500"
                     onMouseDown={handleSplitDragStart}
                   >
-                    <div className="absolute flex h-8 w-4 items-center justify-center rounded bg-slate-300 opacity-0 transition-opacity group-hover:opacity-100 dark:bg-slate-600">
+                    <div className="absolute flex h-8 w-4 items-center justify-center rounded bg-gray-300 opacity-0 transition-opacity group-hover:opacity-100 dark:bg-slate-600">
                       <div className="flex flex-col gap-0.5">
-                        <div className="h-0.5 w-1 rounded-full bg-slate-500 dark:bg-slate-400" />
-                        <div className="h-0.5 w-1 rounded-full bg-slate-500 dark:bg-slate-400" />
-                        <div className="h-0.5 w-1 rounded-full bg-slate-500 dark:bg-slate-400" />
+                        <div className="h-0.5 w-1 rounded-full bg-gray-500 dark:bg-slate-400" />
+                        <div className="h-0.5 w-1 rounded-full bg-gray-500 dark:bg-slate-400" />
+                        <div className="h-0.5 w-1 rounded-full bg-gray-500 dark:bg-slate-400" />
                       </div>
                     </div>
                   </div>

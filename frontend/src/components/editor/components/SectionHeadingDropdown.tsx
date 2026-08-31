@@ -13,12 +13,12 @@ interface HeadingOption {
 }
 
 const HEADING_OPTIONS: HeadingOption[] = [
-  { label: 'Normal text', command: null, style: 'text-xs text-slate-600 dark:text-slate-300' },
-  { label: 'Section', command: '\\section', style: 'text-sm font-bold text-slate-800 dark:text-slate-100' },
-  { label: 'Subsection', command: '\\subsection', style: 'text-xs font-semibold text-slate-700 dark:text-slate-200' },
-  { label: 'Subsubsection', command: '\\subsubsection', style: 'text-xs font-medium text-slate-600 dark:text-slate-300' },
-  { label: 'Paragraph', command: '\\paragraph', style: 'text-[11px] text-slate-500 dark:text-slate-400' },
-  { label: 'Subparagraph', command: '\\subparagraph', style: 'text-[11px] text-slate-400 dark:text-slate-500' },
+  { label: 'Normal text', command: null, style: 'text-xs text-gray-600 dark:text-slate-300' },
+  { label: 'Section', command: '\\section', style: 'text-sm font-bold text-gray-800 dark:text-slate-100' },
+  { label: 'Subsection', command: '\\subsection', style: 'text-xs font-semibold text-gray-700 dark:text-slate-200' },
+  { label: 'Subsubsection', command: '\\subsubsection', style: 'text-xs font-medium text-gray-600 dark:text-slate-300' },
+  { label: 'Paragraph', command: '\\paragraph', style: 'text-2xs text-gray-500 dark:text-slate-400' },
+  { label: 'Subparagraph', command: '\\subparagraph', style: 'text-2xs text-gray-400 dark:text-slate-400' },
 ]
 
 // Regex to detect heading commands at the start of a line
@@ -111,8 +111,8 @@ export const SectionHeadingDropdown: React.FC<SectionHeadingDropdownProps> = ({ 
         onClick={() => setOpen(!open)}
         className={`inline-flex w-[130px] items-center justify-between gap-1 rounded px-2 py-1 text-xs font-medium transition-colors ${
           open
-            ? 'bg-slate-300 text-slate-900 dark:bg-slate-600 dark:text-white'
-            : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-700/60 dark:hover:text-white'
+            ? 'bg-gray-300 text-gray-900 dark:bg-slate-600 dark:text-white'
+            : 'text-gray-600 hover:bg-gray-200 hover:text-gray-900 dark:text-slate-300 dark:hover:bg-slate-700/60 dark:hover:text-white'
         }`}
       >
         <span className="truncate">{currentLabel}</span>
@@ -122,7 +122,7 @@ export const SectionHeadingDropdown: React.FC<SectionHeadingDropdownProps> = ({ 
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div
-            className="fixed z-50 w-[180px] rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800"
+            className="fixed z-50 w-[180px] rounded-md border border-gray-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800"
             style={{ top: menuPos.top, left: menuPos.left }}
           >
             {HEADING_OPTIONS.map((option) => (
@@ -130,8 +130,8 @@ export const SectionHeadingDropdown: React.FC<SectionHeadingDropdownProps> = ({ 
                 key={option.label}
                 type="button"
                 onClick={() => handleSelect(option)}
-                className={`flex w-full items-center px-3 py-1.5 text-left transition-colors hover:bg-slate-100 dark:hover:bg-slate-700/60 ${option.style} ${
-                  currentLabel === option.label ? 'bg-slate-50 dark:bg-slate-700/50' : ''
+                className={`flex w-full items-center px-3 py-1.5 text-left transition-colors hover:bg-gray-100 dark:hover:bg-slate-700/60 ${option.style} ${
+                  currentLabel === option.label ? 'bg-gray-50 dark:bg-slate-700/50' : ''
                 }`}
               >
                 {option.label}

@@ -42,7 +42,7 @@ const HistoryDiffView: React.FC<HistoryDiffViewProps> = ({
       case 'deleted':
         return <Minus size={14} className="text-red-600 dark:text-red-400 flex-shrink-0" />
       default:
-        return <Equal size={14} className="text-gray-400 dark:text-slate-500 flex-shrink-0" />
+        return <Equal size={14} className="text-gray-400 dark:text-slate-400 flex-shrink-0" />
     }
   }
 
@@ -55,7 +55,7 @@ const HistoryDiffView: React.FC<HistoryDiffViewProps> = ({
   }
 
   return (
-    <div className={`bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-slate-700 overflow-hidden ${className}`}>
+    <div className={`bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 overflow-hidden ${className}`}>
       {/* Stats Header */}
       <div className="px-4 py-2 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 flex items-center gap-4 text-sm">
         <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
@@ -66,7 +66,7 @@ const HistoryDiffView: React.FC<HistoryDiffViewProps> = ({
           <Minus size={14} />
           {stats.deletions} deleted
         </span>
-        <span className="text-gray-500 dark:text-slate-500">
+        <span className="text-gray-500 dark:text-slate-400">
           {stats.unchanged} unchanged
         </span>
       </div>
@@ -79,7 +79,7 @@ const HistoryDiffView: React.FC<HistoryDiffViewProps> = ({
             className={`flex items-start px-3 py-1 ${getLineClass(line.type)}`}
           >
             {/* Line Number */}
-            <span className="w-10 text-right pr-3 text-gray-400 dark:text-slate-500 select-none flex-shrink-0">
+            <span className="w-10 text-right pr-3 text-gray-400 dark:text-slate-400 select-none flex-shrink-0">
               {line.line_number ?? ''}
             </span>
 

@@ -80,7 +80,7 @@ const ViewPaper: React.FC = () => {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="mx-auto h-16 w-16 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600"></div>
+          <div className="mx-auto h-16 w-16 animate-spin rounded-full border-4 border-indigo-200 border-t-indigo-600"></div>
           <p className="mt-6 text-lg font-medium text-gray-600">Loading paper...</p>
         </div>
       </div>
@@ -98,7 +98,7 @@ const ViewPaper: React.FC = () => {
           <div className="space-x-3">
             <button
               onClick={loadPaper}
-              className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+              className="rounded-md bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700"
             >
               Try again
             </button>
@@ -122,7 +122,7 @@ const ViewPaper: React.FC = () => {
           <p className="mb-4 text-gray-600">The paper you're looking for doesn't exist.</p>
           <button
             onClick={() => navigate(resolveProjectPath())}
-            className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+            className="rounded-md bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700"
           >
             Back to papers
           </button>

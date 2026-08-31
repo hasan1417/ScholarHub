@@ -147,7 +147,7 @@ export function DiscoveryQueuePanel({
       {/* Notification banner */}
       {notification && (
         <div className="flex items-center justify-between px-3 py-1.5 sm:px-4 sm:py-2 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800">
-          <p className="text-[10px] sm:text-xs text-amber-700 dark:text-amber-300">{notification}</p>
+          <p className="text-2xs sm:text-xs text-amber-700 dark:text-amber-300">{notification}</p>
           <button
             onClick={onClearNotification}
             className="p-0.5 rounded hover:bg-amber-200 dark:hover:bg-amber-800 transition-colors flex-shrink-0"
@@ -162,11 +162,11 @@ export function DiscoveryQueuePanel({
         {isSearching ? (
           <div className="flex flex-col items-center justify-center py-8 sm:py-12 px-4">
             <Loader2 className="h-5 w-5 sm:h-6 sm:w-6 animate-spin text-indigo-500" />
-            <p className="mt-2 sm:mt-3 text-xs sm:text-sm text-gray-500 dark:text-gray-400">
+            <p className="mt-2 sm:mt-3 text-xs sm:text-sm text-gray-500 dark:text-slate-400">
               Searching for papers...
             </p>
             {query && (
-              <p className="mt-1 text-[10px] sm:text-xs text-gray-400 dark:text-gray-500 text-center max-w-[200px] sm:max-w-none truncate">
+              <p className="mt-1 text-2xs sm:text-xs text-gray-400 dark:text-slate-400 text-center max-w-[200px] sm:max-w-none truncate">
                 "{query}"
               </p>
             )}
@@ -174,10 +174,10 @@ export function DiscoveryQueuePanel({
         ) : papers.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-8 sm:py-12 px-4">
             <Search className="h-8 w-8 sm:h-10 sm:w-10 text-gray-300 dark:text-slate-600" />
-            <p className="mt-2 sm:mt-3 text-xs sm:text-sm text-gray-500 dark:text-gray-400">
+            <p className="mt-2 sm:mt-3 text-xs sm:text-sm text-gray-500 dark:text-slate-400">
               No papers found
             </p>
-            <p className="mt-1 text-[10px] sm:text-xs text-gray-400 dark:text-gray-500 text-center">
+            <p className="mt-1 text-2xs sm:text-xs text-gray-400 dark:text-slate-400 text-center">
               Ask the AI to search for papers
             </p>
           </div>
@@ -185,18 +185,18 @@ export function DiscoveryQueuePanel({
           <>
             {/* Query and actions header */}
             <div className="flex items-center justify-between px-3 py-1.5 sm:px-4 sm:py-2 border-b border-gray-100 dark:border-slate-800 gap-2">
-              <div className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400 min-w-0">
+              <div className="text-2xs sm:text-xs text-gray-500 dark:text-slate-400 min-w-0">
                 <span>{papers.length} paper{papers.length !== 1 ? 's' : ''}</span>
                 <span className="hidden sm:inline"> for "{query}"</span>
                 {addedCount > 0 && (
-                  <span className="ml-1 sm:ml-2 text-gray-400 dark:text-gray-500">
+                  <span className="ml-1 sm:ml-2 text-gray-400 dark:text-slate-400">
                     ({successCount} full{failedCount > 0 && <span className="hidden sm:inline">, {failedCount} need PDF</span>})
                   </span>
                 )}
               </div>
               <button
                 onClick={onDismissAll}
-                className="text-[10px] sm:text-xs text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 transition-colors flex-shrink-0"
+                className="text-2xs sm:text-xs text-gray-500 hover:text-red-600 dark:text-slate-400 dark:hover:text-red-400 transition-colors flex-shrink-0"
               >
                 Clear
               </button>
@@ -228,8 +228,8 @@ export function DiscoveryQueuePanel({
 
       {/* Footer hint */}
       {papers.length > 0 && (
-        <div className="mt-2 sm:mt-3 pt-2 border-t border-gray-200 dark:border-gray-700">
-          <p className="text-[9px] sm:text-[10px] text-gray-400 dark:text-gray-500">
+        <div className="mt-2 sm:mt-3 pt-2 border-t border-gray-200 dark:border-slate-700">
+          <p className="text-2xs sm:text-2xs text-gray-400 dark:text-slate-400">
             <span className="hidden sm:inline">Click "Add" to add to your library. Papers marked "PDF failed" can have PDFs uploaded manually.</span>
             <span className="sm:hidden">Tap "Add" to add papers to your library.</span>
           </p>

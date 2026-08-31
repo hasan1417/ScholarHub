@@ -79,11 +79,11 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   return (
     <div className="flex flex-1 min-h-0 flex-col bg-white dark:bg-slate-900">
       {/* Header bar */}
-      <div className="relative flex h-10 flex-none items-center border-b border-slate-200 px-3 dark:border-slate-700">
+      <div className="relative flex h-10 flex-none items-center border-b border-gray-200 px-3 dark:border-slate-700">
         {/* Left: Back button */}
         <button
           onClick={onBack}
-          className="flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+          className="flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
           Back to editor
@@ -91,7 +91,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
 
         {/* Center: Date label */}
         {dateLabel && (
-          <span className="pointer-events-none absolute inset-x-0 flex justify-center text-xs text-slate-500 dark:text-slate-400">
+          <span className="pointer-events-none absolute inset-x-0 flex justify-center text-xs text-gray-500 dark:text-slate-400">
             Viewing {dateLabel}
           </span>
         )}
@@ -99,7 +99,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         {/* Right: Changes label + Restore button */}
         <div className="ml-auto flex items-center gap-3">
           {changesLabel && !diffLoading && (
-            <span className="text-xs text-slate-500 dark:text-slate-400">
+            <span className="text-xs text-gray-500 dark:text-slate-400">
               {changesLabel}
             </span>
           )}
@@ -119,8 +119,8 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
       {/* Content area */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Left: File panel */}
-        <div className="flex w-[180px] flex-none flex-col border-r border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/50">
-          <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+        <div className="flex w-[180px] flex-none flex-col border-r border-gray-200 bg-gray-50 dark:border-slate-700 dark:bg-slate-900/50">
+          <div className="px-3 py-2 text-2xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-400">
             Files
           </div>
           {allFiles.map(file => {
@@ -132,14 +132,14 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                 className={`flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors ${
                   isActive
                     ? 'bg-white dark:bg-slate-800'
-                    : 'hover:bg-slate-100 dark:hover:bg-slate-800/50'
+                    : 'hover:bg-gray-100 dark:hover:bg-slate-800/50'
                 }`}
               >
-                <FileText className="h-3.5 w-3.5 flex-none text-slate-500 dark:text-slate-400" />
-                <span className="flex-1 truncate text-xs font-medium text-slate-700 dark:text-slate-200">
+                <FileText className="h-3.5 w-3.5 flex-none text-gray-500 dark:text-slate-400" />
+                <span className="flex-1 truncate text-xs font-medium text-gray-700 dark:text-slate-200">
                   {file}
                 </span>
-                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 dark:bg-amber-700/30 dark:text-amber-300">
+                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-2xs font-medium text-amber-700 dark:bg-amber-700/30 dark:text-amber-300">
                   Edited
                 </span>
               </button>
@@ -151,15 +151,15 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         <div className="flex-1 overflow-hidden bg-white dark:bg-slate-900">
           {diffLoading || snapshotsLoading ? (
             <div className="flex items-center justify-center py-20">
-              <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
-              <span className="ml-2 text-xs text-slate-400">Loading diff...</span>
+              <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+              <span className="ml-2 text-xs text-gray-400">Loading diff...</span>
             </div>
           ) : !diffData ? (
-            <div className="flex items-center justify-center py-20 text-xs text-slate-400 dark:text-slate-500">
+            <div className="flex items-center justify-center py-20 text-xs text-gray-400 dark:text-slate-400">
               Select a version to view changes
             </div>
           ) : diffData.diff_lines.length === 0 ? (
-            <div className="flex items-center justify-center py-20 text-xs text-slate-400 dark:text-slate-500">
+            <div className="flex items-center justify-center py-20 text-xs text-gray-400 dark:text-slate-400">
               No changes in this version
             </div>
           ) : (
@@ -168,7 +168,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         </div>
 
         {/* Right: Timeline sidebar */}
-        <div className="w-[280px] flex-none border-l border-slate-200 dark:border-slate-700">
+        <div className="w-[280px] flex-none border-l border-gray-200 dark:border-slate-700">
           <HistoryTimeline
             snapshots={snapshots}
             loading={snapshotsLoading}

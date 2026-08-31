@@ -160,9 +160,9 @@ const MyReferences: React.FC = () => {
             placeholder="Search references (title)"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            className="flex-1 border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
-          <button onClick={load} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Search</button>
+          <button onClick={load} className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700">Search</button>
           <Link to="/projects" className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Discover</Link>
           <button
             onClick={() => {
@@ -194,10 +194,10 @@ const MyReferences: React.FC = () => {
                     <div className="text-sm text-gray-600 truncate">{(ref.authors || []).join(', ')}</div>
                     <div className="text-xs text-gray-500 flex gap-3 mt-1 items-center">
                       {ref.year && <span>{ref.year}</span>}
-                      {ref.doi && <a className="text-blue-600" href={`https://doi.org/${ref.doi}`} target="_blank" rel="noreferrer">DOI</a>}
+                      {ref.doi && <a className="text-indigo-600" href={`https://doi.org/${ref.doi}`} target="_blank" rel="noreferrer">DOI</a>}
                       {ref.pdf_url && (
                         ref.pdf_url!.startsWith('/api/') ? (
-                          <button className="text-blue-600 underline" onClick={async () => {
+                          <button className="text-indigo-600 underline" onClick={async () => {
                             try {
                               const token = localStorage.getItem('access_token')
                               if (!token) {
@@ -216,10 +216,10 @@ const MyReferences: React.FC = () => {
                             }
                           }}>PDF</button>
                         ) : (
-                          <a className="text-blue-600" href={ref.pdf_url!} target="_blank" rel="noreferrer">PDF</a>
+                          <a className="text-indigo-600" href={ref.pdf_url!} target="_blank" rel="noreferrer">PDF</a>
                         )
                       )}
-                      {ref.document_id && <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800">Content uploaded</span>}
+                      {ref.document_id && <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800">Content uploaded</span>}
                       <span className="uppercase text-gray-600">{ref.status}</span>
                     </div>
                     {/* Attachment info */}
@@ -227,7 +227,7 @@ const MyReferences: React.FC = () => {
                       {ref.paper_id ? (
                         <>
                           <span className="text-gray-500">Attached to:</span>
-                          <Link className="text-blue-600 hover:underline" to={`/papers/${ref.paper_id}`}>
+                          <Link className="text-indigo-600 hover:underline" to={`/papers/${ref.paper_id}`}>
                             {paperTitleById[ref.paper_id] || ref.paper_id}
                           </Link>
                         </>
@@ -350,7 +350,7 @@ const MyReferences: React.FC = () => {
             <div className="px-4 py-3 border-t flex justify-end gap-2">
               <button className="px-3 py-2 border rounded" onClick={() => { setShowAdd(false); setNewPdf(null) }}>Cancel</button>
               <button
-                className="px-3 py-2 rounded bg-blue-600 text-white disabled:opacity-50"
+                className="px-3 py-2 rounded bg-indigo-600 text-white disabled:opacity-50"
                 disabled={savingNew || !newRef.title?.trim()}
                 onClick={async () => {
                   if (!newRef.title?.trim()) return

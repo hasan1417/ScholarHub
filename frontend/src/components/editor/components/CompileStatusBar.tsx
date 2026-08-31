@@ -20,7 +20,7 @@ export const CompileStatusBar: React.FC<CompileStatusBarProps> = ({
   wordCount,
 }) => {
   return (
-    <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500 dark:text-slate-300">
+    <div className="flex flex-wrap items-center gap-3 text-2xs text-gray-500 dark:text-slate-300">
       {collaborationStatus && (
         <span className="inline-flex items-center gap-1 rounded border border-indigo-200 bg-indigo-50 px-2 py-1 font-medium text-indigo-600 dark:border-indigo-300/40 dark:bg-indigo-400/20 dark:text-indigo-100">
           {collaborationStatus}
@@ -36,7 +36,7 @@ export const CompileStatusBar: React.FC<CompileStatusBarProps> = ({
       {saveState === 'success' && <span className="text-emerald-600 dark:text-emerald-200">Draft saved</span>}
       {saveState === 'error' && saveError && <span className="max-w-xs truncate text-rose-600 dark:text-rose-200" title={saveError}>{saveError}</span>}
       {typeof wordCount === 'number' && wordCount > 0 && (
-        <span className="text-slate-400 dark:text-slate-400">{wordCount.toLocaleString()} words</span>
+        <span className="text-gray-400 dark:text-slate-400">{wordCount.toLocaleString()} words</span>
       )}
     </div>
   )

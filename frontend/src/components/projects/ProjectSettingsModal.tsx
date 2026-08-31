@@ -71,7 +71,7 @@ export default function ProjectSettingsModal({ project, isOpen, onClose }: Proje
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-900">
+      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-slate-900">
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-3">
@@ -86,7 +86,7 @@ export default function ProjectSettingsModal({ project, isOpen, onClose }: Proje
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+            className="rounded-xl p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
           >
             <X className="h-5 w-5" />
           </button>
@@ -142,11 +142,11 @@ export default function ProjectSettingsModal({ project, isOpen, onClose }: Proje
             )}
 
             {isOwner && settingsLoaded && (
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-200">
+              <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-200">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="font-medium">Share your API key with team members</p>
-                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
                       When enabled, members without their own key can use yours.
                     </p>
                   </div>
@@ -157,7 +157,7 @@ export default function ProjectSettingsModal({ project, isOpen, onClose }: Proje
                       updateSettingsMutation.mutate({ use_owner_key_for_team: !useOwnerKeyForTeam })
                     }
                     className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition ${
-                      useOwnerKeyForTeam ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-600'
+                      useOwnerKeyForTeam ? 'bg-indigo-600' : 'bg-gray-300 dark:bg-slate-600'
                     } ${!ownerHasApiKey ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     <span
@@ -168,7 +168,7 @@ export default function ProjectSettingsModal({ project, isOpen, onClose }: Proje
                   </button>
                 </div>
                 {!ownerHasApiKey && (
-                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                  <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
                     Add your OpenRouter API key first to enable sharing.
                   </p>
                 )}
@@ -185,7 +185,7 @@ export default function ProjectSettingsModal({ project, isOpen, onClose }: Proje
                 value={aiModel}
                 onChange={(e) => updateSettingsMutation.mutate({ model: e.target.value })}
                 disabled={updateSettingsMutation.isPending}
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
               >
                 {orderedProviders.map((provider) => (
                   <optgroup key={provider} label={provider}>
@@ -209,7 +209,7 @@ export default function ProjectSettingsModal({ project, isOpen, onClose }: Proje
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
+            className="rounded-xl bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
           >
             Done
           </button>

@@ -377,13 +377,13 @@ const ProjectSyncSpace = () => {
     return (
       <div
         key={session.id}
-        className={`rounded-2xl border p-5 shadow-sm transition-colors ${isSelected ? 'border-indigo-200 bg-indigo-50/60 dark:border-indigo-500/40 dark:bg-indigo-500/10' : 'border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-900/50'}`}
+        className={`rounded-xl border p-5 shadow-sm transition-colors ${isSelected ? 'border-indigo-200 bg-indigo-50/60 dark:border-indigo-500/40 dark:bg-indigo-500/10' : 'border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-900/50'}`}
       >
         <div className="flex flex-wrap items-start justify-between gap-4">
           {/* Left side: Meeting info */}
           <div className="flex items-start gap-3">
             {/* Icon */}
-            <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg ${
+            <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${
               isLive
                 ? 'bg-emerald-100 dark:bg-emerald-500/20'
                 : 'bg-gray-100 dark:bg-slate-700'
@@ -401,7 +401,7 @@ const ProjectSyncSpace = () => {
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">
                   {meetingTitle}
                 </h3>
-                <span className={`${badgeStyles(session.status)} inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide`}>
+                <span className={`${badgeStyles(session.status)} inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide`}>
                   {statusLabel(session.status)}
                 </span>
               </div>
@@ -428,7 +428,7 @@ const ProjectSyncSpace = () => {
                   </span>
                 )}
                 {transcriptionFailed && (
-                  <span className="flex items-center gap-1 text-gray-500 dark:text-gray-400">
+                  <span className="flex items-center gap-1 text-gray-500 dark:text-slate-400">
                     <FileText className="h-3 w-3" />
                     No recording
                   </span>
@@ -534,11 +534,11 @@ const ProjectSyncSpace = () => {
           onClick={handleClose}
           aria-hidden="true"
         />
-        <div className="relative flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl transition-colors dark:border-slate-700 dark:bg-slate-900/90">
+        <div className="relative flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl transition-colors dark:border-slate-700 dark:bg-slate-900/90">
           {/* Header */}
           <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-6 py-5 dark:border-slate-700">
             <div className="flex items-start gap-3">
-              <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg ${
+              <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${
                 session.status === 'live'
                   ? 'bg-emerald-100 dark:bg-emerald-500/20'
                   : 'bg-indigo-100 dark:bg-indigo-500/20'
@@ -552,7 +552,7 @@ const ProjectSyncSpace = () => {
               <div className="space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">{meetingTitle}</h2>
-                  <span className={`${statusClass} inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide`}>
+                  <span className={`${statusClass} inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide`}>
                     {statusLabel(session.status)}
                   </span>
                 </div>
@@ -594,7 +594,7 @@ const ProjectSyncSpace = () => {
             {recordingHref && (
               <section className="mb-4 flex items-center justify-between rounded-xl border border-gray-200 bg-white p-4 transition-colors dark:border-slate-700 dark:bg-slate-900/70">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-100 dark:bg-indigo-500/20">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-100 dark:bg-indigo-500/20">
                     <Mic className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
                   </div>
                   <span className="text-sm font-medium text-gray-700 dark:text-slate-200">Audio recording available</span>
@@ -618,11 +618,11 @@ const ProjectSyncSpace = () => {
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Transcript</h3>
               </div>
               {transcriptText ? (
-                <div className="max-h-96 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm leading-relaxed text-gray-700 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200">
+                <div className="max-h-96 overflow-y-auto rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm leading-relaxed text-gray-700 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200">
                   <pre className="whitespace-pre-wrap break-words font-sans">{transcriptText}</pre>
                 </div>
               ) : (
-                <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-6 text-center dark:border-slate-700 dark:bg-slate-900/40">
+                <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-6 text-center dark:border-slate-700 dark:bg-slate-900/40">
                   {recording?.status === 'transcribing' || recording?.status === 'uploaded' ? (
                     <>
                       <Loader2 className="mx-auto h-8 w-8 animate-spin text-amber-500 dark:text-amber-400" />
@@ -656,7 +656,7 @@ const ProjectSyncSpace = () => {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-2xl border border-indigo-100 bg-white p-6 shadow-sm transition-colors dark:border-indigo-500/30 dark:bg-slate-900/40">
+      <section className="rounded-xl border border-indigo-100 bg-white p-6 shadow-sm transition-colors dark:border-indigo-500/30 dark:bg-slate-900/40">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3 text-indigo-700 dark:text-indigo-200">
             <Video className="h-6 w-6 text-indigo-600 dark:text-indigo-300" />
@@ -681,11 +681,11 @@ const ProjectSyncSpace = () => {
 
       <div className="space-y-4">
         {sessionsQuery.isLoading && (
-          <div className="h-32 animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-900/50" />
+          <div className="h-32 animate-pulse rounded-xl border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-900/50" />
         )}
 
         {!sessionsQuery.isLoading && sessions.length === 0 && (
-          <div className="rounded-2xl border border-dashed border-gray-200 bg-white p-6 text-sm text-gray-500 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300">
+          <div className="rounded-xl border border-dashed border-gray-200 bg-white p-6 text-sm text-gray-500 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300">
             No sync sessions yet. Start your first call to unlock collaborative notes and AI summaries.
           </div>
         )}

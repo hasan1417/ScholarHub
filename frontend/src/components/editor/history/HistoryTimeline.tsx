@@ -18,15 +18,15 @@ interface HistoryTimelineProps {
 function getTypeBadge(type: string) {
   switch (type) {
     case 'auto':
-      return { label: 'Auto', cls: 'bg-slate-200 text-slate-600 dark:bg-slate-600 dark:text-slate-200' }
+      return { label: 'Auto', cls: 'bg-gray-200 text-gray-600 dark:bg-slate-600 dark:text-slate-200' }
     case 'save':
       return { label: 'Saved', cls: 'bg-green-100 text-green-700 dark:bg-green-600/30 dark:text-green-300' }
     case 'manual':
-      return { label: 'Manual', cls: 'bg-blue-100 text-blue-700 dark:bg-blue-600/30 dark:text-blue-300' }
+      return { label: 'Manual', cls: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-600/30 dark:text-indigo-300' }
     case 'restore':
-      return { label: 'Restore', cls: 'bg-purple-100 text-purple-700 dark:bg-purple-600/30 dark:text-purple-300' }
+      return { label: 'Restore', cls: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-600/30 dark:text-indigo-300' }
     default:
-      return { label: type, cls: 'bg-slate-200 text-slate-600' }
+      return { label: type, cls: 'bg-gray-200 text-gray-600' }
   }
 }
 
@@ -86,15 +86,15 @@ export const HistoryTimeline: React.FC<HistoryTimelineProps> = ({
   const grouped = groupByDate(filtered)
 
   return (
-    <div className="flex h-full flex-col bg-slate-50 dark:bg-slate-850 dark:bg-slate-900/50">
+    <div className="flex h-full flex-col bg-gray-50 dark:bg-slate-850 dark:bg-slate-900/50">
       {/* Tab bar */}
       <div className="flex-none px-3 pt-3 pb-2">
-        <div className="flex rounded-lg bg-slate-200 p-0.5 dark:bg-slate-700">
+        <div className="flex rounded-xl bg-gray-200 p-0.5 dark:bg-slate-700">
           <button
             className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
               activeTab === 'all'
                 ? 'bg-emerald-600 text-white shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
+                : 'text-gray-600 hover:text-gray-900 dark:text-slate-300 dark:hover:text-white'
             }`}
             onClick={() => onSetActiveTab('all')}
           >
@@ -104,7 +104,7 @@ export const HistoryTimeline: React.FC<HistoryTimelineProps> = ({
             className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
               activeTab === 'labels'
                 ? 'bg-emerald-600 text-white shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
+                : 'text-gray-600 hover:text-gray-900 dark:text-slate-300 dark:hover:text-white'
             }`}
             onClick={() => onSetActiveTab('labels')}
           >
@@ -116,7 +116,7 @@ export const HistoryTimeline: React.FC<HistoryTimelineProps> = ({
 
       {/* Diff stats summary */}
       {diffStats && (
-        <div className="flex-none border-b border-slate-200 px-3 py-1.5 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
+        <div className="flex-none border-b border-gray-200 px-3 py-1.5 text-xs text-gray-500 dark:border-slate-700 dark:text-slate-400">
           <span className="text-green-600 dark:text-green-400">+{diffStats.additions}</span>
           {' / '}
           <span className="text-red-500 dark:text-red-400">-{diffStats.deletions}</span>
@@ -125,13 +125,13 @@ export const HistoryTimeline: React.FC<HistoryTimelineProps> = ({
       )}
 
       {/* Compare mode toggle */}
-      <div className="flex-none border-b border-slate-200 px-3 py-1.5 dark:border-slate-700">
+      <div className="flex-none border-b border-gray-200 px-3 py-1.5 dark:border-slate-700">
         <button
           onClick={() => { setCompareMode(prev => !prev); setCompareFrom(null) }}
           className={`flex w-full items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
             compareMode
               ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-600/20 dark:text-indigo-300'
-              : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200'
+              : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200'
           }`}
         >
           <GitCompareArrows className="h-3.5 w-3.5" />
@@ -145,10 +145,10 @@ export const HistoryTimeline: React.FC<HistoryTimelineProps> = ({
       <div className="flex-1 overflow-y-auto">
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+            <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
           </div>
         ) : filtered.length === 0 ? (
-          <div className="px-4 py-8 text-center text-xs text-slate-400 dark:text-slate-500">
+          <div className="px-4 py-8 text-center text-xs text-gray-400 dark:text-slate-400">
             {activeTab === 'labels' ? 'No labelled versions yet' : 'No history available'}
           </div>
         ) : (
@@ -160,12 +160,12 @@ export const HistoryTimeline: React.FC<HistoryTimelineProps> = ({
                 className={`group w-full border-l-2 px-3 py-2 text-left transition-colors ${
                   selectedSnapshotId === currentStateId
                     ? 'border-l-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
-                    : 'border-l-transparent hover:bg-slate-100 dark:hover:bg-slate-800'
+                    : 'border-l-transparent hover:bg-gray-100 dark:hover:bg-slate-800'
                 }`}
               >
                 <div className="flex items-center gap-2">
                   <div className="h-2.5 w-2.5 flex-none rounded-full bg-emerald-500" />
-                  <span className="text-xs font-medium text-slate-700 dark:text-slate-200">
+                  <span className="text-xs font-medium text-gray-700 dark:text-slate-200">
                     Current state
                   </span>
                 </div>
@@ -174,7 +174,7 @@ export const HistoryTimeline: React.FC<HistoryTimelineProps> = ({
             {Array.from(grouped.entries()).map(([dateLabel, items]) => (
             <div key={dateLabel}>
               {/* Date group header */}
-              <div className="sticky top-0 z-10 bg-slate-100/90 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 backdrop-blur dark:bg-slate-800/90 dark:text-slate-400">
+              <div className="sticky top-0 z-10 bg-gray-100 px-3 py-1.5 text-2xs font-semibold uppercase tracking-wider text-gray-500 backdrop-blur dark:bg-slate-800/90 dark:text-slate-400">
                 {dateLabel}
               </div>
               {/* Entries */}
@@ -207,18 +207,18 @@ export const HistoryTimeline: React.FC<HistoryTimelineProps> = ({
                         ? 'border-l-indigo-500 bg-indigo-50 dark:bg-indigo-900/20'
                         : isSelected || isInRange
                           ? 'border-l-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
-                          : 'border-l-transparent hover:bg-slate-100 dark:hover:bg-slate-800'
+                          : 'border-l-transparent hover:bg-gray-100 dark:hover:bg-slate-800'
                     }`}
                   >
                     <div className="flex items-center gap-2">
-                      <Clock className="h-3 w-3 flex-none text-slate-400 dark:text-slate-500" />
-                      <span className="text-xs font-medium text-slate-700 dark:text-slate-200">
+                      <Clock className="h-3 w-3 flex-none text-gray-400 dark:text-slate-400" />
+                      <span className="text-xs font-medium text-gray-700 dark:text-slate-200">
                         {formatTime(snap.created_at)}
                       </span>
-                      <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${badge.cls}`}>
+                      <span className={`rounded px-1.5 py-0.5 text-2xs font-medium ${badge.cls}`}>
                         {badge.label}
                       </span>
-                      <span className="ml-auto text-[10px] text-slate-400 dark:text-slate-500">
+                      <span className="ml-auto text-2xs text-gray-400 dark:text-slate-400">
                         #{snap.sequence_number}
                       </span>
                     </div>
@@ -244,27 +244,27 @@ export const HistoryTimeline: React.FC<HistoryTimelineProps> = ({
                             setEditingId(null)
                           }}
                           placeholder="Version label..."
-                          className="w-full rounded border border-emerald-400 bg-white px-1.5 py-0.5 text-[11px] text-slate-700 outline-none focus:ring-1 focus:ring-emerald-400 dark:border-emerald-500 dark:bg-slate-800 dark:text-slate-200"
+                          className="w-full rounded border border-emerald-400 bg-white px-1.5 py-0.5 text-2xs text-gray-700 outline-none focus:ring-1 focus:ring-emerald-400 dark:border-emerald-500 dark:bg-slate-800 dark:text-slate-200"
                           autoFocus
                         />
                       </div>
                     ) : snap.label ? (
                       <div
-                        className="mt-1 cursor-pointer truncate pl-5 text-[11px] italic text-slate-500 hover:text-emerald-600 dark:text-slate-400 dark:hover:text-emerald-400"
+                        className="mt-1 cursor-pointer truncate pl-5 text-2xs italic text-gray-500 hover:text-emerald-600 dark:text-slate-400 dark:hover:text-emerald-400"
                         onClick={e => { e.stopPropagation(); setEditingId(snap.id); setEditValue(snap.label || '') }}
                       >
                         "{snap.label}"
                       </div>
                     ) : (
                       <div
-                        className="mt-1 cursor-pointer pl-5 text-[10px] text-slate-300 opacity-0 transition-opacity group-hover:opacity-100 hover:text-emerald-500 dark:text-slate-600 dark:hover:text-emerald-400"
+                        className="mt-1 cursor-pointer pl-5 text-2xs text-gray-300 opacity-0 transition-opacity group-hover:opacity-100 hover:text-emerald-500 dark:text-slate-600 dark:hover:text-emerald-400"
                         onClick={e => { e.stopPropagation(); setEditingId(snap.id); setEditValue('') }}
                       >
                         + Add label
                       </div>
                     )}
                     {snap.text_length != null && (
-                      <div className="mt-0.5 pl-5 text-[10px] text-slate-400 dark:text-slate-500">
+                      <div className="mt-0.5 pl-5 text-2xs text-gray-400 dark:text-slate-400">
                         {snap.text_length.toLocaleString()} characters
                       </div>
                     )}

@@ -213,7 +213,7 @@ const OverviewDashboard = () => {
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-sm font-medium text-gray-900 dark:text-slate-100">{title}</p>
             {badge && (
-              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${badgeToneClass[badge.tone]}`}>
+              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium ${badgeToneClass[badge.tone]}`}>
                 {badge.label}
               </span>
             )}
@@ -226,7 +226,7 @@ const OverviewDashboard = () => {
           )}
         </div>
         {timestamp && (
-          <span className="text-[11px] text-gray-400 dark:text-slate-500 flex-shrink-0">{timestamp}</span>
+          <span className="text-2xs text-gray-400 dark:text-slate-400 flex-shrink-0">{timestamp}</span>
         )}
       </li>
     )
@@ -306,7 +306,7 @@ const OverviewDashboard = () => {
       const config: Record<string, { icon: ReactNode; iconClass: string; title: string; subtitle: string }> = {
         invited: {
           icon: <UserPlus className="h-4 w-4" />,
-          iconClass: 'bg-blue-100 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400',
+          iconClass: 'bg-indigo-100 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400',
           title: 'Member invited',
           subtitle: `${actorName} invited ${invitedName || 'someone'}${role ? ` as ${role}` : ''}`,
         },
@@ -361,7 +361,7 @@ const OverviewDashboard = () => {
         },
         'reference-linked': {
           icon: <FilePenLine className="h-4 w-4" />,
-          iconClass: 'bg-purple-100 text-purple-600 dark:bg-purple-500/20 dark:text-purple-400',
+          iconClass: 'bg-indigo-100 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400',
           title: 'Reference added',
         },
         'reference-unlinked': {
@@ -400,7 +400,7 @@ const OverviewDashboard = () => {
       return renderNotificationCard({
         key: notification.id,
         icon: <FilePenLine className="h-4 w-4" />,
-        iconClassName: 'bg-purple-100 text-purple-600 dark:bg-purple-500/20 dark:text-purple-400',
+        iconClassName: 'bg-indigo-100 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400',
         title: c.title,
         subtitle: actorName,
         badge: c.badge,
@@ -451,28 +451,28 @@ const OverviewDashboard = () => {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <button
               onClick={() => navigate(`/projects/${projectId}/papers`)}
-              className="flex flex-col items-center gap-1.5 p-3 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-300 dark:hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors group"
+              className="flex flex-col items-center gap-1.5 p-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-300 dark:hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors group"
             >
               <FileText className="h-5 w-5 text-gray-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400" />
               <span className="text-xs font-medium text-gray-600 dark:text-slate-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400">New Paper</span>
             </button>
             <button
               onClick={() => navigate(`/projects/${projectId}/library/discover`)}
-              className="flex flex-col items-center gap-1.5 p-3 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-300 dark:hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors group"
+              className="flex flex-col items-center gap-1.5 p-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-300 dark:hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors group"
             >
               <Search className="h-5 w-5 text-gray-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400" />
               <span className="text-xs font-medium text-gray-600 dark:text-slate-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400">Find Papers</span>
             </button>
             <button
               onClick={() => navigate(`/projects/${projectId}/discussion`)}
-              className="flex flex-col items-center gap-1.5 p-3 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-300 dark:hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors group"
+              className="flex flex-col items-center gap-1.5 p-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-300 dark:hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors group"
             >
               <MessageSquare className="h-5 w-5 text-gray-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400" />
               <span className="text-xs font-medium text-gray-600 dark:text-slate-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400">Discussion</span>
             </button>
             <button
               onClick={() => navigate(`/projects/${projectId}/library`)}
-              className="flex flex-col items-center gap-1.5 p-3 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-300 dark:hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors group"
+              className="flex flex-col items-center gap-1.5 p-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-300 dark:hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors group"
             >
               <BookOpen className="h-5 w-5 text-gray-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400" />
               <span className="text-xs font-medium text-gray-600 dark:text-slate-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400">References</span>
@@ -493,14 +493,14 @@ const OverviewDashboard = () => {
   return (
     <div className="space-y-6">
       <div className="grid gap-6 lg:grid-cols-[1.2fr,1fr] items-start">
-        <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800">
+        <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800">
           <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">Project context</h2>
           <div className="mt-5 space-y-5">
             {/* Description */}
             <div>
               <h3 className="text-xs font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400">Description</h3>
               <p className="mt-2 text-sm text-gray-700 dark:text-slate-300 whitespace-pre-line leading-relaxed">
-                {descriptionText || <span className="text-gray-400 dark:text-slate-500 italic">No description captured yet.</span>}
+                {descriptionText || <span className="text-gray-400 dark:text-slate-400 italic">No description captured yet.</span>}
               </p>
             </div>
 
@@ -541,12 +541,12 @@ const OverviewDashboard = () => {
                             {completedObjectives.has(index) ? (
                               <Check className="h-3 w-3 text-white" />
                             ) : (
-                              <span className="text-[10px] font-semibold text-gray-400 dark:text-slate-500 group-hover:text-indigo-500">{index + 1}</span>
+                              <span className="text-2xs font-semibold text-gray-400 dark:text-slate-400 group-hover:text-indigo-500">{index + 1}</span>
                             )}
                           </button>
                           <span className={`text-sm transition-all ${
                             completedObjectives.has(index)
-                              ? 'text-gray-400 dark:text-slate-500 line-through'
+                              ? 'text-gray-400 dark:text-slate-400 line-through'
                               : 'text-gray-700 dark:text-slate-300'
                           }`}>
                             {objective}
@@ -565,7 +565,7 @@ const OverviewDashboard = () => {
                     )}
                   </>
                 ) : (
-                  <p className="text-sm text-gray-400 dark:text-slate-500 italic">No objectives defined yet.</p>
+                  <p className="text-sm text-gray-400 dark:text-slate-400 italic">No objectives defined yet.</p>
                 )}
               </div>
             </div>
@@ -586,7 +586,7 @@ const OverviewDashboard = () => {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-gray-400 dark:text-slate-500 italic">No keywords defined yet.</p>
+                  <p className="text-sm text-gray-400 dark:text-slate-400 italic">No keywords defined yet.</p>
                 )}
               </div>
             </div>
@@ -596,7 +596,7 @@ const OverviewDashboard = () => {
         {/* Right column: Stats + Team */}
         <div className="space-y-6">
           {/* Project Stats */}
-          <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800">
+          <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800">
             <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100 mb-4">Project Stats</h2>
             <div className="grid grid-cols-3 gap-4">
               <div className="text-center p-3 rounded-xl bg-gray-50 dark:bg-slate-700/50">
@@ -615,14 +615,14 @@ const OverviewDashboard = () => {
           </section>
 
           {/* Team Section */}
-          <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800">
+          <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800">
             <ProjectTeamManager />
           </section>
         </div>
       </div>
 
       {/* Recent Activity Section */}
-      <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800">
+      <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800">
         <div className="flex items-center gap-2">
           <Bell className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
           <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">Recent Activity</h2>
@@ -639,7 +639,7 @@ const OverviewDashboard = () => {
             className="absolute inset-0 bg-black/50 backdrop-blur-sm"
             onClick={() => setObjectivesModalOpen(false)}
           />
-          <div className="relative z-10 w-full max-w-lg mx-4 max-h-[80vh] flex flex-col rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-800">
+          <div className="relative z-10 w-full max-w-lg mx-4 max-h-[80vh] flex flex-col rounded-xl border border-gray-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-800">
             {/* Header */}
             <div className="flex items-center justify-between p-5 border-b border-gray-200 dark:border-slate-700">
               <div className="flex items-center gap-2">
@@ -662,7 +662,7 @@ const OverviewDashboard = () => {
                 )}
                 <button
                   onClick={() => setObjectivesModalOpen(false)}
-                  className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:text-slate-200 dark:hover:bg-slate-700 transition-colors"
+                  className="p-1 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:text-slate-200 dark:hover:bg-slate-700 transition-colors"
                 >
                   <X className="h-5 w-5" />
                 </button>
@@ -675,7 +675,7 @@ const OverviewDashboard = () => {
                 {objectivesList.map((objective, index) => (
                   <li
                     key={`modal-${objective}-${index}`}
-                    className="flex items-start gap-3 group cursor-pointer p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors"
+                    className="flex items-start gap-3 group cursor-pointer p-2 rounded-xl hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors"
                     onClick={() => toggleObjective(index)}
                   >
                     <button
@@ -689,12 +689,12 @@ const OverviewDashboard = () => {
                       {completedObjectives.has(index) ? (
                         <Check className="h-3.5 w-3.5 text-white" />
                       ) : (
-                        <span className="text-xs font-semibold text-gray-400 dark:text-slate-500 group-hover:text-indigo-500">{index + 1}</span>
+                        <span className="text-xs font-semibold text-gray-400 dark:text-slate-400 group-hover:text-indigo-500">{index + 1}</span>
                       )}
                     </button>
                     <span className={`text-sm transition-all ${
                       completedObjectives.has(index)
-                        ? 'text-gray-400 dark:text-slate-500 line-through'
+                        ? 'text-gray-400 dark:text-slate-400 line-through'
                         : 'text-gray-700 dark:text-slate-300'
                     }`}>
                       {objective}
@@ -715,14 +715,14 @@ const ProjectOverview = () => {
 
   if (!projectId) {
     return (
-      <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200">
+      <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200">
         <p>Project ID is required</p>
       </div>
     )
   }
 
   return (
-    <div className="space-y-0 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800/60">
+    <div className="space-y-0 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-800/60">
       <SubTabs tabs={OVERVIEW_TABS} basePath={`/projects/${projectId}/overview`} />
       <div className="p-6 dark:bg-slate-900/10">
         <Routes>

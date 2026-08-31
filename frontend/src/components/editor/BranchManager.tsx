@@ -138,10 +138,10 @@ const BranchManager: React.FC<BranchManagerProps> = ({
   }
 
   const getBranchStatusColor = (branch: Branch) => {
-    if (branch.isMain) return 'text-blue-600 bg-blue-100'
+    if (branch.isMain) return 'text-indigo-600 bg-indigo-100'
     if (branch.status === 'merged') return 'text-green-600 bg-green-100'
     if (branch.status === 'archived') return 'text-gray-600 bg-gray-100'
-    return 'text-purple-600 bg-purple-100'
+    return 'text-indigo-600 bg-indigo-100'
   }
 
   const toggleCommitExpansion = (commitId: string) => {
@@ -163,7 +163,7 @@ const BranchManager: React.FC<BranchManagerProps> = ({
       case 'delete':
         return <Trash2 className="w-3 h-3 text-red-600" />
       case 'update':
-        return <GitCommit className="w-3 h-3 text-blue-600" />
+        return <GitCommit className="w-3 h-3 text-indigo-600" />
       default:
         return <GitCommit className="w-3 h-3 text-gray-600" />
     }
@@ -176,14 +176,14 @@ const BranchManager: React.FC<BranchManagerProps> = ({
       case 'delete':
         return 'bg-red-50 border-red-200 text-red-800'
       case 'update':
-        return 'bg-blue-50 border-blue-200 text-blue-800'
+        return 'bg-indigo-50 border-indigo-200 text-indigo-800'
       default:
         return 'bg-gray-50 border-gray-200 text-gray-800'
     }
   }
 
   return (
-    <div className={`bg-white rounded-lg shadow-lg ${className}`}>
+    <div className={`bg-white rounded-xl shadow-lg ${className}`}>
       {/* Header */}
       <div className="px-6 py-4 border-b border-gray-200">
         <div className="flex items-center justify-between">
@@ -193,7 +193,7 @@ const BranchManager: React.FC<BranchManagerProps> = ({
           </h3>
           <button
             onClick={() => setShowCreateBranch(true)}
-            className="px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center text-sm"
+            className="px-3 py-1 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 flex items-center text-sm"
           >
             <Plus className="w-4 h-4 mr-1" />
             New Branch
@@ -209,9 +209,9 @@ const BranchManager: React.FC<BranchManagerProps> = ({
             {branches.map((branch) => (
               <div
                 key={branch.id}
-                className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                className={`p-3 rounded-xl border cursor-pointer transition-colors ${
                   selectedBranch?.id === branch.id
-                    ? 'border-blue-500 bg-blue-50'
+                    ? 'border-indigo-500 bg-indigo-50'
                     : 'border-gray-200 hover:border-gray-300'
                 }`}
                 onClick={() => handleBranchSwitch(branch.id)}
@@ -223,7 +223,7 @@ const BranchManager: React.FC<BranchManagerProps> = ({
                       <div className="flex items-center space-x-2">
                         <span className="font-medium text-gray-900">{branch.name}</span>
                         {branch.isMain && (
-                          <span className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded">
+                          <span className="px-2 py-1 text-xs bg-indigo-100 text-indigo-800 rounded">
                             Main
                           </span>
                         )}
@@ -266,7 +266,7 @@ const BranchManager: React.FC<BranchManagerProps> = ({
             {commits.map((commit) => {
               const isExpanded = expandedCommits.has(commit.id)
               return (
-                <div key={commit.id} className="border border-gray-200 rounded-lg overflow-hidden">
+                <div key={commit.id} className="border border-gray-200 rounded-xl overflow-hidden">
                   {/* Commit Header */}
                   <div 
                     className="p-3 cursor-pointer hover:bg-gray-50 transition-colors"
@@ -292,7 +292,7 @@ const BranchManager: React.FC<BranchManagerProps> = ({
                           <span className="text-xs text-gray-500">
                             {commit.changes.length} changes
                           </span>
-                          <div className="flex items-center text-xs text-blue-600">
+                          <div className="flex items-center text-xs text-indigo-600">
                             {isExpanded ? (
                               <ChevronDown className="w-4 h-4 mr-1" />
                             ) : (
@@ -398,7 +398,7 @@ const BranchManager: React.FC<BranchManagerProps> = ({
       {/* Create Branch Modal */}
       {showCreateBranch && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-96">
+          <div className="bg-white rounded-xl p-6 w-96">
             <h3 className="text-lg font-medium text-gray-900 mb-4">Create New Branch</h3>
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -409,7 +409,7 @@ const BranchManager: React.FC<BranchManagerProps> = ({
                 value={newBranchName}
                 onChange={(e) => setNewBranchName(e.target.value)}
                 placeholder="e.g., feature/methodology-section"
-                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full p-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               />
             </div>
             <div className="mb-4">
@@ -422,7 +422,7 @@ const BranchManager: React.FC<BranchManagerProps> = ({
                   const branch = branches.find(b => b.id === e.target.value)
                   setSelectedBranch(branch || null)
                 }}
-                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full p-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               >
                 {branches.map((branch) => (
                   <option key={branch.id} value={branch.id}>
@@ -434,14 +434,14 @@ const BranchManager: React.FC<BranchManagerProps> = ({
             <div className="flex items-center justify-end space-x-3">
               <button
                 onClick={() => setShowCreateBranch(false)}
-                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200"
               >
                 Cancel
               </button>
               <button
                 onClick={handleCreateBranch}
                 disabled={!newBranchName.trim() || !selectedBranch || loading}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? 'Creating...' : 'Create Branch'}
               </button>

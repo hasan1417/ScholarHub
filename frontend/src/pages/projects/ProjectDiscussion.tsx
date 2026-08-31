@@ -1017,10 +1017,10 @@ const ProjectDiscussion = () => {
     if (isError) {
       return (
         <div className="flex h-full items-center justify-center px-4">
-          <div className="rounded-lg border border-red-200 bg-red-50 p-3 sm:p-4 text-center dark:border-red-500/40 dark:bg-red-500/10">
+          <div className="rounded-xl border border-red-200 bg-red-50 p-3 sm:p-4 text-center dark:border-red-500/40 dark:bg-red-500/10">
             <AlertCircle className="mx-auto h-6 w-6 sm:h-8 sm:w-8 text-red-600 dark:text-red-300" />
             <p className="mt-2 text-xs sm:text-sm font-medium text-red-900 dark:text-red-200">Failed to load discussion</p>
-            <p className="mt-1 text-[10px] sm:text-xs text-red-700 dark:text-red-200/80">{(error as Error)?.message || 'Please try again later'}</p>
+            <p className="mt-1 text-2xs sm:text-xs text-red-700 dark:text-red-200/80">{(error as Error)?.message || 'Please try again later'}</p>
           </div>
         </div>
       )
@@ -1108,7 +1108,7 @@ const ProjectDiscussion = () => {
             <button
               type="button"
               onClick={() => setIsMobileSidebarOpen(false)}
-              className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-800 touch-manipulation"
+              className="rounded-xl p-1.5 text-gray-500 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-800 touch-manipulation"
             >
               <X className="h-5 w-5" />
             </button>
@@ -1153,14 +1153,14 @@ const ProjectDiscussion = () => {
         </div>
 
         {/* Main content */}
-        <div className="flex flex-1 min-h-0 min-w-0 flex-col rounded-xl md:rounded-2xl border border-gray-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900/40">
+        <div className="flex flex-1 min-h-0 min-w-0 flex-col rounded-xl md:rounded-xl border border-gray-200 bg-white shadow-sm transition-colors dark:border-slate-700 dark:bg-slate-900/40">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-gray-200 px-2 py-2 sm:px-3 sm:py-3 md:p-4 dark:border-slate-700">
             <div className="flex items-center gap-2 min-w-0 flex-1">
               <button
                 type="button"
                 onClick={() => setIsMobileSidebarOpen(true)}
-                className="flex-shrink-0 rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 md:hidden dark:text-slate-400 dark:hover:bg-slate-800 touch-manipulation"
+                className="flex-shrink-0 rounded-xl p-1.5 text-gray-500 hover:bg-gray-100 md:hidden dark:text-slate-400 dark:hover:bg-slate-800 touch-manipulation"
               >
                 <Menu className="h-5 w-5" />
               </button>
@@ -1173,7 +1173,7 @@ const ProjectDiscussion = () => {
                     {activeChannel ? activeChannel.name : 'OpenRouter Discussion'}
                   </h2>
                   {activeChannel?.is_default && (
-                    <span className="hidden sm:inline flex-shrink-0 rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
+                    <span className="hidden sm:inline flex-shrink-0 rounded bg-indigo-100 px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wide text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
                       Default
                     </span>
                   )}
@@ -1186,7 +1186,7 @@ const ProjectDiscussion = () => {
             {/* Model badge and channel menu */}
             <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
               <div
-                className="hidden sm:flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-xs text-gray-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                className="hidden sm:flex items-center gap-1.5 rounded-xl border border-gray-200 bg-gray-50 px-2 py-1.5 text-xs text-gray-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300"
                 title="AI model - configure in Project Settings"
               >
                 <Bot className="h-3.5 w-3.5" />
@@ -1199,7 +1199,7 @@ const ProjectDiscussion = () => {
                     <button
                       type="button"
                       onClick={() => setOpenDialog('resources')}
-                      className="inline-flex items-center gap-1 rounded-lg border border-gray-200 p-1.5 sm:px-2.5 sm:py-1.5 text-gray-600 transition hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                      className="inline-flex items-center gap-1 rounded-xl border border-gray-200 p-1.5 sm:px-2.5 sm:py-1.5 text-gray-600 transition hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
                       title="Channel resources"
                     >
                       <FolderOpen className="h-3.5 w-3.5 text-indigo-500" />
@@ -1209,13 +1209,13 @@ const ProjectDiscussion = () => {
                   <button
                     type="button"
                     onClick={() => setOpenDialog('artifacts')}
-                    className="inline-flex items-center gap-1 rounded-lg border border-gray-200 p-1.5 sm:px-2.5 sm:py-1.5 text-gray-600 transition hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                    className="inline-flex items-center gap-1 rounded-xl border border-gray-200 p-1.5 sm:px-2.5 sm:py-1.5 text-gray-600 transition hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
                     title="Artifacts"
                   >
                     <Puzzle className="h-3.5 w-3.5 text-emerald-500" />
                     <span className="hidden sm:inline text-xs">Artifacts</span>
                     {artifactsCount > 0 && (
-                      <span className="inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold text-white">
+                      <span className="inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-emerald-500 px-1 text-2xs font-semibold text-white">
                         {artifactsCount}
                       </span>
                     )}
@@ -1223,13 +1223,13 @@ const ProjectDiscussion = () => {
                   <button
                     type="button"
                     onClick={() => setOpenDialog('discoveries')}
-                    className="inline-flex items-center gap-1 rounded-lg border border-gray-200 p-1.5 sm:px-2.5 sm:py-1.5 text-gray-600 transition hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                    className="inline-flex items-center gap-1 rounded-xl border border-gray-200 p-1.5 sm:px-2.5 sm:py-1.5 text-gray-600 transition hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
                     title="Discoveries"
                   >
                     <Search className="h-3.5 w-3.5 text-amber-500" />
                     <span className="hidden sm:inline text-xs">Discoveries</span>
                     {!isChannelSwitching && discoveryQueue.papers.length > 0 && (
-                      <span className="inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-white">
+                      <span className="inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-amber-500 px-1 text-2xs font-semibold text-white">
                         {discoveryQueue.papers.length}
                       </span>
                     )}
@@ -1259,14 +1259,14 @@ const ProjectDiscussion = () => {
               {!isChannelSwitching && !(activeChannelId && ingestionUnverifiedChannels.has(activeChannelId)) && (discoveryQueue.papers.length > 0 || ingestionSummary) && (
                 <>
                   {ingestionSummary?.isProcessing ? (
-                    <div className="mx-2 sm:mx-4 mb-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 sm:px-4 sm:py-2.5 shadow-sm dark:border-blue-500/30 dark:bg-blue-900/20">
+                    <div className="mx-2 sm:mx-4 mb-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 sm:px-4 sm:py-2.5 shadow-sm dark:border-indigo-500/30 dark:bg-indigo-900/20">
                       <div className="flex items-center gap-2 sm:gap-3">
-                        <div className="flex h-7 w-7 sm:h-8 sm:w-8 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-500/20">
-                          <Loader2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-spin text-blue-600 dark:text-blue-400" />
+                        <div className="flex h-7 w-7 sm:h-8 sm:w-8 flex-shrink-0 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-500/20">
+                          <Loader2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-spin text-indigo-600 dark:text-indigo-400" />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-xs sm:text-sm font-medium text-blue-800 dark:text-blue-200">Adding papers to library...</p>
-                          <p className="text-[10px] sm:text-xs text-blue-600 dark:text-blue-400">
+                          <p className="text-xs sm:text-sm font-medium text-indigo-800 dark:text-indigo-200">Adding papers to library...</p>
+                          <p className="text-2xs sm:text-xs text-indigo-600 dark:text-indigo-400">
                             {ingestionSummary.successCount} of {ingestionSummary.totalAdded} processed
                           </p>
                         </div>
@@ -1274,13 +1274,13 @@ const ProjectDiscussion = () => {
                       <button
                         type="button"
                         onClick={() => setOpenDialog('discoveries')}
-                        className="ml-auto rounded-lg border border-blue-300 px-2.5 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-medium text-blue-700 transition hover:bg-blue-100 dark:border-blue-500/40 dark:text-blue-300 dark:hover:bg-blue-500/20"
+                        className="ml-auto rounded-xl border border-indigo-300 px-2.5 py-1 sm:px-3 sm:py-1.5 text-2xs sm:text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 dark:border-indigo-500/40 dark:text-indigo-300 dark:hover:bg-indigo-500/20"
                       >
                         View Progress
                       </button>
                     </div>
                   ) : ingestionSummary?.isAllSuccess ? (
-                    <div className="mx-2 sm:mx-4 mb-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 sm:px-4 sm:py-2.5 shadow-sm dark:border-emerald-500/30 dark:bg-emerald-900/20">
+                    <div className="mx-2 sm:mx-4 mb-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 sm:px-4 sm:py-2.5 shadow-sm dark:border-emerald-500/30 dark:bg-emerald-900/20">
                       <div className="flex items-center gap-2 sm:gap-3">
                         <div className="flex h-7 w-7 sm:h-8 sm:w-8 flex-shrink-0 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-500/20">
                           <CheckCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-600 dark:text-emerald-400" />
@@ -1289,21 +1289,21 @@ const ProjectDiscussion = () => {
                           <p className="text-xs sm:text-sm font-medium text-emerald-800 dark:text-emerald-200">
                             {ingestionSummary.totalAdded} paper{ingestionSummary.totalAdded !== 1 ? 's' : ''} added to library
                           </p>
-                          <p className="text-[10px] sm:text-xs text-emerald-600 dark:text-emerald-400">All with full text available</p>
+                          <p className="text-2xs sm:text-xs text-emerald-600 dark:text-emerald-400">All with full text available</p>
                         </div>
                       </div>
                       <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
                         <button
                           type="button"
                           onClick={() => navigate(`/projects/${getProjectUrlId(project)}/library/references`)}
-                          className="rounded-lg border border-emerald-300 px-2.5 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-500/40 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
+                          className="rounded-xl border border-emerald-300 px-2.5 py-1 sm:px-3 sm:py-1.5 text-2xs sm:text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-500/40 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
                         >
                           View in Library
                         </button>
                         <button
                           type="button"
                           onClick={() => setOpenDialog('discoveries')}
-                          className="rounded-lg border border-emerald-300 px-2.5 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-500/40 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
+                          className="rounded-xl border border-emerald-300 px-2.5 py-1 sm:px-3 sm:py-1.5 text-2xs sm:text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-500/40 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
                         >
                           View Details
                         </button>
@@ -1319,14 +1319,14 @@ const ProjectDiscussion = () => {
                               handleDismissNotification()
                             }
                           }}
-                          className="rounded-lg px-2 py-1 sm:px-2 sm:py-1.5 text-[10px] sm:text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
+                          className="rounded-xl px-2 py-1 sm:px-2 sm:py-1.5 text-2xs sm:text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
                         >
                           Dismiss
                         </button>
                       </div>
                     </div>
                   ) : ingestionSummary && ingestionSummary.needsAttention > 0 ? (
-                    <div className="mx-2 sm:mx-4 mb-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 sm:px-4 sm:py-2.5 shadow-sm dark:border-amber-500/30 dark:bg-amber-900/20">
+                    <div className="mx-2 sm:mx-4 mb-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 sm:px-4 sm:py-2.5 shadow-sm dark:border-amber-500/30 dark:bg-amber-900/20">
                       <div className="flex items-center gap-2 sm:gap-3">
                         <div className="flex h-7 w-7 sm:h-8 sm:w-8 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-500/20">
                           <Library className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-amber-600 dark:text-amber-400" />
@@ -1335,14 +1335,14 @@ const ProjectDiscussion = () => {
                           <p className="text-xs sm:text-sm font-medium text-amber-800 dark:text-amber-200">
                             {ingestionSummary.totalAdded} added • {ingestionSummary.needsAttention} need PDF
                           </p>
-                          <p className="text-[10px] sm:text-xs text-amber-600 dark:text-amber-400">Some papers need manual PDF upload</p>
+                          <p className="text-2xs sm:text-xs text-amber-600 dark:text-amber-400">Some papers need manual PDF upload</p>
                         </div>
                       </div>
                       <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
                         <button
                           type="button"
                           onClick={() => setOpenDialog('discoveries')}
-                          className="rounded-lg bg-amber-600 px-2.5 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-medium text-white transition hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600"
+                          className="rounded-xl bg-amber-600 px-2.5 py-1 sm:px-3 sm:py-1.5 text-2xs sm:text-xs font-medium text-white transition hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600"
                         >
                           Review
                         </button>
@@ -1358,14 +1358,14 @@ const ProjectDiscussion = () => {
                               handleDismissNotification()
                             }
                           }}
-                          className="rounded-lg px-2 py-1 text-[10px] sm:text-xs font-medium text-amber-700 transition hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-500/20"
+                          className="rounded-xl px-2 py-1 text-2xs sm:text-xs font-medium text-amber-700 transition hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-500/20"
                         >
                           Dismiss
                         </button>
                       </div>
                     </div>
                   ) : discoveryQueue.papers.length > 0 && activeChannelId && !dismissedNotificationChannels.has(activeChannelId) && !hasVisibleInlineResults ? (
-                    <div className="mx-2 sm:mx-4 mb-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 sm:px-4 sm:py-2.5 shadow-sm dark:border-amber-500/30 dark:bg-amber-900/20">
+                    <div className="mx-2 sm:mx-4 mb-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 sm:px-4 sm:py-2.5 shadow-sm dark:border-amber-500/30 dark:bg-amber-900/20">
                       <div className="flex items-center gap-2 sm:gap-3">
                         <div className="flex h-7 w-7 sm:h-8 sm:w-8 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-500/20">
                           <Search className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-amber-600 dark:text-amber-400" />
@@ -1375,7 +1375,7 @@ const ProjectDiscussion = () => {
                             {discoveryQueue.papers.length} paper{discoveryQueue.papers.length !== 1 ? 's' : ''} found
                           </p>
                           {discoveryQueue.query && (
-                            <p className="text-[10px] sm:text-xs text-amber-600 dark:text-amber-400 truncate max-w-[150px] sm:max-w-none">
+                            <p className="text-2xs sm:text-xs text-amber-600 dark:text-amber-400 truncate max-w-[150px] sm:max-w-none">
                               for "{discoveryQueue.query}"
                             </p>
                           )}
@@ -1383,7 +1383,7 @@ const ProjectDiscussion = () => {
                             <button
                               type="button"
                               onClick={resetDismissedPapers}
-                              className="text-[10px] sm:text-xs text-amber-500 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300 underline"
+                              className="text-2xs sm:text-xs text-amber-500 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300 underline"
                             >
                               Show {dismissedInCurrentSearch} dismissed
                             </button>
@@ -1394,14 +1394,14 @@ const ProjectDiscussion = () => {
                         <button
                           type="button"
                           onClick={() => setOpenDialog('discoveries')}
-                          className="rounded-lg bg-amber-600 px-2.5 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-medium text-white transition hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600"
+                          className="rounded-xl bg-amber-600 px-2.5 py-1 sm:px-3 sm:py-1.5 text-2xs sm:text-xs font-medium text-white transition hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600"
                         >
                           Review
                         </button>
                         <button
                           type="button"
                           onClick={handleDismissNotification}
-                          className="rounded-lg px-2 py-1 text-[10px] sm:text-xs font-medium text-amber-700 transition hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-500/20"
+                          className="rounded-xl px-2 py-1 text-2xs sm:text-xs font-medium text-amber-700 transition hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-500/20"
                         >
                           Dismiss
                         </button>
@@ -1419,22 +1419,22 @@ const ProjectDiscussion = () => {
                   className="flex w-full items-center gap-1.5 sm:gap-2 text-left"
                 >
                   {aiContextExpanded ? (
-                    <ChevronDown className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-gray-400 dark:text-slate-500" />
+                    <ChevronDown className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-gray-400 dark:text-slate-400" />
                   ) : (
-                    <ChevronRight className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-gray-400 dark:text-slate-500" />
+                    <ChevronRight className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-gray-400 dark:text-slate-400" />
                   )}
-                  <span className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-slate-500">
+                  <span className="text-2xs sm:text-2xs font-semibold uppercase tracking-wide text-gray-400 dark:text-slate-400">
                     AI Context
                   </span>
                   {!aiContextExpanded && (
-                    <span className="text-[9px] sm:text-[10px] text-gray-400 dark:text-slate-500">
+                    <span className="text-2xs sm:text-2xs text-gray-400 dark:text-slate-400">
                       ({assistantScope.length} selected)
                     </span>
                   )}
                 </button>
                 {aiContextExpanded && (
                   <div className="mt-1.5 sm:mt-2 flex flex-col sm:flex-row sm:flex-wrap items-start sm:items-center justify-between gap-2 sm:gap-3">
-                    <p className="text-[10px] sm:text-xs text-gray-500 dark:text-slate-400">Pick which resources the assistant can reference.</p>
+                    <p className="text-2xs sm:text-xs text-gray-500 dark:text-slate-400">Pick which resources the assistant can reference.</p>
                     <div className="flex flex-wrap gap-1.5 sm:gap-2">
                       {ASSISTANT_SCOPE_OPTIONS.map((option) => {
                         const active = assistantScope.includes(option.id)
@@ -1443,7 +1443,7 @@ const ProjectDiscussion = () => {
                             key={option.id}
                             type="button"
                             onClick={() => toggleAssistantScope(option.id)}
-                            className={`rounded-full px-2 py-0.5 sm:px-3 sm:py-1 text-[10px] sm:text-xs font-medium transition border ${
+                            className={`rounded-full px-2 py-0.5 sm:px-3 sm:py-1 text-2xs sm:text-xs font-medium transition border ${
                               active
                                 ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-500/20 dark:text-indigo-100'
                                 : 'border-gray-200 text-gray-600 hover:border-indigo-200 hover:text-indigo-600 dark:border-slate-700 dark:text-slate-300 dark:hover:border-indigo-400/60'
@@ -1460,19 +1460,19 @@ const ProjectDiscussion = () => {
 
               {/* AI availability warning */}
               {!discussionEnabled && (
-                <div className="mx-3 mb-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                <div className="mx-3 mb-2 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
                   <AlertCircle className="mr-1.5 inline-block h-3.5 w-3.5" />
                   Discussion AI is disabled for this project. Contact the project owner to enable it.
                 </div>
               )}
               {discussionEnabled && !hasAnyApiKey && (
-                <div className="mx-3 mb-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                <div className="mx-3 mb-2 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
                   <AlertCircle className="mr-1.5 inline-block h-3.5 w-3.5" />
                   {noKeyMessage}
                 </div>
               )}
               {discussionEnabled && hasAnyApiKey && openrouterWarning && (
-                <div className="mx-3 mb-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                <div className="mx-3 mb-2 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
                   <AlertCircle className="mr-1.5 inline-block h-3.5 w-3.5" />
                   {openrouterWarning}
                 </div>
@@ -1539,7 +1539,7 @@ const ProjectDiscussion = () => {
           onClick={() => setOpenDialog(null)}
         >
           <div
-            className="relative w-full sm:max-w-3xl h-[85vh] sm:h-auto sm:max-h-[85vh] overflow-hidden rounded-t-2xl sm:rounded-2xl bg-white shadow-2xl transition-colors dark:bg-slate-900/90"
+            className="relative w-full sm:max-w-3xl h-[85vh] sm:h-auto sm:max-h-[85vh] overflow-hidden rounded-t-xl sm:rounded-xl bg-white shadow-xl transition-colors dark:bg-slate-900/90"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-start justify-between border-b border-gray-200 px-4 py-3 sm:px-5 sm:py-4 dark:border-slate-700">
@@ -1547,7 +1547,7 @@ const ProjectDiscussion = () => {
                 <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100 truncate">
                   {openDialog === 'resources' ? 'Channel resources' : openDialog === 'artifacts' ? 'Channel artifacts' : 'Paper Discoveries'}
                 </h3>
-                <p className="text-[10px] sm:text-xs text-gray-500 dark:text-slate-400 truncate">
+                <p className="text-2xs sm:text-xs text-gray-500 dark:text-slate-400 truncate">
                   {openDialog === 'resources'
                     ? `Manage linked resources for ${activeChannel.name}`
                     : openDialog === 'artifacts'
@@ -1604,7 +1604,7 @@ const ProjectDiscussion = () => {
       {/* Create Channel Modal */}
       {isCreateChannelModalOpen && (
         <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-gray-900/40 backdrop-blur-sm dark:bg-black/70">
-          <div className="w-full sm:max-w-md max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white p-4 sm:p-6 shadow-xl transition-colors dark:bg-slate-900/90">
+          <div className="w-full sm:max-w-md max-h-[90vh] overflow-y-auto rounded-t-xl sm:rounded-xl bg-white p-4 sm:p-6 shadow-xl transition-colors dark:bg-slate-900/90">
             <h3 className="text-base font-semibold text-gray-900 dark:text-slate-100">Create new channel</h3>
             <p className="mt-1 text-xs sm:text-sm text-gray-500 dark:text-slate-400">
               Organize conversations by topic, meeting, or workstream.
@@ -1619,7 +1619,7 @@ const ProjectDiscussion = () => {
                   type="text"
                   value={newChannelName}
                   onChange={(event) => setNewChannelName(event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
+                  className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
                   placeholder="e.g. Brainstorming"
                   maxLength={255}
                   required
@@ -1627,13 +1627,13 @@ const ProjectDiscussion = () => {
               </div>
               <div>
                 <label htmlFor="channel-description" className="text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-slate-300">
-                  Description <span className="text-gray-400 dark:text-slate-500">(optional)</span>
+                  Description <span className="text-gray-400 dark:text-slate-400">(optional)</span>
                 </label>
                 <textarea
                   id="channel-description"
                   value={newChannelDescription}
                   onChange={(event) => setNewChannelDescription(event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
+                  className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
                   rows={3}
                   maxLength={2000}
                   placeholder="Describe the focus of this channel"
@@ -1651,7 +1651,7 @@ const ProjectDiscussion = () => {
                   <button
                     type="button"
                     onClick={() => setNewChannelScope(null)}
-                    className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
+                    className={`w-full rounded-xl border px-3 py-2 text-left text-sm transition ${
                       newChannelScope === null
                         ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-500/20 dark:text-indigo-100'
                         : 'border-gray-200 text-gray-600 hover:border-gray-300 dark:border-slate-600 dark:text-slate-300 dark:hover:border-slate-500'
@@ -1662,7 +1662,7 @@ const ProjectDiscussion = () => {
                   </button>
 
                   {newChannelScope !== null && (
-                    <div className="mt-3 max-h-48 overflow-y-auto rounded-lg border border-gray-200 dark:border-slate-700">
+                    <div className="mt-3 max-h-48 overflow-y-auto rounded-xl border border-gray-200 dark:border-slate-700">
                       <ResourceScopePicker
                         scope={newChannelScope}
                         papers={availablePapersQuery.data || []}
@@ -1689,7 +1689,7 @@ const ProjectDiscussion = () => {
                 <button
                   type="button"
                   onClick={handleCloseCreateChannel}
-                  className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                  className="rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
                   disabled={createChannelMutation.isPending}
                 >
                   Cancel
@@ -1697,7 +1697,7 @@ const ProjectDiscussion = () => {
                 <button
                   type="submit"
                   disabled={createChannelMutation.isPending}
-                  className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300 dark:disabled:bg-indigo-500/40"
+                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300 dark:disabled:bg-indigo-500/40"
                 >
                   {createChannelMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
                   Create channel
@@ -1711,7 +1711,7 @@ const ProjectDiscussion = () => {
       {/* Paper Creation Dialog */}
       {paperCreationDialog?.open && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-gray-900/40 backdrop-blur-sm dark:bg-black/70">
-          <div className="w-full sm:max-w-lg max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white p-4 sm:p-6 shadow-xl transition-colors dark:bg-slate-900/90">
+          <div className="w-full sm:max-w-lg max-h-[90vh] overflow-y-auto rounded-t-xl sm:rounded-xl bg-white p-4 sm:p-6 shadow-xl transition-colors dark:bg-slate-900/90">
             <div className="flex items-center justify-between mb-3 sm:mb-4">
               <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">Create New Paper</h3>
               <button
@@ -1731,7 +1731,7 @@ const ProjectDiscussion = () => {
                   type="text"
                   value={paperFormData.title}
                   onChange={(e) => setPaperFormData((prev) => ({ ...prev, title: e.target.value }))}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
+                  className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
                   placeholder="Enter paper title"
                   required
                 />
@@ -1742,7 +1742,7 @@ const ProjectDiscussion = () => {
                   <select
                     value={paperFormData.paperType}
                     onChange={(e) => setPaperFormData((prev) => ({ ...prev, paperType: e.target.value }))}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
+                    className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
                   >
                     <option value="research">Research Paper</option>
                     <option value="review">Literature Review</option>
@@ -1754,7 +1754,7 @@ const ProjectDiscussion = () => {
                   <select
                     value={paperFormData.authoringMode}
                     onChange={(e) => setPaperFormData((prev) => ({ ...prev, authoringMode: e.target.value }))}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
+                    className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
                   >
                     <option value="latex">LaTeX</option>
                     <option value="rich">Rich Text</option>
@@ -1766,7 +1766,7 @@ const ProjectDiscussion = () => {
                 <textarea
                   value={paperFormData.abstract}
                   onChange={(e) => setPaperFormData((prev) => ({ ...prev, abstract: e.target.value }))}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
+                  className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
                   rows={2}
                   placeholder="Brief abstract or description"
                 />
@@ -1784,13 +1784,13 @@ const ProjectDiscussion = () => {
                         handleAddKeyword()
                       }
                     }}
-                    className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
+                    className="flex-1 rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
                     placeholder="Type keyword and press Enter"
                   />
                   <button
                     type="button"
                     onClick={handleAddKeyword}
-                    className="rounded-lg border border-indigo-300 px-3 py-2 text-sm text-indigo-600 hover:bg-indigo-50 dark:border-indigo-500/40 dark:text-indigo-300 dark:hover:bg-indigo-500/10"
+                    className="rounded-xl border border-indigo-300 px-3 py-2 text-sm text-indigo-600 hover:bg-indigo-50 dark:border-indigo-500/40 dark:text-indigo-300 dark:hover:bg-indigo-500/10"
                   >
                     Add
                   </button>
@@ -1820,7 +1820,7 @@ const ProjectDiscussion = () => {
                   <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
                     Paper Objectives (select from project)
                   </label>
-                  <div className="max-h-32 overflow-y-auto rounded-lg border border-gray-200 dark:border-slate-700">
+                  <div className="max-h-32 overflow-y-auto rounded-xl border border-gray-200 dark:border-slate-700">
                     {projectObjectives.map((objective, idx) => {
                       const isSelected = paperFormData.objectives.includes(objective)
                       return (
@@ -1857,14 +1857,14 @@ const ProjectDiscussion = () => {
                 <button
                   type="button"
                   onClick={() => setPaperCreationDialog(null)}
-                  className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                  className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={paperActionMutation.isPending}
-                  className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:bg-indigo-300 dark:disabled:bg-indigo-500/40"
+                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:bg-indigo-300 dark:disabled:bg-indigo-500/40"
                 >
                   {paperActionMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
                   Create Paper
@@ -1905,21 +1905,21 @@ const ProjectDiscussion = () => {
       {isDeepResearchModalOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setIsDeepResearchModalOpen(false)}>
           <div
-            className="w-full sm:max-w-[560px] rounded-t-2xl sm:rounded-2xl bg-slate-900 shadow-2xl shadow-black/40 border border-slate-800/80 overflow-visible"
+            className="w-full sm:max-w-[560px] rounded-t-xl sm:rounded-xl bg-gray-900 shadow-xl shadow-black/40 border border-gray-800 overflow-visible"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header — minimal, just close button */}
             <div className="flex items-center justify-between px-6 pt-5 pb-0">
               <div className="flex items-center gap-2.5">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500/15">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-500/15">
                   <FlaskConical className="h-4 w-4 text-indigo-400" />
                 </div>
-                <span className="text-sm font-medium text-slate-400">Deep Research</span>
+                <span className="text-sm font-medium text-gray-400">Deep Research</span>
               </div>
               <button
                 type="button"
                 onClick={() => setIsDeepResearchModalOpen(false)}
-                className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-300"
+                className="rounded-xl p-1.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -1927,10 +1927,10 @@ const ProjectDiscussion = () => {
 
             {/* Hero — research question front and center */}
             <div className="px-6 pt-5 pb-2">
-              <h2 className="text-xl font-semibold text-slate-100 leading-tight">
+              <h2 className="text-xl font-semibold text-gray-100 leading-tight">
                 What do you want to research?
               </h2>
-              <p className="mt-1.5 text-sm text-slate-500">
+              <p className="mt-1.5 text-sm text-gray-500">
                 AI will search the web comprehensively and synthesize a cited report.
               </p>
 
@@ -1939,23 +1939,23 @@ const ProjectDiscussion = () => {
                 onChange={(e) => setDeepResearchQuestion(e.target.value)}
                 rows={4}
                 maxLength={5000}
-                className="mt-4 w-full resize-none rounded-xl border border-slate-700/80 bg-slate-800/60 px-4 py-3 text-[15px] leading-relaxed text-slate-100 placeholder-slate-500 transition-colors focus:border-indigo-500/60 focus:bg-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500/40"
+                className="mt-4 w-full resize-none rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-sm leading-relaxed text-gray-100 placeholder-gray-500 transition-colors focus:border-indigo-500/60 focus:bg-gray-800 focus:outline-none focus:ring-1 focus:ring-indigo-500/40"
                 placeholder="e.g. What are the latest approaches to transformer-based protein folding and how do they compare to AlphaFold3?"
                 autoFocus
               />
 
               <div className="mt-1.5 flex items-center justify-between">
-                <span className="text-xs text-slate-600">
+                <span className="text-xs text-gray-600">
                   {deepResearchQuestion.length > 0 && `${deepResearchQuestion.length.toLocaleString()} / 5,000`}
                 </span>
-                <span className="text-xs text-slate-600">Typically 2-15 min</span>
+                <span className="text-xs text-gray-600">Typically 2-15 min</span>
               </div>
             </div>
 
             {/* Compact model selector — horizontal pills */}
             <div className="px-6 pt-3 pb-1">
               <div className="flex items-center gap-2 mb-2.5">
-                <span className="text-xs font-medium text-slate-400">Model</span>
+                <span className="text-xs font-medium text-gray-400">Model</span>
               </div>
               <div className="relative flex flex-wrap gap-1.5 overflow-visible">
                 {[
@@ -1994,20 +1994,20 @@ const ProjectDiscussion = () => {
                       <button
                         type="button"
                         onClick={() => setDeepResearchModel(model.id)}
-                        className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                        className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition-all ${
                           isActive
                             ? 'bg-indigo-500/15 text-indigo-300 ring-1 ring-indigo-500/40'
-                            : 'bg-slate-800/80 text-slate-400 ring-1 ring-slate-700/60 hover:bg-slate-800 hover:text-slate-300 hover:ring-slate-600'
+                            : 'bg-gray-800 text-gray-400 ring-1 ring-gray-700 hover:bg-gray-800 hover:text-gray-300 hover:ring-gray-600'
                         }`}
                       >
                         {model.label}
                         {model.badge && (
-                          <span className={`rounded px-1 py-0.5 text-[10px] leading-none font-medium ${model.badgeColor}`}>
+                          <span className={`rounded px-1 py-0.5 text-2xs leading-none font-medium ${model.badgeColor}`}>
                             {model.badge}
                           </span>
                         )}
                       </button>
-                      <div className="pointer-events-none absolute left-0 bottom-full z-50 mb-2 w-56 rounded-lg bg-slate-950 px-3 py-2 text-[11px] leading-relaxed text-slate-300 opacity-0 shadow-xl ring-1 ring-slate-700 transition-opacity group-hover:opacity-100">
+                      <div className="pointer-events-none absolute left-0 bottom-full z-50 mb-2 w-56 rounded-xl bg-gray-950 px-3 py-2 text-2xs leading-relaxed text-gray-300 opacity-0 shadow-xl ring-1 ring-gray-700 transition-opacity group-hover:opacity-100">
                         {model.tooltip}
                       </div>
                     </div>
@@ -2021,41 +2021,41 @@ const ProjectDiscussion = () => {
               <button
                 type="button"
                 onClick={() => setDeepResearchLibraryOpen(!deepResearchLibraryOpen)}
-                className="flex w-full items-center justify-between rounded-lg bg-slate-800/50 px-3 py-2.5 transition-colors hover:bg-slate-800/80"
+                className="flex w-full items-center justify-between rounded-xl bg-gray-800 px-3 py-2.5 transition-colors hover:bg-gray-800"
               >
                 <div className="flex items-center gap-2">
-                  <Library className="h-3.5 w-3.5 text-slate-500" />
-                  <span className="text-xs font-medium text-slate-400">
+                  <Library className="h-3.5 w-3.5 text-gray-500" />
+                  <span className="text-xs font-medium text-gray-400">
                     Library context
                     {deepResearchSelectedRefs.size > 0 && (
-                      <span className="ml-1.5 inline-flex items-center justify-center rounded-full bg-indigo-500/20 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-indigo-400">
+                      <span className="ml-1.5 inline-flex items-center justify-center rounded-full bg-indigo-500/20 px-1.5 py-0.5 text-2xs font-semibold leading-none text-indigo-400">
                         {deepResearchSelectedRefs.size}
                       </span>
                     )}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] text-slate-600">Optional</span>
+                  <span className="text-2xs text-gray-600">Optional</span>
                   {deepResearchLibraryOpen ? (
-                    <ChevronUp className="h-3.5 w-3.5 text-slate-500" />
+                    <ChevronUp className="h-3.5 w-3.5 text-gray-500" />
                   ) : (
-                    <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
+                    <ChevronDown className="h-3.5 w-3.5 text-gray-500" />
                   )}
                 </div>
               </button>
 
               {deepResearchLibraryOpen && (
-                <div className="mt-2 rounded-lg border border-slate-700/60 bg-slate-800/30">
+                <div className="mt-2 rounded-xl border border-gray-700 bg-gray-800">
                   {(availableReferencesQuery.data || []).length > 0 && (
-                    <div className="border-b border-slate-700/40">
+                    <div className="border-b border-gray-700">
                       <div className="flex items-center gap-2 px-3 py-1.5">
-                        <Search className="h-3 w-3 text-slate-500" />
+                        <Search className="h-3 w-3 text-gray-500" />
                         <input
                           type="text"
                           placeholder="Search references..."
                           value={deepResearchRefSearch}
                           onChange={(e) => setDeepResearchRefSearch(e.target.value)}
-                          className="flex-1 bg-transparent text-xs text-slate-300 placeholder-slate-600 outline-none"
+                          className="flex-1 bg-transparent text-xs text-gray-300 placeholder-gray-600 outline-none"
                         />
                         <button
                           type="button"
@@ -2065,15 +2065,15 @@ const ProjectDiscussion = () => {
                               .map(r => r.reference_id)
                             setDeepResearchSelectedRefs(new Set(allIds))
                           }}
-                          className="text-[11px] text-indigo-400 hover:text-indigo-300 transition-colors"
+                          className="text-2xs text-indigo-400 hover:text-indigo-300 transition-colors"
                         >
                           All
                         </button>
-                        <span className="text-slate-700">|</span>
+                        <span className="text-gray-700">|</span>
                         <button
                           type="button"
                           onClick={() => setDeepResearchSelectedRefs(new Set())}
-                          className="text-[11px] text-indigo-400 hover:text-indigo-300 transition-colors"
+                          className="text-2xs text-indigo-400 hover:text-indigo-300 transition-colors"
                         >
                           Clear
                         </button>
@@ -2082,15 +2082,15 @@ const ProjectDiscussion = () => {
                   )}
 
                   {availableReferencesQuery.isLoading ? (
-                    <div className="flex items-center gap-2 px-3 py-4 text-sm text-slate-500">
+                    <div className="flex items-center gap-2 px-3 py-4 text-sm text-gray-500">
                       <Loader2 className="h-4 w-4 animate-spin" />
                       Loading references...
                     </div>
                   ) : (availableReferencesQuery.data || []).length === 0 ? (
-                    <p className="px-3 py-4 text-xs text-slate-500">No approved references in this project yet.</p>
+                    <p className="px-3 py-4 text-xs text-gray-500">No approved references in this project yet.</p>
                   ) : (
                     <div className="max-h-44 overflow-y-auto">
-                      <div className="divide-y divide-slate-700/30">
+                      <div className="divide-y divide-gray-700">
                         {(availableReferencesQuery.data || []).filter((ref) => {
                           if (!deepResearchRefSearch.trim()) return true
                           const q = deepResearchRefSearch.toLowerCase()
@@ -2104,12 +2104,12 @@ const ProjectDiscussion = () => {
                           return (
                             <label
                               key={ref.reference_id}
-                              className="flex cursor-pointer items-start gap-2.5 px-3 py-2 transition-colors hover:bg-slate-700/20"
+                              className="flex cursor-pointer items-start gap-2.5 px-3 py-2 transition-colors hover:bg-gray-700"
                             >
                               <div className={`mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border transition-colors ${
                                 isSelected
                                   ? 'border-indigo-500 bg-indigo-500'
-                                  : 'border-slate-600 hover:border-slate-500'
+                                  : 'border-gray-600 hover:border-gray-500'
                               }`}>
                                 {isSelected && <Check className="h-3 w-3 text-white" />}
                               </div>
@@ -2126,11 +2126,11 @@ const ProjectDiscussion = () => {
                                 }
                               />
                               <div className="min-w-0">
-                                <p className="truncate text-sm text-slate-300">
+                                <p className="truncate text-sm text-gray-300">
                                   {ref.reference?.title || 'Untitled Reference'}
                                 </p>
                                 {(ref.reference?.authors?.length ?? 0) > 0 && (
-                                  <p className="truncate text-xs text-slate-500">
+                                  <p className="truncate text-xs text-gray-500">
                                     {ref.reference!.authors!.slice(0, 2).join(', ')}
                                     {ref.reference!.authors!.length > 2 ? ' et al.' : ''}
                                     {ref.reference?.year ? ` \u00b7 ${ref.reference.year}` : ''}
@@ -2148,11 +2148,11 @@ const ProjectDiscussion = () => {
             </div>
 
             {/* Action bar — sticky bottom with visual separation */}
-            <div className="sticky bottom-0 flex items-center justify-between border-t border-slate-800 bg-slate-900/95 px-6 py-4 backdrop-blur-sm">
+            <div className="sticky bottom-0 flex items-center justify-between border-t border-gray-800 bg-gray-900 px-6 py-4 backdrop-blur-sm">
               <button
                 type="button"
                 onClick={() => setIsDeepResearchModalOpen(false)}
-                className="rounded-lg px-4 py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-300"
+                className="rounded-xl px-4 py-2 text-sm font-medium text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-300"
               >
                 Cancel
               </button>
@@ -2160,7 +2160,7 @@ const ProjectDiscussion = () => {
                 type="button"
                 onClick={handleStartDeepResearch}
                 disabled={!deepResearchQuestion.trim()}
-                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/20 transition-all hover:bg-indigo-500 hover:shadow-indigo-500/30 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-500 disabled:shadow-none"
+                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg transition-all hover:bg-indigo-500 hover: disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-500 disabled:shadow-none"
               >
                 <FlaskConical className="h-4 w-4" />
                 Start research
@@ -2173,7 +2173,7 @@ const ProjectDiscussion = () => {
       {showWelcome && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-gray-900/50 backdrop-blur-sm dark:bg-black/70" aria-hidden="true" onClick={() => { markScholarAISeen(); setShowWelcome(false) }} />
-          <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-900">
+          <div className="relative w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-slate-900">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-500/20">
                 <Sparkles className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />

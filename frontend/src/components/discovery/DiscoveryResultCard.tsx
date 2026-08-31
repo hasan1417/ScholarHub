@@ -39,7 +39,7 @@ const RelevanceBar = ({ score }: { score: number }) => {
           style={{ width: `${percentage}%` }}
         />
       </div>
-      <span className="text-[10px] text-gray-500 dark:text-slate-400 tabular-nums">
+      <span className="text-2xs text-gray-500 dark:text-slate-400 tabular-nums">
         {percentage}%
       </span>
     </div>
@@ -50,9 +50,9 @@ const RelevanceBar = ({ score }: { score: number }) => {
 const SourceBadge = ({ source, url, doi }: { source: string; url?: string | null; doi?: string | null }) => {
   const sourceColors: Record<string, string> = {
     arxiv: 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300',
-    semantic_scholar: 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+    semantic_scholar: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
     openalex: 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-    crossref: 'bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
+    crossref: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
     pubmed: 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
     core: 'bg-cyan-50 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
     europe_pmc: 'bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300',
@@ -68,7 +68,7 @@ const SourceBadge = ({ source, url, doi }: { source: string; url?: string | null
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${color} hover:opacity-80 transition-opacity`}
+        className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-2xs font-medium ${color} hover:opacity-80 transition-opacity`}
       >
         {displayName}
         <ExternalLink className="h-2.5 w-2.5" />
@@ -77,7 +77,7 @@ const SourceBadge = ({ source, url, doi }: { source: string; url?: string | null
   }
 
   return (
-    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${color}`}>
+    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-2xs font-medium ${color}`}>
       {displayName}
     </span>
   )
@@ -147,7 +147,7 @@ export const DiscoveryResultCard = ({
                 <RelevanceBar score={item.relevance_score} />
               )}
               {!isPending && (
-                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium ${
                   item.status === 'promoted'
                     ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200'
                     : 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-200'
@@ -185,7 +185,7 @@ export const DiscoveryResultCard = ({
 
             {/* PDF/Open Access combined badge */}
             {(hasPdf || isOpenAccess) && (
-              <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+              <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-2xs font-medium ${
                 hasPdf
                   ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200'
                   : 'bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-200'
@@ -205,7 +205,7 @@ export const DiscoveryResultCard = ({
             )}
 
             {!hasPdf && !isOpenAccess && (
-              <span className="inline-flex items-center gap-1 text-gray-400 dark:text-slate-500">
+              <span className="inline-flex items-center gap-1 text-gray-400 dark:text-slate-400">
                 <Lock className="h-3 w-3" />
               </span>
             )}
@@ -221,7 +221,7 @@ export const DiscoveryResultCard = ({
                 <button
                   type="button"
                   onClick={() => setIsExpanded(!isExpanded)}
-                  className="inline-flex items-center gap-0.5 mt-1 text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline"
+                  className="inline-flex items-center gap-0.5 mt-1 text-2xs text-indigo-600 dark:text-indigo-400 hover:underline"
                 >
                   {isExpanded ? (
                     <>
@@ -248,7 +248,7 @@ export const DiscoveryResultCard = ({
                       href={pdfUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
                     >
                       <FileText className="h-3.5 w-3.5" />
                       View PDF
@@ -263,7 +263,7 @@ export const DiscoveryResultCard = ({
                     type="button"
                     onClick={() => onPromote(item.id)}
                     disabled={isActionDisabled}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {isPromoting ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -278,7 +278,7 @@ export const DiscoveryResultCard = ({
                     type="button"
                     onClick={() => onDismiss(item.id)}
                     disabled={isActionDisabled}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
                   >
                     {isDismissing ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />

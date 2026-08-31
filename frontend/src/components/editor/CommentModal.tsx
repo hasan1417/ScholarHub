@@ -40,7 +40,7 @@ const CommentModal: React.FC<CommentModalProps> = ({ open, onClose, onSubmit }) 
 
   return (
     <div className="fixed inset-0 z-50 bg-black bg-opacity-30 flex items-center justify-center" onClick={onClose}>
-      <div className="bg-white w-[520px] rounded-lg shadow-xl overflow-hidden" onClick={e=>e.stopPropagation()}>
+      <div className="bg-white w-[520px] rounded-xl shadow-xl overflow-hidden" onClick={e=>e.stopPropagation()}>
         <div className="px-4 py-3 border-b flex items-center justify-between">
           <div className="text-base font-semibold">Add Comment</div>
           <button className="text-sm px-2 py-1 border rounded" onClick={onClose}>Close</button>
@@ -71,7 +71,7 @@ const CommentModal: React.FC<CommentModalProps> = ({ open, onClose, onSubmit }) 
         </div>
         <div className="px-4 py-3 border-t flex justify-end gap-2">
           <button className="px-3 py-1.5 border rounded" onClick={onClose} disabled={sending}>Cancel</button>
-          <button className="px-3 py-1.5 rounded bg-blue-600 text-white disabled:opacity-50" onClick={submit} disabled={sending}>{sending ? 'Sending…' : 'Send'}</button>
+          <button className="px-3 py-1.5 rounded bg-indigo-600 text-white disabled:opacity-50" onClick={submit} disabled={sending}>{sending ? 'Sending…' : 'Send'}</button>
         </div>
       </div>
     </div>

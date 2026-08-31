@@ -42,13 +42,13 @@ const getStatusColor = (status: string) => {
     case 'active':
       return 'bg-green-100 text-green-800 dark:bg-green-500/20 dark:text-green-400'
     case 'completed':
-      return 'bg-blue-100 text-blue-800 dark:bg-blue-500/20 dark:text-blue-400'
+      return 'bg-indigo-100 text-indigo-800 dark:bg-indigo-500/20 dark:text-indigo-400'
     case 'archived':
-      return 'bg-gray-100 text-gray-800 dark:bg-gray-500/20 dark:text-gray-400'
+      return 'bg-gray-100 text-gray-800 dark:bg-slate-500/20 dark:text-slate-400'
     case 'draft':
       return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-500/20 dark:text-yellow-400'
     default:
-      return 'bg-gray-100 text-gray-800 dark:bg-gray-500/20 dark:text-gray-400'
+      return 'bg-gray-100 text-gray-800 dark:bg-slate-500/20 dark:text-slate-400'
   }
 }
 
@@ -273,7 +273,7 @@ const ProjectsHome = () => {
 
     return (
       <article
-        className={`group relative flex h-full flex-col rounded-xl border bg-white overflow-hidden transition-all hover:shadow-md dark:bg-slate-800 ${
+        className={`group relative flex h-full flex-col rounded-xl border bg-white overflow-hidden transition-all hover:shadow-lg dark:bg-slate-800 ${
           isPinned
             ? 'border-amber-200 dark:border-amber-500/30'
             : 'border-gray-200 dark:border-slate-700'
@@ -290,7 +290,7 @@ const ProjectsHome = () => {
               e.stopPropagation()
               togglePin(project.id)
             }}
-            className={`p-1 sm:p-1.5 rounded-lg transition-colors ${
+            className={`p-1 sm:p-1.5 rounded-xl transition-colors ${
               isPinned
                 ? 'bg-amber-100 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400'
                 : 'bg-white/90 dark:bg-slate-700/90 hover:bg-gray-100 dark:hover:bg-slate-600 text-gray-400 hover:text-amber-500 shadow-sm'
@@ -325,13 +325,13 @@ const ProjectsHome = () => {
               {keywords.slice(0, 3).map((kw) => (
                 <span
                   key={kw}
-                  className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] sm:text-xs font-medium text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400"
+                  className="rounded-full bg-indigo-50 px-2 py-0.5 text-2xs sm:text-xs font-medium text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400"
                 >
                   {kw}
                 </span>
               ))}
               {keywords.length > 3 && (
-                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] sm:text-xs font-medium text-gray-500 dark:bg-slate-700 dark:text-slate-400">
+                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-2xs sm:text-xs font-medium text-gray-500 dark:bg-slate-700 dark:text-slate-400">
                   +{keywords.length - 3}
                 </span>
               )}
@@ -342,7 +342,7 @@ const ProjectsHome = () => {
           <div className="flex-1 min-h-3 sm:min-h-4" />
 
           {/* Footer with stats */}
-          <div className="mt-3 sm:mt-4 flex items-center justify-between text-[10px] sm:text-xs text-gray-400 dark:text-slate-500">
+          <div className="mt-3 sm:mt-4 flex items-center justify-between text-2xs sm:text-xs text-gray-400 dark:text-slate-400">
             <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
               <span>{project.paper_count ?? 0} papers</span>
               <span className="hidden xs:inline">·</span>
@@ -370,7 +370,7 @@ const ProjectsHome = () => {
         <div>
           <div className="flex items-center gap-2 sm:gap-3">
             <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 dark:text-white">Projects</h1>
-            <span className="rounded-full bg-indigo-50 px-2 py-0.5 sm:px-3 sm:py-1 text-[10px] sm:text-xs font-medium text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300">
+            <span className="rounded-full bg-indigo-50 px-2 py-0.5 sm:px-3 sm:py-1 text-2xs sm:text-xs font-medium text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300">
               {totalProjects} total
             </span>
           </div>
@@ -430,7 +430,7 @@ const ProjectsHome = () => {
       <div className="sm:hidden">
         <div className="relative">
           <div className="pointer-events-none absolute inset-y-0 left-3 flex items-center">
-            <Search className="h-4 w-4 text-gray-400 dark:text-slate-500" />
+            <Search className="h-4 w-4 text-gray-400 dark:text-slate-400" />
           </div>
           <input
             type="search"
@@ -445,7 +445,7 @@ const ProjectsHome = () => {
       {/* Filter & Sort Bar */}
       <div className="flex flex-wrap items-center gap-2 sm:gap-3">
         {/* Filter Tabs */}
-        <div className="flex rounded-lg border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700 p-0.5 sm:p-1 overflow-x-auto">
+        <div className="flex rounded-xl border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700 p-0.5 sm:p-1 overflow-x-auto">
           <button
             type="button"
             onClick={() => setFilterTab('all')}
@@ -490,7 +490,7 @@ const ProjectsHome = () => {
           <button
             type="button"
             onClick={() => setShowSortMenu(!showSortMenu)}
-            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-slate-200 bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-600 transition-colors"
+            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-slate-200 bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl hover:bg-gray-50 dark:hover:bg-slate-600 transition-colors"
           >
             <ArrowUpDown className="h-4 w-4" />
             <span className="hidden sm:inline">{sortLabels[sortOption]}</span>
@@ -499,7 +499,7 @@ const ProjectsHome = () => {
           {showSortMenu && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setShowSortMenu(false)} />
-              <div className="absolute right-0 mt-2 w-48 rounded-lg border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700 shadow-lg z-20">
+              <div className="absolute right-0 mt-2 w-48 rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700 shadow-lg z-20">
                 {(Object.entries(sortLabels) as [SortOption, string][]).map(([key, label]) => (
                   <button
                     key={key}
@@ -508,7 +508,7 @@ const ProjectsHome = () => {
                       setSortOption(key)
                       setShowSortMenu(false)
                     }}
-                    className={`w-full px-4 py-2 text-left text-sm transition-colors first:rounded-t-lg last:rounded-b-lg ${
+                    className={`w-full px-4 py-2 text-left text-sm transition-colors first:rounded-t-xl last:rounded-b-xl ${
                       sortOption === key
                         ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300'
                         : 'text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-600'
@@ -525,12 +525,12 @@ const ProjectsHome = () => {
 
       {/* Pending Invitations */}
       {pendingInvitesQuery.isLoading ? (
-        <div className="rounded-2xl border border-gray-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-800">
+        <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-800">
           <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-3">Pending invitations</h3>
           <div className="text-sm text-gray-600 dark:text-slate-400">Loading…</div>
         </div>
       ) : pendingInvitesQuery.isError ? (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-500/10 dark:text-red-300">
+        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-500/10 dark:text-red-300">
           <h3 className="text-base font-semibold">Pending invitations</h3>
           <p className="mt-1">We couldn&apos;t load project invitations right now.</p>
         </div>
@@ -605,14 +605,14 @@ const ProjectsHome = () => {
           {Array.from({ length: 6 }).map((_, idx) => (
             <div
               key={idx}
-              className="h-48 animate-pulse rounded-2xl border border-gray-200 bg-gray-50 dark:border-slate-700 dark:bg-slate-800"
+              className="h-48 animate-pulse rounded-xl border border-gray-200 bg-gray-50 dark:border-slate-700 dark:bg-slate-800"
             />
           ))}
         </div>
       ) : filteredProjects.length === 0 ? (
         /* Enhanced Empty State */
-        <div className="rounded-2xl border-2 border-dashed border-gray-300 bg-white p-12 text-center dark:border-slate-600 dark:bg-slate-800">
-          <div className="mx-auto w-20 h-20 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 dark:from-indigo-500/20 dark:to-purple-500/20 flex items-center justify-center mb-6">
+        <div className="rounded-xl border-2 border-dashed border-gray-300 bg-white p-12 text-center dark:border-slate-600 dark:bg-slate-800">
+          <div className="mx-auto w-20 h-20 rounded-full bg-gradient-to-br from-indigo-100 to-indigo-100 dark:from-indigo-500/20 dark:to-indigo-500/20 flex items-center justify-center mb-6">
             <Sparkles className="h-10 w-10 text-indigo-500" />
           </div>
           <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
@@ -629,7 +629,7 @@ const ProjectsHome = () => {
             <button
               type="button"
               onClick={() => setIsCreateOpen(true)}
-              className="inline-flex items-center gap-2 px-5 py-3 bg-indigo-600 text-white rounded-full font-medium hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/25"
+              className="inline-flex items-center gap-2 px-5 py-3 bg-indigo-600 text-white rounded-full font-medium hover:bg-indigo-700 transition-colors shadow-lg"
             >
               <FolderPlus className="h-5 w-5" />
               Create New Project
@@ -637,7 +637,7 @@ const ProjectsHome = () => {
           </div>
           {!searchTerm && filterTab === 'all' && (
             <div className="mt-10 pt-8 border-t border-gray-200 dark:border-slate-700">
-              <p className="text-xs text-gray-400 dark:text-slate-500 uppercase tracking-wide font-medium mb-4">What you can do with projects</p>
+              <p className="text-xs text-gray-400 dark:text-slate-400 uppercase tracking-wide font-medium mb-4">What you can do with projects</p>
               <div className="flex flex-wrap justify-center gap-6 text-sm text-gray-600 dark:text-slate-300">
                 <span className="flex items-center gap-1.5">
                   <FileText className="h-4 w-4 text-indigo-500" /> Write papers
@@ -789,7 +789,7 @@ const ProjectsHome = () => {
       />
 
       {isFetching && !isLoading && (
-        <p className="text-xs text-gray-400 dark:text-slate-500">Refreshing projects…</p>
+        <p className="text-xs text-gray-400 dark:text-slate-400">Refreshing projects…</p>
       )}
     </div>
   )

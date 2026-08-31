@@ -90,21 +90,21 @@ const CitationSuggestions: React.FC<CitationSuggestionsProps> = ({
   const similarityColor = (sim: number) => {
     if (sim >= 0.6) return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
     if (sim >= 0.4) return 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
-    return 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
+    return 'bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-slate-300'
   }
 
   return (
-    <div className="border-t border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">
+    <div className="border-t border-gray-200 bg-gray-50 dark:border-slate-700 dark:bg-slate-900">
       <button
         onClick={() => setCollapsed(prev => !prev)}
-        className="flex w-full items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+        className="flex w-full items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 hover:text-gray-800 dark:text-slate-400 dark:hover:text-slate-200"
       >
         {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
         <BookOpen className="h-3 w-3" />
         <span>Suggested Citations</span>
         {loading && <Loader2 className="ml-1 h-3 w-3 animate-spin" />}
         {!loading && suggestions.length > 0 && (
-          <span className="ml-1 rounded-full bg-indigo-100 px-1.5 text-[10px] font-semibold text-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-300">
+          <span className="ml-1 rounded-full bg-indigo-100 px-1.5 text-2xs font-semibold text-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-300">
             {suggestions.length}
           </span>
         )}
@@ -115,29 +115,29 @@ const CitationSuggestions: React.FC<CitationSuggestionsProps> = ({
           {suggestions.map((s) => (
             <div
               key={s.reference_id}
-              className="group flex items-start gap-2 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs transition-colors hover:border-indigo-300 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-indigo-600"
+              className="group flex items-start gap-2 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs transition-colors hover:border-indigo-300 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-indigo-600"
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-1.5">
-                  <span className="font-medium text-slate-700 dark:text-slate-200">
+                  <span className="font-medium text-gray-700 dark:text-slate-200">
                     {formatAuthors(s.authors)}
                   </span>
                   {s.year && (
-                    <span className="text-slate-500 dark:text-slate-400">
+                    <span className="text-gray-500 dark:text-slate-400">
                       ({s.year})
                     </span>
                   )}
                 </div>
-                <p className="mt-0.5 line-clamp-1 text-slate-500 dark:text-slate-400">
+                <p className="mt-0.5 line-clamp-1 text-gray-500 dark:text-slate-400">
                   {s.title}
                 </p>
               </div>
-              <span className={`mt-0.5 shrink-0 rounded px-1 py-0.5 text-[10px] font-medium ${similarityColor(s.similarity)}`}>
+              <span className={`mt-0.5 shrink-0 rounded px-1 py-0.5 text-2xs font-medium ${similarityColor(s.similarity)}`}>
                 {Math.round(s.similarity * 100)}%
               </span>
               <button
                 onClick={() => onInsertCitation(s.citation_key)}
-                className="mt-0.5 shrink-0 rounded p-0.5 text-slate-400 opacity-0 transition-all hover:bg-indigo-100 hover:text-indigo-600 group-hover:opacity-100 dark:hover:bg-indigo-900/40 dark:hover:text-indigo-300"
+                className="mt-0.5 shrink-0 rounded p-0.5 text-gray-400 opacity-0 transition-all hover:bg-indigo-100 hover:text-indigo-600 group-hover:opacity-100 dark:hover:bg-indigo-900/40 dark:hover:text-indigo-300"
                 title={`Insert \\cite{${s.citation_key}}`}
               >
                 <Plus className="h-3.5 w-3.5" />

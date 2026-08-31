@@ -182,10 +182,10 @@ export function PaperChatDrawer({ isOpen, onClose, projectId, reference }: Paper
         onClick={onClose}
       />
       {/* Drawer */}
-      <div className="fixed inset-y-0 right-0 z-[70] flex w-full flex-col bg-white shadow-2xl sm:w-[520px] dark:bg-slate-900">
+      <div className="fixed inset-y-0 right-0 z-[70] flex w-full flex-col bg-white shadow-xl sm:w-[520px] dark:bg-slate-900">
         {/* Header */}
         <div className="flex items-start gap-3 border-b border-gray-200 px-4 py-3 dark:border-slate-700">
-          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-100 dark:bg-indigo-500/20">
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-100 dark:bg-indigo-500/20">
             <Bot className="h-5 w-5 text-indigo-600 dark:text-indigo-300" />
           </div>
           <div className="min-w-0 flex-1">
@@ -203,7 +203,7 @@ export function PaperChatDrawer({ isOpen, onClose, projectId, reference }: Paper
               <button
                 onClick={handleClearChat}
                 disabled={clearing || isGenerating}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition hover:bg-red-50 hover:text-red-500 disabled:opacity-40 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+                className="flex h-8 w-8 items-center justify-center rounded-xl text-gray-400 transition hover:bg-red-50 hover:text-red-500 disabled:opacity-40 dark:hover:bg-red-500/10 dark:hover:text-red-400"
                 title="Clear conversation"
               >
                 {clearing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
@@ -211,7 +211,7 @@ export function PaperChatDrawer({ isOpen, onClose, projectId, reference }: Paper
             )}
             <button
               onClick={onClose}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+              className="flex h-8 w-8 items-center justify-center rounded-xl text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
             >
               <X className="h-4 w-4" />
             </button>
@@ -220,7 +220,7 @@ export function PaperChatDrawer({ isOpen, onClose, projectId, reference }: Paper
 
         {/* Not-ingested notice */}
         {isPending && (
-          <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-300">
+          <div className="mx-4 mt-3 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-300">
             <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
             <span>This paper hasn't been fully analyzed yet. The AI may only have access to the abstract.</span>
           </div>
@@ -278,14 +278,14 @@ export function PaperChatDrawer({ isOpen, onClose, projectId, reference }: Paper
                 onKeyDown={handleKeyDown}
                 placeholder="Ask about this paper..."
                 rows={1}
-                className="flex-1 resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:border-indigo-500 dark:focus:ring-indigo-500/20"
+                className="flex-1 resize-none rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:border-indigo-500 dark:focus:ring-indigo-500/20"
                 style={{ maxHeight: '120px' }}
                 disabled={isGenerating}
               />
               <button
                 onClick={handleSend}
                 disabled={!inputValue.trim() || isGenerating}
-                className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white transition hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-indigo-500 dark:hover:bg-indigo-600"
+                className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white transition hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-indigo-500 dark:hover:bg-indigo-600"
               >
                 {isGenerating ? (
                   <Loader2 className="h-4 w-4 animate-spin" />

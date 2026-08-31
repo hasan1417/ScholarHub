@@ -88,7 +88,7 @@ const TableSizeGrid: React.FC<{
 
   return (
     <div className="p-2">
-      <div className="mb-1.5 text-center text-[10px] font-medium text-slate-500 dark:text-slate-400">
+      <div className="mb-1.5 text-center text-2xs font-medium text-gray-500 dark:text-slate-400">
         {hover.col > 0 && hover.row > 0 ? `${hover.col} × ${hover.row}` : 'Select size'}
       </div>
       <table className="border-separate" style={{ borderSpacing: 2 }} onMouseLeave={() => setHover({ col: 0, row: 0 })}>
@@ -98,10 +98,10 @@ const TableSizeGrid: React.FC<{
               {Array.from({ length: maxCols }, (_, c) => (
                 <td
                   key={c}
-                  className={`h-3.5 w-3.5 cursor-pointer rounded-sm border transition-colors ${
+                  className={`h-3.5 w-3.5 cursor-pointer rounded-md border transition-colors ${
                     hover.col > c && hover.row > r
                       ? 'border-indigo-400 bg-indigo-100 dark:border-indigo-500 dark:bg-indigo-900/50'
-                      : 'border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-700'
+                      : 'border-gray-300 bg-white dark:border-slate-700 dark:bg-slate-700'
                   }`}
                   onMouseEnter={() => setHover({ col: c + 1, row: r + 1 })}
                   onMouseUp={() => onSelect(c + 1, r + 1)}
@@ -119,13 +119,13 @@ const TableSizeGrid: React.FC<{
 /*  Shared styles                                                      */
 /* ------------------------------------------------------------------ */
 const btnCls = 'flex-shrink-0 rounded p-1.5 transition-colors disabled:opacity-30'
-const btnDefault = `${btnCls} text-slate-500 hover:bg-slate-200 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700/60 dark:hover:text-slate-200`
+const btnDefault = `${btnCls} text-gray-500 hover:bg-gray-200 hover:text-gray-700 dark:text-slate-400 dark:hover:bg-slate-700/60 dark:hover:text-slate-200`
 const btnActive = `${btnCls} bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300`
-const sep = 'mx-1 h-4 w-px flex-shrink-0 bg-slate-300 dark:bg-slate-700'
+const sep = 'mx-1 h-4 w-px flex-shrink-0 bg-gray-300 dark:bg-slate-700'
 const iconSz = 'h-3.5 w-3.5'
-const ovItem = 'flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-xs text-slate-600 hover:bg-slate-100 disabled:opacity-40 dark:text-slate-200 dark:hover:bg-slate-700/60'
-const ovIcon = 'h-3.5 w-3.5 flex-shrink-0 text-slate-400'
-const ovSep = 'my-1 border-t border-slate-200 dark:border-slate-700'
+const ovItem = 'flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-xs text-gray-600 hover:bg-gray-100 disabled:opacity-40 dark:text-slate-200 dark:hover:bg-slate-700/60'
+const ovIcon = 'h-3.5 w-3.5 flex-shrink-0 text-gray-400'
+const ovSep = 'my-1 border-t border-gray-200 dark:border-slate-700'
 
 /* ------------------------------------------------------------------ */
 /*  EditorToolbar                                                      */
@@ -333,7 +333,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
       {/* ============================================================ */}
       <div
         ref={row1Ref}
-        className="border-b border-slate-200 bg-slate-50 px-2 py-1 transition-colors dark:border-slate-700 dark:bg-slate-800"
+        className="border-b border-gray-200 bg-gray-50 px-2 py-1 transition-colors dark:border-slate-700 dark:bg-slate-800"
       >
         <div className="flex items-center gap-0.5">
           {showRow1Tools && (
@@ -342,14 +342,14 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
               <div className="flex items-center gap-0.5 flex-shrink-0">
                 {/* Source / Visual toggle */}
                 {onToggleVisualMode && (
-                  <div className="mr-1 flex items-center rounded-full bg-slate-300 p-px dark:bg-slate-600">
+                  <div className="mr-1 flex items-center rounded-full bg-gray-300 p-px dark:bg-slate-600">
                     <button
                       type="button"
                       onClick={() => visualMode && onToggleVisualMode()}
-                      className={`whitespace-nowrap rounded-full px-2 py-px text-[11px] font-medium leading-tight transition-colors ${
+                      className={`whitespace-nowrap rounded-full px-2 py-px text-2xs font-medium leading-tight transition-colors ${
                         !visualMode
                           ? 'bg-emerald-600 text-white'
-                          : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                          : 'text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200'
                       }`}
                     >
                       Code Editor
@@ -357,10 +357,10 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                     <button
                       type="button"
                       onClick={() => !visualMode && onToggleVisualMode()}
-                      className={`whitespace-nowrap rounded-full px-2 py-px text-[11px] font-medium leading-tight transition-colors ${
+                      className={`whitespace-nowrap rounded-full px-2 py-px text-2xs font-medium leading-tight transition-colors ${
                         visualMode
                           ? 'bg-emerald-600 text-white'
-                          : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                          : 'text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200'
                       }`}
                     >
                       Visual Editor
@@ -479,30 +479,30 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 
       {/* Math dropdown (only when math item is visible in toolbar) */}
       {openDropdown === 'math' && !hiddenItems.has('math') && (
-        <div className="fixed z-50 min-w-[160px] rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800"
+        <div className="fixed z-50 min-w-[160px] rounded-md border border-gray-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800"
           style={{ top: mathMenuPos.top, left: mathMenuPos.left }}>
           <button onClick={closeAndRun(onInsertInlineMath)}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700/60">
-            <span className="font-mono text-[10px]">$ $</span> Inline Math
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-600 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-700/60">
+            <span className="font-mono text-2xs">$ $</span> Inline Math
           </button>
           <button onClick={closeAndRun(onInsertDisplayMath)}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700/60">
-            <span className="font-mono text-[10px]">\[ \]</span> Display Math
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-600 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-700/60">
+            <span className="font-mono text-2xs">\[ \]</span> Display Math
           </button>
         </div>
       )}
 
       {/* Table dropdown (only when table item is visible in toolbar) */}
       {openDropdown === 'table' && !hiddenItems.has('table') && (
-        <div className="fixed z-50 rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800"
+        <div className="fixed z-50 rounded-md border border-gray-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800"
           style={{ top: tableMenuPos.top, left: tableMenuPos.left }}>
           <TableSizeGrid onSelect={(cols, rows) => {
             onInsertTableWithSize(cols, rows)
             setOpenDropdown(null)
           }} />
-          <div className="border-t border-slate-200 dark:border-slate-700">
+          <div className="border-t border-gray-200 dark:border-slate-700">
             <button onClick={closeAndRun(onInsertTable)}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700/60">
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-600 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-700/60">
               Default (3×2 booktabs)
             </button>
           </div>
@@ -511,7 +511,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 
       {/* Per-item overflow menu */}
       {openDropdown === 'more' && hasOverflow && (
-        <div className="fixed z-50 min-w-[190px] rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800"
+        <div className="fixed z-50 min-w-[190px] rounded-md border border-gray-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800"
           style={{ top: moreMenuPos.top, left: moreMenuPos.left }}>
           {items.filter(item => hiddenItems.has(item.id)).map((item, i) => {
             // Math: show expanded inline/display entries

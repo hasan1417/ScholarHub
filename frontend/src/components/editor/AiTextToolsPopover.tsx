@@ -143,7 +143,7 @@ const AiTextToolsPopover: React.FC<AiTextToolsPopoverProps> = ({
       {/* Popover */}
       <div
         ref={popoverRef}
-        className="fixed z-50 w-[400px] rounded-lg bg-white shadow-2xl"
+        className="fixed z-50 w-[400px] rounded-xl bg-white shadow-xl"
         style={{ top: position.top, left: position.left }}
       >
         {/* Header */}
@@ -179,7 +179,7 @@ const AiTextToolsPopover: React.FC<AiTextToolsPopoverProps> = ({
                   <button
                     onClick={() => handleAction(action.key)}
                     disabled={isProcessing || !selectedText.trim()}
-                    className={`w-full rounded-lg border p-3 text-left transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
+                    className={`w-full rounded-xl border p-3 text-left transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
                       isActive
                         ? 'border-indigo-500 bg-indigo-50'
                         : 'border-gray-200 bg-white hover:border-indigo-300 hover:bg-gray-50'

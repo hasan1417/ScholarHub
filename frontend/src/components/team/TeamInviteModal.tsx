@@ -124,11 +124,11 @@ const TeamInviteModal: React.FC<TeamInviteModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 dark:bg-black/70">
-      <div className="mx-auto max-h-[90vh] w-full max-w-md overflow-y-auto rounded-lg bg-white shadow-xl transition-colors dark:bg-slate-800 dark:text-slate-100">
+      <div className="mx-auto max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl bg-white shadow-xl transition-colors dark:bg-slate-800 dark:text-slate-100">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-200 p-6 dark:border-slate-700">
           <div className="min-w-0 flex items-center space-x-3">
-            <UserPlus className="h-6 w-6 flex-shrink-0 text-blue-600 dark:text-blue-300" />
+            <UserPlus className="h-6 w-6 flex-shrink-0 text-indigo-600 dark:text-indigo-300" />
             <h2 className="truncate text-xl font-semibold text-gray-900 dark:text-slate-100">Invite Team Member</h2>
           </div>
           <button
@@ -158,7 +158,7 @@ const TeamInviteModal: React.FC<TeamInviteModalProps> = ({
                   id="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full rounded-md border border-gray-300 py-3 pl-10 pr-4 focus:border-transparent focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                  className="w-full rounded-md border border-gray-300 py-3 pl-10 pr-4 focus:border-transparent focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
                   placeholder="colleague@example.com"
                   disabled={isLoading}
                 />
@@ -166,12 +166,12 @@ const TeamInviteModal: React.FC<TeamInviteModalProps> = ({
                   <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs">
                     {lookupStatus === 'checking' && <span className="text-gray-400 dark:text-slate-400">Checking...</span>}
                     {lookupStatus === 'found' && <span className="text-green-600 dark:text-emerald-300">User found</span>}
-                    {lookupStatus === 'not_found' && <span className="text-blue-600 dark:text-blue-400">Will invite</span>}
+                    {lookupStatus === 'not_found' && <span className="text-indigo-600 dark:text-indigo-400">Will invite</span>}
                   </div>
                 )}
               </div>
               {lookupStatus === 'not_found' && (
-                <p className="mt-1 text-xs text-blue-600 dark:text-blue-400">This email is not registered. They'll receive an invite and will be auto-enrolled when they sign up.</p>
+                <p className="mt-1 text-xs text-indigo-600 dark:text-indigo-400">This email is not registered. They'll receive an invite and will be auto-enrolled when they sign up.</p>
               )}
             </div>
 
@@ -184,9 +184,9 @@ const TeamInviteModal: React.FC<TeamInviteModalProps> = ({
                 {roleOptions.map((option) => (
                   <label
                     key={option.value}
-                    className={`flex items-start space-x-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                    className={`flex items-start space-x-3 p-3 border rounded-xl cursor-pointer transition-colors ${
                       role === option.value
-                        ? 'border-blue-500 bg-blue-50 dark:border-blue-400 dark:bg-blue-500/10'
+                        ? 'border-indigo-500 bg-indigo-50 dark:border-indigo-400 dark:bg-indigo-500/10'
                         : 'border-gray-200 hover:border-gray-300 dark:border-slate-600 dark:hover:border-slate-500'
                     }`}
                   >
@@ -196,12 +196,12 @@ const TeamInviteModal: React.FC<TeamInviteModalProps> = ({
                       value={option.value}
                       checked={role === option.value}
                       onChange={(e) => setRole(e.target.value)}
-                      className="mt-1 text-blue-600 focus:ring-blue-500 dark:text-blue-400"
+                      className="mt-1 text-indigo-600 focus:ring-indigo-500 dark:text-indigo-400"
                       disabled={isLoading}
                     />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center space-x-2 mb-1">
-                        <span className="flex-shrink-0 text-blue-600 dark:text-blue-300">{option.icon}</span>
+                        <span className="flex-shrink-0 text-indigo-600 dark:text-indigo-300">{option.icon}</span>
                         <span className="truncate font-medium text-gray-900 dark:text-slate-100">{option.label}</span>
                       </div>
                       <p className="break-words text-sm text-gray-600 dark:text-slate-300">{option.description}</p>
@@ -231,7 +231,7 @@ const TeamInviteModal: React.FC<TeamInviteModalProps> = ({
               <button
                 type="submit"
                 disabled={isLoading || !email.trim()}
-                className="flex-1 rounded-md bg-blue-600 px-4 py-2 text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-400"
+                className="flex-1 rounded-md bg-indigo-600 px-4 py-2 text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400"
               >
                 {isLoading ? 'Sending...' : lookupStatus === 'not_found' ? 'Send Invite Link' : 'Send Invitation'}
               </button>

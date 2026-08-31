@@ -9,6 +9,13 @@
     @apply bg-slate-50 text-slate-900 transition-colors duration-200 dark:bg-slate-900 dark:text-slate-100;
   }
 
+  /* Display face on page and section titles. h3/h4 stay Inter so dense
+     panel and card labels keep their tight, functional voice.
+     Opt a heading out with font-sans. */
+  h1, h2 {
+    @apply font-serif;
+  }
+
   .dark .bg-white {
     @apply bg-slate-800;
   }
@@ -253,7 +260,7 @@ body.dark, [data-theme='dark'], :root.dark {
   }
 
   .academic-editor blockquote {
-    @apply my-6 py-4 px-6 border-l-4 border-blue-500 dark:border-blue-400 bg-gray-50 dark:bg-slate-800 italic text-gray-700 dark:text-slate-300;
+    @apply my-6 py-4 px-6 border-l-4 border-indigo-500 dark:border-indigo-400 bg-gray-50 dark:bg-slate-800 italic text-gray-700 dark:text-slate-300;
   }
 
   .academic-editor blockquote p {
@@ -286,11 +293,11 @@ body.dark, [data-theme='dark'], :root.dark {
   }
 
   .academic-editor a {
-    @apply text-blue-600 dark:text-blue-400 underline;
+    @apply text-indigo-600 dark:text-indigo-400 underline;
   }
 
   .academic-editor a:hover {
-    @apply text-blue-800 dark:text-blue-300;
+    @apply text-indigo-800 dark:text-indigo-300;
   }
 
   /* Page break line (screen only; print handled below) */

@@ -75,8 +75,8 @@ export function AssistantExchangeRenderer({
     ? openrouterModels.find((m) => m.id === exchange.model)?.name || exchange.model
     : currentModelInfo.name
 
-  const promptBubbleClass = 'inline-block max-w-full sm:max-w-fit rounded-xl sm:rounded-2xl bg-purple-50/70 px-3 py-1.5 sm:px-4 sm:py-2 shadow-sm ring-2 ring-purple-200 transition dark:bg-purple-500/15 dark:ring-purple-400/40 dark:shadow-purple-900/30'
-  const responseBubbleClass = 'inline-block max-w-full sm:max-w-fit rounded-xl sm:rounded-2xl bg-white px-3 py-1.5 sm:px-4 sm:py-2 transition dark:bg-slate-800/70 dark:ring-1 dark:ring-slate-700'
+  const promptBubbleClass = 'inline-block max-w-full sm:max-w-fit rounded-xl sm:rounded-xl bg-indigo-50/70 px-3 py-1.5 sm:px-4 sm:py-2 shadow-sm ring-2 ring-indigo-200 transition dark:bg-indigo-500/15 dark:ring-indigo-400/40 dark:'
+  const responseBubbleClass = 'inline-block max-w-full sm:max-w-fit rounded-xl sm:rounded-xl bg-white px-3 py-1.5 sm:px-4 sm:py-2 transition dark:bg-slate-800/70 dark:ring-1 dark:ring-slate-700'
 
   return (
     <div className="border-b border-gray-100 pb-3 sm:pb-4 last:border-b-0 dark:border-slate-700">
@@ -89,8 +89,8 @@ export function AssistantExchangeRenderer({
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="mb-1 flex flex-wrap items-center gap-1.5 sm:gap-2">
               <span className="text-xs sm:text-sm font-medium text-gray-900 dark:text-slate-100">{authorLabel}</span>
-              <span className="text-[10px] sm:text-xs text-gray-500">{askedLabel}</span>
-              <span className="inline-flex items-center gap-0.5 sm:gap-1 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[9px] sm:text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-200">
+              <span className="text-2xs sm:text-xs text-gray-500">{askedLabel}</span>
+              <span className="inline-flex items-center gap-0.5 sm:gap-1 rounded-full bg-indigo-100 px-1.5 py-0.5 text-2xs sm:text-2xs font-medium text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-200">
                 <Bot className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
                 {modelName}
               </span>
@@ -108,9 +108,9 @@ export function AssistantExchangeRenderer({
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="mb-1 flex flex-wrap items-center gap-1.5 sm:gap-2">
               <span className="text-xs sm:text-sm font-medium text-gray-900 dark:text-slate-100">Scholar AI</span>
-              <span className="text-[10px] sm:text-xs text-gray-500">{answerLabel}</span>
+              <span className="text-2xs sm:text-xs text-gray-500">{answerLabel}</span>
               {exchange.response.reasoning_used && (
-                <span className="inline-flex items-center gap-0.5 sm:gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] sm:text-[10px] font-medium text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-200">
+                <span className="inline-flex items-center gap-0.5 sm:gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-2xs sm:text-2xs font-medium text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-200">
                   <Sparkles className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
                   Reasoning
                 </span>
@@ -128,7 +128,7 @@ export function AssistantExchangeRenderer({
                     </div>
                     <button
                       onClick={onCancelRequest}
-                      className="ml-auto flex h-6 w-6 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
+                      className="ml-auto flex h-6 w-6 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
                       title="Cancel"
                     >
                       <X className="h-3.5 w-3.5" />
@@ -141,7 +141,7 @@ export function AssistantExchangeRenderer({
                   </div>
                 </div>
               ) : (
-                <div className="prose prose-sm max-w-none text-gray-900 dark:prose-invert prose-headings:font-semibold prose-headings:text-gray-900 dark:prose-headings:text-slate-100 prose-h2:text-base prose-h3:text-sm prose-h4:text-sm prose-p:leading-relaxed prose-p:my-1.5 prose-strong:text-gray-900 dark:prose-strong:text-white prose-strong:font-semibold prose-code:rounded prose-code:bg-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:text-indigo-700 prose-code:before:content-none prose-code:after:content-none dark:prose-code:bg-slate-700 dark:prose-code:text-indigo-300 prose-blockquote:border-indigo-300 prose-blockquote:text-gray-600 dark:prose-blockquote:border-indigo-500 dark:prose-blockquote:text-slate-300 prose-li:marker:text-gray-400 prose-a:text-indigo-600 dark:prose-a:text-indigo-400 prose-a:no-underline hover:prose-a:underline">
+                <div className="prose prose-sm max-w-none text-gray-900 dark:prose-invert prose-headings:font-semibold prose-headings:text-gray-900 dark:prose-headings:text-slate-100 prose-h2:text-base prose-h3:text-sm prose-h4:text-sm prose-p:leading-relaxed prose-p:my-1.5 prose-strong:text-gray-900 dark:prose-strong:text-white prose-strong:font-semibold prose-code:rounded prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:text-indigo-700 prose-code:before:content-none prose-code:after:content-none dark:prose-code:bg-slate-700 dark:prose-code:text-indigo-300 prose-blockquote:border-indigo-300 prose-blockquote:text-gray-600 dark:prose-blockquote:border-indigo-500 dark:prose-blockquote:text-slate-300 prose-li:marker:text-gray-400 prose-a:text-indigo-600 dark:prose-a:text-indigo-400 prose-a:no-underline hover:prose-a:underline">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
                     {displayedMessage}
                   </ReactMarkdown>
@@ -157,24 +157,24 @@ export function AssistantExchangeRenderer({
             {/* Citations */}
             {!showTyping && exchange.response.citations.length > 0 && (
               <div className="mt-2 sm:mt-3 space-y-1 sm:space-y-1.5">
-                <p className="text-[10px] sm:text-xs font-medium text-slate-500 dark:text-slate-400">Sources Used:</p>
+                <p className="text-2xs sm:text-xs font-medium text-gray-500 dark:text-slate-400">Sources Used:</p>
                 <div className="flex flex-wrap gap-1.5 sm:gap-2">
                   {exchange.response.citations.map((citation) => {
                     const getResourceIcon = (resourceType?: string) => {
                       switch (resourceType) {
-                        case 'paper': return <FileText className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-blue-500" />
+                        case 'paper': return <FileText className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-indigo-500" />
                         case 'reference': return <BookOpen className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-emerald-500" />
-                        case 'meeting': return <Calendar className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-purple-500" />
-                        default: return <FileText className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-slate-400" />
+                        case 'meeting': return <Calendar className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-indigo-500" />
+                        default: return <FileText className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-gray-400" />
                       }
                     }
                     return (
                       <div
                         key={`${exchange.id}-${citation.origin}-${citation.origin_id}`}
-                        className="inline-flex items-center gap-1 sm:gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-1 sm:px-2.5 sm:py-1.5 text-[10px] sm:text-xs dark:border-slate-700 dark:bg-slate-800"
+                        className="inline-flex items-center gap-1 sm:gap-1.5 rounded-md border border-gray-200 bg-gray-50 px-1.5 py-1 sm:px-2.5 sm:py-1.5 text-2xs sm:text-xs dark:border-slate-700 dark:bg-slate-800"
                       >
                         {getResourceIcon(citation.resource_type ?? undefined)}
-                        <span className="font-medium text-slate-700 dark:text-slate-200 truncate max-w-[100px] sm:max-w-none">
+                        <span className="font-medium text-gray-700 dark:text-slate-200 truncate max-w-[100px] sm:max-w-none">
                           {citation.label}
                         </span>
                       </div>
@@ -194,7 +194,7 @@ export function AssistantExchangeRenderer({
                       <button
                         key={idx}
                         onClick={() => onNavigateToPaper?.(urlId)}
-                        className="inline-flex items-center gap-1.5 sm:gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm font-medium text-emerald-700 hover:bg-emerald-100 dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20 transition-colors"
+                        className="inline-flex items-center gap-1.5 sm:gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm font-medium text-emerald-700 hover:bg-emerald-100 dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20 transition-colors"
                       >
                         <FileText className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-600 dark:text-emerald-400" />
                         View Paper
@@ -211,7 +211,7 @@ export function AssistantExchangeRenderer({
               a.action_type !== 'search_results'
             ).length > 0 && (
               <div className="mt-2 space-y-1">
-                <p className="text-[10px] sm:text-[11px] uppercase tracking-wide text-gray-400">Suggested actions</p>
+                <p className="text-2xs sm:text-2xs uppercase tracking-wide text-gray-400">Suggested actions</p>
                 <div className="flex flex-wrap gap-1.5 sm:gap-2">
                   {exchange.response.suggested_actions.filter(a =>
                     a.action_type !== 'paper_created' &&
@@ -238,7 +238,7 @@ export function AssistantExchangeRenderer({
                         type="button"
                         onClick={() => onSuggestedAction(exchange, action, idx)}
                         disabled={applied || isPending}
-                        className={`inline-flex items-center gap-1 sm:gap-1.5 rounded-full border px-2 py-0.5 sm:px-3 sm:py-1 text-[10px] sm:text-xs font-medium transition ${applied ? 'border-emerald-300 bg-emerald-50 text-emerald-600 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-200' : 'border-indigo-200 bg-white text-indigo-600 hover:bg-indigo-50 dark:border-indigo-400/40 dark:bg-slate-800/70 dark:text-indigo-200 dark:hover:bg-indigo-500/10'}`}
+                        className={`inline-flex items-center gap-1 sm:gap-1.5 rounded-full border px-2 py-0.5 sm:px-3 sm:py-1 text-2xs sm:text-xs font-medium transition ${applied ? 'border-emerald-300 bg-emerald-50 text-emerald-600 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-200' : 'border-indigo-200 bg-white text-indigo-600 hover:bg-indigo-50 dark:border-indigo-400/40 dark:bg-slate-800/70 dark:text-indigo-200 dark:hover:bg-indigo-500/10'}`}
                       >
                         {getActionIcon()}
                         <span className="truncate max-w-[80px] sm:max-w-none">{applied ? 'Applied' : action.summary}</span>
@@ -250,7 +250,7 @@ export function AssistantExchangeRenderer({
             )}
             {/* Model info */}
             {!showTyping && (
-              <div className="mt-1.5 sm:mt-2 flex flex-wrap items-center gap-2 sm:gap-3 text-[9px] sm:text-[11px] text-gray-400 dark:text-slate-500">
+              <div className="mt-1.5 sm:mt-2 flex flex-wrap items-center gap-2 sm:gap-3 text-2xs sm:text-2xs text-gray-400 dark:text-slate-400">
                 <span>Model: {modelName}</span>
               </div>
             )}

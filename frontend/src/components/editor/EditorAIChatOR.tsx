@@ -895,20 +895,20 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
   // screens where there isn't enough width for three columns.
   const shellClass = layout === 'docked'
     ? 'flex h-full w-full flex-col bg-white dark:bg-slate-900'
-    : 'fixed bottom-4 right-4 top-[112px] z-40 flex w-[440px] max-w-[calc(100vw-2rem)] flex-col rounded-2xl border border-slate-200 bg-white/95 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95'
+    : 'fixed bottom-4 right-4 top-[112px] z-40 flex w-[440px] max-w-[calc(100vw-2rem)] flex-col rounded-xl border border-gray-200 bg-white/95 shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95'
 
   return (
     <div className={shellClass}>
-      <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+      <div className="flex items-center justify-between gap-2 border-b border-gray-200 px-4 py-3 dark:border-slate-700">
         <div className="flex min-w-0 items-center gap-2">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 text-white">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-indigo-600 text-white">
             <Bot className="h-5 w-5" />
           </div>
           <div className="flex min-w-0 flex-col leading-tight">
-            <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI Assistant</span>
+            <span className="text-sm font-semibold text-gray-900 dark:text-slate-100">AI Assistant</span>
             {/* Merged model pill — one text run, provider as a muted prefix. */}
             <span
-              className="truncate text-[11px] text-slate-500 dark:text-slate-400"
+              className="truncate text-2xs text-gray-500 dark:text-slate-400"
               title={`Model configured in Project Settings — ${modelDisplayName}`}
             >
               {providerShort ? `${providerShort} · ` : ''}
@@ -923,8 +923,8 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
               onClick={() => setReasoningMode(!reasoningMode)}
               className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${
                 reasoningMode
-                  ? 'bg-purple-100 text-purple-700 ring-1 ring-purple-300 dark:bg-purple-900/50 dark:text-purple-300 dark:ring-purple-700'
-                  : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200'
+                  ? 'bg-indigo-100 text-indigo-700 ring-1 ring-indigo-300 dark:bg-indigo-900/50 dark:text-indigo-300 dark:ring-indigo-700'
+                  : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200'
               }`}
               title={reasoningMode ? 'Reasoning mode ON (slower, more accurate) — click to turn off' : 'Turn on reasoning mode (slower, more accurate)'}
               aria-label={reasoningMode ? 'Reasoning mode enabled' : 'Enable reasoning mode'}
@@ -937,7 +937,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
           {isOwner && messages.length > 0 && (
             <button
               onClick={() => void handleClearHistory()}
-              className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-900/30 dark:hover:text-rose-400"
+              className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-900/30 dark:hover:text-rose-400"
               title="Clear chat history for all collaborators"
               aria-label="Clear chat history"
             >
@@ -946,7 +946,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
           )}
           <button
             onClick={() => onOpenChange(false)}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
             aria-label="Close AI chat"
             title="Close"
           >
@@ -956,14 +956,14 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
       </div>
 
       {openrouterWarning && (
-        <div className="mx-4 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 shadow-sm dark:border-amber-400/40 dark:bg-amber-900/30 dark:text-amber-100">
+        <div className="mx-4 mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 shadow-sm dark:border-amber-400/40 dark:bg-amber-900/30 dark:text-amber-100">
           {openrouterWarning}
         </div>
       )}
 
 
       {missingPdfCount > 0 && (
-        <div className="mx-4 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 shadow-sm dark:border-amber-400/50 dark:bg-amber-900/30 dark:text-amber-100">
+        <div className="mx-4 mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 shadow-sm dark:border-amber-400/50 dark:bg-amber-900/30 dark:text-amber-100">
           {missingPdfCount === 1
             ? 'One attached reference is missing full text. Attach the PDF for more accurate answers.'
             : `${missingPdfCount} attached references are missing full text. Attach PDFs for more accurate answers.`}
@@ -973,32 +973,32 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
       <div className="flex min-h-0 flex-1 flex-col px-4 py-3">
         <div
           ref={listRef}
-          className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-800/80 dark:text-slate-100"
+          className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-slate-800 dark:bg-slate-800/80 dark:text-slate-100"
         >
           {messages.length === 0 && !historyQuery.isLoading && (
-            <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-slate-500 dark:text-slate-400">
+            <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-gray-500 dark:text-slate-400">
               <div className="flex items-center gap-1.5">
-                <Sparkles className="h-4 w-4 text-purple-500" />
+                <Sparkles className="h-4 w-4 text-indigo-500" />
                 <Bot className="h-5 w-5" />
               </div>
               <p className="text-xs">Ask questions, request reviews, or ask for changes to your paper.</p>
-              <p className="text-[10px] text-slate-400 dark:text-slate-500">
+              <p className="text-2xs text-gray-400 dark:text-slate-400">
                 Try different models - switch anytime, conversation is preserved
               </p>
             </div>
           )}
           {messages.length === 0 && historyQuery.isLoading && (
-            <div className="flex h-full items-center justify-center gap-2 text-slate-400">
+            <div className="flex h-full items-center justify-center gap-2 text-gray-400">
               <Loader2 className="h-4 w-4 animate-spin" />
               <span className="text-xs">Loading conversation...</span>
             </div>
           )}
           {messages.map((m, idx) => (
             <div key={idx} className="mb-3 last:mb-0">
-              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              <div className="flex items-center gap-2 text-2xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
                 {m.role === 'assistant' ? 'Assistant' : (m.authorId && m.authorId !== currentUser?.id ? m.authorName : 'You')}
                 {m.fromHistory && m.role === 'user' && m.authorId && m.authorId !== currentUser?.id && m.authorName && (
-                  <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-[9px] font-semibold normal-case text-indigo-600 dark:bg-indigo-900/50 dark:text-indigo-300">
+                  <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-2xs font-semibold normal-case text-indigo-600 dark:bg-indigo-900/50 dark:text-indigo-300">
                     {m.authorName}
                   </span>
                 )}
@@ -1029,12 +1029,12 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                     return (
                       <>
                         {mainText && (
-                          <div className="prose prose-sm prose-slate dark:prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:font-semibold prose-headings:text-slate-900 dark:prose-headings:text-slate-100 prose-h3:text-sm prose-strong:text-slate-900 dark:prose-strong:text-white prose-code:rounded prose-code:bg-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:text-indigo-700 prose-code:before:content-none prose-code:after:content-none dark:prose-code:bg-slate-700 dark:prose-code:text-indigo-300 prose-blockquote:border-indigo-300 dark:prose-blockquote:border-indigo-500 prose-a:text-indigo-600 dark:prose-a:text-indigo-400 prose-a:no-underline hover:prose-a:underline">
+                          <div className="prose prose-sm prose-slate dark:prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:font-semibold prose-headings:text-gray-900 dark:prose-headings:text-slate-100 prose-h3:text-sm prose-strong:text-gray-900 dark:prose-strong:text-white prose-code:rounded prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:text-indigo-700 prose-code:before:content-none prose-code:after:content-none dark:prose-code:bg-slate-700 dark:prose-code:text-indigo-300 prose-blockquote:border-indigo-300 dark:prose-blockquote:border-indigo-500 prose-a:text-indigo-600 dark:prose-a:text-indigo-400 prose-a:no-underline hover:prose-a:underline">
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>{mainText}</ReactMarkdown>
                           </div>
                         )}
                         {warningEntries.length > 0 && (
-                          <div className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] text-rose-800 dark:border-rose-400/50 dark:bg-rose-900/30 dark:text-rose-100">
+                          <div className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-2xs text-rose-800 dark:border-rose-400/50 dark:bg-rose-900/30 dark:text-rose-100">
                             <div className="font-semibold">Potential issues detected</div>
                             <ul className="mt-0.5 list-disc pl-4 space-y-0.5">
                               {warningEntries.map((w, i) => <li key={i}>{w}</li>)}
@@ -1046,7 +1046,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                             {scopeEntries.map((s, i) => (
                               <span
                                 key={i}
-                                className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                                className="rounded-full bg-gray-100 px-2 py-0.5 text-2xs font-medium text-gray-600 dark:bg-slate-800 dark:text-slate-300"
                               >
                                 {s}
                               </span>
@@ -1061,22 +1061,22 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                       <button
                         onClick={() => handleApplyReviewChanges('critical', idx)}
                         disabled={sending}
-                        className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-500/60 dark:bg-amber-900/30 dark:text-amber-100"
+                        className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-2xs font-medium text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-500/60 dark:bg-amber-900/30 dark:text-amber-100"
                       >
                         Apply critical fixes
                       </button>
                       <button
                         onClick={() => handleApplyReviewChanges('all', idx)}
                         disabled={sending}
-                        className="rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        className="rounded-md bg-emerald-600 px-2.5 py-1 text-2xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         Apply all suggestions
                       </button>
                     </div>
                   )}
                   {m.clarification && idx === messages.length - 1 && (
-                    <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-600/60 dark:bg-amber-900/30 dark:text-amber-100">
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-200">
+                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-600/60 dark:bg-amber-900/30 dark:text-amber-100">
+                      <div className="text-2xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-200">
                         Clarification needed
                       </div>
                       <div className="mt-1 font-medium">{m.clarification.question}</div>
@@ -1104,7 +1104,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                   {m.proposals && m.proposals.length > 0 && (
                     <div className="mt-3 space-y-2">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                        <div className="text-xs font-semibold text-gray-600 dark:text-slate-300">
                           {m.proposals.length} proposed edit{m.proposals.length > 1 ? 's' : ''}
                         </div>
                         {!m.fromHistory && (() => {
@@ -1114,7 +1114,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                               <button
                                 onClick={() => handleRegenerateEdits(idx)}
                                 disabled={sending}
-                                className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                                className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-2xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
                               >
                                 Regenerate
                               </button>
@@ -1122,12 +1122,12 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                                 <button
                                   onClick={() => handleApplyAllEdits(idx)}
                                   disabled={sending}
-                                  className="rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                  className="rounded-md bg-emerald-600 px-2.5 py-1 text-2xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
                                 >
                                   Apply All
                                 </button>
                               ) : (
-                                <span className="rounded-md bg-emerald-100 px-2.5 py-1 text-[11px] font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                                <span className="rounded-md bg-emerald-100 px-2.5 py-1 text-2xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
                                   All Applied
                                 </span>
                               )}
@@ -1140,11 +1140,11 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                         return (
                           <div
                             key={proposal.id}
-                            className={`rounded-lg border ${
+                            className={`rounded-xl border ${
                               proposal.status === 'approved'
                                 ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-600 dark:bg-emerald-900/20'
                                 : proposal.status === 'rejected' || proposal.status === 'expired'
-                                ? 'border-slate-200 bg-slate-50 opacity-50 dark:border-slate-700 dark:bg-slate-800/50'
+                                ? 'border-gray-200 bg-gray-50 opacity-50 dark:border-slate-700 dark:bg-slate-800/50'
                                 : 'border-indigo-200 bg-indigo-50 dark:border-indigo-600 dark:bg-indigo-900/20'
                             }`}
                           >
@@ -1155,27 +1155,27 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                             >
                               <Edit3 className="mt-0.5 h-4 w-4 shrink-0 text-indigo-600 dark:text-indigo-400" />
                               <div className="min-w-0 flex-1">
-                                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
+                                <span className="text-sm font-medium text-gray-800 dark:text-slate-200">
                                   {proposal.description || 'Suggested Edit'}
                                 </span>
                                 <div className="mt-1 flex flex-wrap items-center gap-1.5">
                                   {proposal.file && (
-                                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
+                                    <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-2xs font-semibold text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300">
                                       {proposal.file}
                                     </span>
                                   )}
                                   {proposal.status === 'approved' && (
-                                    <span className="rounded-full bg-emerald-200 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-800 dark:bg-emerald-800 dark:text-emerald-200">
+                                    <span className="rounded-full bg-emerald-200 px-2 py-0.5 text-2xs font-semibold uppercase text-emerald-800 dark:bg-emerald-800 dark:text-emerald-200">
                                       Applied
                                     </span>
                                   )}
                                   {proposal.status === 'rejected' && (
-                                    <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-600 dark:bg-slate-700 dark:text-slate-400">
+                                    <span className="rounded-full bg-gray-200 px-2 py-0.5 text-2xs font-semibold uppercase text-gray-600 dark:bg-slate-700 dark:text-slate-400">
                                       Dismissed
                                     </span>
                                   )}
                                   {proposal.status === 'expired' && (
-                                    <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-700 dark:text-slate-400">
+                                    <span className="rounded-full bg-gray-200 px-2 py-0.5 text-2xs font-semibold text-gray-500 dark:bg-slate-700 dark:text-slate-400">
                                       {m.fromHistory ? 'From previous session' : 'Conflict — overlapping edit applied'}
                                     </span>
                                   )}
@@ -1183,28 +1183,28 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                               </div>
                               <div className="shrink-0">
                                 {isExpanded ? (
-                                  <ChevronUp className="h-4 w-4 text-slate-500" />
+                                  <ChevronUp className="h-4 w-4 text-gray-500" />
                                 ) : (
-                                  <ChevronDown className="h-4 w-4 text-slate-500" />
+                                  <ChevronDown className="h-4 w-4 text-gray-500" />
                                 )}
                               </div>
                             </div>
 
                             {/* Expanded Diff View */}
                             {isExpanded && (
-                              <div className="border-t border-slate-200 px-3 py-2 dark:border-slate-700">
+                              <div className="border-t border-gray-200 px-3 py-2 dark:border-slate-700">
                                 <div className="mb-2 text-xs">
                                   <div className="mb-2 flex items-center gap-2">
                                     <span className="font-semibold text-rose-600 dark:text-rose-400">
                                       Lines {proposal.startLine}-{proposal.endLine}
                                     </span>
-                                    <span className="text-slate-500 dark:text-slate-400">
+                                    <span className="text-gray-500 dark:text-slate-400">
                                       (starts with: "{proposal.anchor.slice(0, 40)}...")
                                     </span>
                                   </div>
                                   <div>
                                     <div className="mb-1 font-semibold text-emerald-600 dark:text-emerald-400">Replacement</div>
-                                    <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded border border-emerald-200 bg-emerald-50 p-2 text-slate-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-slate-300">
+                                    <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded border border-emerald-200 bg-emerald-50 p-2 text-gray-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-slate-300">
                                       {proposal.proposed}
                                     </pre>
                                   </div>
@@ -1218,7 +1218,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                                         e.stopPropagation()
                                         handleRejectEdit(idx, proposal.id)
                                       }}
-                                      className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                                      className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
                                     >
                                       Dismiss
                                     </button>
@@ -1243,7 +1243,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
                   )}
                 </>
               ) : (
-                <div className="whitespace-pre-wrap text-sm leading-relaxed text-slate-900 dark:text-slate-100">
+                <div className="whitespace-pre-wrap text-sm leading-relaxed text-gray-900 dark:text-slate-100">
                   {m.content}
                 </div>
               )}
@@ -1251,23 +1251,23 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
           ))}
           {sending && (messages.length === 0 || messages[messages.length - 1].role !== 'assistant') && (
             <div className="mb-3 last:mb-0">
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              <div className="text-2xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
                 Assistant
               </div>
               <div className="mt-1 space-y-2">
                 <div className="flex items-center gap-2.5">
-                  <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-purple-600 dark:text-purple-300">
+                  <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-indigo-600 dark:text-indigo-300">
                     <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
                     <span className="truncate">{statusMessage}</span>
                   </div>
-                  <span className="ml-auto font-mono text-[11px] tabular-nums text-slate-500 dark:text-slate-400">
+                  <span className="ml-auto font-mono text-2xs tabular-nums text-gray-500 dark:text-slate-400">
                     {Math.floor(elapsedMs / 1000)}s
                   </span>
                 </div>
                 {/* Indeterminate shimmer bar — the Send button toggles to Stop
                     in the input area, so we no longer need an inline X. */}
-                <div className="h-[3px] overflow-hidden rounded-full bg-purple-100 dark:bg-purple-900/40">
-                  <div className="animate-ai-shimmer h-full w-1/3 rounded-full bg-gradient-to-r from-purple-400 to-indigo-500 dark:from-purple-500 dark:to-indigo-400" />
+                <div className="h-[3px] overflow-hidden rounded-full bg-indigo-100 dark:bg-indigo-900/40">
+                  <div className="animate-ai-shimmer h-full w-1/3 rounded-full bg-gradient-to-r from-indigo-400 to-indigo-500 dark:from-indigo-500 dark:to-indigo-400" />
                 </div>
               </div>
             </div>
@@ -1275,16 +1275,16 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
           {sending && messages.length > 0 && messages[messages.length - 1].role === 'assistant' && (
             <div className="space-y-1 py-1">
               <div className="flex items-center gap-2">
-                <Loader2 className="h-3 w-3 shrink-0 animate-spin text-purple-500 dark:text-purple-400" />
-                <span className="min-w-0 truncate text-xs font-medium text-purple-600 dark:text-purple-300">
+                <Loader2 className="h-3 w-3 shrink-0 animate-spin text-indigo-500 dark:text-indigo-400" />
+                <span className="min-w-0 truncate text-xs font-medium text-indigo-600 dark:text-indigo-300">
                   {statusMessage}
                 </span>
-                <span className="ml-auto font-mono text-[10px] tabular-nums text-slate-400 dark:text-slate-500">
+                <span className="ml-auto font-mono text-2xs tabular-nums text-gray-400 dark:text-slate-400">
                   {Math.floor(elapsedMs / 1000)}s
                 </span>
               </div>
-              <div className="h-[2px] overflow-hidden rounded-full bg-purple-100 dark:bg-purple-900/40">
-                <div className="animate-ai-shimmer h-full w-1/3 rounded-full bg-gradient-to-r from-purple-400 to-indigo-500 dark:from-purple-500 dark:to-indigo-400" />
+              <div className="h-[2px] overflow-hidden rounded-full bg-indigo-100 dark:bg-indigo-900/40">
+                <div className="animate-ai-shimmer h-full w-1/3 rounded-full bg-gradient-to-r from-indigo-400 to-indigo-500 dark:from-indigo-500 dark:to-indigo-400" />
               </div>
             </div>
           )}
@@ -1294,17 +1294,17 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
             {error}
           </div>
         )}
-        <div className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div className="mt-3 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm dark:border-slate-700 dark:bg-slate-800">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             rows={3}
             placeholder="Ask questions, request feedback, or ask for changes..."
-            className="w-full resize-none border-none bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none dark:text-slate-100 dark:placeholder:text-slate-500"
+            className="w-full resize-none border-none bg-transparent text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none dark:text-slate-100 dark:placeholder:text-slate-500"
           />
           <div className="mt-2 flex items-center justify-between">
-            <div className="text-[11px] text-slate-500 dark:text-slate-400">
+            <div className="text-2xs text-gray-500 dark:text-slate-400">
               Enter to send · Shift+Enter for newline
             </div>
             {sending ? (
@@ -1321,7 +1321,7 @@ const EditorAIChatOR: React.FC<EditorAIChatORProps> = ({
               <button
                 onClick={() => void handleSend()}
                 disabled={!input.trim()}
-                className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-purple-600 to-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow transition-all hover:from-purple-700 hover:to-indigo-700 disabled:cursor-not-allowed disabled:from-slate-400 disabled:to-slate-400"
+                className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-indigo-600 to-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow transition-all hover:from-indigo-700 hover:to-indigo-700 disabled:cursor-not-allowed disabled:from-gray-400 disabled:to-gray-400"
               >
                 <Send className="h-4 w-4" />
                 Send

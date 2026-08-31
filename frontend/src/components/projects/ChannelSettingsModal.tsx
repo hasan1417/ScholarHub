@@ -93,7 +93,7 @@ const ChannelSettingsModal = ({
 
   return (
     <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-gray-900/40 backdrop-blur-sm dark:bg-black/70">
-      <div className="w-full sm:max-w-md max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white p-4 sm:p-6 shadow-xl transition-colors dark:bg-slate-900/90">
+      <div className="w-full sm:max-w-md max-h-[90vh] overflow-y-auto rounded-t-xl sm:rounded-xl bg-white p-4 sm:p-6 shadow-xl transition-colors dark:bg-slate-900/90">
         <h3 className="text-base font-semibold text-gray-900 dark:text-slate-100">Channel Settings</h3>
         <p className="mt-1 text-xs sm:text-sm text-gray-500 dark:text-slate-400">
           Update channel configuration and AI scope
@@ -111,7 +111,7 @@ const ChannelSettingsModal = ({
               type="text"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
+              className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
               placeholder="e.g. Brainstorming"
               maxLength={255}
               required
@@ -123,13 +123,13 @@ const ChannelSettingsModal = ({
               htmlFor="settings-channel-description"
               className="text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-slate-300"
             >
-              Description <span className="text-gray-400 dark:text-slate-500">(optional)</span>
+              Description <span className="text-gray-400 dark:text-slate-400">(optional)</span>
             </label>
             <textarea
               id="settings-channel-description"
               value={description}
               onChange={(event) => setDescription(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
+              className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100"
               rows={3}
               maxLength={2000}
               placeholder="Describe the focus of this channel"
@@ -147,7 +147,7 @@ const ChannelSettingsModal = ({
               <button
                 type="button"
                 onClick={() => setScope(null)}
-                className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
+                className={`w-full rounded-xl border px-3 py-2 text-left text-sm transition ${
                   scope === null
                     ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-500/20 dark:text-indigo-100'
                     : 'border-gray-200 text-gray-600 hover:border-gray-300 dark:border-slate-600 dark:text-slate-300 dark:hover:border-slate-500'
@@ -158,7 +158,7 @@ const ChannelSettingsModal = ({
               </button>
 
               {scope !== null && (
-                <div className="mt-3 max-h-64 overflow-y-auto rounded-lg border border-gray-200 dark:border-slate-700">
+                <div className="mt-3 max-h-64 overflow-y-auto rounded-xl border border-gray-200 dark:border-slate-700">
                   <ResourceScopePicker
                     scope={scope}
                     papers={papers}
@@ -184,7 +184,7 @@ const ChannelSettingsModal = ({
 
           {/* Delete confirmation */}
           {confirmDelete && (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-500/30 dark:bg-red-500/10">
+            <div className="rounded-xl border border-red-200 bg-red-50 p-3 dark:border-red-500/30 dark:bg-red-500/10">
               <p className="text-sm text-red-700 dark:text-red-300">
                 This will permanently delete the channel and all its messages and artifacts.
               </p>
@@ -227,7 +227,7 @@ const ChannelSettingsModal = ({
               <button
                 type="button"
                 onClick={() => setConfirmDelete(true)}
-                className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-500/40 dark:text-red-400 dark:hover:bg-red-500/10"
+                className="rounded-xl border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-500/40 dark:text-red-400 dark:hover:bg-red-500/10"
                 disabled={isSaving || isDeleting}
               >
                 Delete
@@ -238,7 +238,7 @@ const ChannelSettingsModal = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                className="rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
                 disabled={isSaving || isDeleting}
               >
                 Cancel
@@ -246,7 +246,7 @@ const ChannelSettingsModal = ({
               <button
                 type="submit"
                 disabled={isSaving || isDeleting || confirmDelete}
-                className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300 dark:disabled:bg-indigo-500/40"
+                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300 dark:disabled:bg-indigo-500/40"
               >
                 {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
                 Save changes

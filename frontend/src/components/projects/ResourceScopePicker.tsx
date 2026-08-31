@@ -69,10 +69,10 @@ const ResourceScopePicker = ({
             className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-slate-800"
           >
             <div className="flex items-center gap-2">
-              <FileText className="h-4 w-4 text-blue-500" />
+              <FileText className="h-4 w-4 text-indigo-500" />
               <span className="text-sm font-medium text-gray-700 dark:text-slate-200">Papers</span>
               {selectedPaperIds.size > 0 && (
-                <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-xs text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">
+                <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-xs text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300">
                   {selectedPaperIds.size}
                 </span>
               )}
@@ -163,10 +163,10 @@ const ResourceScopePicker = ({
             className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-slate-800"
           >
             <div className="flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-purple-500" />
+              <Calendar className="h-4 w-4 text-indigo-500" />
               <span className="text-sm font-medium text-gray-700 dark:text-slate-200">Meetings</span>
               {selectedMeetingIds.size > 0 && (
-                <span className="rounded-full bg-purple-100 px-1.5 py-0.5 text-xs text-purple-700 dark:bg-purple-500/20 dark:text-purple-300">
+                <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-xs text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300">
                   {selectedMeetingIds.size}
                 </span>
               )}

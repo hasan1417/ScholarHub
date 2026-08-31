@@ -79,7 +79,7 @@ const Login = () => {
     <div className="min-h-screen bg-white dark:bg-[#0f172a] flex items-center justify-center relative overflow-hidden">
       {/* Background */}
       <div className="fixed inset-0 -z-10">
-        <div className="absolute inset-0 bg-gradient-to-br from-indigo-50 via-white to-purple-50 dark:opacity-0 transition-opacity duration-500" />
+        <div className="absolute inset-0 bg-gradient-to-br from-indigo-50 via-white to-indigo-50 dark:opacity-0 transition-opacity duration-500" />
         <div className="absolute inset-0 opacity-0 dark:opacity-100 transition-opacity duration-500">
           <div className="absolute inset-0 bg-[#0f172a]" />
         </div>
@@ -92,7 +92,7 @@ const Login = () => {
         </Link>
 
         {/* Card */}
-        <div className="relative bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-2xl border border-gray-200/80 dark:border-slate-600/50 shadow-lg shadow-indigo-500/5 dark:shadow-lg dark:shadow-black/20 p-8">
+        <div className="relative bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-xl border border-gray-200/80 dark:border-slate-600/50 shadow-lg dark:shadow-lg dark:shadow-black/20 p-8">
             <div className="text-center mb-8">
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Welcome back</h1>
               <p className="mt-2 text-gray-600 dark:text-slate-400">Sign in to continue to your workspace</p>
@@ -121,7 +121,7 @@ const Login = () => {
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Mail className="h-5 w-5 text-gray-400 dark:text-slate-500" />
+                    <Mail className="h-5 w-5 text-gray-400 dark:text-slate-400" />
                   </div>
                   <input
                     id="email"
@@ -160,7 +160,7 @@ const Login = () => {
                 </div>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Lock className="h-5 w-5 text-gray-400 dark:text-slate-500" />
+                    <Lock className="h-5 w-5 text-gray-400 dark:text-slate-400" />
                   </div>
                   <input
                     id="password"
@@ -188,7 +188,7 @@ const Login = () => {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-3 px-4 text-white font-semibold bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-lg shadow-indigo-500/25 hover:shadow-xl hover:shadow-indigo-500/30 hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0 flex items-center justify-center gap-2"
+                className="w-full py-3 px-4 text-white font-semibold bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-lg hover:shadow-xl hover: hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0 flex items-center justify-center gap-2"
               >
                 {isLoading ? (
                   <>
@@ -204,7 +204,7 @@ const Login = () => {
             {/* Divider */}
             <div className="mt-8 flex items-center gap-4">
               <div className="flex-1 h-px bg-gray-200 dark:bg-slate-700" />
-              <span className="text-sm text-gray-500 dark:text-slate-500">or continue with</span>
+              <span className="text-sm text-gray-500 dark:text-slate-400">or continue with</span>
               <div className="flex-1 h-px bg-gray-200 dark:bg-slate-700" />
             </div>
 
@@ -216,7 +216,7 @@ const Login = () => {
             {/* Divider */}
             <div className="mt-8 flex items-center gap-4">
               <div className="flex-1 h-px bg-gray-200 dark:bg-slate-700" />
-              <span className="text-sm text-gray-500 dark:text-slate-500">New to ScholarHub?</span>
+              <span className="text-sm text-gray-500 dark:text-slate-400">New to ScholarHub?</span>
               <div className="flex-1 h-px bg-gray-200 dark:bg-slate-700" />
             </div>
 

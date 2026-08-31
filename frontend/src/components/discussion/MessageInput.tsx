@@ -84,7 +84,7 @@ const MessageInput = ({
   return (
     <div className="border-t border-gray-200 bg-white p-3 sm:p-4 transition-colors dark:border-slate-700 dark:bg-slate-900/40">
       {(replyingTo || editingMessage) && (
-        <div className="mb-2 flex items-center justify-between rounded-lg bg-gray-50 px-2 py-1.5 sm:px-3 sm:py-2 dark:bg-slate-800/60">
+        <div className="mb-2 flex items-center justify-between rounded-xl bg-gray-50 px-2 py-1.5 sm:px-3 sm:py-2 dark:bg-slate-800/60">
           <span className="text-xs sm:text-sm text-gray-600 dark:text-slate-300">
             {editingMessage ? (
               <>Editing message</>
@@ -110,14 +110,14 @@ const MessageInput = ({
           placeholder={placeholder}
           disabled={isSubmitting}
           rows={1}
-          className="min-h-[2.5rem] max-h-32 flex-1 resize-none rounded-lg border border-gray-300 px-2 py-2 sm:px-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:disabled:bg-slate-800/60 dark:disabled:text-slate-500"
+          className="min-h-[2.5rem] max-h-32 flex-1 resize-none rounded-xl border border-gray-300 px-2 py-2 sm:px-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:disabled:bg-slate-800/60 dark:disabled:text-slate-500"
         />
         {onToggleReasoning && reasoningSupported && (
           <button
             type="button"
             onClick={onToggleReasoning}
             disabled={isSubmitting || reasoningPending}
-            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white transition hover:bg-gray-50 dark:border-slate-600 dark:bg-slate-800 dark:hover:bg-slate-700"
+            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white transition hover:bg-gray-50 dark:border-slate-600 dark:bg-slate-800 dark:hover:bg-slate-700"
             title="Toggle reasoning mode for Scholar AI"
           >
             <Lightbulb
@@ -136,7 +136,7 @@ const MessageInput = ({
             type="button"
             onClick={onDeepResearch}
             disabled={isSubmitting}
-            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white transition hover:bg-gray-50 dark:border-slate-600 dark:bg-slate-800 dark:hover:bg-slate-700"
+            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white transition hover:bg-gray-50 dark:border-slate-600 dark:bg-slate-800 dark:hover:bg-slate-700"
             title="Deep Research (Pro)"
           >
             <FlaskConical className="h-4 w-4 text-indigo-500 dark:text-indigo-400" />
@@ -145,12 +145,12 @@ const MessageInput = ({
         <button
           type="submit"
           disabled={!content.trim() || isSubmitting || slashCommandBlocked}
-          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-gray-300 dark:disabled:bg-slate-700"
+          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-gray-300 dark:disabled:bg-slate-700"
         >
           <Send className="h-4 w-4" />
         </button>
       </form>
-      <p className="mt-1 text-[10px] sm:text-xs text-gray-500 dark:text-slate-400">
+      <p className="mt-1 text-2xs sm:text-xs text-gray-500 dark:text-slate-400">
         {slashCommandBlocked ? (
           <span className="text-amber-600 dark:text-amber-400">
             Wait for AI to finish generating before sending another command...

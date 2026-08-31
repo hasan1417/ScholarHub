@@ -50,7 +50,7 @@ const AuthCallback = () => {
     <div className="min-h-screen bg-white dark:bg-[#0f172a] flex items-center justify-center relative overflow-hidden">
       {/* Background */}
       <div className="fixed inset-0 -z-10">
-        <div className="absolute inset-0 bg-gradient-to-br from-indigo-50 via-white to-purple-50 dark:opacity-0 transition-opacity duration-500" />
+        <div className="absolute inset-0 bg-gradient-to-br from-indigo-50 via-white to-indigo-50 dark:opacity-0 transition-opacity duration-500" />
         <div className="absolute inset-0 opacity-0 dark:opacity-100 transition-opacity duration-500">
           <div className="absolute inset-0 bg-[#0f172a]" />
         </div>
@@ -63,7 +63,7 @@ const AuthCallback = () => {
         </div>
 
         {/* Card */}
-        <div className="relative bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-2xl border border-gray-200/80 dark:border-slate-600/50 shadow-lg shadow-indigo-500/5 dark:shadow-lg dark:shadow-black/20 p-8">
+        <div className="relative bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-xl border border-gray-200/80 dark:border-slate-600/50 shadow-lg dark:shadow-lg dark:shadow-black/20 p-8">
             {error ? (
               <>
                 <div className="mb-4">
@@ -79,7 +79,7 @@ const AuthCallback = () => {
                 <p className="text-gray-600 dark:text-slate-400">
                   {error}
                 </p>
-                <p className="text-sm text-gray-500 dark:text-slate-500 mt-4">
+                <p className="text-sm text-gray-500 dark:text-slate-400 mt-4">
                   Redirecting to login...
                 </p>
               </>

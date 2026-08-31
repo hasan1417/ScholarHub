@@ -24,16 +24,16 @@ export const SymbolPalette: React.FC<SymbolPaletteProps> = ({
   }, [search, activeCategory])
 
   return (
-    <div className="fixed inset-y-0 right-0 z-50 flex w-[280px] flex-col border-l border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900">
+    <div className="fixed inset-y-0 right-0 z-50 flex w-[280px] flex-col border-l border-gray-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2.5 dark:border-slate-700">
-        <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+      <div className="flex items-center justify-between border-b border-gray-200 px-3 py-2.5 dark:border-slate-700">
+        <span className="text-sm font-semibold text-gray-700 dark:text-slate-200">
           Symbols
         </span>
         <button
           type="button"
           onClick={onClose}
-          className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          className="rounded p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
           aria-label="Close symbols"
         >
           <span className="text-lg leading-none">&times;</span>
@@ -41,10 +41,10 @@ export const SymbolPalette: React.FC<SymbolPaletteProps> = ({
       </div>
 
       {/* Search */}
-      <div className="border-b border-slate-200 px-3 py-2 dark:border-slate-700">
+      <div className="border-b border-gray-200 px-3 py-2 dark:border-slate-700">
         <div className="relative">
           <svg
-            className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400"
+            className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -61,20 +61,20 @@ export const SymbolPalette: React.FC<SymbolPaletteProps> = ({
             placeholder="Search symbols..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-md border border-slate-200 bg-white py-1.5 pl-7 pr-2 text-xs text-slate-700 placeholder-slate-400 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:placeholder-slate-500 dark:focus:border-blue-500"
+            className="w-full rounded-md border border-gray-200 bg-white py-1.5 pl-7 pr-2 text-xs text-gray-700 placeholder-gray-400 outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:placeholder-slate-500 dark:focus:border-indigo-500"
           />
         </div>
       </div>
 
       {/* Category pills */}
-      <div className="flex gap-1 overflow-x-auto border-b border-slate-200 px-3 py-2 dark:border-slate-700">
+      <div className="flex gap-1 overflow-x-auto border-b border-gray-200 px-3 py-2 dark:border-slate-700">
         <button
           type="button"
           onClick={() => setActiveCategory(null)}
-          className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors ${
+          className={`shrink-0 rounded-full px-2 py-0.5 text-2xs font-medium transition-colors ${
             activeCategory === null
-              ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
-              : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'
+              ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300'
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'
           }`}
         >
           All
@@ -84,10 +84,10 @@ export const SymbolPalette: React.FC<SymbolPaletteProps> = ({
             key={cat}
             type="button"
             onClick={() => setActiveCategory(cat === activeCategory ? null : cat)}
-            className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors ${
+            className={`shrink-0 rounded-full px-2 py-0.5 text-2xs font-medium transition-colors ${
               activeCategory === cat
-                ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'
+                ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'
             }`}
           >
             {cat}
@@ -105,7 +105,7 @@ export const SymbolPalette: React.FC<SymbolPaletteProps> = ({
                 type="button"
                 title={`${sym.name}\n${sym.latex}`}
                 onClick={() => onInsertSymbol(sym.latex)}
-                className="flex h-9 w-9 items-center justify-center rounded text-base text-slate-700 transition-colors hover:bg-blue-50 hover:text-blue-700 dark:text-slate-200 dark:hover:bg-blue-900/30 dark:hover:text-blue-300"
+                className="flex h-9 w-9 items-center justify-center rounded text-base text-gray-700 transition-colors hover:bg-indigo-50 hover:text-indigo-700 dark:text-slate-200 dark:hover:bg-indigo-900/30 dark:hover:text-indigo-300"
               >
                 {sym.unicode}
               </button>
@@ -113,10 +113,10 @@ export const SymbolPalette: React.FC<SymbolPaletteProps> = ({
           </div>
         ) : (
           <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
-            <p className="text-sm text-slate-500 dark:text-slate-400">
+            <p className="text-sm text-gray-500 dark:text-slate-400">
               No symbols found
             </p>
-            <p className="text-xs text-slate-400 dark:text-slate-500">
+            <p className="text-xs text-gray-400 dark:text-slate-400">
               Try a different search term or category
             </p>
           </div>

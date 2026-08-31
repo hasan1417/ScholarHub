@@ -82,7 +82,7 @@ const UpgradeModal = ({ limitError: controlledError, onClose }: UpgradeModalProp
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-lg rounded-2xl bg-white shadow-2xl transition-all duration-200 dark:bg-slate-800 animate-in fade-in zoom-in-95">
+      <div className="relative w-full max-w-lg rounded-xl bg-white shadow-xl transition-all duration-200 dark:bg-slate-800 animate-in fade-in zoom-in-95">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 dark:border-slate-700">
           <div className="flex items-center gap-3">
@@ -109,7 +109,7 @@ const UpgradeModal = ({ limitError: controlledError, onClose }: UpgradeModalProp
 
         {/* Limit exceeded warning */}
         {error && (
-          <div className="mx-6 mt-5 flex items-start gap-3 rounded-lg bg-amber-50 p-4 dark:bg-amber-500/10">
+          <div className="mx-6 mt-5 flex items-start gap-3 rounded-xl bg-amber-50 p-4 dark:bg-amber-500/10">
             <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
             <div>
               <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
@@ -138,7 +138,7 @@ const UpgradeModal = ({ limitError: controlledError, onClose }: UpgradeModalProp
                 <ul className="mt-4 space-y-2 text-sm">
                   {freeTier && Object.entries(freeTier.limits).map(([key, value]) => (
                     <li key={key} className="flex items-center gap-2 text-gray-600 dark:text-slate-300">
-                      <Check className="h-4 w-4 text-gray-400 dark:text-slate-500" />
+                      <Check className="h-4 w-4 text-gray-400 dark:text-slate-400" />
                       <span>{value === -1 ? 'Unlimited' : value} {FEATURE_LABELS[key]?.replace(/^[A-Z]/, c => c.toLowerCase()) || key}</span>
                     </li>
                   ))}

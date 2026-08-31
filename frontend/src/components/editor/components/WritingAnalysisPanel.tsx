@@ -51,8 +51,8 @@ const SEVERITY_CONFIG: Record<string, { icon: typeof AlertCircle; color: string;
   },
   info: {
     icon: Info,
-    color: 'text-blue-600 dark:text-blue-400',
-    bg: 'bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800',
+    color: 'text-indigo-600 dark:text-indigo-400',
+    bg: 'bg-indigo-50 border-indigo-200 dark:bg-indigo-900/20 dark:border-indigo-800',
   },
 }
 
@@ -98,7 +98,7 @@ function ScoreRing({ score }: { score: number }) {
       </svg>
       <div className="absolute flex flex-col items-center">
         <span className={`text-xl font-bold ${scoreColor(score)}`}>{score}</span>
-        <span className="text-[10px] text-slate-400 dark:text-slate-500">/ 100</span>
+        <span className="text-2xs text-gray-400 dark:text-slate-400">/ 100</span>
       </div>
     </div>
   )
@@ -132,19 +132,19 @@ export const WritingAnalysisPanel: React.FC<WritingAnalysisPanelProps> = ({
   }
 
   return (
-    <div className="fixed inset-y-0 right-0 z-50 flex w-[320px] flex-col border-l border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900">
+    <div className="fixed inset-y-0 right-0 z-50 flex w-[320px] flex-col border-l border-gray-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2.5 dark:border-slate-700">
+      <div className="flex items-center justify-between border-b border-gray-200 px-3 py-2.5 dark:border-slate-700">
         <div className="flex items-center gap-2">
           <FileSearch className="h-4 w-4 text-indigo-500" />
-          <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+          <span className="text-sm font-semibold text-gray-700 dark:text-slate-200">
             Writing Quality
           </span>
         </div>
         <button
           type="button"
           onClick={onClose}
-          className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          className="rounded p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
           aria-label="Close writing analysis"
         >
           <X className="h-4 w-4" />
@@ -152,14 +152,14 @@ export const WritingAnalysisPanel: React.FC<WritingAnalysisPanelProps> = ({
       </div>
 
       {/* Venue selector + Analyze button */}
-      <div className="border-b border-slate-200 px-3 py-2.5 dark:border-slate-700">
-        <label className="mb-1.5 block text-xs font-medium text-slate-500 dark:text-slate-400">
+      <div className="border-b border-gray-200 px-3 py-2.5 dark:border-slate-700">
+        <label className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-slate-400">
           Target venue (optional)
         </label>
         <select
           value={venue}
           onChange={e => setVenue(e.target.value)}
-          className="mb-2 w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+          className="mb-2 w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-700 focus:border-indigo-400 focus:outline-none dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
         >
           {VENUE_OPTIONS.map(opt => (
             <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -189,8 +189,8 @@ export const WritingAnalysisPanel: React.FC<WritingAnalysisPanelProps> = ({
       <div className="flex-1 overflow-y-auto">
         {!result && !loading && (
           <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
-            <FileSearch className="h-8 w-8 text-slate-300 dark:text-slate-600" />
-            <p className="text-sm text-slate-500 dark:text-slate-400">
+            <FileSearch className="h-8 w-8 text-gray-300 dark:text-slate-600" />
+            <p className="text-sm text-gray-500 dark:text-slate-400">
               Click "Analyze Writing" to check your document for writing quality issues.
             </p>
           </div>
@@ -199,9 +199,9 @@ export const WritingAnalysisPanel: React.FC<WritingAnalysisPanelProps> = ({
         {result && (
           <>
             {/* Score */}
-            <div className="flex flex-col items-center border-b border-slate-200 py-4 dark:border-slate-700">
+            <div className="flex flex-col items-center border-b border-gray-200 py-4 dark:border-slate-700">
               <ScoreRing score={result.score} />
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
                 {result.issues.length === 0
                   ? 'No issues found'
                   : `${result.issues.length} issue${result.issues.length === 1 ? '' : 's'} found`}
@@ -217,13 +217,13 @@ export const WritingAnalysisPanel: React.FC<WritingAnalysisPanelProps> = ({
                     <button
                       type="button"
                       onClick={() => toggleGroup(type)}
-                      className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                      className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-800"
                     >
                       {collapsed
                         ? <ChevronRight className="h-3 w-3" />
                         : <ChevronDown className="h-3 w-3" />}
                       <span>{ISSUE_TYPE_LABELS[type] || type}</span>
-                      <span className="ml-auto rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                      <span className="ml-auto rounded-full bg-gray-200 px-1.5 py-0.5 text-2xs font-semibold text-gray-600 dark:bg-slate-700 dark:text-slate-300">
                         {typeIssues.length}
                       </span>
                     </button>
@@ -240,16 +240,16 @@ export const WritingAnalysisPanel: React.FC<WritingAnalysisPanelProps> = ({
                               <div className="flex items-start gap-1.5">
                                 <Icon className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${config.color}`} />
                                 <div className="min-w-0 flex-1">
-                                  <p className="text-xs text-slate-700 dark:text-slate-200">
+                                  <p className="text-xs text-gray-700 dark:text-slate-200">
                                     {issue.message}
                                   </p>
                                   {issue.suggestion && (
-                                    <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                    <p className="mt-1 text-2xs text-gray-500 dark:text-slate-400">
                                       {issue.suggestion}
                                     </p>
                                   )}
                                   {issue.line != null && (
-                                    <span className="mt-1 inline-block rounded bg-slate-200/60 px-1 py-0.5 text-[10px] text-slate-500 dark:bg-slate-700/60 dark:text-slate-400">
+                                    <span className="mt-1 inline-block rounded bg-gray-200 px-1 py-0.5 text-2xs text-gray-500 dark:bg-slate-700/60 dark:text-slate-400">
                                       Line {issue.line}
                                     </span>
                                   )}
@@ -267,7 +267,7 @@ export const WritingAnalysisPanel: React.FC<WritingAnalysisPanelProps> = ({
               {result.issues.length === 0 && (
                 <div className="flex flex-col items-center gap-1 py-4 text-center">
                   <span className="text-2xl">&#10003;</span>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                  <p className="text-xs text-gray-500 dark:text-slate-400">
                     No issues detected. Your writing looks good!
                   </p>
                 </div>
@@ -275,8 +275,8 @@ export const WritingAnalysisPanel: React.FC<WritingAnalysisPanelProps> = ({
             </div>
 
             {/* Stats */}
-            <div className="border-t border-slate-200 px-3 py-3 dark:border-slate-700">
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+            <div className="border-t border-gray-200 px-3 py-3 dark:border-slate-700">
+              <p className="mb-2 text-2xs font-semibold uppercase tracking-wide text-gray-400">
                 Document Stats
               </p>
               <div className="grid grid-cols-2 gap-2">
@@ -289,10 +289,10 @@ export const WritingAnalysisPanel: React.FC<WritingAnalysisPanelProps> = ({
                 ].map(stat => (
                   <div
                     key={stat.label}
-                    className="rounded bg-slate-50 px-2 py-1.5 dark:bg-slate-800/60"
+                    className="rounded bg-gray-50 px-2 py-1.5 dark:bg-slate-800/60"
                   >
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500">{stat.label}</p>
-                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                    <p className="text-2xs text-gray-400 dark:text-slate-400">{stat.label}</p>
+                    <p className="text-sm font-semibold text-gray-700 dark:text-slate-200">
                       {stat.value ?? 0}
                     </p>
                   </div>

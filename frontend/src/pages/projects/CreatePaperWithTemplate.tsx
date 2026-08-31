@@ -258,7 +258,7 @@ const CreatePaperWithTemplate: React.FC = () => {
   if (createdPaper) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-indigo-50 via-white to-white dark:from-slate-900 dark:via-slate-900 dark:to-slate-900 flex items-center justify-center px-4">
-        <div className="w-full max-w-xl rounded-3xl border border-indigo-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl p-8 text-center">
+        <div className="w-full max-w-xl rounded-xl border border-indigo-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl p-8 text-center">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400">
             <CheckCircle className="h-8 w-8" />
           </div>
@@ -316,14 +316,14 @@ const CreatePaperWithTemplate: React.FC = () => {
                           ? 'border-indigo-500 bg-indigo-500 text-white'
                           : isActive
                           ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400'
-                          : 'border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-400 dark:text-slate-500'
+                          : 'border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-400 dark:text-slate-400'
                       }`}
                     >
                       {isCompleted ? <Check className="h-5 w-5" /> : <span className="text-sm font-semibold">{index + 1}</span>}
                     </div>
                     <span
                       className={`mt-2 text-xs font-medium ${
-                        isActive ? 'text-indigo-600 dark:text-indigo-400' : isCompleted ? 'text-gray-700 dark:text-slate-300' : 'text-gray-400 dark:text-slate-500'
+                        isActive ? 'text-indigo-600 dark:text-indigo-400' : isCompleted ? 'text-gray-700 dark:text-slate-300' : 'text-gray-400 dark:text-slate-400'
                       }`}
                     >
                       {step.label}
@@ -343,7 +343,7 @@ const CreatePaperWithTemplate: React.FC = () => {
         </div>
 
         {/* Step Content */}
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
+        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
           {/* Step Header */}
           <div className="px-6 py-4 border-b border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/50">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
@@ -419,13 +419,13 @@ const CreatePaperWithTemplate: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setShowSections(!showSections)}
-                    className="mt-3 flex w-full items-center justify-between rounded-lg border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/50 px-4 py-2.5 text-left text-xs font-medium text-gray-600 dark:text-slate-300 transition hover:bg-gray-100 dark:hover:bg-slate-700"
+                    className="mt-3 flex w-full items-center justify-between rounded-xl border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/50 px-4 py-2.5 text-left text-xs font-medium text-gray-600 dark:text-slate-300 transition hover:bg-gray-100 dark:hover:bg-slate-700"
                   >
                     <span>Preview template sections ({selectedTemplateDefinition.sections.length})</span>
                     {showSections ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                   </button>
                   {showSections && (
-                    <div className="mt-2 rounded-lg border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/50 p-4">
+                    <div className="mt-2 rounded-xl border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/50 p-4">
                       <div className="flex flex-wrap gap-2">
                         {selectedTemplateDefinition.sections.map((section) => (
                           <span
@@ -443,7 +443,7 @@ const CreatePaperWithTemplate: React.FC = () => {
                 {/* Keywords (optional) */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
-                    Keywords <span className="text-gray-400 dark:text-slate-500 font-normal">(optional)</span>
+                    Keywords <span className="text-gray-400 dark:text-slate-400 font-normal">(optional)</span>
                   </label>
                   <div className="min-h-[44px] flex flex-wrap items-center gap-2 rounded-xl border-2 border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-2 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500 transition">
                     {keywordTags.map((tag) => (
@@ -520,7 +520,7 @@ const CreatePaperWithTemplate: React.FC = () => {
                       return (
                         <label
                           key={section}
-                          className={`flex items-center gap-3 px-4 py-2.5 rounded-lg border cursor-pointer transition-all ${
+                          className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border cursor-pointer transition-all ${
                             isEnabled
                               ? 'border-indigo-200 dark:border-indigo-700 bg-indigo-50/50 dark:bg-indigo-900/10'
                               : 'border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/30 opacity-60'
@@ -552,7 +552,7 @@ const CreatePaperWithTemplate: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setShowRawEditor(!showRawEditor)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all border ${
                         showRawEditor
                           ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300'
                           : 'border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-600 dark:text-slate-300 hover:border-indigo-300 dark:hover:border-indigo-500'
@@ -655,11 +655,11 @@ const CreatePaperWithTemplate: React.FC = () => {
                   <div className="rounded-xl border border-gray-200 dark:border-slate-700 p-4">
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-2">
-                        <Target className="h-4 w-4 text-gray-400 dark:text-slate-500" />
+                        <Target className="h-4 w-4 text-gray-400 dark:text-slate-400" />
                         <span className="text-sm font-medium text-gray-700 dark:text-slate-300">
                           Link to project goals
                         </span>
-                        <span className="text-xs text-gray-400 dark:text-slate-500">(optional)</span>
+                        <span className="text-xs text-gray-400 dark:text-slate-400">(optional)</span>
                       </div>
                       {selectedObjectives.length > 0 && (
                         <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
@@ -675,7 +675,7 @@ const CreatePaperWithTemplate: React.FC = () => {
                             type="button"
                             key={objective}
                             onClick={() => toggleObjectiveSelection(objective)}
-                            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition border ${
+                            className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition border ${
                               checked
                                 ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300'
                                 : 'border-gray-200 dark:border-slate-600 text-gray-600 dark:text-slate-400 hover:border-indigo-300 dark:hover:border-indigo-500'

@@ -225,12 +225,12 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
 
       {/* Palette */}
       <div
-        className="relative w-full max-w-lg rounded-xl border border-gray-200 bg-white shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150 dark:border-slate-700 dark:bg-slate-800"
+        className="relative w-full max-w-lg rounded-xl border border-gray-200 bg-white shadow-xl overflow-hidden animate-in zoom-in-95 duration-150 dark:border-slate-700 dark:bg-slate-800"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Search input */}
         <div className="flex items-center gap-3 border-b border-gray-200 px-4 py-3 dark:border-slate-700">
-          <Search className="h-5 w-5 text-gray-400 dark:text-slate-500" />
+          <Search className="h-5 w-5 text-gray-400 dark:text-slate-400" />
           <input
             ref={inputRef}
             type="text"
@@ -243,7 +243,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
             placeholder="Search projects, papers, actions..."
             className="flex-1 bg-transparent text-sm text-gray-900 placeholder-gray-400 outline-none dark:text-slate-100 dark:placeholder-slate-500"
           />
-          <kbd className="hidden sm:inline-flex items-center rounded border border-gray-200 px-1.5 py-0.5 text-[10px] font-medium text-gray-400 dark:border-slate-600 dark:text-slate-500">
+          <kbd className="hidden sm:inline-flex items-center rounded border border-gray-200 px-1.5 py-0.5 text-2xs font-medium text-gray-400 dark:border-slate-600 dark:text-slate-400">
             ESC
           </kbd>
         </div>
@@ -257,7 +257,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
           ) : (
             grouped.map((group) => (
               <div key={group.label}>
-                <div className="px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500">
+                <div className="px-4 py-1.5 text-2xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-400">
                   {group.label}
                 </div>
                 {group.items.map((item) => {
@@ -277,7 +277,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
                       onClick={item.onSelect}
                       onMouseEnter={() => setSelectedIndex(idx)}
                     >
-                      <span className={`flex-shrink-0 ${isSelected ? 'text-indigo-500 dark:text-indigo-400' : 'text-gray-400 dark:text-slate-500'}`}>
+                      <span className={`flex-shrink-0 ${isSelected ? 'text-indigo-500 dark:text-indigo-400' : 'text-gray-400 dark:text-slate-400'}`}>
                         {item.icon}
                       </span>
                       <div className="min-w-0 flex-1">
@@ -297,17 +297,17 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
         </div>
 
         {/* Footer hint */}
-        <div className="flex items-center gap-4 border-t border-gray-200 px-4 py-2 text-[11px] text-gray-400 dark:border-slate-700 dark:text-slate-500">
+        <div className="flex items-center gap-4 border-t border-gray-200 px-4 py-2 text-2xs text-gray-400 dark:border-slate-700 dark:text-slate-400">
           <span className="inline-flex items-center gap-1">
-            <kbd className="rounded border border-gray-200 px-1 py-0.5 text-[10px] dark:border-slate-600">↑↓</kbd>
+            <kbd className="rounded border border-gray-200 px-1 py-0.5 text-2xs dark:border-slate-600">↑↓</kbd>
             Navigate
           </span>
           <span className="inline-flex items-center gap-1">
-            <kbd className="rounded border border-gray-200 px-1 py-0.5 text-[10px] dark:border-slate-600">↵</kbd>
+            <kbd className="rounded border border-gray-200 px-1 py-0.5 text-2xs dark:border-slate-600">↵</kbd>
             Select
           </span>
           <span className="inline-flex items-center gap-1">
-            <kbd className="rounded border border-gray-200 px-1 py-0.5 text-[10px] dark:border-slate-600">esc</kbd>
+            <kbd className="rounded border border-gray-200 px-1 py-0.5 text-2xs dark:border-slate-600">esc</kbd>
             Close
           </span>
         </div>

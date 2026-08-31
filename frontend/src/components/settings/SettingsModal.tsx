@@ -18,11 +18,11 @@ const SettingsModal = ({ isOpen, onClose, onLogout, children }: SettingsModalPro
         aria-hidden="true"
         onClick={onClose}
       />
-      <div className="relative w-full max-w-sm rounded-2xl bg-white shadow-2xl transition-all duration-200 dark:bg-slate-800 animate-in fade-in zoom-in-95">
+      <div className="relative w-full max-w-sm rounded-xl bg-white shadow-xl transition-all duration-200 dark:bg-slate-800 animate-in fade-in zoom-in-95">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-100 dark:bg-slate-700">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100 dark:bg-slate-700">
               <Settings className="h-5 w-5 text-gray-600 dark:text-slate-300" />
             </div>
             <div>
