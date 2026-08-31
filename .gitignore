@@ -99,3 +99,6 @@ backend/=1.0.0
 
 # Server runbook: contains production IP, hostname, SSH host key fingerprint
 NETCUP_SETUP.txt
+
+# Hallmark design-skill project memory
+.hallmark/

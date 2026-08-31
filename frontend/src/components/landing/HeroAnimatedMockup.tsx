@@ -150,15 +150,15 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
 
   const windowTitle =
     scene === 'discover'
-      ? 'Discover — ScholarHub'
+      ? 'Discover'
       : scene === 'library'
-      ? 'Library — ScholarHub'
-      : 'nas-survey.tex — ScholarHub'
+      ? 'Library'
+      : 'nas-survey.tex'
 
   return (
-    <section className="relative px-4 sm:px-6 pt-10 sm:pt-16 pb-16 sm:pb-28">
+    <section className="relative px-4 sm:px-6 pt-24 sm:pt-32 pb-16 sm:pb-28">
       <div className="max-w-6xl mx-auto">
-        <div className={`grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] gap-10 lg:gap-14 items-center transition-all duration-1000 ease-out ${heroAnimationCls}`}>
+        <div className={`grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] gap-10 lg:gap-14 items-center transition-[opacity,transform] duration-1000 ease-out ${heroAnimationCls}`}>
           {/* LEFT — copy */}
           <div className="text-center lg:text-left">
             <div className="inline-flex items-center gap-2 rounded-full border border-indigo-200/70 dark:border-indigo-500/30 bg-white/70 dark:bg-slate-900/60 backdrop-blur px-3 py-1 text-xs font-medium text-indigo-700 dark:text-indigo-300">
@@ -166,11 +166,11 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
               One workspace for the whole paper
             </div>
             <h1 className="font-serif mt-5 text-3xl sm:text-5xl md:text-6xl font-bold tracking-tight leading-[1.05]">
-              <span className="bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 dark:from-white dark:via-gray-100 dark:to-white bg-clip-text text-transparent">
+              <span className="text-gray-900 dark:text-white">
                 One workspace
               </span>
               <br />
-              <span className="bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 dark:from-white dark:via-gray-100 dark:to-white bg-clip-text text-transparent">
+              <span className="text-gray-900 dark:text-white">
                 instead of{' '}
               </span>
               <span className="text-indigo-600 dark:text-indigo-400">five.</span>
@@ -183,14 +183,14 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
             <div className="mt-7 flex flex-col sm:flex-row items-center lg:items-start lg:justify-start justify-center gap-3">
               <Link
                 to="/register"
-                className="group relative inline-flex items-center gap-2 px-6 py-3 sm:px-7 sm:py-3.5 text-sm sm:text-base font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-xl shadow-indigo-500/25 hover:shadow-2xl hover:shadow-indigo-500/40 hover:-translate-y-0.5"
+                className="group inline-flex items-center gap-2 px-6 py-3 sm:px-7 sm:py-3.5 text-sm sm:text-base font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-[background-color] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#0f172a]"
               >
                 Start for free
                 <ArrowRight className="h-4 w-4 sm:h-5 sm:w-5 group-hover:translate-x-1 transition-transform" />
               </Link>
               <a
                 href="#features"
-                className="inline-flex items-center gap-2 px-6 py-3 sm:px-7 sm:py-3.5 text-sm sm:text-base font-medium text-gray-700 dark:text-slate-300 bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border border-gray-200 dark:border-slate-700 rounded-xl transition-all hover:shadow-lg hover:-translate-y-0.5 hover:border-indigo-300 dark:hover:border-indigo-500/50"
+                className="inline-flex items-center gap-2 px-6 py-3 sm:px-7 sm:py-3.5 text-sm sm:text-base font-medium text-gray-700 dark:text-slate-300 border border-gray-300 dark:border-slate-700 rounded-xl transition-[border-color,color] duration-150 ease-out hover:border-gray-900 dark:hover:border-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#0f172a]"
                 onClick={(e) => { e.preventDefault(); document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' }) }}
               >
                 See what's inside
@@ -203,17 +203,10 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
 
           {/* RIGHT — mockup window */}
           <div className="relative">
-            <div aria-hidden className="pointer-events-none absolute -inset-6 rounded-[36px] bg-gradient-to-tr from-indigo-500/20 via-purple-500/10 to-fuchsia-500/20 blur-2xl" />
-
             <div className="relative rounded-2xl border border-gray-200 dark:border-slate-700/70 bg-white dark:bg-slate-900 shadow-2xl overflow-hidden">
-              {/* Window chrome */}
+              {/* Caption bar: names the surface on show. Not fake browser chrome. */}
               <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-200 dark:border-slate-700/70 bg-gray-50 dark:bg-slate-800/70">
-                <div className="flex gap-1.5">
-                  <span className="h-2.5 w-2.5 rounded-full bg-red-400" />
-                  <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
-                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
-                </div>
-                <div className="flex-1 text-center text-[11px] font-medium text-gray-500 dark:text-slate-400 transition-opacity duration-300">
+                <div className="flex-1 text-[11px] font-medium text-gray-500 dark:text-slate-400 transition-[opacity] duration-300">
                   {windowTitle}
                 </div>
                 <div className="inline-flex items-center gap-1 text-[10px] text-gray-500 dark:text-slate-400">
@@ -282,7 +275,7 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
                               {p.source}
                             </span>
                             <span
-                              className={`shrink-0 inline-flex items-center justify-center h-5 w-5 rounded transition-all ${
+                              className={`shrink-0 inline-flex items-center justify-center h-5 w-5 rounded transition-[background-color,border-color,color,opacity] ${
                                 dAdding ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-slate-400'
                               }`}
                               title="Add to library"
@@ -385,7 +378,7 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
                     {/* AI Assistant panel */}
                     <div className="relative flex flex-col min-w-0 bg-slate-950">
                       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-slate-800 bg-slate-900/80">
-                        <span className="inline-flex items-center justify-center h-5 w-5 rounded-md bg-gradient-to-br from-indigo-500 to-purple-500">
+                        <span className="inline-flex items-center justify-center h-5 w-5 rounded-md bg-indigo-600">
                           <Sparkles className="h-3 w-3 text-white" />
                         </span>
                         <span className="text-[11px] font-semibold text-slate-200">AI Assistant</span>
@@ -396,7 +389,7 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
 
                       <div className="flex-1 overflow-hidden px-3 py-3 space-y-2.5">
                         <div
-                          className={`flex justify-end transition-all duration-300 ${
+                          className={`flex justify-end transition-[background-color,border-color,color,opacity] duration-300 ${
                             editUserVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'
                           }`}
                         >
@@ -425,7 +418,7 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
 
                         {editProposalVisible && (
                           <div
-                            className={`rounded-lg border transition-all duration-300 ${
+                            className={`rounded-lg border transition-[background-color,border-color,color,opacity] duration-300 ${
                               editIsApplied
                                 ? 'border-emerald-500/40 bg-emerald-500/5'
                                 : 'border-indigo-400/40 bg-slate-900/60'
@@ -456,7 +449,7 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
                             </div>
                             <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-t border-slate-800">
                               <button
-                                className={`inline-flex items-center gap-1 text-[10.5px] font-semibold rounded px-2 py-1 transition-all ${
+                                className={`inline-flex items-center gap-1 text-[10.5px] font-semibold rounded px-2 py-1 transition-[background-color,border-color,color,opacity] ${
                                   editIsApplied
                                     ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-400/40'
                                     : editIsApplying
@@ -490,7 +483,7 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
                             )}
                           </span>
                           <span
-                            className={`inline-flex items-center justify-center h-5 w-5 rounded transition-all ${
+                            className={`inline-flex items-center justify-center h-5 w-5 rounded transition-[background-color,border-color,color,opacity] ${
                               phase === 'edit-prompting' || phase === 'edit-sent'
                                 ? 'bg-indigo-600 text-white'
                                 : 'bg-slate-700 text-slate-400'
@@ -595,7 +588,7 @@ const SourceChip = ({
 
   return (
     <span
-      className={`inline-flex items-center gap-1 text-[10px] font-medium rounded-full border px-2 py-0.5 transition-all ${cls}`}
+      className={`inline-flex items-center gap-1 text-[10px] font-medium rounded-full border px-2 py-0.5 transition-[background-color,border-color,color,opacity] ${cls}`}
       style={{ animation: visible ? `source-in 240ms ease-out both` : undefined }}
     >
       {state === 'done' ? (
