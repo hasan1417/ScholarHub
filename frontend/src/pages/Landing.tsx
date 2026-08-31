@@ -167,7 +167,7 @@ const Landing = () => {
 
       {/* Summary band. Left-biased, hairline-ruled, no card, no nested container. */}
       <section className="border-y border-gray-200/80 bg-white px-4 sm:px-6 dark:border-slate-800 dark:bg-slate-900/40">
-        <div className="mx-auto grid max-w-6xl gap-6 py-12 sm:py-16 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:gap-16">
+        <div className="mx-auto grid max-w-6xl items-baseline gap-4 py-10 sm:py-12 lg:grid-cols-[minmax(0,4fr)_minmax(0,8fr)] lg:gap-14">
           <h2 className="font-serif text-2xl font-semibold leading-snug text-gray-900 sm:text-3xl dark:text-white">
             Built for academic teams
           </h2>

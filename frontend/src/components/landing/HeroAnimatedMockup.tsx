@@ -156,7 +156,7 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
       : 'nas-survey.tex'
 
   return (
-    <section className="relative px-4 sm:px-6 pt-24 sm:pt-32 pb-16 sm:pb-28">
+    <section className="relative px-4 sm:px-6 pt-20 sm:pt-24 pb-12 sm:pb-16">
       <div className="max-w-6xl mx-auto">
         <div className={`grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] gap-10 lg:gap-14 items-center transition-[opacity,transform] duration-1000 ease-out ${heroAnimationCls}`}>
           {/* LEFT — copy */}
@@ -199,6 +199,12 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
             <p className="mt-3 text-xs sm:text-sm text-gray-500 dark:text-slate-400">
               Free for research teams · Your keys, your models
             </p>
+            <div className="mt-5 flex flex-wrap justify-center lg:justify-start gap-2 text-2xs text-gray-600 dark:text-slate-400">
+              <span className="rounded-full bg-white/70 dark:bg-slate-800/70 border border-gray-200 dark:border-slate-700 px-2.5 py-1">9 paper sources</span>
+              <span className="rounded-full bg-white/70 dark:bg-slate-800/70 border border-gray-200 dark:border-slate-700 px-2.5 py-1">Project-grounded AI</span>
+              <span className="rounded-full bg-white/70 dark:bg-slate-800/70 border border-gray-200 dark:border-slate-700 px-2.5 py-1">LaTeX + live PDF</span>
+              <span className="rounded-full bg-white/70 dark:bg-slate-800/70 border border-gray-200 dark:border-slate-700 px-2.5 py-1">Real-time Y.js collab</span>
+            </div>
           </div>
 
           {/* RIGHT — mockup window */}
@@ -513,12 +519,6 @@ const HeroAnimatedMockup = ({ reduced, heroAnimationCls }: Props) => {
               </div>
             </div>
 
-            <div className="mt-5 flex flex-wrap justify-center lg:justify-start gap-2 text-2xs text-gray-600 dark:text-slate-400">
-              <span className="rounded-full bg-white/70 dark:bg-slate-800/70 border border-gray-200 dark:border-slate-700 px-2.5 py-1">9 paper sources</span>
-              <span className="rounded-full bg-white/70 dark:bg-slate-800/70 border border-gray-200 dark:border-slate-700 px-2.5 py-1">Project-grounded AI</span>
-              <span className="rounded-full bg-white/70 dark:bg-slate-800/70 border border-gray-200 dark:border-slate-700 px-2.5 py-1">LaTeX + live PDF</span>
-              <span className="rounded-full bg-white/70 dark:bg-slate-800/70 border border-gray-200 dark:border-slate-700 px-2.5 py-1">Real-time Y.js collab</span>
-            </div>
           </div>
         </div>
       </div>
