@@ -12,12 +12,12 @@ class Branch(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
-    paper_id = Column(UUID(as_uuid=True), ForeignKey("research_papers.id"), nullable=False)
+    paper_id = Column(UUID(as_uuid=True), ForeignKey("research_papers.id"), nullable=False, index=True)
     parent_branch_id = Column(UUID(as_uuid=True), ForeignKey("branches.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     status = Column(String(50), default="active")  # active, merged, archived
-    author_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    author_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
     last_commit_message = Column(Text, default="")
     is_main = Column(Boolean, default=False)
 
@@ -35,11 +35,11 @@ class Commit(Base):
     __tablename__ = "commits"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    branch_id = Column(UUID(as_uuid=True), ForeignKey("branches.id"), nullable=False)
+    branch_id = Column(UUID(as_uuid=True), ForeignKey("branches.id"), nullable=False, index=True)
     message = Column(Text, nullable=False)
     content = Column(Text, nullable=False)
     content_json = Column(JSON, nullable=True)
-    author_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    author_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
     changes = Column(JSON, nullable=False, default=list)  # Store array of Change objects
     compilation_status = Column(String(20), nullable=False, default="not_compiled")  # success, failed, not_compiled
@@ -56,15 +56,15 @@ class MergeRequest(Base):
     __tablename__ = "merge_requests"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    source_branch_id = Column(UUID(as_uuid=True), ForeignKey("branches.id"), nullable=False)
-    target_branch_id = Column(UUID(as_uuid=True), ForeignKey("branches.id"), nullable=False)
-    paper_id = Column(UUID(as_uuid=True), ForeignKey("research_papers.id"), nullable=False)
+    source_branch_id = Column(UUID(as_uuid=True), ForeignKey("branches.id"), nullable=False, index=True)
+    target_branch_id = Column(UUID(as_uuid=True), ForeignKey("branches.id"), nullable=False, index=True)
+    paper_id = Column(UUID(as_uuid=True), ForeignKey("research_papers.id"), nullable=False, index=True)
     title = Column(String(255), nullable=False)
     description = Column(Text)
     status = Column(String(50), default="open")  # open, merged, closed, conflicted
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    author_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    author_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
     conflicts = Column(JSON, nullable=True)  # Store array of Conflict objects
 
     # Relationships

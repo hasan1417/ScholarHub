@@ -9,7 +9,7 @@ class PaperVersion(Base):
     __tablename__ = "paper_versions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    paper_id = Column(UUID(as_uuid=True), ForeignKey("research_papers.id"), nullable=False)
+    paper_id = Column(UUID(as_uuid=True), ForeignKey("research_papers.id"), nullable=False, index=True)
     version_number = Column(String(50), nullable=False)  # Changed to string for semantic versioning
     title = Column(String(255), nullable=False)
     content = Column(Text)  # Plain text content

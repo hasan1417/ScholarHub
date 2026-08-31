@@ -40,6 +40,7 @@ class PendingInvitation(Base):
     # Composite index for efficient lookups
     __table_args__ = (
         Index("ix_pending_invitations_email_project", "email", "project_id", unique=True),
+        Index("ix_pending_invitations_project_id", "project_id"),
     )
 
     def __repr__(self):

@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -18,6 +18,7 @@ class MeetingStatus(str, enum.Enum):
 
 class Meeting(Base):
     __tablename__ = "meetings"
+    __table_args__ = (Index("ix_meetings_project", "project_id"),)
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
@@ -64,6 +65,7 @@ role_enum = Enum(SyncMessageRole, values_callable=lambda enum: [member.value for
 
 class ProjectSyncSession(Base):
     __tablename__ = "project_sync_sessions"
+    __table_args__ = (Index("ix_project_sync_sessions_project", "project_id"),)
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
@@ -88,6 +90,7 @@ class ProjectSyncSession(Base):
 
 class ProjectSyncMessage(Base):
     __tablename__ = "project_sync_messages"
+    __table_args__ = (Index("ix_project_sync_messages_session", "session_id"),)
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     session_id = Column(UUID(as_uuid=True), ForeignKey("project_sync_sessions.id", ondelete="CASCADE"), nullable=False)

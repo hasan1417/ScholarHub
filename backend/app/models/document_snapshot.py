@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, DateTime, Integer, ForeignKey, LargeBinary
+from sqlalchemy import Column, String, Text, DateTime, Integer, ForeignKey, Index, LargeBinary
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -14,6 +14,10 @@ class DocumentSnapshot(Base):
     Materialized text is stored for quick diff computation without re-materializing.
     """
     __tablename__ = "document_snapshots"
+    __table_args__ = (
+        Index("ix_document_snapshots_paper_created", "paper_id", "created_at"),
+        Index("ix_document_snapshots_paper_sequence", "paper_id", "sequence_number"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     paper_id = Column(UUID(as_uuid=True), ForeignKey("research_papers.id", ondelete="CASCADE"), nullable=False)

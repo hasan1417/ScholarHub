@@ -18,8 +18,18 @@ class DocumentChunk(Base):
     __tablename__ = "document_chunks"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
-    reference_id = Column(UUID(as_uuid=True), ForeignKey("references.id", ondelete="CASCADE"), nullable=True)
+    document_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    reference_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("references.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     chunk_text = Column(Text, nullable=False)
     chunk_index = Column(Integer, nullable=False)
     embedding = Column(VECTOR(1536), nullable=True)

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Enum, Float, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, DateTime, Enum, Float, ForeignKey, Index, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -28,6 +28,8 @@ class ProjectReference(Base):
     __tablename__ = "project_references"
     __table_args__ = (
         UniqueConstraint("project_id", "reference_id", name="uq_project_reference"),
+        Index("ix_project_references_reference", "reference_id"),
+        Index("ix_project_references_added_via_channel_id", "added_via_channel_id"),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

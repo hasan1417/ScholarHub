@@ -11,8 +11,8 @@ class Comment(Base):
     __tablename__ = "comments"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    paper_id = Column(UUID(as_uuid=True), ForeignKey("research_papers.id"), nullable=False)
-    commit_id = Column(UUID(as_uuid=True), ForeignKey("commits.id"), nullable=True)
+    paper_id = Column(UUID(as_uuid=True), ForeignKey("research_papers.id"), nullable=False, index=True)
+    commit_id = Column(UUID(as_uuid=True), ForeignKey("commits.id"), nullable=True, index=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     text = Column(Text, nullable=False)
     line_number = Column(Integer, nullable=True)
@@ -24,4 +24,3 @@ class Comment(Base):
     paper = relationship("ResearchPaper")
     commit = relationship("Commit")
     user = relationship("User")
-

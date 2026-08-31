@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     String,
     Text,
     UniqueConstraint,
@@ -44,6 +45,8 @@ class ProjectDiscussionEmbedding(Base):
             "origin_id",
             name="uq_discussion_embedding_origin",
         ),
+        Index("ix_discussion_embeddings_project", "project_id"),
+        Index("ix_discussion_embeddings_channel", "channel_id"),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

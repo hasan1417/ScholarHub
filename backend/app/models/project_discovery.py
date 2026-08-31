@@ -8,6 +8,7 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -40,6 +41,7 @@ class ProjectDiscoveryResultStatus(str, enum.Enum):
 
 class ProjectDiscoveryRun(Base):
     __tablename__ = "project_discovery_runs"
+    __table_args__ = (Index("ix_project_discovery_runs_project", "project_id"),)
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id = Column(
@@ -110,6 +112,8 @@ class ProjectDiscoveryResult(Base):
             "fingerprint",
             name="uq_project_discovery_result_fingerprint",
         ),
+        Index("ix_project_discovery_results_run_id", "run_id"),
+        Index("ix_project_discovery_results_reference", "reference_id"),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

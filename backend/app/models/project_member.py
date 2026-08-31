@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Enum, ForeignKey, DateTime, String
+from sqlalchemy import Column, Enum, ForeignKey, DateTime, Index, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -18,6 +18,10 @@ class ProjectRole(str, enum.Enum):
 
 class ProjectMember(Base):
     __tablename__ = "project_members"
+    __table_args__ = (
+        Index("ix_project_members_project", "project_id"),
+        Index("ix_project_members_user", "user_id"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)

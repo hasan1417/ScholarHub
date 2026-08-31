@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Text, DateTime, ForeignKey
+from sqlalchemy import Column, Text, DateTime, ForeignKey, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -9,6 +9,9 @@ from app.database import Base
 
 class SectionLock(Base):
     __tablename__ = "section_locks"
+    __table_args__ = (
+        Index("ix_section_locks_paper_section", "paper_id", "section_key"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     paper_id = Column(UUID(as_uuid=True), ForeignKey("research_papers.id"), nullable=False)
@@ -19,4 +22,3 @@ class SectionLock(Base):
 
     paper = relationship("ResearchPaper")
     user = relationship("User")
-

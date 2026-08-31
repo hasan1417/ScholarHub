@@ -1,4 +1,4 @@
-from sqlalchemy import CheckConstraint, Column, DateTime, Enum, ForeignKey
+from sqlalchemy import CheckConstraint, Column, DateTime, Enum, ForeignKey, Index
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -31,6 +31,8 @@ class AIArtifact(Base):
             "project_id IS NOT NULL OR paper_id IS NOT NULL",
             name="ck_ai_artifact_has_target",
         ),
+        Index("ix_ai_artifacts_project", "project_id"),
+        Index("ix_ai_artifacts_paper", "paper_id"),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
