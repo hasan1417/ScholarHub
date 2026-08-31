@@ -96,3 +96,6 @@ ops/jitsi/config/prosody/data/
 
 # Junk
 backend/=1.0.0
+
+# Server runbook: contains production IP, hostname, SSH host key fingerprint
+NETCUP_SETUP.txt
