@@ -129,6 +129,8 @@ services:
       args:
         - VITE_COLLAB_ENABLED=true
         - VITE_COLLAB_WS=wss://scholarhub.space/collab/
+        - VITE_API_URL=https://scholarhub.space
+        - VITE_API_BASE_URL=https://scholarhub.space
     depends_on:
       - backend
     restart: unless-stopped
