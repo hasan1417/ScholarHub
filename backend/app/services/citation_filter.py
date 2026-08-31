@@ -4,14 +4,50 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, List, Optional, Set, Tuple
+from typing import Any, Iterator, List, Optional, Set, Tuple
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
-_CITE_COMMAND_RE = re.compile(r"\\(?P<command>cite(?:t|p)?\*?)\{(?P<keys>[^}]*)\}")
+_LATEX_COMMAND_RE = re.compile(
+    r"\\(?P<command>[A-Za-z]+)(?P<star>\*?)(?P<opts>(?:\s*\[[^\]]*\])*)\s*(?P<group>\{[^}]*\})"
+)
+_MULTI_CITE_GROUP_RE = re.compile(r"(?P<opts>(?:\s*\[[^\]]*\])*)\s*(?P<group>\{[^}]*\})")
+_BIBKEY_LIST_RE = re.compile(r"[^,\s]+(?:,[^,\s]+)*")
+_CITATION_COMMANDS = frozenset(
+    {
+        "autocite",
+        "autocites",
+        "cite",
+        "citealp",
+        "citealt",
+        "citeauthor",
+        "citenum",
+        "citep",
+        "cites",
+        "citet",
+        "citetitle",
+        "citeyear",
+        "citeyearpar",
+        "footcite",
+        "footcites",
+        "fullcite",
+        "nocite",
+        "parencite",
+        "parencites",
+        "smartcite",
+        "smartcites",
+        "supercite",
+        "supercites",
+        "textcite",
+        "textcites",
+    }
+)
+_MULTI_GROUP_CITATION_COMMANDS = frozenset(
+    {"autocites", "cites", "footcites", "parencites", "smartcites", "supercites", "textcites"}
+)
 _VALID_FILTER_MODES = {"off", "warn", "strict"}
 
 
@@ -36,18 +72,20 @@ def make_bib_key(ref: dict) -> str:
 def extract_cite_keys(text: str) -> List[Tuple[str, int, int, str]]:
     """Return (key, span_start, span_end, command) for supported citation commands."""
     results: List[Tuple[str, int, int, str]] = []
-    for match in _CITE_COMMAND_RE.finditer(text or ""):
-        keys_text = match.group("keys")
-        keys_start = match.start("keys")
+    source = text or ""
+    for match, command, normalized_command in _iter_citation_groups(source):
+        group = match.group("group")
+        keys_text = group[1:-1]
+        keys_start = match.start("group") + 1
         cursor = 0
         for raw_key in keys_text.split(","):
             raw_start = cursor
             raw_end = raw_start + len(raw_key)
             key = raw_key.strip()
-            if key:
+            if key and not (normalized_command == "nocite" and key == "*"):
                 span_start = keys_start + raw_start + (len(raw_key) - len(raw_key.lstrip()))
                 span_end = keys_start + raw_start + len(raw_key.rstrip())
-                results.append((key, span_start, span_end, "\\" + match.group("command")))
+                results.append((key, span_start, span_end, command))
             cursor = raw_end + 1
     return results
 
@@ -56,11 +94,13 @@ def filter_response(text: str, allowed_keys: Set[str]) -> Tuple[str, List[dict]]
     """Replace every citation key not present in allowed_keys with a missing marker."""
     invalid: List[dict] = []
     allowed = set(allowed_keys or set())
+    source = text or ""
+    replacements: List[Tuple[int, int, str]] = []
 
-    def replace_match(match: re.Match[str]) -> str:
-        keys_text = match.group("keys")
-        keys_start = match.start("keys")
-        command = "\\" + match.group("command")
+    for match, command, normalized_command in _iter_citation_groups(source):
+        group = match.group("group")
+        keys_text = group[1:-1]
+        keys_start = match.start("group") + 1
         replacement_keys: List[str] = []
         cursor = 0
 
@@ -74,7 +114,7 @@ def filter_response(text: str, allowed_keys: Set[str]) -> Tuple[str, List[dict]]
 
             span_start = keys_start + raw_start + (len(raw_key) - len(raw_key.lstrip()))
             span_end = keys_start + raw_start + len(raw_key.rstrip())
-            if key in allowed:
+            if key in allowed or (normalized_command == "nocite" and key == "*"):
                 replacement_keys.append(key)
             else:
                 replacement_keys.append(f"?MISSING:{key}?")
@@ -89,9 +129,35 @@ def filter_response(text: str, allowed_keys: Set[str]) -> Tuple[str, List[dict]]
                 )
             cursor = raw_end + 1
 
-        return f"{command}" + "{" + ",".join(replacement_keys) + "}"
+        replacements.append((keys_start, match.end("group") - 1, ",".join(replacement_keys)))
 
-    return _CITE_COMMAND_RE.sub(replace_match, text or ""), invalid
+    filtered = source
+    for span_start, span_end, replacement in reversed(replacements):
+        filtered = filtered[:span_start] + replacement + filtered[span_end:]
+
+    return filtered, invalid
+
+
+def _iter_citation_groups(text: str) -> Iterator[Tuple[re.Match[str], str, str]]:
+    """Yield every key group for known citation commands in source order."""
+    for command_match in _LATEX_COMMAND_RE.finditer(text):
+        normalized_command = command_match.group("command").lower()
+        if normalized_command not in _CITATION_COMMANDS:
+            continue
+
+        command = "\\" + command_match.group("command") + command_match.group("star")
+        yield command_match, command, normalized_command
+
+        if normalized_command not in _MULTI_GROUP_CITATION_COMMANDS:
+            continue
+
+        group_end = command_match.end()
+        while next_group := _MULTI_CITE_GROUP_RE.match(text, group_end):
+            keys_text = next_group.group("group")[1:-1]
+            if not _BIBKEY_LIST_RE.fullmatch(keys_text):
+                break
+            yield next_group, command, normalized_command
+            group_end = next_group.end()
 
 
 def normalize_filter_mode(mode: Optional[str]) -> str:

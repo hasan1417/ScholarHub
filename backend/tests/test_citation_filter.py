@@ -64,6 +64,132 @@ def test_whitespace_tolerance_for_multi_key_cites() -> None:
     assert [item["original_key"] for item in invalid] == ["key2"]
 
 
+def test_optional_arguments_are_filtered_and_preserved() -> None:
+    text = r"\cite[p. 5]{bad1} \citep[see][p.~5]{bad2}"
+
+    filtered, invalid = filter_response(text, set())
+
+    assert filtered == r"\cite[p. 5]{?MISSING:bad1?} \citep[see][p.~5]{?MISSING:bad2?}"
+    assert [item["original_key"] for item in invalid] == ["bad1", "bad2"]
+    assert [item["command"] for item in invalid] == [r"\cite", r"\citep"]
+    for item in invalid:
+        assert text[item["span_start"] : item["span_end"]] == item["original_key"]
+
+
+def test_natbib_extra_and_capitalized_commands_are_filtered() -> None:
+    commands = (
+        "citealt",
+        "citealp",
+        "citeauthor",
+        "citeyear",
+        "citeyearpar",
+        "citenum",
+        "Citet",
+        "Citep",
+        "Citealt",
+        "Citealp",
+        "Citeauthor",
+    )
+    text = " ".join(f"\\{command}{{bad{index}}}" for index, command in enumerate(commands))
+
+    filtered, invalid = filter_response(text, set())
+
+    expected = " ".join(
+        f"\\{command}{{?MISSING:bad{index}?}}" for index, command in enumerate(commands)
+    )
+    assert filtered == expected
+    assert [item["command"] for item in invalid] == [f"\\{command}" for command in commands]
+
+
+def test_biblatex_and_capitalized_commands_are_filtered() -> None:
+    commands = (
+        "parencite",
+        "textcite",
+        "autocite",
+        "footcite",
+        "smartcite",
+        "supercite",
+        "citetitle",
+        "fullcite",
+        "Parencite",
+        "Textcite",
+        "Autocite",
+        "Smartcite",
+        "Citetitle",
+    )
+    text = " ".join(f"\\{command}{{bad{index}}}" for index, command in enumerate(commands))
+
+    filtered, invalid = filter_response(text, set())
+
+    expected = " ".join(
+        f"\\{command}{{?MISSING:bad{index}?}}" for index, command in enumerate(commands)
+    )
+    assert filtered == expected
+    assert [item["original_key"] for item in invalid] == [
+        f"bad{index}" for index in range(len(commands))
+    ]
+
+
+def test_multi_group_cites_validate_every_group() -> None:
+    text = r"\cites{a}{b}"
+
+    extracted = extract_cite_keys(text)
+    filtered, invalid = filter_response(text, {"a"})
+
+    assert [(key, command) for key, _, _, command in extracted] == [("a", r"\cites"), ("b", r"\cites")]
+    assert filtered == r"\cites{a}{?MISSING:b?}"
+    assert [item["original_key"] for item in invalid] == ["b"]
+    assert text[invalid[0]["span_start"] : invalid[0]["span_end"]] == "b"
+
+
+def test_multi_group_cites_leave_non_bibkey_group_untouched() -> None:
+    filtered, invalid = filter_response(r"\cites{a} {unrelated group}", set())
+
+    assert filtered == r"\cites{?MISSING:a?} {unrelated group}"
+    assert [item["original_key"] for item in invalid] == ["a"]
+
+
+def test_multi_group_cites_allow_space_before_another_bibkey_group() -> None:
+    filtered, invalid = filter_response(r"\cites{a} {b}", set())
+
+    assert filtered == r"\cites{?MISSING:a?} {?MISSING:b?}"
+    assert [item["original_key"] for item in invalid] == ["a", "b"]
+
+
+def test_all_multi_group_biblatex_commands_preserve_per_group_options() -> None:
+    commands = ("parencites", "autocites", "textcites", "footcites")
+    text = " ".join(f"\\{command}[see]{{good}}[p.~5]{{bad}}" for command in commands)
+
+    filtered, invalid = filter_response(text, {"good"})
+
+    expected = " ".join(
+        f"\\{command}[see]{{good}}[p.~5]{{?MISSING:bad?}}" for command in commands
+    )
+    assert filtered == expected
+    assert [item["command"] for item in invalid] == [f"\\{command}" for command in commands]
+
+
+def test_nocite_wildcard_is_not_a_missing_key() -> None:
+    text = r"\nocite{*} \nocite{bad}"
+
+    extracted = extract_cite_keys(text)
+    filtered, invalid = filter_response(text, set())
+
+    assert [(key, command) for key, _, _, command in extracted] == [("bad", r"\nocite")]
+    assert filtered == r"\nocite{*} \nocite{?MISSING:bad?}"
+    assert [item["original_key"] for item in invalid] == ["bad"]
+
+
+def test_non_citation_commands_are_left_untouched() -> None:
+    text = r"\section{Introduction} \label{bad} \ref{bad} \citeunknown{bad}"
+
+    filtered, invalid = filter_response(text, set())
+
+    assert filtered == text
+    assert invalid == []
+    assert extract_cite_keys(text) == []
+
+
 def test_make_bib_key_matches_frontend_algorithm_samples() -> None:
     refs = [
         (
