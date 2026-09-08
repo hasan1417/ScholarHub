@@ -34,7 +34,7 @@ from app.services.discussion_ai.openrouter_orchestrator import (
     get_available_models_with_meta,
 )
 from app.api.utils.openrouter_access import resolve_openrouter_key_for_project
-from app.api.utils.request_dedup import check_and_set_request
+from app.api.utils.request_dedup import check_and_set_request, clear_request, update_request_status
 from app.services.subscription_service import SubscriptionService
 from app.api.v1.discussion_helpers import (
     build_ai_response as _build_ai_response,
@@ -114,6 +114,45 @@ def list_openrouter_models(
         )
 
     return models
+
+
+def _find_own_exchange(
+    db: Session, channel_id: UUID, author_id: UUID, existing_exchange_id: str,
+) -> Optional[ProjectDiscussionAssistantExchange]:
+    """The exchange a duplicate key points at, only if it is this author's in this channel."""
+    try:
+        exchange_uuid = UUID(existing_exchange_id)
+    except ValueError:
+        return None
+    return (
+        db.query(ProjectDiscussionAssistantExchange)
+        .filter(
+            ProjectDiscussionAssistantExchange.id == exchange_uuid,
+            ProjectDiscussionAssistantExchange.channel_id == channel_id,
+            ProjectDiscussionAssistantExchange.author_id == author_id,
+        )
+        .one_or_none()
+    )
+
+
+def _duplicate_exchange_response(
+    db: Session, channel_id: UUID, author_id: UUID, existing_exchange_id: str,
+) -> Optional[DiscussionAssistantResponse]:
+    """Answer a retry with the original result; None when the original failed and the
+    retry should run; 409 while the original is still in progress."""
+    exchange = _find_own_exchange(db, channel_id, author_id, existing_exchange_id)
+    if exchange is not None and exchange.status == "completed":
+        return DiscussionAssistantResponse.model_validate(exchange.response)
+    if exchange is not None and exchange.status == "failed":
+        return None
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "error": "duplicate_request",
+            "message": "This request is already being processed.",
+            "exchange_id": existing_exchange_id,
+        },
+    )
 
 
 @router.post(
@@ -276,6 +315,8 @@ async def invoke_discussion_assistant(
             for h in payload.conversation_history
         ]
 
+    dedup_key = f"{current_user.id}:{payload.idempotency_key}" if payload.idempotency_key else ""
+
     # Use streaming if requested
     if stream:
         orchestrator = OpenRouterOrchestrator(
@@ -285,15 +326,21 @@ async def invoke_discussion_assistant(
         exchange_created_at = datetime.utcnow().isoformat() + "Z"
 
         # Check for duplicate request using idempotency key
-        if payload.idempotency_key:
-            is_new, existing_exchange_id = check_and_set_request(
-                payload.idempotency_key,
-                exchange_id,
-            )
+        if dedup_key:
+            is_new, existing_exchange_id = check_and_set_request(dedup_key, exchange_id)
+            existing = None
             if not is_new and existing_exchange_id:
+                existing = _find_own_exchange(db, channel.id, current_user.id, existing_exchange_id)
+            if existing is not None and existing.status == "failed":
+                update_request_status(dedup_key, exchange_id)  # the earlier attempt produced nothing
+            elif not is_new and existing_exchange_id:
                 logger.info(f"Duplicate request detected, returning existing exchange: {existing_exchange_id}")
+                if existing is not None and existing.status == "completed":
+                    duplicate_event = json.dumps({"type": "result", "payload": existing.response})
+                else:
+                    duplicate_event = json.dumps({"type": "duplicate", "exchange_id": existing_exchange_id})
                 async def duplicate_response():
-                    yield f"data: {json.dumps({'type': 'duplicate', 'exchange_id': existing_exchange_id})}\n\n"
+                    yield f"data: {duplicate_event}\n\n"
                 return StreamingResponse(
                     duplicate_response(),
                     media_type="text/event-stream",
@@ -355,6 +402,7 @@ async def invoke_discussion_assistant(
                 final_result = None
 
                 async def _persist_stream_failure(error: Dict[str, Any]) -> None:
+                    await asyncio.to_thread(clear_request, dedup_key)
                     error_message = error.get("message") or "The AI provider is temporarily unavailable. Please try again."
                     failed_response = DiscussionAssistantResponse(
                         message=error_message,
@@ -522,6 +570,7 @@ async def invoke_discussion_assistant(
 
             except GeneratorExit:
                 logger.info(f"Client disconnected during streaming for exchange {exchange_id}")
+                clear_request(dedup_key)
                 # Mark exchange as failed so it doesn't stay stuck in "processing" forever.
                 # _persist_assistant_exchange is sync (uses its own SessionLocal), so no await needed.
                 try:
@@ -537,6 +586,7 @@ async def invoke_discussion_assistant(
                     logger.warning(f"Failed to mark exchange {exchange_id} as failed after client disconnect")
             except Exception as exc:
                 logger.exception("Streaming error", exc_info=exc)
+                await asyncio.to_thread(clear_request, dedup_key)
                 await asyncio.to_thread(
                     _persist_assistant_exchange,
                     proj_id, chan_id, user_id, exchange_id,
@@ -563,27 +613,42 @@ async def invoke_discussion_assistant(
         )
 
     # Non-streaming mode
-    result = await asyncio.to_thread(
-        _handle_message_in_new_session,
-        project.id,
-        channel.id,
-        current_user.id,
-        model,
-        api_key_to_use,
-        payload.question,
-        recent_search_results=search_results_list,
-        recent_search_id=payload.recent_search_id,
-        previous_state_dict=previous_state_dict,
-        conversation_history=conversation_history,
-        reasoning_mode=payload.reasoning or False,
-    )
+    exchange_id = str(uuid4())
+    exchange_created_at = datetime.utcnow().isoformat() + "Z"
+    if dedup_key:
+        is_new, existing_exchange_id = check_and_set_request(dedup_key, exchange_id)
+        if not is_new and existing_exchange_id:
+            logger.info(f"Duplicate request detected, existing exchange: {existing_exchange_id}")
+            answer = _duplicate_exchange_response(db, channel.id, current_user.id, existing_exchange_id)
+            if answer is not None:
+                return answer
+            update_request_status(dedup_key, exchange_id)
+
+    try:
+        result = await asyncio.to_thread(
+            _handle_message_in_new_session,
+            project.id,
+            channel.id,
+            current_user.id,
+            model,
+            api_key_to_use,
+            payload.question,
+            recent_search_results=search_results_list,
+            recent_search_id=payload.recent_search_id,
+            previous_state_dict=previous_state_dict,
+            conversation_history=conversation_history,
+            reasoning_mode=payload.reasoning or False,
+        )
+    except Exception:
+        # Nothing was produced, so the client's retry must be processed, not deduplicated.
+        clear_request(dedup_key)
+        raise
 
     response = _build_ai_response(result, model)
 
     # Persist exchange
-    exchange_id = str(uuid4())
-    exchange_created_at = datetime.utcnow().isoformat() + "Z"
     if result.get("ok") is False:
+        clear_request(dedup_key)
         provider_error = result.get("error") or {}
         error_message = provider_error.get(
             "message",

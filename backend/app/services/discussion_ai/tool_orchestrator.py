@@ -41,18 +41,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DISCUSSION_TOOL_REGISTRY = build_tool_registry()
+MUTATING_TOOLS = DISCUSSION_TOOL_REGISTRY.mutating_names
 # Note: Don't pre-filter tools at module level - filter at runtime based on user role
 DISCUSSION_TOOLS = DISCUSSION_TOOL_REGISTRY.get_schema_list()  # Full list for reference
 
 # Paper reference turns use an explicit read-only allowlist, independent of role.
-READ_ONLY_REFERENCE_TOOLS = frozenset({
-    "get_recent_search_results", "get_project_references", "get_reference_details",
-    "search_papers", "get_related_papers", "semantic_search_library", "discover_topics",
-    "batch_search_papers", "suggest_research_gaps",
-    "recommend_methodology", "refine_research_question", "get_project_papers",
-    "get_project_info", "get_created_artifacts", "get_channel_resources",
-    "get_channel_papers", "export_citations",
-})
+READ_ONLY_REFERENCE_TOOLS = DISCUSSION_TOOL_REGISTRY.read_only_names
 REFERENCE_START = "<untrusted_reference_material>"
 REFERENCE_END = "</untrusted_reference_material>"
 REFERENCE_NOTICE = (
@@ -880,7 +874,7 @@ If asked to perform write actions, explain that editor/admin access is required.
                     break
 
                 # Filter out duplicate mutating tool calls
-                tool_calls = filter_duplicate_mutations(tool_calls, mutating_calls_seen)
+                tool_calls = filter_duplicate_mutations(tool_calls, mutating_calls_seen, MUTATING_TOOLS)
                 tool_calls = self._limit_turn_tool_calls(tool_calls, ctx)
 
                 if not tool_calls:

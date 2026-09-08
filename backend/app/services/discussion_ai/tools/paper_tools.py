@@ -181,6 +181,7 @@ TOOL_SPECS: List[ToolSpec] = [
         name="get_project_papers",
         schema=GET_PROJECT_PAPERS_SCHEMA,
         handler=_handle_get_project_papers,
+        mutating=False,
     ),
     ToolSpec(
         name="create_paper",

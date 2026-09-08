@@ -841,6 +841,7 @@ export interface DiscussionAssistantRequest {
   scope?: Array<'transcripts' | 'papers' | 'references'>
   recent_search_results?: RecentSearchResultItem[]
   recent_search_id?: string
+  idempotency_key?: string
 }
 
 export type DiscussionAssistantOrigin = 'resource' | 'message'

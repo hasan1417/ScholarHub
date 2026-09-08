@@ -6,9 +6,10 @@ Module-level pure functions and constants used across multiple mixin modules.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, FrozenSet, List, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -18,31 +19,43 @@ from app.constants.paper_templates import CONFERENCE_TEMPLATES
 _CITE_PATTERN = re.compile(r'\\cite\{([^}]+)\}')
 _SECTION_PATTERN_CACHE: Dict[str, "re.Pattern[str]"] = {}
 
-# LaTeX special characters that must be escaped in untrusted text
-MUTATING_TOOLS = frozenset({"update_project_info", "create_paper", "update_paper"})
+def _canonical_arguments(value: Any) -> Any:
+    """Normalize so key order and surrounding whitespace never change a call's identity."""
+    if isinstance(value, dict):
+        return {str(k): _canonical_arguments(v) for k, v in sorted(value.items(), key=lambda kv: str(kv[0]))}
+    if isinstance(value, list):
+        return [_canonical_arguments(v) for v in value]
+    if isinstance(value, str):
+        return value.strip()
+    return value
+
+
+def tool_call_signature(tool_name: str, args: Dict[str, Any]) -> Tuple[str, str]:
+    return (tool_name, json.dumps(_canonical_arguments(args), sort_keys=True, separators=(",", ":"), default=str))
 
 
 def filter_duplicate_mutations(
     tool_calls: List[Dict],
-    already_called: Set[Tuple[str, ...]],
+    already_called: Set[Tuple[str, str]],
+    mutating_tools: FrozenSet[str],
 ) -> List[Dict]:
     """Filter out duplicate mutating tool calls within a single turn.
 
-    Tracks by (tool_name, sorted_arg_key_value_pairs) so the same tool
-    called with different arguments is allowed through, while an identical
-    re-invocation (same name, same args, same values) is blocked.
+    ``mutating_tools`` comes from the tool registry's declarations. Tracks by
+    (tool_name, canonical arguments) so the same tool called with different
+    arguments is allowed through, while an identical re-invocation is blocked.
 
     Returns the filtered list. Mutates *already_called* in-place.
     """
     filtered = []
     for tc in tool_calls:
         tool_name = tc.get("name", "")
-        if tool_name in MUTATING_TOOLS:
+        if tool_name in mutating_tools:
             args = tc.get("arguments") or {}
             if not isinstance(args, dict):
                 filtered.append(tc)
                 continue  # Dispatch reports the schema validation error.
-            signature = (tool_name, *sorted((k, str(v)) for k, v in args.items()))
+            signature = tool_call_signature(tool_name, args)
             if signature in already_called:
                 logger.warning("[GuardRail] Blocked duplicate mutating tool call: %s", tool_name)
                 continue
@@ -51,6 +64,7 @@ def filter_duplicate_mutations(
     return filtered
 
 
+# LaTeX special characters that must be escaped in untrusted text
 _LATEX_SPECIAL_CHARS = str.maketrans({
     '\\': r'\textbackslash{}',
     '{': r'\{',

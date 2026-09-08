@@ -224,16 +224,19 @@ TOOL_SPECS: List[ToolSpec] = [
         name="suggest_research_gaps",
         schema=SUGGEST_RESEARCH_GAPS_SCHEMA,
         handler=_handle_suggest_research_gaps,
+        mutating=False,
     ),
     ToolSpec(
         name="recommend_methodology",
         schema=RECOMMEND_METHODOLOGY_SCHEMA,
         handler=_handle_recommend_methodology,
+        mutating=False,
     ),
     ToolSpec(
         name="refine_research_question",
         schema=REFINE_RESEARCH_QUESTION_SCHEMA,
         handler=_handle_refine_research_question,
+        mutating=False,
     ),
 ]
 

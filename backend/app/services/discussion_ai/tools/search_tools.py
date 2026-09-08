@@ -179,26 +179,31 @@ TOOL_SPECS: List[ToolSpec] = [
         name="search_papers",
         schema=SEARCH_PAPERS_SCHEMA,
         handler=_handle_search_papers,
+        mutating=False,
     ),
     ToolSpec(
         name="discover_topics",
         schema=DISCOVER_TOPICS_SCHEMA,
         handler=_handle_discover_topics,
+        mutating=False,
     ),
     ToolSpec(
         name="batch_search_papers",
         schema=BATCH_SEARCH_PAPERS_SCHEMA,
         handler=_handle_batch_search_papers,
+        mutating=False,
     ),
     ToolSpec(
         name="get_related_papers",
         schema=GET_RELATED_PAPERS_SCHEMA,
         handler=_handle_get_related_papers,
+        mutating=False,
     ),
     ToolSpec(
         name="semantic_search_library",
         schema=SEMANTIC_SEARCH_LIBRARY_SCHEMA,
         handler=_handle_semantic_search_library,
+        mutating=False,
     ),
 ]
 

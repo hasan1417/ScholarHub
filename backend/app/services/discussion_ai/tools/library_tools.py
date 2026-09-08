@@ -230,16 +230,19 @@ TOOL_SPECS: List[ToolSpec] = [
         name="get_recent_search_results",
         schema=GET_RECENT_SEARCH_RESULTS_SCHEMA,
         handler=_handle_get_recent_search_results,
+        mutating=False,
     ),
     ToolSpec(
         name="get_project_references",
         schema=GET_PROJECT_REFERENCES_SCHEMA,
         handler=_handle_get_project_references,
+        mutating=False,
     ),
     ToolSpec(
         name="get_reference_details",
         schema=GET_REFERENCE_DETAILS_SCHEMA,
         handler=_handle_get_reference_details,
+        mutating=False,
     ),
     ToolSpec(
         name="analyze_reference",
@@ -250,16 +253,19 @@ TOOL_SPECS: List[ToolSpec] = [
         name="get_channel_resources",
         schema=GET_CHANNEL_RESOURCES_SCHEMA,
         handler=_handle_get_channel_resources,
+        mutating=False,
     ),
     ToolSpec(
         name="get_channel_papers",
         schema=GET_CHANNEL_PAPERS_SCHEMA,
         handler=_handle_get_channel_papers,
+        mutating=False,
     ),
     ToolSpec(
         name="export_citations",
         schema=EXPORT_CITATIONS_SCHEMA,
         handler=_handle_export_citations,
+        mutating=False,
     ),
     ToolSpec(
         name="annotate_reference",

@@ -26,7 +26,7 @@ from openai import APIStatusError, RateLimitError, APIConnectionError, APITimeou
 import httpx
 
 from app.core.config import settings
-from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator, DISCUSSION_TOOLS
+from app.services.discussion_ai.tool_orchestrator import MUTATING_TOOLS, ToolOrchestrator
 from app.services.discussion_ai.token_utils import count_messages_tokens
 from app.services.discussion_ai.utils import filter_duplicate_mutations
 
@@ -1234,7 +1234,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 break
 
             # Filter out duplicate mutating tool calls.
-            tool_calls = filter_duplicate_mutations(tool_calls, mutating_calls_seen)
+            tool_calls = filter_duplicate_mutations(tool_calls, mutating_calls_seen, MUTATING_TOOLS)
             tool_calls = self._limit_turn_tool_calls(tool_calls, ctx)
             if not tool_calls:
                 all_content_chunks.append(response_content or "".join(iteration_content))
