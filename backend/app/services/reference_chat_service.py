@@ -1,7 +1,7 @@
 import logging
 import re
 import time
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Iterator, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -445,15 +445,15 @@ class ReferenceChatMixin:
             logger.error(f"Error generating reference RAG response: {str(e)}")
             raise
 
-    def stream_reference_rag_response(self, query: str, chunks: List[Dict[str, Any]], document_excerpt: Optional[str] = None, paper_id: Optional[str] = None, user_id: Optional[str] = None, db: Optional[Session] = None):
+    def stream_reference_rag_response(self, query: str, chunks: List[Dict[str, Any]], document_excerpt: Optional[str] = None, paper_id: Optional[str] = None, user_id: Optional[str] = None, db: Optional[Session] = None, reference_summary: Optional[List[str]] = None) -> Iterator[str]:
         if not self.openai_client:
             yield "AI service not available. Please try again later."
             return
 
         try:
-            ref_summary_lines: List[str] = []
+            ref_summary_lines: List[str] = reference_summary or []
             ref_sources: List[Dict[str, Any]] = []
-            if paper_id and db is not None:
+            if reference_summary is None and paper_id and db is not None:
                 ref_summary_lines, ref_sources = summarize_paper_references(db, paper_id)
 
             route = self._pick_resources(query, bool(document_excerpt), bool(chunks) or bool(ref_summary_lines))

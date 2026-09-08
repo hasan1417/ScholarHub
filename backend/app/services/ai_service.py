@@ -203,3 +203,6 @@ class AIService(AIClient, WritingToolsMixin, ReferenceChatMixin):
         except Exception as e:
             logger.error(f"Error getting relevant documents: {str(e)}")
             return []
+
+
+ai_service = AIService()

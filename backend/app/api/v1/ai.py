@@ -12,8 +12,9 @@ from openai import OpenAI
 import os
 import math
 import json
-from app.services.ai_service import AIService
+from app.services.ai_service import ai_service
 from app.services.document_processing_service import DocumentProcessingService
+from app.services.reference_summary_service import summarize_paper_references
 from app.schemas.ai import ChatQuery, ChatResponse, DocumentProcessingResponse
 from pydantic import BaseModel
 import logging
@@ -78,7 +79,6 @@ class ResearchContextResponse(BaseModel):
     processing_time: float
 
 router = APIRouter()
-ai_service = AIService()
 document_processor = DocumentProcessingService()
 
 EDITOR_AI_FEATURE = "editor_ai_calls"
@@ -192,11 +192,11 @@ def _citation_validation_sse(
 
 
 @router.post("/chat-with-documents", response_model=ChatResponse)
-async def chat_with_documents(
+def chat_with_documents(
     query: ChatQuery,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> ChatResponse:
     """
     Chat with user's documents using RAG (Retrieval Augmented Generation)
     """
@@ -278,13 +278,13 @@ async def chat_with_documents(
         )
 
 @router.get("/retrieve")
-async def retrieve_relevant_chunks(
+def retrieve_relevant_chunks(
     paper_id: str,
     query: str,
     k: int = 8,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> Dict[str, Any]:
     """Retrieve top-K relevant chunks or abstracts for a paper using simple keyword scoring."""
     try:
         items = []
@@ -356,12 +356,12 @@ async def retrieve_relevant_chunks(
 
 
 @router.post("/papers/{paper_id}/embed")
-async def embed_paper(
+def embed_paper(
     paper_id: str,
     model: str = "text-embedding-3-small",
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> Dict[str, Any]:
     """Compute and store embeddings for all chunks in a paper's documents."""
     try:
         credit_cost = None
@@ -379,11 +379,11 @@ async def embed_paper(
 
 
 @router.post("/documents/{document_id}/process", response_model=DocumentProcessingResponse)
-async def process_document_for_ai(
+def process_document_for_ai(
     document_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> DocumentProcessingResponse:
     """
     Process a document for AI: extract text, chunk it, generate embeddings
     """
@@ -449,11 +449,11 @@ async def process_document_for_ai(
 
 
 @router.get("/documents/{document_id}/chunks")
-async def get_document_chunks(
+def get_document_chunks(
     document_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> Dict[str, Any]:
     """
     Get all chunks for a specific document
     """
@@ -498,11 +498,11 @@ async def get_document_chunks(
 
 
 @router.get("/chat-history")
-async def get_chat_history(
+def get_chat_history(
     limit: int = 20,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> Dict[str, Any]:
     """
     Get user's AI chat history
     """
@@ -532,7 +532,7 @@ async def get_chat_history(
 
 
 @router.get("/status")
-async def get_ai_service_status():
+def get_ai_service_status() -> Dict[str, Any]:
     """
     Get OpenAI API service status and readiness
     """
@@ -555,7 +555,7 @@ async def get_ai_service_status():
         }
 
 @router.get("/models")
-async def get_model_configuration():
+def get_model_configuration() -> Dict[str, Any]:
     """
     Get current model configuration and available options
     """
@@ -569,10 +569,10 @@ async def get_model_configuration():
         )
 
 @router.put("/models")
-async def update_model_configuration(
+def update_model_configuration(
     request: ModelConfigurationRequest,
     current_user: User = Depends(get_current_user)
-):
+) -> Dict[str, Any]:
     """
     Update model configuration
     """
@@ -600,11 +600,11 @@ async def update_model_configuration(
 # ===== AI WRITING TOOLS ENDPOINTS =====
 
 @router.post("/writing/generate", response_model=TextGenerationResponse)
-async def generate_text(
+def generate_text(
     request: TextGenerationRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> TextGenerationResponse:
     """
     Generate, expand, rephrase, or complete text using AI
     """
@@ -657,11 +657,11 @@ async def generate_text(
 
 
 @router.post("/writing/generate/stream")
-async def generate_text_stream(
+def generate_text_stream(
     request: TextGenerationRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> StreamingResponse:
     """
     Stream text generation response in plain text chunks.
     """
@@ -674,6 +674,14 @@ async def generate_text_stream(
 
         credit_cost = _admit_editor_ai_usage(db, current_user, ai_service.writing_model)
 
+        user_id = current_user.id
+        allowed_keys = build_allowed_citation_keys(
+            db,
+            project_id=request.project_id,
+            paper_id=request.paper_id,
+            owner_id=user_id,
+        )
+
         def streamer() -> Iterator[str]:
             chunks: List[str] = []
             try:
@@ -685,19 +693,15 @@ async def generate_text_stream(
                 ):
                     chunks.append(chunk)
                     yield chunk
-                filtered_text, invalid_citations = _filter_ai_response_text(
-                    db,
-                    "".join(chunks),
-                    current_user,
-                    project_id=request.project_id,
-                    paper_id=request.paper_id,
+                filtered_text, invalid_citations = apply_citation_filter_mode(
+                    "".join(chunks), allowed_keys, settings.CITATION_FILTER_MODE,
                 )
                 yield _citation_validation_sse(invalid_citations, filtered_text=filtered_text)
-                _increment_editor_ai_usage_in_new_session(current_user.id, credit_cost)
+                _increment_editor_ai_usage_in_new_session(user_id, credit_cost)
             except GeneratorExit:
                 raise
             except Exception as exc:
-                logger.error("Text generation stream failed for user %s: %s", current_user.id, exc)
+                logger.error("Text generation stream failed for user %s: %s", user_id, exc)
                 yield "data: " + json.dumps({
                     "type": "error",
                     "message": "The AI provider is temporarily unavailable. Please try again.",
@@ -716,11 +720,11 @@ async def generate_text_stream(
 
 
 @router.post("/writing/grammar-check", response_model=GrammarCheckResponse)
-async def check_grammar_and_style(
+def check_grammar_and_style(
     request: GrammarCheckRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> GrammarCheckResponse:
     """
     Check grammar, style, and clarity of text using AI
     """
@@ -765,11 +769,11 @@ async def check_grammar_and_style(
 
 
 @router.post("/writing/research-context", response_model=ResearchContextResponse)
-async def enhance_with_research_context(
+def enhance_with_research_context(
     request: ResearchContextRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> ResearchContextResponse:
     """
     Enhance text using research context from user's papers
     """
@@ -849,11 +853,11 @@ def _chunk_text_stream(text: str, chunk_size: int = 512):
 
 
 @router.post("/chat-with-references", response_model=ReferenceChatResponse)
-async def chat_with_references(
+def chat_with_references(
     query: ReferenceChatQuery,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> ReferenceChatResponse:
     """
     Chat with user's references using RAG (Retrieval Augmented Generation)
     Can be scoped to a specific paper's references or the entire user library
@@ -1045,11 +1049,11 @@ async def chat_with_references(
 
 
 @router.post("/chat-with-references/stream")
-async def chat_with_references_stream(
+def chat_with_references_stream(
     query: ReferenceChatQuery,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> StreamingResponse:
     """
     Stream reference chat response in plain text chunks.
     """
@@ -1156,6 +1160,15 @@ async def chat_with_references_stream(
         if provider_expected:
             credit_cost = _admit_editor_ai_usage(db, current_user, ai_service.chat_model)
 
+        user_id = current_user.id
+        allowed_keys = build_allowed_citation_keys(
+            db,
+            project_id=query.project_id,
+            paper_id=query.paper_id,
+            owner_id=user_id,
+        )
+        reference_summary = summarize_paper_references(db, query.paper_id)[0] if query.paper_id else []
+
         def streamer() -> Iterator[str]:
             response_chunks: List[str] = []
             try:
@@ -1164,25 +1177,21 @@ async def chat_with_references_stream(
                     chunks,
                     document_excerpt=query.document_excerpt,
                     paper_id=query.paper_id,
-                    user_id=str(current_user.id),
-                    db=db,
+                    user_id=str(user_id),
+                    reference_summary=reference_summary,
                 ):
                     response_chunks.append(chunk)
                     yield chunk
-                filtered_text, invalid_citations = _filter_ai_response_text(
-                    db,
-                    "".join(response_chunks),
-                    current_user,
-                    project_id=query.project_id,
-                    paper_id=query.paper_id,
+                filtered_text, invalid_citations = apply_citation_filter_mode(
+                    "".join(response_chunks), allowed_keys, settings.CITATION_FILTER_MODE,
                 )
                 yield _citation_validation_sse(invalid_citations, filtered_text=filtered_text)
                 if credit_cost is not None:
-                    _increment_editor_ai_usage_in_new_session(current_user.id, credit_cost)
+                    _increment_editor_ai_usage_in_new_session(user_id, credit_cost)
             except GeneratorExit:
                 raise
             except Exception as exc:
-                logger.error("Reference chat stream failed for user %s: %s", current_user.id, exc)
+                logger.error("Reference chat stream failed for user %s: %s", user_id, exc)
                 yield "data: " + json.dumps({
                     "type": "error",
                     "message": "The AI provider is temporarily unavailable. Please try again.",
@@ -1202,12 +1211,12 @@ async def chat_with_references_stream(
 
 
 @router.post("/papers/{paper_id}/ingest-references")
-async def ingest_paper_references(
+def ingest_paper_references(
     paper_id: str,
     force_reprocess: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> Dict[str, Any]:
     """
     Ingest all references for a specific paper (download PDFs and process for AI)
     """
@@ -1327,12 +1336,12 @@ async def ingest_paper_references(
 
 
 @router.post("/references/{reference_id}/ingest")
-async def ingest_single_reference(
+def ingest_single_reference(
     reference_id: str,
     force_reprocess: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> Dict[str, Any]:
     """
     Ingest a single reference (download PDF and process for AI)
     """
@@ -1389,11 +1398,11 @@ async def ingest_single_reference(
 
 
 @router.get("/references/{reference_id}/chat-status")
-async def get_reference_chat_status(
+def get_reference_chat_status(
     reference_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> Dict[str, Any]:
     """
     Get the chat readiness status of a reference
     """
@@ -1446,11 +1455,11 @@ async def get_reference_chat_status(
 
 
 @router.get("/papers/{paper_id}/references/chat-status")
-async def get_paper_references_chat_status(
+def get_paper_references_chat_status(
     paper_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> Dict[str, Any]:
     """
     Get the chat readiness status of all references for a paper
     """
@@ -1575,11 +1584,11 @@ def _parse_project_short_id(url_id: str) -> str | None:
 
 
 @router.post("/text-tools", response_model=TextToolsResponse)
-async def ai_text_tools(
+def ai_text_tools(
     request: TextToolsRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> TextToolsResponse:
     """
     AI-powered text manipulation tools: paraphrase, tone change, summarize, explain, find synonyms.
     Uses the project's configured model via OpenRouter if project_id is provided.

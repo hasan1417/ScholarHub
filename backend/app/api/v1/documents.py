@@ -11,7 +11,7 @@ from app.models.document import Document, DocumentStatus, DocumentType
 from app.models.document_chunk import DocumentChunk
 from app.schemas.document import DocumentResponse, DocumentUpdate, DocumentCreate, DocumentList
 from app.services.document_service import DocumentService
-from app.services.ai_service import AIService
+from app.services.ai_service import ai_service
 from app.services.paper_membership_service import ensure_paper_membership_for_project_member
 from sqlalchemy import func
 import logging
@@ -52,7 +52,6 @@ def validate_file_magic_bytes(content: bytes, content_type: str) -> bool:
 
 # Initialize services
 document_service = DocumentService()
-ai_service = AIService()
 
 @router.post("/upload", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
 async def upload_document(

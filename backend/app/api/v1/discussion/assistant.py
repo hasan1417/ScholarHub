@@ -16,6 +16,8 @@ from app.api.deps import get_current_user, get_current_verified_user
 from app.api.utils.project_access import ensure_project_member, get_project_or_404
 from app.database import SessionLocal, get_db
 from app.models import (
+    Project,
+    ProjectDiscussionChannel,
     ProjectDiscussionAssistantExchange,
     User,
 )
@@ -26,7 +28,7 @@ from app.schemas.project_discussion import (
     OpenRouterModelInfo,
     OpenRouterModelListResponse,
 )
-from app.services.ai_service import AIService
+from app.services.ai_service import ai_service as _discussion_ai_core
 from app.services.discussion_ai.openrouter_orchestrator import (
     OpenRouterOrchestrator,
     get_available_models_with_meta,
@@ -47,7 +49,31 @@ router = APIRouter()
 
 logger = logging.getLogger(__name__)
 
-_discussion_ai_core = AIService()
+
+def _handle_message_in_new_session(
+    project_id: UUID,
+    channel_id: UUID,
+    user_id: UUID,
+    model: str,
+    api_key: str,
+    question: str,
+    **kwargs: Any,
+) -> Dict[str, Any]:
+    """Run synchronous AI and DB work entirely within its worker session."""
+    worker_db = SessionLocal()
+    try:
+        orchestrator = OpenRouterOrchestrator(
+            _discussion_ai_core, worker_db, model=model, user_api_key=api_key,
+        )
+        return orchestrator.handle_message(
+            worker_db.get(Project, project_id),
+            worker_db.get(ProjectDiscussionChannel, channel_id),
+            question,
+            current_user=worker_db.get(User, user_id),
+            **kwargs,
+        )
+    finally:
+        worker_db.close()
 
 
 @router.get("/projects/{project_id}/discussion/models")
@@ -102,7 +128,7 @@ async def invoke_discussion_assistant(
     stream: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_verified_user),
-):
+) -> Union[DiscussionAssistantResponse, StreamingResponse]:
     """
     Invoke the AI assistant using OpenRouter.
 
@@ -242,14 +268,6 @@ async def invoke_discussion_assistant(
     if last_exchange and last_exchange.conversation_state:
         previous_state_dict = last_exchange.conversation_state
 
-    # Create OpenRouter orchestrator with the determined API key
-    orchestrator = OpenRouterOrchestrator(
-        _discussion_ai_core,
-        db,
-        model=model,
-        user_api_key=api_key_to_use,
-    )
-
     # Convert conversation history if provided
     conversation_history = None
     if payload.conversation_history:
@@ -260,6 +278,9 @@ async def invoke_discussion_assistant(
 
     # Use streaming if requested
     if stream:
+        orchestrator = OpenRouterOrchestrator(
+            _discussion_ai_core, db, model=model, user_api_key=api_key_to_use,
+        )
         exchange_id = str(uuid4())
         exchange_created_at = datetime.utcnow().isoformat() + "Z"
 
@@ -542,16 +563,19 @@ async def invoke_discussion_assistant(
         )
 
     # Non-streaming mode
-    result = orchestrator.handle_message(
-        project,
-        channel,
+    result = await asyncio.to_thread(
+        _handle_message_in_new_session,
+        project.id,
+        channel.id,
+        current_user.id,
+        model,
+        api_key_to_use,
         payload.question,
         recent_search_results=search_results_list,
         recent_search_id=payload.recent_search_id,
         previous_state_dict=previous_state_dict,
         conversation_history=conversation_history,
         reasoning_mode=payload.reasoning or False,
-        current_user=current_user,
     )
 
     response = _build_ai_response(result, model)

@@ -69,7 +69,7 @@ from app.schemas.project_discussion import (
     OpenRouterModelListResponse,
 )
 from app.core.config import settings
-from app.services.ai_service import AIService
+from app.services.ai_service import ai_service as _discussion_ai_core
 from app.services.discussion_ai.openrouter_orchestrator import (
     OpenRouterOrchestrator,
     get_available_models_with_meta,
@@ -97,5 +97,3 @@ from app.api.v1.discussion_helpers import (
 )
 
 logger = logging.getLogger(__name__)
-
-_discussion_ai_core = AIService()
