@@ -14,9 +14,9 @@ Sources tried, in order:
 3. CORE works API (free 10k/day; green OA aggregator with wide coverage)
 4. Semantic Scholar abstract fallback (already tried upstream — skip)
 
-Each source is tried in parallel (bounded). First non-empty wins. We write
-*everything* to the cache — even negative ("unavailable") entries — so we don't
-retry known-empty DOIs.
+Each source is tried in parallel (bounded). First non-empty wins. Definitive
+not-found responses are cached indefinitely; transient failures use a bounded,
+exponential retry schedule.
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 import aiohttp
@@ -40,6 +40,8 @@ MIN_ABSTRACT_LEN = 50
 MAX_PARALLEL_PER_SOURCE = 6
 PER_FETCH_TIMEOUT = 5.0
 MAX_ATTEMPTS_BEFORE_GIVEUP = 3
+NEGATIVE_CACHE_BASE_TTL = timedelta(minutes=5)
+NEGATIVE_CACHE_GIVEUP_TTL = timedelta(days=1)
 
 
 @dataclass
@@ -47,7 +49,9 @@ class CachedAbstract:
     doi: str
     abstract: Optional[str]
     source: Optional[str]
-    status: str  # 'fresh' | 'unavailable'
+    status: str  # 'fresh' | 'unavailable' | 'not_found'
+    attempts: int = 0
+    fetched_at: Optional[datetime] = None
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +75,7 @@ def bulk_lookup(db: Session, dois: List[str]) -> Dict[str, CachedAbstract]:
         return {}
     rows = db.execute(
         text(
-            "SELECT doi, abstract, source, status FROM paper_abstracts "
+            "SELECT doi, abstract, source, status, attempts, fetched_at FROM paper_abstracts "
             "WHERE doi = ANY(:dois)"
         ),
         {"dois": clean},
@@ -82,6 +86,8 @@ def bulk_lookup(db: Session, dois: List[str]) -> Dict[str, CachedAbstract]:
             abstract=row.abstract,
             source=row.source,
             status=row.status,
+            attempts=row.attempts,
+            fetched_at=row.fetched_at,
         )
         for row in rows
     }
@@ -97,12 +103,16 @@ def bulk_upsert(db: Session, records: List[CachedAbstract]) -> None:
             text(
                 """
                 INSERT INTO paper_abstracts (doi, abstract, source, status, attempts, fetched_at)
-                VALUES (:doi, :abstract, :source, :status, 1, :fetched_at)
+                VALUES (:doi, :abstract, :source, :status, :attempts, :fetched_at)
                 ON CONFLICT (doi) DO UPDATE SET
                     abstract = COALESCE(EXCLUDED.abstract, paper_abstracts.abstract),
                     source = COALESCE(EXCLUDED.source, paper_abstracts.source),
                     status = EXCLUDED.status,
-                    attempts = paper_abstracts.attempts + 1,
+                    attempts = CASE
+                        WHEN EXCLUDED.status = 'fresh' THEN 0
+                        WHEN paper_abstracts.status = 'fresh' THEN 1
+                        ELSE paper_abstracts.attempts + 1
+                    END,
                     fetched_at = EXCLUDED.fetched_at
                 """
             ),
@@ -111,6 +121,7 @@ def bulk_upsert(db: Session, records: List[CachedAbstract]) -> None:
                 "abstract": rec.abstract,
                 "source": rec.source,
                 "status": rec.status,
+                "attempts": 0 if rec.status == "fresh" else 1,
                 "fetched_at": now,
             },
         )
@@ -118,12 +129,13 @@ def bulk_upsert(db: Session, records: List[CachedAbstract]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Fetchers — each returns (abstract, source_label) or (None, None)
+# Fetchers — each returns (abstract, source_label, outcome). Outcome is
+# 'found', 'not_found' (definitive 404), or 'transient'.
 # ---------------------------------------------------------------------------
 
 async def _fetch_elsevier(
     session: aiohttp.ClientSession, doi: str, api_key: str
-) -> tuple[Optional[str], Optional[str]]:
+) -> tuple[Optional[str], Optional[str], str]:
     """Elsevier Article Retrieval API — free tier, 10k req/week.
     Returns abstract for Elsevier-published articles (DOI prefix typically 10.1016/,
     10.1007/ for some co-published content, etc.). Works for many OA and closed-access
@@ -137,8 +149,10 @@ async def _fetch_elsevier(
         }
         timeout = aiohttp.ClientTimeout(total=PER_FETCH_TIMEOUT)
         async with session.get(url, headers=headers, timeout=timeout) as resp:
+            if resp.status == 404:
+                return None, None, "not_found"
             if resp.status != 200:
-                return None, None
+                return None, None, "transient"
             data = await resp.json()
         core = data.get("full-text-retrieval-response", {}).get("coredata", {})
         raw = core.get("dc:description") or ""
@@ -146,15 +160,15 @@ async def _fetch_elsevier(
             raw = raw[0] if raw else ""
         abstract = re.sub(r'\s+', ' ', str(raw)).strip()
         if len(abstract) >= MIN_ABSTRACT_LEN:
-            return abstract, "elsevier"
+            return abstract, "elsevier", "found"
     except Exception as e:
         logger.debug("Elsevier fetch failed for %s: %s", doi, e)
-    return None, None
+    return None, None, "transient"
 
 
 async def _fetch_core(
     session: aiohttp.ClientSession, doi: str, api_key: str
-) -> tuple[Optional[str], Optional[str]]:
+) -> tuple[Optional[str], Optional[str], str]:
     """CORE works API — free 10k/day. Aggregates green OA content."""
     try:
         url = "https://api.core.ac.uk/v3/search/works"
@@ -162,24 +176,26 @@ async def _fetch_core(
         payload = {"q": f'doi:"{doi}"', "limit": 1}
         timeout = aiohttp.ClientTimeout(total=PER_FETCH_TIMEOUT)
         async with session.post(url, headers=headers, json=payload, timeout=timeout) as resp:
+            if resp.status == 404:
+                return None, None, "not_found"
             if resp.status != 200:
-                return None, None
+                return None, None, "transient"
             data = await resp.json()
         results = data.get("results") or []
         if not results:
-            return None, None
+            return None, None, "transient"
         raw = results[0].get("abstract") or ""
         abstract = re.sub(r'\s+', ' ', str(raw)).strip()
         if len(abstract) >= MIN_ABSTRACT_LEN:
-            return abstract, "core"
+            return abstract, "core", "found"
     except Exception as e:
         logger.debug("CORE fetch failed for %s: %s", doi, e)
-    return None, None
+    return None, None, "transient"
 
 
 async def _fetch_semantic_scholar(
     session: aiohttp.ClientSession, doi: str, api_key: Optional[str]
-) -> tuple[Optional[str], Optional[str]]:
+) -> tuple[Optional[str], Optional[str], str]:
     """Semantic Scholar — sometimes has abstracts when other sources don't.
     Only used as a tertiary fallback because upstream SemanticScholarSearcher
     already returned data from this source; we hit the direct DOI endpoint.
@@ -191,21 +207,67 @@ async def _fetch_semantic_scholar(
             headers["x-api-key"] = api_key
         timeout = aiohttp.ClientTimeout(total=PER_FETCH_TIMEOUT)
         async with session.get(url, headers=headers, timeout=timeout) as resp:
+            if resp.status == 404:
+                return None, None, "not_found"
             if resp.status != 200:
-                return None, None
+                return None, None, "transient"
             data = await resp.json()
         raw = data.get("abstract") or ""
         abstract = re.sub(r'\s+', ' ', str(raw)).strip()
         if len(abstract) >= MIN_ABSTRACT_LEN:
-            return abstract, "semantic_scholar"
+            return abstract, "semantic_scholar", "found"
     except Exception as e:
         logger.debug("Semantic Scholar fetch failed for %s: %s", doi, e)
-    return None, None
+    return None, None, "transient"
+
+
+async def _fetch_semantic_scholar_batch(
+    session: aiohttp.ClientSession,
+    dois: List[str],
+    api_key: Optional[str],
+) -> Dict[str, tuple[Optional[str], Optional[str], str]]:
+    """Fetch Semantic Scholar abstracts in one batch request."""
+    if not dois:
+        return {}
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["x-api-key"] = api_key
+    fallback = {doi: (None, None, "transient") for doi in dois}
+    try:
+        timeout = aiohttp.ClientTimeout(total=PER_FETCH_TIMEOUT)
+        async with session.post(
+            "https://api.semanticscholar.org/graph/v1/paper/batch",
+            params={"fields": "abstract"},
+            headers=headers,
+            json={"ids": [f"DOI:{doi}" for doi in dois]},
+            timeout=timeout,
+        ) as resp:
+            if resp.status != 200:
+                return fallback
+            data = await resp.json()
+    except Exception as exc:
+        logger.debug("Semantic Scholar batch fetch failed: %s", exc)
+        return fallback
+
+    results: Dict[str, tuple[Optional[str], Optional[str], str]] = {}
+    for doi, item in zip(dois, data if isinstance(data, list) else []):
+        if item is None:
+            results[doi] = (None, None, "not_found")
+            continue
+        raw = (item.get("abstract") or "") if isinstance(item, dict) else ""
+        abstract = re.sub(r'\s+', ' ', str(raw)).strip()
+        if len(abstract) >= MIN_ABSTRACT_LEN:
+            results[doi] = (abstract, "semantic_scholar", "found")
+        else:
+            results[doi] = (None, None, "transient")
+    for doi in dois:
+        results.setdefault(doi, fallback[doi])
+    return results
 
 
 async def _fetch_serpapi_snippet(
     session: aiohttp.ClientSession, doi: str, title: Optional[str], api_key: str
-) -> tuple[Optional[str], Optional[str]]:
+) -> tuple[Optional[str], Optional[str], str]:
     """Google Scholar snippet via SerpAPI — metered (250/mo free).
 
     Each organic_result carries a snippet that is the first paragraph of the
@@ -218,7 +280,7 @@ async def _fetch_serpapi_snippet(
     accepting the snippet, to avoid picking up an unrelated paper's text.
     """
     if not api_key:
-        return None, None
+        return None, None, "transient"
     query = f'"{title}"' if title and len(title) >= 10 else doi
     try:
         params = {
@@ -231,13 +293,15 @@ async def _fetch_serpapi_snippet(
         async with session.get(
             "https://serpapi.com/search.json", params=params, timeout=timeout
         ) as resp:
+            if resp.status == 404:
+                return None, None, "not_found"
             if resp.status != 200:
                 logger.debug("SerpAPI status %s for %s", resp.status, doi)
-                return None, None
+                return None, None, "transient"
             data = await resp.json()
         results = data.get("organic_results") or []
         if not results:
-            return None, None
+            return None, None, "transient"
         # Prefer a result whose link mentions this DOI; otherwise take the first.
         chosen = None
         doi_needle = doi.lower()
@@ -251,10 +315,10 @@ async def _fetch_serpapi_snippet(
         # Strip leading ellipses Scholar sometimes prepends
         snippet = re.sub(r'^[\s\u2026.]+', '', snippet)
         if len(snippet) >= MIN_ABSTRACT_LEN:
-            return snippet, "serpapi_snippet"
+            return snippet, "serpapi_snippet", "found"
     except Exception as e:
         logger.debug("SerpAPI fetch failed for %s: %s", doi, e)
-    return None, None
+    return None, None, "transient"
 
 
 # ---------------------------------------------------------------------------
@@ -263,8 +327,12 @@ async def _fetch_serpapi_snippet(
 
 
 async def fetch_one(
-    session: aiohttp.ClientSession, doi: str, title: Optional[str] = None
-) -> tuple[Optional[str], Optional[str]]:
+    session: aiohttp.ClientSession,
+    doi: str,
+    title: Optional[str] = None,
+    *,
+    semantic_result: Optional[tuple[Optional[str], Optional[str], str]] = None,
+) -> tuple[Optional[str], Optional[str], str]:
     """Try each configured source; return first non-empty result.
 
     Tier 1 (free, fast): Elsevier, CORE, Semantic Scholar — fired in parallel.
@@ -281,19 +349,54 @@ async def fetch_one(
         tier1_tasks.append(_fetch_elsevier(session, doi, elsevier_key))
     if core_key:
         tier1_tasks.append(_fetch_core(session, doi, core_key))
-    tier1_tasks.append(_fetch_semantic_scholar(session, doi, s2_key))
+    if semantic_result is None:
+        tier1_tasks.append(_fetch_semantic_scholar(session, doi, s2_key))
 
+    outcomes: List[str] = []
+    if semantic_result is not None:
+        if semantic_result[0]:
+            return semantic_result
+        outcomes.append(semantic_result[2])
     if tier1_tasks:
         results = await asyncio.gather(*tier1_tasks, return_exceptions=True)
         for r in results:
             if isinstance(r, tuple) and r[0]:
                 return r  # type: ignore[return-value]
+            if isinstance(r, tuple):
+                outcomes.append(r[2])
+            elif isinstance(r, Exception):
+                outcomes.append("transient")
 
     # --- Tier 2: metered SerpAPI (only if free sources found nothing) ---
     if serpapi_key and title:
-        return await _fetch_serpapi_snippet(session, doi, title, serpapi_key)
+        result = await _fetch_serpapi_snippet(session, doi, title, serpapi_key)
+        if result[0]:
+            return result
+        outcomes.append(result[2])
 
-    return None, None
+    if outcomes and all(outcome == "not_found" for outcome in outcomes):
+        return None, None, "not_found"
+    return None, None, "transient"
+
+
+def _should_retry(entry: CachedAbstract, now: Optional[datetime] = None) -> bool:
+    """Return whether a transient negative cache entry is due for retry."""
+    if entry.status != "unavailable":
+        return False
+    if entry.fetched_at is None:
+        return True
+
+    fetched_at = entry.fetched_at
+    if fetched_at.tzinfo is None:
+        fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+    current_time = now or datetime.now(timezone.utc)
+    if entry.attempts >= MAX_ATTEMPTS_BEFORE_GIVEUP:
+        # Give up on the short retry cycle, but do not poison the DOI forever.
+        # A later daily probe can recover after a prolonged upstream incident.
+        retry_delay = NEGATIVE_CACHE_GIVEUP_TTL
+    else:
+        retry_delay = NEGATIVE_CACHE_BASE_TTL * (2 ** max(0, entry.attempts - 1))
+    return current_time >= fetched_at + retry_delay
 
 
 async def fetch_missing(
@@ -332,8 +435,10 @@ async def fetch_missing(
             to_fetch.append(nd)  # never tried
         elif entry.abstract and len(entry.abstract) >= MIN_ABSTRACT_LEN:
             continue  # already filled above
-        elif entry.status == "unavailable":
-            continue  # don't retry known failures (for now)
+        elif entry.status == "not_found":
+            continue  # definitive negative result is cached indefinitely
+        elif entry.status == "unavailable" and not _should_retry(entry):
+            continue  # transient negative result is still inside its retry window
         else:
             to_fetch.append(nd)
 
@@ -351,12 +456,22 @@ async def fetch_missing(
     title_by_doi: Dict[str, Optional[str]] = {
         nd: (by_doi[nd][0].title if by_doi.get(nd) else None) for nd in to_fetch
     }
+    semantic_results = await _fetch_semantic_scholar_batch(
+        session,
+        to_fetch,
+        os.getenv("SEMANTIC_SCHOLAR_API_KEY"),
+    )
     sem = asyncio.Semaphore(MAX_PARALLEL_PER_SOURCE)
 
-    async def run_one(doi: str) -> tuple[str, Optional[str], Optional[str]]:
+    async def run_one(doi: str) -> tuple[str, Optional[str], Optional[str], str]:
         async with sem:
-            abstract, source = await fetch_one(session, doi, title_by_doi.get(doi))
-            return doi, abstract, source
+            abstract, source, outcome = await fetch_one(
+                session,
+                doi,
+                title_by_doi.get(doi),
+                semantic_result=semantic_results.get(doi),
+            )
+            return doi, abstract, source, outcome
 
     results = await asyncio.gather(
         *[run_one(doi) for doi in to_fetch],
@@ -369,14 +484,21 @@ async def fetch_missing(
     for r in results:
         if isinstance(r, Exception):
             continue
-        doi, abstract, source = r  # type: ignore[misc]
+        doi, abstract, source, outcome = r  # type: ignore[misc]
         if abstract:
             for paper in by_doi.get(doi, []):
                 paper.abstract = abstract
             records.append(CachedAbstract(doi=doi, abstract=abstract, source=source, status="fresh"))
             hits += 1
         else:
-            records.append(CachedAbstract(doi=doi, abstract=None, source=None, status="unavailable"))
+            records.append(
+                CachedAbstract(
+                    doi=doi,
+                    abstract=None,
+                    source=None,
+                    status="not_found" if outcome == "not_found" else "unavailable",
+                )
+            )
 
     try:
         bulk_upsert(db, records)

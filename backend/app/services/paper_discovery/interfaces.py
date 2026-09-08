@@ -8,6 +8,10 @@ from typing import List
 from .models import DiscoveredPaper
 
 
+class SourceSearchError(Exception):
+    """Raised when an upstream paper source cannot answer a search request."""
+
+
 class PaperSearcher(ABC):
     """Interface implemented by source-specific searchers."""
 

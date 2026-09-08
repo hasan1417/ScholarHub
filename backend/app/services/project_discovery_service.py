@@ -597,6 +597,17 @@ class ProjectDiscoveryManager:
                 discovered_batch = discovery_result.papers
                 last_source_stats = discovery_result.source_stats
 
+                if discovery_result.status == "error":
+                    if aggregated_results:
+                        logger.warning(
+                            "Discovery retry failed after earlier sources returned results: %s",
+                            discovery_result.error,
+                        )
+                        break
+                    raise RuntimeError(
+                        discovery_result.error or "All paper discovery sources failed"
+                    )
+
                 if not discovered_batch:
                     break
 

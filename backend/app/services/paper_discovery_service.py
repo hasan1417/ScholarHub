@@ -23,6 +23,7 @@ from app.services.paper_discovery.interfaces import (
     PaperEnricher,
     PaperRanker,
     PaperSearcher,
+    SourceSearchError,
 )
 from app.services.paper_discovery.models import DiscoveredPaper, PaperSource, _normalize_title
 from app.services.paper_discovery.query import QueryIntent, extract_core_terms, understand_query
@@ -100,7 +101,7 @@ class SourceStats:
     """Per-source statistics from a discovery run."""
     source: str
     count: int = 0
-    status: str = "pending"  # pending, success, timeout, rate_limited, error
+    status: str = "pending"  # pending, success, timeout, rate_limited, error, cancelled
     error: Optional[str] = None
     elapsed_ms: int = 0  # milliseconds
 
@@ -110,6 +111,8 @@ class DiscoveryResult:
     """Result of a discovery run including papers and per-source stats."""
     papers: List[DiscoveredPaper] = field(default_factory=list)
     source_stats: List[SourceStats] = field(default_factory=list)
+    status: str = "empty"  # success, partial, empty, error
+    error: Optional[str] = None
 
 class SearchOrchestrator:
     """Orchestrates the paper discovery process"""
@@ -140,6 +143,7 @@ class SearchOrchestrator:
         year_to: Optional[int] = None,
         open_access_only: bool = False,
         query_intent: Optional[QueryIntent] = None,
+        query_intent_task: Optional[asyncio.Task[QueryIntent]] = None,
         progress_callback: Optional[Callable[..., Any]] = None,
     ) -> DiscoveryResult:
         """Orchestrate paper discovery and return results with per-source stats."""
@@ -235,6 +239,11 @@ class SearchOrchestrator:
                     elapsed_ms = int((time.time() - source_start) * 1000)
                     logger.warning(f"{source_name} rate limited after {elapsed_ms}ms: {e}")
                     return (source_name, [], "rate_limited", "API rate limited", elapsed_ms)
+                except SourceSearchError as e:
+                    elapsed_ms = int((time.time() - source_start) * 1000)
+                    error_msg = str(e)[:100]
+                    logger.warning(f"{source_name} failed after {elapsed_ms}ms: {e}")
+                    return (source_name, [], "error", error_msg, elapsed_ms)
                 except Exception as e:  # pragma: no cover - network variability
                     elapsed_ms = int((time.time() - source_start) * 1000)
                     error_msg = str(e)[:100]
@@ -244,67 +253,95 @@ class SearchOrchestrator:
         await _notify({"type": "phase", "phase": "searching", "message": "Searching academic databases..."})
 
         tasks = [asyncio.create_task(limited_search(s)) for s in active_searchers]
+        collection_start = time.monotonic()
+
+        # Source requests are already in flight while query understanding gets a
+        # short opportunity to finish. A slow LLM must never delay retrieval.
+        if query_intent is None and query_intent_task is not None:
+            try:
+                done, _ = await asyncio.wait({query_intent_task}, timeout=2.0)
+            except asyncio.CancelledError:
+                query_intent_task.cancel()
+                await asyncio.gather(query_intent_task, return_exceptions=True)
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
+            if query_intent_task in done:
+                try:
+                    query_intent = query_intent_task.result()
+                except Exception as exc:
+                    logger.debug("Query understanding failed: %s", exc)
+            else:
+                query_intent_task.cancel()
+                await asyncio.gather(query_intent_task, return_exceptions=True)
+                logger.info("[QueryIntent] Skipped because it missed the 2s discovery deadline")
 
         # Collect raw results first; deduplicate at the end as a single pass so
         # cross-source duplicates (arXiv preprint + published record) collapse
         # correctly regardless of arrival order.
         collected: List[DiscoveredPaper] = []
         sources_with_papers = 0
-        collection_start = time.monotonic()
 
+        pending_tasks = set(tasks)
+        early_exit = False
         try:
-            for fut in asyncio.as_completed(tasks):
-                try:
-                    source_name, papers, status, error, elapsed_ms = await fut
-                    # Update source stats
-                    if source_name in source_stats_map:
-                        source_stats_map[source_name].count = len(papers)
-                        source_stats_map[source_name].status = status
-                        source_stats_map[source_name].error = error
-                        source_stats_map[source_name].elapsed_ms = elapsed_ms
-                    await _notify({
-                        "type": "source_complete",
-                        "source": source_name,
-                        "status": status,
-                        "count": len(papers) if isinstance(papers, list) else 0,
-                        "elapsed_ms": elapsed_ms,
-                    })
-                except asyncio.CancelledError:
-                    continue
-                except Exception as exc:  # pragma: no cover - defensive
-                    logger.error("Discovery task failed: %s", exc)
-                    papers = []
+            while pending_tasks:
+                done_tasks, pending_tasks = await asyncio.wait(
+                    pending_tasks,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for task in done_tasks:
+                    papers: List[DiscoveredPaper] = []
+                    try:
+                        source_name, papers, status, error, elapsed_ms = task.result()
+                        # Update source stats
+                        if source_name in source_stats_map:
+                            source_stats_map[source_name].count = len(papers)
+                            source_stats_map[source_name].status = status
+                            source_stats_map[source_name].error = error
+                            source_stats_map[source_name].elapsed_ms = elapsed_ms
+                        await _notify({
+                            "type": "source_complete",
+                            "source": source_name,
+                            "status": status,
+                            "count": len(papers) if isinstance(papers, list) else 0,
+                            "elapsed_ms": elapsed_ms,
+                        })
+                    except asyncio.CancelledError:
+                        continue
+                    except Exception as exc:  # pragma: no cover - defensive
+                        logger.error("Discovery task failed: %s", exc)
+                        papers = []
 
-                if isinstance(papers, list) and len(papers) > 0:
-                    sources_with_papers += 1
-                    collected.extend(papers)
+                    if papers:
+                        sources_with_papers += 1
+                        collected.extend(papers)
 
-                # Early exit for fast_mode: enough raw hits from >=3 sources
-                # after 3s. Dedup happens at the end regardless.
-                elapsed = time.monotonic() - collection_start
-                if (fast_mode
-                        and sources_with_papers >= 3
-                        and len(collected) >= max_results * 2  # overshoot to absorb merges
-                        and elapsed >= 3.0):
-                    logger.info(
-                        "Early exit: %d raw papers from %d sources in %.1fs",
-                        len(collected), sources_with_papers, elapsed,
-                    )
+                    # Early exit for fast_mode: enough raw hits from >=3 sources
+                    # after 3s. Dedup happens at the end regardless.
+                    elapsed = time.monotonic() - collection_start
+                    if (fast_mode
+                            and sources_with_papers >= 3
+                            and len(collected) >= max_results * 2  # overshoot to absorb merges
+                            and elapsed >= 3.0):
+                        logger.info(
+                            "Early exit: %d raw papers from %d sources in %.1fs",
+                            len(collected), sources_with_papers, elapsed,
+                        )
+                        early_exit = True
+                        break
+                if early_exit:
                     break
         finally:
-            # Collect results from any tasks that completed during the gather
-            remaining = await asyncio.gather(*tasks, return_exceptions=True)
-            for result in remaining:
-                if isinstance(result, Exception) or not isinstance(result, tuple):
-                    continue
-                source_name, papers, status, error, elapsed_ms = result
-                if source_name in source_stats_map and source_stats_map[source_name].status == "pending":
-                    source_stats_map[source_name].count = len(papers)
-                    source_stats_map[source_name].status = status
-                    source_stats_map[source_name].error = error
-                    source_stats_map[source_name].elapsed_ms = elapsed_ms
-                if isinstance(papers, list):
-                    collected.extend(papers)
+            if pending_tasks:
+                for task in pending_tasks:
+                    task.cancel()
+                await asyncio.gather(*pending_tasks, return_exceptions=True)
+                if early_exit:
+                    for stat in source_stats_map.values():
+                        if stat.status == "pending":
+                            stat.status = "cancelled"
 
         # Phase 1.5: Supplementary searches using query-understanding search_terms.
         # These catch papers indexed under variant terms (e.g., "CharacterBERT" vs "Character BERT").
@@ -346,42 +383,7 @@ class SearchOrchestrator:
                 raw_count, len(all_papers), collapsed,
             )
 
-        # Phase 2: Enrichment — split by dependency
-        # 2a: metadata enrichers (Crossref, Unpaywall) run in parallel — independent
-        # 2b: abstract fallback enrichers (Landing, Pdf) run after — depend on the
-        #     existing abstract still being missing, and PdfAbstractEnricher needs the
-        #     pdf_url that Unpaywall populates
-        await _notify({"type": "phase", "phase": "enriching", "message": "Enriching paper metadata..."})
-        abstract_fallback_types = (CacheAbstractEnricher, LandingAbstractEnricher, PdfAbstractEnricher)
-        primary_enrichers = [e for e in self.enrichers if not isinstance(e, abstract_fallback_types)]
-        fallback_enrichers = [e for e in self.enrichers if isinstance(e, abstract_fallback_types)]
-        if primary_enrichers:
-            await asyncio.gather(
-                *[e.enrich(all_papers) for e in primary_enrichers],
-                return_exceptions=True,
-            )
-        # Run fallbacks sequentially so LandingAbstractEnricher (cheap, ~1s) populates first;
-        # PdfAbstractEnricher then only attempts papers still missing abstracts.
-        for enricher in fallback_enrichers:
-            try:
-                await enricher.enrich(all_papers)
-            except Exception as exc:
-                logger.debug("Abstract fallback enricher failed: %s", exc)
-
-        # Write-back: persist any abstracts populated by Landing/PDF into the cache,
-        # so future searches return them instantly without re-scraping.
-        try:
-            from app.database import SessionLocal
-            from app.services.paper_discovery.abstract_cache import write_back
-            db = SessionLocal()
-            try:
-                write_back(db, all_papers, source_label="enricher_fallback")
-            finally:
-                db.close()
-        except Exception as exc:
-            logger.debug("Abstract cache write-back failed: %s", exc)
-
-        # Phase 2.5: Deterministic hard filters (provider-agnostic safety net).
+        # Phase 2: Deterministic hard filters (provider-agnostic safety net).
         # This prevents recency/OA leaks when any upstream source ignores filters.
         filtered_papers, removed_by_year, removed_by_oa = self._apply_hard_filters(
             all_papers,
@@ -398,7 +400,10 @@ class SearchOrchestrator:
                 len(all_papers),
             )
 
-        # Phase 3: Ranking
+        # Phase 3: Rank and cap before per-paper enrichment. Crossref and
+        # Unpaywall expose per-DOI endpoints, so bounding this list is what keeps
+        # their request count proportional to the requested result count rather
+        # than the entire source fan-out.
         await _notify({"type": "phase", "phase": "ranking", "message": "AI-ranking papers by relevance..."})
         # (pass core_terms for boost + semantic context from query understanding)
         # Use interpreted_query as the ranking query when available — it disambiguates
@@ -437,13 +442,74 @@ class SearchOrchestrator:
                 "[Search] Relevance floor removed %d/%d papers below %.2f",
                 pre_floor_count - len(ranked_papers), pre_floor_count, MIN_RELEVANCE,
             )
-        # Always return at least 5 results even if scores are low
-        if len(ranked_papers) < 5 and pre_floor_count >= 5:
-            ranked_papers = sorted(filtered_papers, key=lambda p: p.relevance_score, reverse=True)[:5]
+        # Return up to five best available results when the relevance floor
+        # would otherwise discard the entire small candidate set.
+        minimum_results = min(5, pre_floor_count)
+        if len(ranked_papers) < minimum_results:
+            ranked_papers = sorted(
+                filtered_papers,
+                key=lambda p: p.relevance_score,
+                reverse=True,
+            )[:minimum_results]
 
         # Phase 3.5: Source-diversity reranking
         # Prevent any single source from dominating the final results
-        ranked_papers = self._apply_source_diversity(ranked_papers, max_results)
+        ranked_papers = self._apply_source_diversity(ranked_papers, max_results)[:max_results]
+
+        # Phase 4: Enrichment — split by dependency and operate only on the
+        # final selected papers.
+        await _notify({"type": "phase", "phase": "enriching", "message": "Enriching paper metadata..."})
+        abstract_fallback_types = (CacheAbstractEnricher, LandingAbstractEnricher, PdfAbstractEnricher)
+        primary_enrichers = [e for e in self.enrichers if not isinstance(e, abstract_fallback_types)]
+        fallback_enrichers = [e for e in self.enrichers if isinstance(e, abstract_fallback_types)]
+        if primary_enrichers:
+            await asyncio.gather(
+                *[e.enrich(ranked_papers) for e in primary_enrichers],
+                return_exceptions=True,
+            )
+        # Run fallbacks sequentially so LandingAbstractEnricher (cheap, ~1s) populates first;
+        # PdfAbstractEnricher then only attempts papers still missing abstracts.
+        for enricher in fallback_enrichers:
+            try:
+                await enricher.enrich(ranked_papers)
+            except Exception as exc:
+                logger.debug("Abstract fallback enricher failed: %s", exc)
+
+        # Write-back: persist any abstracts populated by Landing/PDF into the cache,
+        # so future searches return them instantly without re-scraping.
+        try:
+            from app.database import SessionLocal
+            from app.services.paper_discovery.abstract_cache import write_back
+            db = SessionLocal()
+            try:
+                write_back(db, ranked_papers, source_label="enricher_fallback")
+            finally:
+                db.close()
+        except Exception as exc:
+            logger.debug("Abstract cache write-back failed: %s", exc)
+
+        source_stats = list(source_stats_map.values())
+        successful_sources = [stat for stat in source_stats if stat.status == "success"]
+        failed_sources = [
+            stat for stat in source_stats
+            if stat.status in ("timeout", "rate_limited", "error")
+        ]
+        if ranked_papers:
+            result_status = "partial" if failed_sources else "success"
+        elif successful_sources and failed_sources:
+            result_status = "partial"
+        elif successful_sources:
+            result_status = "empty"
+        else:
+            result_status = "error"
+        result_error = None
+        if result_status == "error":
+            failed_names = ", ".join(stat.source for stat in failed_sources)
+            result_error = (
+                f"All paper sources failed: {failed_names}"
+                if failed_names
+                else "No paper source completed successfully"
+            )
 
         # Telemetry: comprehensive search summary
         search_elapsed = time.time() - search_start_time
@@ -454,7 +520,8 @@ class SearchOrchestrator:
 
         logger.info(
             f"[Search] COMPLETE query='{query}' | "
-            f"results={len(ranked_papers[:max_results])}/{len(filtered_papers)}/{len(all_papers)} (returned/filtered/deduped) | "
+            f"status={result_status} | "
+            f"results={len(ranked_papers)}/{len(filtered_papers)}/{len(all_papers)} (returned/filtered/deduped) | "
             f"counts={source_counts} | "
             f"times_ms={source_times} | "
             f"rate_limited={rate_limited or 'none'} | "
@@ -463,8 +530,10 @@ class SearchOrchestrator:
         )
 
         return DiscoveryResult(
-            papers=ranked_papers[:max_results],
-            source_stats=list(source_stats_map.values())
+            papers=ranked_papers,
+            source_stats=source_stats,
+            status=result_status,
+            error=result_error,
         )
 
     def _apply_hard_filters(
@@ -748,8 +817,48 @@ class PaperDiscoveryService:
         self.orchestrator = orchestrator
 
         self._metrics: Dict[str, Any] = {}
-    
+
     async def discover_papers(
+        self,
+        query: str,
+        max_results: int = 20,
+        target_text: Optional[str] = None,
+        target_keywords: Optional[List[str]] = None,
+        sources: Optional[List[str]] = None,
+        debug: bool = False,
+        fast_mode: bool = False,
+        year_from: Optional[int] = None,
+        year_to: Optional[int] = None,
+        open_access_only: bool = False,
+        progress_callback: Optional[Callable[..., Any]] = None,
+    ) -> DiscoveryResult:
+        """Run the complete discovery pipeline within the configured deadline."""
+        try:
+            return await asyncio.wait_for(
+                self._discover_papers(
+                    query=query,
+                    max_results=max_results,
+                    target_text=target_text,
+                    target_keywords=target_keywords,
+                    sources=sources,
+                    debug=debug,
+                    fast_mode=fast_mode,
+                    year_from=year_from,
+                    year_to=year_to,
+                    open_access_only=open_access_only,
+                    progress_callback=progress_callback,
+                ),
+                timeout=self.config.total_timeout,
+            )
+        except asyncio.TimeoutError:
+            message = f"Discovery timed out after {self.config.total_timeout:g} seconds"
+            logger.error(message)
+            return DiscoveryResult(status="error", error=message)
+        except Exception as exc:
+            logger.exception("Discovery failed: %s", exc)
+            return DiscoveryResult(status="error", error=str(exc))
+
+    async def _discover_papers(
         self,
         query: str,
         max_results: int = 20,
@@ -795,13 +904,6 @@ class PaperDiscoveryService:
             effective_target_text = target_text
             phase_start = time.time()
 
-            # Await query intent (used for ranking context + supplementary searches)
-            intent = await intent_task
-            if intent.search_terms:
-                logger.info(f"[QueryIntent] Understood '{query}' → search_terms={intent.search_terms}")
-            else:
-                logger.info(f"[QueryIntent] No rewrite for query: '{query}'")
-
             result = await self.orchestrator.discover_papers(
                 query,
                 max_results,
@@ -813,7 +915,7 @@ class PaperDiscoveryService:
                 year_from=year_from,
                 year_to=year_to,
                 open_access_only=open_access_only,
-                query_intent=intent,
+                query_intent_task=intent_task,
                 progress_callback=progress_callback,
             )
             papers = result.papers
@@ -874,7 +976,7 @@ class PaperDiscoveryService:
 
         except Exception as e:
             logger.error(f"Discovery failed: {e}")
-            return DiscoveryResult(papers=[], source_stats=[])
+            raise
     
     async def close(self):
         """Clean up resources"""

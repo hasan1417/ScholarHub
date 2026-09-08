@@ -536,7 +536,10 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                     if not label:
                         return
                     count = event.get("count")
-                    if isinstance(count, int) and count > 0:
+                    status = event.get("status")
+                    if status in ("timeout", "rate_limited", "error"):
+                        _emit_progress(ctx, f"{label}: unavailable")
+                    elif isinstance(count, int) and count > 0:
                         _emit_progress(ctx, f"{label}: {count} results")
                     else:
                         _emit_progress(ctx, f"{label}: 0 results")
@@ -617,11 +620,27 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             # Persist to Redis (cross-turn) AND update ctx (within-turn)
             self._set_recent_papers(ctx, papers, search_id=search_id)
 
+            tool_status = result.status
+            if tool_status == "success" and not papers:
+                tool_status = "empty"
+            if tool_status == "error":
+                message = result.error or "All academic paper sources were unavailable. Please retry."
+            elif tool_status == "empty":
+                message = f"No papers found for: '{query}'{oa_note}{year_note}"
+            elif tool_status == "partial":
+                if papers:
+                    message = f"Found {len(papers)} papers for: '{query}'{oa_note}{year_note}; some sources were unavailable"
+                else:
+                    message = f"No papers found for: '{query}'{oa_note}{year_note}; some sources were unavailable"
+            else:
+                message = f"Found {len(papers)} papers for: '{query}'{oa_note}{year_note}"
+            if skipped_library:
+                message += f" ({skipped_library} already in your library)"
+
             # Return as action so frontend displays notification with Add buttons
             return {
-                "status": "success",
-                "message": f"Found {len(papers)} papers for: '{query}'{oa_note}{year_note}"
-                    + (f" ({skipped_library} already in your library)" if skipped_library else ""),
+                "status": tool_status,
+                "message": message,
                 "action": {
                     "type": "search_results",  # Frontend will display as notification
                     "payload": {
@@ -633,6 +652,16 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                         "papers": papers,
                         "total_found": len(result.papers),
                         "search_id": search_id,
+                        "source_stats": [
+                            {
+                                "source": stat.source,
+                                "count": stat.count,
+                                "status": stat.status,
+                                "error": stat.error,
+                                "elapsed_ms": stat.elapsed_ms,
+                            }
+                            for stat in result.source_stats
+                        ],
                     },
                 },
             }
@@ -924,7 +953,8 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                     "query": query,
                     "max_results": max_res,
                     "papers": result.papers,
-                    "error": None,
+                    "status": result.status,
+                    "error": result.error if result.status == "error" else None,
                 }
             except Exception as e:
                 logger.error(f"Search failed for topic '{topic_name}': {e}")
@@ -933,6 +963,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                     "query": query,
                     "max_results": max_res,
                     "papers": [],
+                    "status": "error",
                     "error": str(e),
                 }
             finally:
@@ -962,6 +993,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 topic_summaries.append({
                     "topic": topic_name,
                     "count": 0,
+                    "status": "error",
                     "error": topic_result["error"],
                 })
                 continue
@@ -1024,18 +1056,25 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             topic_summaries.append({
                 "topic": topic_name,
                 "count": len(topic_papers),
+                "status": topic_result["status"],
             })
 
         if not all_papers:
             error_topics = [ts for ts in topic_summaries if ts.get("error")]
-            if error_topics:
+            if len(error_topics) == len(formatted_topics):
                 return {
                     "status": "error",
                     "message": f"All {len(formatted_topics)} topic searches failed. Errors: "
                         + "; ".join(f"{t['topic']}: {t['error']}" for t in error_topics),
                 }
+            if error_topics or any(ts.get("status") == "partial" for ts in topic_summaries):
+                return {
+                    "status": "partial",
+                    "message": "No new papers were found, and some academic sources were unavailable.",
+                    "topic_results": topic_summaries,
+                }
             return {
-                "status": "success",
+                "status": "empty",
                 "message": f"No new papers found across {len(formatted_topics)} topics (they may already be in your library).",
             }
 
@@ -1052,8 +1091,13 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             for ts in topic_summaries
         )
 
+        batch_status = (
+            "partial"
+            if any(ts.get("status") in ("partial", "error") for ts in topic_summaries)
+            else "success"
+        )
         return {
-            "status": "success",
+            "status": batch_status,
             "message": f"Found {len(all_papers)} papers across {len(formatted_topics)} topics ({topic_summary_str})",
             "topic_results": topic_summaries,
             "action": {
@@ -1518,7 +1562,8 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         # pgvector cosine distance: 1 - (embedding <=> query_embedding) = similarity
         sql = text("""
             SELECT
-                pe.project_reference_id,
+                r.id AS reference_id,
+                pe.project_reference_id AS project_reference_id,
                 r.title,
                 r.authors,
                 r.year,
@@ -1577,16 +1622,17 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             else:
                 # Named tuple or similar
                 r = row._asdict() if hasattr(row, "_asdict") else {
-                    "project_reference_id": row[0],
-                    "title": row[1],
-                    "authors": row[2],
-                    "year": row[3],
-                    "doi": row[4],
-                    "abstract": row[5],
-                    "journal": row[6],
-                    "pdf_url": row[7],
-                    "is_open_access": row[8],
-                    "similarity": row[9],
+                    "reference_id": row[0],
+                    "project_reference_id": row[1],
+                    "title": row[2],
+                    "authors": row[3],
+                    "year": row[4],
+                    "doi": row[5],
+                    "abstract": row[6],
+                    "journal": row[7],
+                    "pdf_url": row[8],
+                    "is_open_access": row[9],
+                    "similarity": row[10],
                 }
 
             # Format authors
@@ -1599,7 +1645,8 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 authors_str = str(authors) if authors else "Unknown"
 
             paper = {
-                "reference_id": str(r.get("project_reference_id", "")),
+                "reference_id": str(r.get("reference_id", "")),
+                "project_reference_id": str(r.get("project_reference_id", "")),
                 "title": r.get("title", ""),
                 "authors": authors_str,
                 "year": r.get("year"),
