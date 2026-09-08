@@ -4,49 +4,74 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Iterator, List, Optional, Set, Tuple
+from typing import Any, Callable, Iterable, Iterator, List, Optional, Set, Tuple, Mapping
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
-_LATEX_COMMAND_RE = re.compile(
-    r"\\(?P<command>[A-Za-z]+)(?P<star>\*?)(?P<opts>(?:\s*\[[^\]]*\])*)\s*(?P<group>\{[^}]*\})"
+_LATEX_COMMAND_RE = re.compile(r"\\(?P<command>[A-Za-z]+)")
+# Known limits: nested brackets, braces inside keys, and %-comments are not parsed.
+_OPTIONAL_CITATION_ARGS = r"(?:\s*(?:\[[^\]]*\]|\([^)]*\)|<[^>]*>))*"
+_CITATION_ARGS_RE = re.compile(
+    rf"(?P<star>\*?)(?P<opts>{_OPTIONAL_CITATION_ARGS})\s*(?P<group>\{{[^{{}}]*\}})"
 )
-_MULTI_CITE_GROUP_RE = re.compile(r"(?P<opts>(?:\s*\[[^\]]*\])*)\s*(?P<group>\{[^}]*\})")
-_BIBKEY_LIST_RE = re.compile(r"[^,\s]+(?:,[^,\s]+)*")
+_MULTI_CITE_GROUP_RE = re.compile(
+    rf"(?P<opts>{_OPTIONAL_CITATION_ARGS})\s*(?P<group>\{{[^{{}}]*\}})"
+)
+_BIBKEY_LIST_RE = re.compile(r"\s*[^,\s]+(?:\s*,\s*[^,\s]+)*\s*,?\s*")
 _CITATION_COMMANDS = frozenset(
     {
         "autocite",
         "autocites",
+        "avolcite",
         "cite",
+        "citea",
         "citealp",
         "citealt",
         "citeauthor",
+        "citedate",
+        "citefield",
+        "citename",
         "citenum",
         "citep",
         "cites",
         "citet",
+        "citetalias",
         "citetitle",
+        "citeurl",
         "citeyear",
         "citeyearpar",
         "footcite",
         "footcites",
+        "footcitetext",
+        "footfullcite",
+        "ftvolcite",
         "fullcite",
+        "fvolcite",
         "nocite",
         "parencite",
         "parencites",
+        "pvolcite",
         "smartcite",
+        "shortcite",
         "smartcites",
         "supercite",
         "supercites",
+        "svolcite",
         "textcite",
         "textcites",
+        "tvolcite",
+        "volcite",
+        "volcites",
     }
 )
 _MULTI_GROUP_CITATION_COMMANDS = frozenset(
-    {"autocites", "cites", "footcites", "parencites", "smartcites", "supercites", "textcites"}
+    {"autocites", "cites", "footcites", "parencites", "smartcites", "supercites", "textcites", "volcites"}
+)
+_VOLUME_CITATION_COMMANDS = frozenset(
+    {"volcite", "volcites", "pvolcite", "fvolcite", "ftvolcite", "svolcite", "tvolcite", "avolcite"}
 )
 _VALID_FILTER_MODES = {"off", "warn", "strict"}
 
@@ -69,6 +94,123 @@ def make_bib_key(ref: dict) -> str:
         return "ref"
 
 
+def generate_citation_key(paper: dict, used_keys: Optional[Set[str]] = None) -> str:
+    """Generate a normalized key and, when requested, allocate a unique suffix."""
+    authors = paper.get("authors") or []
+    if isinstance(authors, str):
+        authors = [author.strip() for author in authors.split(",") if author.strip()]
+    base = make_bib_key({**paper, "authors": authors})
+    if used_keys is None:
+        return base
+    key = base
+    suffix = 0
+    while key in used_keys:
+        key = base + (chr(ord("a") + suffix) if suffix < 26 else str(suffix - 24))
+        suffix += 1
+    used_keys.add(key)
+    return key
+
+
+def citation_identity(paper: dict) -> Tuple[str, str, str]:
+    """Identify matching search/library metadata without depending on DB order."""
+    authors = paper.get("authors") or []
+    if isinstance(authors, str):
+        authors = [author.strip() for author in authors.split(",") if author.strip()]
+    return (
+        " ".join((paper.get("title") or "").lower().split()),
+        ",".join(" ".join(str(author).lower().split()) for author in authors),
+        str(paper.get("year") or ""),
+    )
+
+
+def build_citation_key_map(
+    papers: Iterable[dict], extra_papers: Iterable[dict] = (),
+    *, ordering_key: Optional[Callable[[dict], Any]] = None,
+) -> dict[str, dict]:
+    """Assign deterministic keys to a complete citation scope, deduplicating copies.
+
+    Select subsets only after building this map so a paper retains its suffix.
+    Collision members follow input insertion order unless ordering_key is given;
+    use creation order so an existing paper's key never changes when another
+    paper is added. Allocate sequentially, including when a later paper's native
+    base matches a suffix already assigned to an earlier paper.
+    """
+    unique = {
+        (*citation_identity(paper), str(paper.get("_reference_id") or "")): paper
+        for paper in papers
+    }
+    library_identities = {citation_identity(paper) for paper in unique.values()}
+    used_keys: Set[str] = set()
+    result: dict[str, dict] = {}
+    ordered_papers = list(unique.values())
+    if ordering_key is not None:
+        ordered_papers.sort(key=ordering_key)
+    for paper in ordered_papers:
+        result[generate_citation_key(paper, used_keys)] = paper
+    # Search results may extend a library scope, but must not rename its keys.
+    ordered_extras = list({citation_identity(paper): paper for paper in extra_papers}.values())
+    if ordering_key is not None:
+        ordered_extras.sort(key=ordering_key)
+    for paper in ordered_extras:
+        identity = citation_identity(paper)
+        if identity not in library_identities:
+            result[generate_citation_key(paper, used_keys)] = paper
+    return result
+
+
+def _reference_paper_order(paper: dict) -> tuple:
+    """Order library records by entry into the scope, then ID; keep ID-less input order.
+
+    ``scope_entered_at`` is when the reference was linked into the project or
+    paper being keyed. It wins over the row's own ``created_at`` because
+    Reference rows are shared across projects, so an older row can enter a
+    project later. An existing paper's key never changes when another paper
+    is added after it.
+    """
+    reference_id = paper.get("_reference_id")
+    if reference_id is None:
+        return (True,)
+    entered_at = paper.get("scope_entered_at") or paper.get("created_at")
+    return (False, entered_at is None, entered_at, str(reference_id))
+
+
+def build_citation_lookup(
+    papers: Iterable[dict], extra_papers: Iterable[dict] = (),
+) -> dict[str, dict]:
+    """Resolve the canonical key for every paper in a citation scope.
+
+    Exactly the keys the allocator assigns and nothing else: the allowed set
+    used by the citation filter is derived from this map, so any extra alias
+    here would let the model cite a key that no exporter produces.
+    """
+    return build_citation_key_map(list(papers), extra_papers, ordering_key=_reference_paper_order)
+
+
+def reference_citation_keys(
+    references: Iterable[Any], *, entered_at: Optional[Mapping[Any, Any]] = None,
+) -> dict[Any, str]:
+    """Return reference ID to key using the same collection algorithm as AI tools.
+
+    ``entered_at`` maps a reference id to when it entered the scope being keyed
+    (see ``project_reference_entry_times``). Without it, ordering falls back to
+    the row's own created_at, which is right for paper-scoped references.
+    """
+    entered_at = entered_at or {}
+    papers = [
+        {
+            "_reference_id": ref.id, "title": ref.title,
+            "authors": ref.authors, "year": ref.year,
+            "created_at": getattr(ref, "created_at", None),
+            "scope_entered_at": entered_at.get(ref.id),
+        }
+        for ref in references
+    ]
+    return {
+        paper["_reference_id"]: key
+        for key, paper in build_citation_key_map(papers, ordering_key=_reference_paper_order).items()
+    }
+
+
 def extract_cite_keys(text: str) -> List[Tuple[str, int, int, str]]:
     """Return (key, span_start, span_end, command) for supported citation commands."""
     results: List[Tuple[str, int, int, str]] = []
@@ -87,7 +229,7 @@ def extract_cite_keys(text: str) -> List[Tuple[str, int, int, str]]:
                 span_end = keys_start + raw_start + len(raw_key.rstrip())
                 results.append((key, span_start, span_end, command))
             cursor = raw_end + 1
-    return results
+    return sorted(results, key=lambda item: item[1])
 
 
 def filter_response(text: str, allowed_keys: Set[str]) -> Tuple[str, List[dict]]:
@@ -131,6 +273,11 @@ def filter_response(text: str, allowed_keys: Set[str]) -> Tuple[str, List[dict]]
 
         replacements.append((keys_start, match.end("group") - 1, ",".join(replacement_keys)))
 
+    # Key-group spans are absolute and non-overlapping: nested citations live
+    # in optional arguments, outside the outer key group. The scanner yields
+    # the outer group first, so sort by position before splicing right to left.
+    replacements.sort(key=lambda item: item[0])
+    invalid.sort(key=lambda item: item["span_start"])
     filtered = source
     for span_start, span_end, replacement in reversed(replacements):
         filtered = filtered[:span_start] + replacement + filtered[span_end:]
@@ -139,20 +286,41 @@ def filter_response(text: str, allowed_keys: Set[str]) -> Tuple[str, List[dict]]
 
 
 def _iter_citation_groups(text: str) -> Iterator[Tuple[re.Match[str], str, str]]:
-    """Yield every key group for known citation commands in source order."""
+    """Yield key groups while scanning only command names, including nested ones."""
+    # finditer resumes at the end of each command NAME, never its arguments,
+    # so citations inside wrappers or citation notes are still discovered.
     for command_match in _LATEX_COMMAND_RE.finditer(text):
         normalized_command = command_match.group("command").lower()
         if normalized_command not in _CITATION_COMMANDS:
             continue
 
-        command = "\\" + command_match.group("command") + command_match.group("star")
-        yield command_match, command, normalized_command
+        args_match = _CITATION_ARGS_RE.match(text, command_match.end())
+        if args_match is None:
+            continue
+
+        command = "\\" + command_match.group("command") + args_match.group("star")
+        if normalized_command in {"citefield", "citename"}:
+            # The first brace group is the key; the next is a field/name selector.
+            yield args_match, command, normalized_command
+            continue
+        if normalized_command in _VOLUME_CITATION_COMMANDS:
+            # These commands take [prenote]{volume}[postnote]{key}; only the
+            # final key group is validated, preserving the volume and notes.
+            args_match = _MULTI_CITE_GROUP_RE.match(text, args_match.end())
+            if args_match is None:
+                continue
+        yield args_match, command, normalized_command
 
         if normalized_command not in _MULTI_GROUP_CITATION_COMMANDS:
             continue
 
-        group_end = command_match.end()
+        group_end = args_match.end()
         while next_group := _MULTI_CITE_GROUP_RE.match(text, group_end):
+            if normalized_command in _VOLUME_CITATION_COMMANDS:
+                # Each continuation repeats {volume}[postnote]{key}.
+                next_group = _MULTI_CITE_GROUP_RE.match(text, next_group.end())
+                if next_group is None:
+                    break
             keys_text = next_group.group("group")[1:-1]
             if not _BIBKEY_LIST_RE.fullmatch(keys_text):
                 break
@@ -184,6 +352,18 @@ def apply_citation_filter_mode(
     return filtered_text, invalid
 
 
+def project_reference_entry_times(db: Session, project_id: Any) -> dict[Any, Any]:
+    """Map reference id to when it was linked into the project (ProjectReference.created_at)."""
+    from app.models import ProjectReference
+
+    rows = (
+        db.query(ProjectReference.reference_id, ProjectReference.created_at)
+        .filter(ProjectReference.project_id == project_id)
+        .all()
+    )
+    return {reference_id: created_at for reference_id, created_at in rows}
+
+
 def build_allowed_citation_keys(
     db: Session,
     *,
@@ -195,6 +375,7 @@ def build_allowed_citation_keys(
     from app.models import PaperReference, Project, ProjectReference, Reference, ResearchPaper
 
     references_by_id: dict[Any, Any] = {}
+    entry_times: dict[Any, Any] = {}
 
     project = None
     if project_id:
@@ -208,6 +389,7 @@ def build_allowed_citation_keys(
             )
             for ref in project_refs:
                 references_by_id[ref.id] = ref
+            entry_times = project_reference_entry_times(db, project.id)
 
     paper = None
     if paper_id:
@@ -231,18 +413,15 @@ def build_allowed_citation_keys(
         for ref in owner_refs:
             references_by_id[ref.id] = ref
 
-    allowed: Set[str] = set()
-    for ref in references_by_id.values():
-        key = make_bib_key(
-            {
-                "title": getattr(ref, "title", None),
-                "authors": getattr(ref, "authors", None),
-                "year": getattr(ref, "year", None),
-            }
-        )
-        if key:
-            allowed.add(key)
-    return allowed
+    return set(build_citation_lookup(
+        {
+            "_reference_id": ref.id, "title": ref.title,
+            "authors": ref.authors, "year": ref.year,
+            "created_at": getattr(ref, "created_at", None),
+            "scope_entered_at": entry_times.get(ref.id),
+        }
+        for ref in references_by_id.values()
+    ))
 
 
 def _coerce_uuid(value: Any) -> Optional[UUID]:

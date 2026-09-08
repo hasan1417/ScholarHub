@@ -35,7 +35,7 @@ from app.services.project_reference_service import ProjectReferenceSuggestionSer
 from app.services.project_discovery_service import ProjectDiscoveryManager
 from app.services.activity_feed import record_project_activity, preview_text
 from app.services.embedding_worker import queue_library_paper_embedding_sync
-from app.services.citation_filter import make_bib_key
+from app.services.citation_filter import make_bib_key, project_reference_entry_times, reference_citation_keys
 from app.utils.doi import normalize_doi
 from pydantic import BaseModel, Field
 
@@ -725,16 +725,14 @@ async def suggest_citations(
         logger.error("Citation suggestion vector query failed: %s", e)
         return {"suggestions": []}
 
-    # Disambiguate citation keys across results
-    class _RefProxy:
-        def __init__(self, rid, authors, year, title):
-            self.id = rid
-            self.authors = authors
-            self.year = year
-            self.title = title
-
-    proxies = [_RefProxy(row.reference_id, row.authors or [], row.year, row.title) for row in rows]
-    key_map = _disambiguate_cite_keys(proxies)
+    # Assign keys in the full project scope before selecting search suggestions.
+    library_refs = (
+        db.query(Reference)
+        .join(ProjectReference, ProjectReference.reference_id == Reference.id)
+        .filter(ProjectReference.project_id == project.id)
+        .all()
+    )
+    key_map = _disambiguate_cite_keys(library_refs, project_reference_entry_times(db, project.id))
 
     suggestions = []
     for row in rows:
@@ -1331,27 +1329,9 @@ def _generate_cite_key(authors: list[str] | None, year: int | None, title: str |
     return make_bib_key({"authors": authors or [], "year": year, "title": title})
 
 
-def _disambiguate_cite_keys(refs: list) -> dict:
-    """Generate unique cite keys for a list of references, appending a/b/c on collision."""
-    keys: dict = {}  # ref -> key
-    used: dict = {}  # base_key -> count
-    for ref in refs:
-        authors = ref.authors or []
-        base = _generate_cite_key(authors, ref.year, getattr(ref, "title", None))
-        count = used.get(base, 0)
-        used[base] = count + 1
-        if count == 0:
-            keys[ref.id] = base
-        else:
-            suffix = chr(ord("a") + count)
-            keys[ref.id] = f"{base}{suffix}"
-    # Go back and add 'a' suffix to the first occurrence if there were collisions
-    for ref in refs:
-        authors = ref.authors or []
-        base = _generate_cite_key(authors, ref.year, getattr(ref, "title", None))
-        if used[base] > 1 and keys[ref.id] == base:
-            keys[ref.id] = f"{base}a"
-    return keys
+def _disambiguate_cite_keys(refs: list, entered_at: dict | None = None) -> dict:
+    """Use the same collision-aware keys as citation validation and AI tools."""
+    return reference_citation_keys(refs, entered_at=entered_at)
 
 
 def _reference_to_bibtex(ref: Reference, cite_key: str | None = None, entry_type: str = "article") -> str:
@@ -1515,7 +1495,13 @@ def export_bibtex(
     )
 
     all_refs = [pr.reference for pr in project_refs if pr.reference]
-    key_map = _disambiguate_cite_keys(all_refs)
+    library_refs = (
+        db.query(Reference)
+        .join(ProjectReference, ProjectReference.reference_id == Reference.id)
+        .filter(ProjectReference.project_id == project.id)
+        .all()
+    )
+    key_map = _disambiguate_cite_keys(library_refs, project_reference_entry_times(db, project.id))
 
     bib_entries: list[str] = []
     for ref in all_refs:

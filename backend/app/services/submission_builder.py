@@ -11,7 +11,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.models.reference import Reference
-from app.services.citation_filter import make_bib_key
+from app.services.citation_filter import generate_citation_key, reference_citation_keys
 
 logger = logging.getLogger(__name__)
 
@@ -280,10 +280,6 @@ def validate_for_venue(latex_source: str, venue: str) -> list[dict]:
     return issues
 
 
-def _make_bibtex_key(title: str | None, authors: list | None, year: int | None) -> str:
-    return make_bib_key({"title": title, "authors": authors or [], "year": year})
-
-
 def _esc(s: str | None) -> str | None:
     if not s:
         return s
@@ -294,14 +290,10 @@ def _esc(s: str | None) -> str | None:
     return s
 
 
-def _to_bibtex_entry(ref: Reference, seen_keys: Set[str]) -> str:
-    key = _make_bibtex_key(ref.title, ref.authors, ref.year)
-    original_key = key
-    suffix_idx = 0
-    while key in seen_keys:
-        suffix_idx += 1
-        key = original_key + chr(ord("a") + suffix_idx - 1)
-    seen_keys.add(key)
+def _to_bibtex_entry(ref: Reference, seen_keys: Set[str], cite_key: str | None = None) -> str:
+    key = cite_key or generate_citation_key(
+        {"title": ref.title, "authors": ref.authors, "year": ref.year}, seen_keys
+    )
 
     fields: list[str] = []
 
@@ -331,9 +323,10 @@ def _generate_bibtex(db: Session, user_id: UUID, paper_id: str) -> str:
     ).all()
     entries: list[str] = []
     seen_keys: Set[str] = set()
+    citation_keys = reference_citation_keys(refs)
     for r in refs:
         try:
-            entries.append(_to_bibtex_entry(r, seen_keys))
+            entries.append(_to_bibtex_entry(r, seen_keys, citation_keys[r.id]))
         except Exception as e:
             logger.warning("Failed to generate BibTeX entry for reference %s: %s", r.id, e)
     return "\n\n".join(entries) if entries else "% No references found."
