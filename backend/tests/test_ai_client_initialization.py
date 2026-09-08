@@ -27,7 +27,7 @@ def test_initialization_is_offline_and_does_not_log_key_material(
         assert client.initialization_status == "ready"
         assert client.openai_client is not None
         assert client.openai_client.timeout == 120.0
-        assert client.openai_client.max_retries == 0
+        assert client.openai_client.max_retries == 1
         send.assert_not_called()
         assert "OpenAI API key loaded" in caplog.text
         assert api_key[:20] not in caplog.text

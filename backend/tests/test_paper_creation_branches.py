@@ -109,7 +109,8 @@ def test_create_branch_validates_parent_paper(parent_kind: str) -> None:
         if parent_kind in {"other_paper", "missing"}:
             with pytest.raises(HTTPException) as exc:
                 branches.create_branch(request, db, user)
-            assert exc.value.status_code == (400 if parent_kind == "other_paper" else 404)
+            assert exc.value.status_code == 404
+            assert exc.value.detail == "Parent branch not found"
             db.add.assert_not_called()
             db.commit.assert_not_called()
         else:

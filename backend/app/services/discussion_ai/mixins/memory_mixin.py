@@ -21,9 +21,7 @@ from app.core.discussion_ai_limits import (
 from app.services.discussion_ai.utils import sanitize_for_context
 
 if TYPE_CHECKING:
-    from sqlalchemy.orm import Session
     from app.models import ProjectDiscussionChannel
-    from app.services.ai_service import AIService
 
 logger = logging.getLogger(__name__)
 
@@ -133,108 +131,6 @@ class MemoryMixin:
             return client, "gpt-5-mini"
 
         return None, None
-
-    def _refresh_focused_papers_with_library_data(
-        self, focused_papers: List[Dict], project: "Project"
-    ) -> List[Dict]:
-        """
-        Check if any focused papers have been ingested to the library since focusing.
-        If so, enrich them with full-text analysis data.
-
-        This handles the common flow:
-        1. User searches papers (abstract only)
-        2. User focuses on papers
-        3. User asks to ingest them
-        4. User asks analysis question - should now use full-text data
-        """
-        from app.models import Reference
-
-        if not focused_papers or not project:
-            return focused_papers
-
-        # Get all project references for matching
-        try:
-            references = self.db.query(Reference).filter(
-                Reference.project_id == project.id
-            ).limit(1000).all()
-        except Exception as e:
-            logger.error(f"Failed to fetch references for refresh: {e}")
-            return focused_papers
-
-        if not references:
-            return focused_papers
-
-        # Build lookup maps for matching
-        doi_to_ref = {}
-        title_to_ref = {}
-        url_to_ref = {}
-
-        for ref in references:
-            if ref.doi:
-                # Normalize DOI for matching
-                doi_normalized = ref.doi.lower().replace("https://doi.org/", "").strip()
-                doi_to_ref[doi_normalized] = ref
-            if ref.title:
-                title_to_ref[ref.title.lower().strip()] = ref
-            if ref.url:
-                url_to_ref[ref.url] = ref
-
-        refreshed_papers = []
-        refreshed_count = 0
-
-        for paper in focused_papers:
-            # Skip if already has full text
-            if paper.get("has_full_text"):
-                refreshed_papers.append(paper)
-                continue
-
-            # Try to find matching reference
-            matched_ref = None
-
-            # Match by DOI first (most reliable)
-            paper_doi = paper.get("doi", "")
-            if paper_doi:
-                doi_normalized = paper_doi.lower().replace("https://doi.org/", "").strip()
-                matched_ref = doi_to_ref.get(doi_normalized)
-
-            # Match by title if no DOI match
-            if not matched_ref and paper.get("title"):
-                matched_ref = title_to_ref.get(paper["title"].lower().strip())
-
-            # Match by URL if still no match
-            if not matched_ref and paper.get("url"):
-                matched_ref = url_to_ref.get(paper["url"])
-
-            # If found and has AI analysis, enrich the paper
-            if matched_ref and matched_ref.ai_analysis:
-                analysis = matched_ref.ai_analysis
-                enriched_paper = paper.copy()
-                enriched_paper["has_full_text"] = True
-                enriched_paper["reference_id"] = str(matched_ref.id)
-                enriched_paper["cite_key"] = matched_ref.cite_key
-
-                # Add analysis fields
-                if analysis.get("summary"):
-                    enriched_paper["summary"] = analysis["summary"]
-                if analysis.get("key_findings"):
-                    enriched_paper["key_findings"] = analysis["key_findings"]
-                if analysis.get("methodology"):
-                    enriched_paper["methodology"] = analysis["methodology"]
-                if analysis.get("limitations"):
-                    enriched_paper["limitations"] = analysis["limitations"]
-                if analysis.get("contributions"):
-                    enriched_paper["contributions"] = analysis["contributions"]
-
-                refreshed_papers.append(enriched_paper)
-                refreshed_count += 1
-                logger.info(f"Refreshed focused paper with full-text: {paper.get('title', 'Untitled')[:50]}")
-            else:
-                refreshed_papers.append(paper)
-
-        if refreshed_count > 0:
-            logger.info(f"Refreshed {refreshed_count} focused papers with library full-text data")
-
-        return refreshed_papers
 
     def _get_ai_memory(self, channel: "ProjectDiscussionChannel") -> Dict[str, Any]:
         """Get AI memory from channel, with defaults."""

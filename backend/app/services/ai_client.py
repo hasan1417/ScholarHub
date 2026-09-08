@@ -32,7 +32,7 @@ class AIClient:
 
             logger.info("OpenAI API key loaded")
 
-            self.openai_client = openai.OpenAI(api_key=api_key, timeout=120.0, max_retries=0)
+            self.openai_client = openai.OpenAI(api_key=api_key, timeout=120.0, max_retries=1)
 
             self.initialization_status = "ready"
             self.initialization_progress = 100

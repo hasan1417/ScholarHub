@@ -60,7 +60,7 @@ def create_branch(
     branch: BranchCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> BranchWithAuthor:
     """Create a new branch"""
     paper = require_paper_editor(db, branch.paper_id, current_user)
     
@@ -74,10 +74,8 @@ def create_branch(
 
     if branch.parent_branch_id is not None:
         parent_branch = db.query(Branch).filter(Branch.id == branch.parent_branch_id).first()
-        if parent_branch is None:
+        if parent_branch is None or parent_branch.paper_id != paper.id:
             raise HTTPException(status_code=404, detail="Parent branch not found")
-        if parent_branch.paper_id != paper.id:
-            raise HTTPException(status_code=400, detail="Parent branch belongs to a different paper")
     
     # Create the branch
     db_branch = Branch(
