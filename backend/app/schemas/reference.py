@@ -38,6 +38,7 @@ class ReferenceResponse(BaseModel):
     methodology: Optional[str] = None
     limitations: Optional[List[str]] = None
     relevance_score: Optional[float] = None
+    citation_key: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

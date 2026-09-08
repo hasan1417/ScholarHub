@@ -1,8 +1,12 @@
 /**
- * Generate BibTeX key from reference
- * Format: {lastAuthorName}{year}{shortTitle}
+ * Citation key for a reference.
+ *
+ * Prefers the key the server allocated (collision-aware, the one the
+ * citation filter accepts). The local format {lastAuthorName}{year}{shortTitle}
+ * is only a fallback for objects that did not come from a list endpoint.
  */
 export function makeBibKey(ref: any): string {
+  if (typeof ref?.citation_key === 'string' && ref.citation_key) return ref.citation_key
   try {
     const first = (Array.isArray(ref.authors) && ref.authors.length > 0) ? String(ref.authors[0]) : ''
     const lastToken = first.split(/\s+/).filter(Boolean).slice(-1)[0] || ''

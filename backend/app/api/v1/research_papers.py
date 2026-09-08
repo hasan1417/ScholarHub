@@ -19,6 +19,7 @@ from app.core.config import settings
 from app.schemas.paper_member import PaperMemberCreate, PaperMemberResponse
 from app.schemas.paper_version import PaperVersionCreate, PaperVersionResponse, PaperVersionList, ContentUpdateRequest
 from app.schemas.reference import ReferenceCreate, ReferenceResponse, ReferenceList
+from app.services.citation_filter import scope_citation_keys
 from sqlalchemy import func
 import re
 from app.models.reference import Reference
@@ -772,7 +773,12 @@ async def list_references(
         if not member:
             raise HTTPException(status_code=403, detail="Access denied")
     refs = db.query(Reference).filter(Reference.paper_id == paper.id).order_by(Reference.created_at.desc()).all()
-    return ReferenceList(references=refs, total=len(refs))
+    keys = scope_citation_keys(db, project_id=paper.project_id, paper_id=paper.id, owner_id=current_user.id)
+    items = [
+        ReferenceResponse.model_validate(ref).model_copy(update={"citation_key": keys.get(ref.id)})
+        for ref in refs
+    ]
+    return ReferenceList(references=items, total=len(items))
 
 @router.delete("/{paper_id}/references/{reference_id}")
 async def delete_reference(

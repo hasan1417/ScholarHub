@@ -103,6 +103,7 @@ export interface ProjectReferenceSuggestion {
   decided_by?: string | null
   reference?: {
     id?: string | null
+    citation_key?: string | null
     title?: string
     authors?: string[] | null
     year?: number | null
@@ -163,6 +164,7 @@ export interface PaperReferenceAttachment {
   project_reference_id?: string | null
   project_reference_status?: 'pending' | 'approved' | 'rejected' | null
   reference_id: string
+  citation_key?: string | null
   title?: string | null
   authors?: string[] | null
   year?: number | null

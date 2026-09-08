@@ -27,6 +27,7 @@ from app.services.citation_filter import (
     generate_citation_key,
     project_reference_entry_times,
     reference_citation_keys,
+    scope_entry_time,
 )
 
 if TYPE_CHECKING:
@@ -139,7 +140,7 @@ class LibraryToolsMixin:
                 "is_open_access": ref.is_open_access,
                 "pdf_url": ref.pdf_url,
                 "created_at": getattr(ref, "created_at", None),
-                "scope_entered_at": entry_times.get(ref.id),
+                "scope_entered_at": scope_entry_time(entry_times, ref),
                 "_reference_id": str(ref.id),  # Track existing ref ID
             })
 
@@ -599,7 +600,7 @@ class LibraryToolsMixin:
             library_papers.append({
                 "_reference_id": ref.id,
                 "created_at": getattr(ref, "created_at", None),
-                "scope_entered_at": entry_times.get(ref.id),
+                "scope_entered_at": scope_entry_time(entry_times, ref),
                 "title": ref.title,
                 "authors": ref.authors,
                 "year": ref.year,

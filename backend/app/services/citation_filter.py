@@ -158,6 +158,17 @@ def build_citation_key_map(
     return result
 
 
+def scope_entry_time(entered_at: Mapping[Any, Any], ref: Any) -> Any:
+    """When ``ref`` entered the scope being keyed, or None if it is not a member.
+
+    A member whose link row carries no timestamp keeps its membership and is
+    ordered by its own created_at instead of being demoted behind the others.
+    """
+    if ref.id not in entered_at:
+        return None
+    return entered_at[ref.id] or getattr(ref, "created_at", None)
+
+
 def _reference_paper_order(paper: dict) -> tuple:
     """Order library records by entry into the scope, then ID; keep ID-less input order.
 
@@ -165,13 +176,17 @@ def _reference_paper_order(paper: dict) -> tuple:
     paper being keyed. It wins over the row's own ``created_at`` because
     Reference rows are shared across projects, so an older row can enter a
     project later. An existing paper's key never changes when another paper
-    is added after it.
+    is added after it. Library members allocate before references that belong
+    only to a paper, so a library reference has the same key on the project
+    pages and inside every paper of that project, whatever the paper-only
+    references' own timestamps are.
     """
     reference_id = paper.get("_reference_id")
     if reference_id is None:
         return (True,)
-    entered_at = paper.get("scope_entered_at") or paper.get("created_at")
-    return (False, entered_at is None, entered_at, str(reference_id))
+    scope_entered_at = paper.get("scope_entered_at")
+    entered_at = scope_entered_at or paper.get("created_at")
+    return (False, scope_entered_at is None, entered_at is None, entered_at, str(reference_id))
 
 
 def build_citation_lookup(
@@ -201,7 +216,7 @@ def reference_citation_keys(
             "_reference_id": ref.id, "title": ref.title,
             "authors": ref.authors, "year": ref.year,
             "created_at": getattr(ref, "created_at", None),
-            "scope_entered_at": entered_at.get(ref.id),
+            "scope_entered_at": scope_entry_time(entered_at, ref),
         }
         for ref in references
     ]
@@ -372,6 +387,21 @@ def build_allowed_citation_keys(
     owner_id: Optional[Any] = None,
 ) -> Set[str]:
     """Build the set of valid citation keys for a request's project/paper context."""
+    return set(scope_citation_keys(db, project_id=project_id, paper_id=paper_id, owner_id=owner_id).values())
+
+
+def scope_citation_keys(
+    db: Session,
+    *,
+    project_id: Optional[Any] = None,
+    paper_id: Optional[Any] = None,
+    owner_id: Optional[Any] = None,
+) -> dict[Any, str]:
+    """Reference id -> citation key for a request's project/paper context.
+
+    List endpoints serve these so the editor inserts exactly the key the
+    filter accepts; allocate over the whole scope, never over a page.
+    """
     from app.models import PaperReference, Project, ProjectReference, Reference, ResearchPaper
 
     references_by_id: dict[Any, Any] = {}
@@ -413,15 +443,18 @@ def build_allowed_citation_keys(
         for ref in owner_refs:
             references_by_id[ref.id] = ref
 
-    return set(build_citation_lookup(
-        {
-            "_reference_id": ref.id, "title": ref.title,
-            "authors": ref.authors, "year": ref.year,
-            "created_at": getattr(ref, "created_at", None),
-            "scope_entered_at": entry_times.get(ref.id),
-        }
-        for ref in references_by_id.values()
-    ))
+    return {
+        paper["_reference_id"]: key
+        for key, paper in build_citation_lookup(
+            {
+                "_reference_id": ref.id, "title": ref.title,
+                "authors": ref.authors, "year": ref.year,
+                "created_at": getattr(ref, "created_at", None),
+                "scope_entered_at": scope_entry_time(entry_times, ref),
+            }
+            for ref in references_by_id.values()
+        ).items()
+    }
 
 
 def _coerce_uuid(value: Any) -> Optional[UUID]:

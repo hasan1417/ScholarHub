@@ -20,6 +20,7 @@ interface ReferenceItem {
   documentId?: string | null
   documentStatus?: string | null
   documentDownloadUrl?: string | null
+  citation_key?: string | null
 }
 
 interface CitationDialogProps {
@@ -84,6 +85,7 @@ const CitationDialog: React.FC<CitationDialogProps> = ({
         documentId: ref.document_id ?? ref.documentId ?? null,
         documentStatus: ref.document_status ?? ref.documentStatus ?? null,
         documentDownloadUrl: ref.document_download_url ?? ref.documentDownloadUrl ?? null,
+        citation_key: ref.citation_key ?? null,
       }
     })
   }, [])

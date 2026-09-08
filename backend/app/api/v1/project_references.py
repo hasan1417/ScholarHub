@@ -35,7 +35,7 @@ from app.services.project_reference_service import ProjectReferenceSuggestionSer
 from app.services.project_discovery_service import ProjectDiscoveryManager
 from app.services.activity_feed import record_project_activity, preview_text
 from app.services.embedding_worker import queue_library_paper_embedding_sync
-from app.services.citation_filter import make_bib_key, project_reference_entry_times, reference_citation_keys
+from app.services.citation_filter import make_bib_key, scope_citation_keys
 from app.utils.doi import normalize_doi
 from pydantic import BaseModel, Field
 
@@ -603,7 +603,7 @@ def _sync_reference_analysis_state(ref: Reference) -> bool:
     return changed
 
 
-def _serialize_project_reference(pr: ProjectReference) -> ProjectReferenceResponse:
+def _serialize_project_reference(pr: ProjectReference, citation_key: Optional[str] = None) -> ProjectReferenceResponse:
     ref = pr.reference
     document = ref.document if ref else None
 
@@ -642,6 +642,7 @@ def _serialize_project_reference(pr: ProjectReference) -> ProjectReferenceRespon
         updated_at=pr.updated_at.isoformat() if pr.updated_at else None,
         reference={
             "id": str(ref.id) if ref else None,
+            "citation_key": citation_key,
             "title": ref.title if ref else None,
             "authors": ref.authors if ref else None,
             "year": ref.year if ref else None,
@@ -726,13 +727,7 @@ async def suggest_citations(
         return {"suggestions": []}
 
     # Assign keys in the full project scope before selecting search suggestions.
-    library_refs = (
-        db.query(Reference)
-        .join(ProjectReference, ProjectReference.reference_id == Reference.id)
-        .filter(ProjectReference.project_id == project.id)
-        .all()
-    )
-    key_map = _disambiguate_cite_keys(library_refs, project_reference_entry_times(db, project.id))
+    key_map = scope_citation_keys(db, project_id=project.id)
 
     suggestions = []
     for row in rows:
@@ -776,9 +771,10 @@ def list_reference_suggestions(
     if dirty:
         db.commit()
 
+    keys = scope_citation_keys(db, project_id=project.id)
     return {
         "project_id": str(project.id),
-        "suggestions": [_serialize_project_reference(item) for item in suggestions],
+        "suggestions": [_serialize_project_reference(item, keys.get(item.reference_id)) for item in suggestions],
     }
 
 
@@ -807,9 +803,10 @@ def list_project_references(
     if dirty:
         db.commit()
 
+    keys = scope_citation_keys(db, project_id=project.id)
     return {
         "project_id": str(project.id),
-        "references": [_serialize_project_reference(item) for item in references],
+        "references": [_serialize_project_reference(item, keys.get(item.reference_id)) for item in references],
     }
 
 
@@ -1329,9 +1326,6 @@ def _generate_cite_key(authors: list[str] | None, year: int | None, title: str |
     return make_bib_key({"authors": authors or [], "year": year, "title": title})
 
 
-def _disambiguate_cite_keys(refs: list, entered_at: dict | None = None) -> dict:
-    """Use the same collision-aware keys as citation validation and AI tools."""
-    return reference_citation_keys(refs, entered_at=entered_at)
 
 
 def _reference_to_bibtex(ref: Reference, cite_key: str | None = None, entry_type: str = "article") -> str:
@@ -1495,13 +1489,7 @@ def export_bibtex(
     )
 
     all_refs = [pr.reference for pr in project_refs if pr.reference]
-    library_refs = (
-        db.query(Reference)
-        .join(ProjectReference, ProjectReference.reference_id == Reference.id)
-        .filter(ProjectReference.project_id == project.id)
-        .all()
-    )
-    key_map = _disambiguate_cite_keys(library_refs, project_reference_entry_times(db, project.id))
+    key_map = scope_citation_keys(db, project_id=project.id)
 
     bib_entries: list[str] = []
     for ref in all_refs:
@@ -1578,6 +1566,8 @@ def list_references_for_paper(
         .all()
     )
 
+    keys = scope_citation_keys(db, project_id=project.id, paper_id=paper.id)
+
     def _serialize(link: PaperReference, project_ref: Optional[ProjectReference], reference: Reference):
         document = reference.document if reference else None
         document_id = str(document.id) if document else None
@@ -1596,6 +1586,7 @@ def list_references_for_paper(
             "project_reference_id": str(project_ref.id) if project_ref else None,
             "project_reference_status": project_ref.status.value if project_ref else None,
             "reference_id": str(reference.id),
+            "citation_key": keys.get(reference.id),
             "title": reference.title,
             "authors": reference.authors,
             "year": reference.year,

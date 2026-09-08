@@ -18,6 +18,7 @@ from app.services.citation_filter import (
     citation_identity,
     project_reference_entry_times,
     reference_citation_keys,
+    scope_entry_time,
 )
 from app.services.discussion_ai.utils import _emit_progress
 
@@ -129,7 +130,7 @@ class SearchToolsMixin:
                 "_reference_id": ref.id, "title": ref.title,
                 "authors": ref.authors, "year": ref.year,
                 "created_at": getattr(ref, "created_at", None),
-                "scope_entered_at": entry_times.get(ref.id),
+                "scope_entered_at": scope_entry_time(entry_times, ref),
             }
             for ref in self._project_library_references(project)
         ]
