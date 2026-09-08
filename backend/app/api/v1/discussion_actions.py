@@ -381,6 +381,11 @@ async def search_references(
             sources=sources,
             fast_mode=True,  # Use fast mode for chat responsiveness
         )
+        if result.status == "error":
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=result.error or "Academic paper sources are unavailable. Please try again later.",
+            )
 
         # Filter for open access if requested
         source_papers = result.papers
@@ -468,6 +473,11 @@ async def batch_search_references(
                 sources=sources,
                 fast_mode=True,
             )
+            if result.status == "error":
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=result.error or "Academic paper sources are unavailable. Please try again later.",
+                )
 
             # Filter for open access if requested
             source_papers = result.papers

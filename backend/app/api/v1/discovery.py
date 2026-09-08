@@ -210,6 +210,8 @@ class PaperDiscoveryResponse(BaseModel):
     search_time: float
     sources_raw_counts: Optional[Dict[str, int]] = None
     sources_unique_counts: Optional[Dict[str, int]] = None
+    status: str = "success"
+    error: Optional[str] = None
 
 
 class AddPaperFromDiscoveryRequest(BaseModel):
@@ -450,7 +452,12 @@ async def discover_papers(
                 target_text=target_text or request.research_topic,
                 target_keywords=target_keywords
             )
-            discovered_papers = result.papers if hasattr(result, 'papers') else result
+            if result.status == "error":
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=result.error or "Academic paper sources are unavailable. Please try again later.",
+                )
+            discovered_papers = result.papers
 
         # Convert to response format
         paper_responses = []
@@ -484,7 +491,9 @@ async def discover_papers(
             query=request.query,
             search_time=elapsed,
             sources_raw_counts=discovery_service.last_raw_counts if request.include_breakdown else None,
-            sources_unique_counts=discovery_service.last_unique_counts if request.include_breakdown else None
+            sources_unique_counts=discovery_service.last_unique_counts if request.include_breakdown else None,
+            status=result.status,
+            error=result.error,
         )
         
     except HTTPException:
@@ -734,7 +743,10 @@ async def discover_papers_stream(
                     sources=request.sources,
                     debug=False # Consider making this configurable
                 )
-                papers = discovery_result.papers if hasattr(discovery_result, 'papers') else discovery_result
+                if discovery_result.status == "error":
+                    yield f"data: {json.dumps({'type': 'error', 'message': discovery_result.error or 'Academic paper sources are unavailable. Please try again later.'})}\n\n"
+                    return
+                papers = discovery_result.papers
 
                 # Stream results as a single batch
                 batch = []
@@ -756,7 +768,8 @@ async def discover_papers_stream(
                         'pdf_url': getattr(p, 'pdf_url', None),
                     })
 
-                payload = {'type': 'final', 'papers': batch, 'total': len(batch), 'search_time': time.time() - start_ts}
+                payload = {'type': 'final', 'papers': batch, 'total': len(batch), 'search_time': time.time() - start_ts,
+                           'status': discovery_result.status, 'error': discovery_result.error}
                 yield f"data: {json.dumps(payload)}\n\n"
 
                 # Increment usage counter after successful discovery (streaming)
@@ -769,7 +782,7 @@ async def discover_papers_stream(
                     logger.error(f"Failed to increment discovery usage for user {current_user.id}: {e}")
 
         except asyncio.TimeoutError:
-            yield f"data: {json.dumps({'type': 'done', 'total': 0, 'timeout': True})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'message': 'Paper discovery timed out. Please try again later.'})}\n\n"
         except Exception as e:
             logger.error(f"Discovery stream failed: {str(e)}")
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
@@ -798,6 +811,8 @@ class ScoreDebugResponse(BaseModel):
     items: List[ScoreDebugItem]
     count: int
     query_used: Optional[str] = None
+    status: str = "success"
+    error: Optional[str] = None
 
 
 @router.post("/papers/score-debug", response_model=ScoreDebugResponse)
@@ -873,7 +888,12 @@ async def score_debug(
             target_text=target_text or request.research_topic,
             target_keywords=target_keywords
         )
-        papers = discovery_result.papers if hasattr(discovery_result, 'papers') else discovery_result
+        if discovery_result.status == "error":
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=discovery_result.error or "Academic paper sources are unavailable. Please try again later.",
+            )
+        papers = discovery_result.papers
 
     # Compute lexical components
     def _tokenize_set(s: str) -> set:
@@ -933,7 +953,10 @@ async def score_debug(
             }
         ))
 
-    return ScoreDebugResponse(items=items, count=len(items), query_used=effective_query or None)
+    return ScoreDebugResponse(
+        items=items, count=len(items), query_used=effective_query or None,
+        status=discovery_result.status, error=discovery_result.error,
+    )
 
 
 # ===== Deep Rescore PDFs =====

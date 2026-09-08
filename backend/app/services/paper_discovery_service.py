@@ -29,6 +29,7 @@ from app.services.paper_discovery.models import DiscoveredPaper, PaperSource, _n
 from app.services.paper_discovery.query import QueryIntent, extract_core_terms, understand_query
 
 logger = logging.getLogger(__name__)
+_logged_disabled_sources: Set[str] = set()
 
 
 # ============= Concrete Implementations =============
@@ -81,18 +82,31 @@ def _build_default_searchers(
         ArxivSearcher(session, config),
         SemanticScholarSearcher(session, config, semantic_scholar_api_key),
     ]
-    if is_manual:
+    disabled_sources: List[str] = []
+    if is_manual and serpapi_key:
         searchers.append(GoogleScholarSearcher(session, config, api_key=serpapi_key))
+    elif is_manual:
+        disabled_sources.append("google_scholar")
     searchers.extend(
         [
             CrossrefSearcher(session, config),
             PubMedSearcher(session, config, email=ncbi_email),
-            ScienceDirectSearcher(session, config, api_key=sciencedirect_api_key),
             OpenAlexSearcher(session, config),
-            CoreSearcher(session, config, api_key=core_api_key),
             EuropePmcSearcher(session, config),
         ]
     )
+    if sciencedirect_api_key:
+        searchers.append(ScienceDirectSearcher(session, config, api_key=sciencedirect_api_key))
+    else:
+        disabled_sources.append("sciencedirect")
+    if core_api_key:
+        searchers.append(CoreSearcher(session, config, api_key=core_api_key))
+    else:
+        disabled_sources.append("core")
+    newly_disabled = set(disabled_sources) - _logged_disabled_sources
+    if newly_disabled:
+        logger.info("Optional paper sources disabled (no API key): %s", ", ".join(sorted(newly_disabled)))
+        _logged_disabled_sources.update(newly_disabled)
     return searchers
 
 
@@ -292,6 +306,8 @@ class SearchOrchestrator:
                     return_when=asyncio.FIRST_COMPLETED,
                 )
                 for task in done_tasks:
+                    if task.cancelled():
+                        continue
                     papers: List[DiscoveredPaper] = []
                     try:
                         source_name, papers, status, error, elapsed_ms = task.result()
@@ -308,8 +324,6 @@ class SearchOrchestrator:
                             "count": len(papers) if isinstance(papers, list) else 0,
                             "elapsed_ms": elapsed_ms,
                         })
-                    except asyncio.CancelledError:
-                        continue
                     except Exception as exc:  # pragma: no cover - defensive
                         logger.error("Discovery task failed: %s", exc)
                         papers = []
@@ -318,20 +332,17 @@ class SearchOrchestrator:
                         sources_with_papers += 1
                         collected.extend(papers)
 
-                    # Early exit for fast_mode: enough raw hits from >=3 sources
-                    # after 3s. Dedup happens at the end regardless.
-                    elapsed = time.monotonic() - collection_start
-                    if (fast_mode
-                            and sources_with_papers >= 3
-                            and len(collected) >= max_results * 2  # overshoot to absorb merges
-                            and elapsed >= 3.0):
-                        logger.info(
-                            "Early exit: %d raw papers from %d sources in %.1fs",
-                            len(collected), sources_with_papers, elapsed,
-                        )
-                        early_exit = True
-                        break
-                if early_exit:
+                # Drain this completed batch before cancelling pending sources.
+                elapsed = time.monotonic() - collection_start
+                if (fast_mode
+                        and sources_with_papers >= 3
+                        and len(collected) >= max_results * 2  # overshoot to absorb merges
+                        and elapsed >= 3.0):
+                    logger.info(
+                        "Early exit: %d raw papers from %d sources in %.1fs",
+                        len(collected), sources_with_papers, elapsed,
+                    )
+                    early_exit = True
                     break
         finally:
             if pending_tasks:
@@ -442,15 +453,13 @@ class SearchOrchestrator:
                 "[Search] Relevance floor removed %d/%d papers below %.2f",
                 pre_floor_count - len(ranked_papers), pre_floor_count, MIN_RELEVANCE,
             )
-        # Return up to five best available results when the relevance floor
-        # would otherwise discard the entire small candidate set.
-        minimum_results = min(5, pre_floor_count)
-        if len(ranked_papers) < minimum_results:
+        # Restore five results only when at least five candidates were ranked.
+        if len(ranked_papers) < 5 and pre_floor_count >= 5:
             ranked_papers = sorted(
                 filtered_papers,
                 key=lambda p: p.relevance_score,
                 reverse=True,
-            )[:minimum_results]
+            )[:5]
 
         # Phase 3.5: Source-diversity reranking
         # Prevent any single source from dominating the final results

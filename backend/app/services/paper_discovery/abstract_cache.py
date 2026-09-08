@@ -130,7 +130,7 @@ def bulk_upsert(db: Session, records: List[CachedAbstract]) -> None:
 
 # ---------------------------------------------------------------------------
 # Fetchers — each returns (abstract, source_label, outcome). Outcome is
-# 'found', 'not_found' (definitive 404), or 'transient'.
+# 'found', 'not_found' (successful negative response or 404), or 'transient'.
 # ---------------------------------------------------------------------------
 
 async def _fetch_elsevier(
@@ -161,6 +161,7 @@ async def _fetch_elsevier(
         abstract = re.sub(r'\s+', ' ', str(raw)).strip()
         if len(abstract) >= MIN_ABSTRACT_LEN:
             return abstract, "elsevier", "found"
+        return None, None, "not_found"
     except Exception as e:
         logger.debug("Elsevier fetch failed for %s: %s", doi, e)
     return None, None, "transient"
@@ -183,11 +184,12 @@ async def _fetch_core(
             data = await resp.json()
         results = data.get("results") or []
         if not results:
-            return None, None, "transient"
+            return None, None, "not_found"
         raw = results[0].get("abstract") or ""
         abstract = re.sub(r'\s+', ' ', str(raw)).strip()
         if len(abstract) >= MIN_ABSTRACT_LEN:
             return abstract, "core", "found"
+        return None, None, "not_found"
     except Exception as e:
         logger.debug("CORE fetch failed for %s: %s", doi, e)
     return None, None, "transient"
@@ -216,6 +218,7 @@ async def _fetch_semantic_scholar(
         abstract = re.sub(r'\s+', ' ', str(raw)).strip()
         if len(abstract) >= MIN_ABSTRACT_LEN:
             return abstract, "semantic_scholar", "found"
+        return None, None, "not_found"
     except Exception as e:
         logger.debug("Semantic Scholar fetch failed for %s: %s", doi, e)
     return None, None, "transient"
@@ -254,12 +257,15 @@ async def _fetch_semantic_scholar_batch(
         if item is None:
             results[doi] = (None, None, "not_found")
             continue
-        raw = (item.get("abstract") or "") if isinstance(item, dict) else ""
+        if not isinstance(item, dict):
+            results[doi] = fallback[doi]
+            continue
+        raw = item.get("abstract") or ""
         abstract = re.sub(r'\s+', ' ', str(raw)).strip()
         if len(abstract) >= MIN_ABSTRACT_LEN:
             results[doi] = (abstract, "semantic_scholar", "found")
         else:
-            results[doi] = (None, None, "transient")
+            results[doi] = (None, None, "not_found")
     for doi in dois:
         results.setdefault(doi, fallback[doi])
     return results
@@ -300,8 +306,17 @@ async def _fetch_serpapi_snippet(
                 return None, None, "transient"
             data = await resp.json()
         results = data.get("organic_results") or []
+        if data.get("error"):
+            search_info = data.get("search_information") or {}
+            successful_empty = (
+                (data.get("search_metadata") or {}).get("status") == "Success"
+                and not results
+                and (search_info.get("total_results") == 0
+                     or search_info.get("organic_results_state") == "Fully empty")
+            )
+            return None, None, "not_found" if successful_empty else "transient"
         if not results:
-            return None, None, "transient"
+            return None, None, "not_found"
         # Prefer a result whose link mentions this DOI; otherwise take the first.
         chosen = None
         doi_needle = doi.lower()
@@ -316,6 +331,7 @@ async def _fetch_serpapi_snippet(
         snippet = re.sub(r'^[\s\u2026.]+', '', snippet)
         if len(snippet) >= MIN_ABSTRACT_LEN:
             return snippet, "serpapi_snippet", "found"
+        return None, None, "not_found"
     except Exception as e:
         logger.debug("SerpAPI fetch failed for %s: %s", doi, e)
     return None, None, "transient"
