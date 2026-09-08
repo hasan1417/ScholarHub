@@ -77,6 +77,7 @@ def _make_reference(
     ref.status = status
     ref.authors = authors or ["Author A", "Author B"]
     ref.year = year
+    ref.created_at = None
     ref.abstract = abstract
     ref.journal = journal
     return ref
@@ -111,6 +112,7 @@ class TestExportCitations:
         )
         db = MagicMock()
         db.query.return_value.join.return_value.filter.return_value.first.return_value = ref
+        db.query.return_value.join.return_value.filter.return_value.all.return_value = [ref]
 
         tools = ConcreteLibraryTools(db=db)
         ctx = {"project": _make_project()}
@@ -127,6 +129,28 @@ class TestExportCitations:
         assert "Jane Doe" in result["citations"]
         assert "2023" in result["citations"]
 
+    def test_selected_reference_missing_from_library_gets_non_colliding_key(self, caplog):
+        """A selected reference outside the library must not reuse a library key."""
+        library_ref = _make_reference(title="Test Paper", authors=["Jane Doe"])
+        selected_ref = _make_reference(title="Test Paper", authors=["Jane Doe"])
+        db = MagicMock()
+        db.query.return_value.join.return_value.filter.return_value.first.return_value = selected_ref
+        db.query.return_value.join.return_value.filter.return_value.all.return_value = [library_ref]
+
+        tools = ConcreteLibraryTools(db=db)
+        ctx = {"project": _make_project()}
+
+        result = tools._tool_export_citations(
+            ctx, reference_ids=[str(selected_ref.id)], format="bibtex", scope="selected"
+        )
+
+        assert result["status"] == "success"
+        assert result["count"] == 1
+        assert "@article{doe2024testpapera," in result["citations"]
+        assert "@article{doe2024testpaper," not in result["citations"]
+        assert str(selected_ref.id) in caplog.text
+        assert "missing from library citation key map" in caplog.text
+
     def test_selected_scope_apa_format(self):
         """Should export in APA format."""
         ref = _make_reference(
@@ -137,6 +161,7 @@ class TestExportCitations:
         )
         db = MagicMock()
         db.query.return_value.join.return_value.filter.return_value.first.return_value = ref
+        db.query.return_value.join.return_value.filter.return_value.all.return_value = [ref]
 
         tools = ConcreteLibraryTools(db=db)
         ctx = {"project": _make_project()}
@@ -156,6 +181,7 @@ class TestExportCitations:
         ref = _make_reference(title="Test Paper", authors="Smith, J.", year=2020, journal="AI Journal")
         db = MagicMock()
         db.query.return_value.join.return_value.filter.return_value.first.return_value = ref
+        db.query.return_value.join.return_value.filter.return_value.all.return_value = [ref]
 
         tools = ConcreteLibraryTools(db=db)
         ctx = {"project": _make_project()}
@@ -173,6 +199,7 @@ class TestExportCitations:
         ref = _make_reference(title="Test Paper", authors="Smith, J.", year=2020, doi="10.1234/x")
         db = MagicMock()
         db.query.return_value.join.return_value.filter.return_value.first.return_value = ref
+        db.query.return_value.join.return_value.filter.return_value.all.return_value = [ref]
 
         tools = ConcreteLibraryTools(db=db)
         ctx = {"project": _make_project()}
@@ -193,6 +220,7 @@ class TestExportCitations:
         ]
         db = MagicMock()
         db.query.return_value.join.return_value.filter.return_value.limit.return_value.all.return_value = refs
+        db.query.return_value.join.return_value.filter.return_value.all.return_value = refs
 
         tools = ConcreteLibraryTools(db=db)
         ctx = {"project": _make_project()}
@@ -231,6 +259,7 @@ class TestExportCitations:
         ref = _make_reference(ref_id=ref_id, title="Focused Paper")
         db = MagicMock()
         db.query.return_value.join.return_value.filter.return_value.first.return_value = ref
+        db.query.return_value.join.return_value.filter.return_value.all.return_value = [ref]
 
         tools = ConcreteLibraryTools(
             db=db,

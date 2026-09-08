@@ -438,7 +438,7 @@ class TestRoutingContract:
                         {
                             "id": "tc-1",
                             "name": "search_papers",
-                            "arguments": {"query": "sleep deprivation medical residents", "count": 5},
+                            "arguments": {"query": "sleep deprivation medical residents", "limit": 5},
                         }
                     ],
                 },

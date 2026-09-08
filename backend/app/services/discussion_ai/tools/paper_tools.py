@@ -15,8 +15,21 @@ GET_PROJECT_PAPERS_SCHEMA = {
             "properties": {
                 "include_content": {
                     "type": "boolean",
-                    "description": "Whether to include full paper content",
+                    "description": "Whether to include paper content (up to 12000 characters per paper, at most 5 papers per page; content_truncated indicates omitted text)",
                     "default": False,
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum papers per page (default 5, at most 20, or 5 with content). Use next_offset to retrieve additional pages when truncated is true.",
+                    "default": 5,
+                    "minimum": 1,
+                    "maximum": 20,
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Number of papers to skip for pagination.",
+                    "default": 0,
+                    "minimum": 0,
                 },
             },
         },
@@ -37,7 +50,7 @@ CREATE_PAPER_SCHEMA = {
                 },
                 "content": {
                     "type": "string",
-                    "description": "Content in LATEX FORMAT ONLY. Use ONLY basic LaTeX: \\section{}, \\subsection{}, \\textbf{}, \\textit{}, \\begin{itemize}, \\cite{}. Do NOT use Markdown. MUST INCLUDE CITATIONS: Use \\cite{authorYYYYword} format where author=first author's last name (lowercase), YYYY=year, word=first significant word from title (lowercase). Example: \\cite{mcmahan2017communication} for 'Communication-Efficient Learning' by McMahan (2017). Every academic paper needs citations - do not create papers without \\cite{} commands! Do NOT add References section - it's auto-generated from your citations. Do NOT include an abstract in content (no \\begin{abstract} and no \\section{Abstract}) - use the separate 'abstract' parameter instead. Start content with \\section{Introduction} or the first real section.",
+                    "description": "Content in LATEX FORMAT ONLY. Use ONLY basic LaTeX: \\section{}, \\subsection{}, \\textbf{}, \\textit{}, \\begin{itemize}, \\cite{}. Do NOT use Markdown. MUST INCLUDE CITATIONS: use \\cite{KEY} where KEY is the 'cite_key' field exactly as returned by get_project_references, get_reference_details, add_to_library, or the search results. Never construct, guess, or abbreviate a key yourself: a key that does not match a library paper cannot be linked to a reference and its citation will not resolve in the compiled paper. Every academic paper needs citations - do not create papers without \\cite{} commands! Do NOT add References section - it's auto-generated from your citations. Do NOT include an abstract in content (no \\begin{abstract} and no \\section{Abstract}) - use the separate 'abstract' parameter instead. Start content with \\section{Introduction} or the first real section.",
                 },
                 "paper_type": {
                     "type": "string",
@@ -74,7 +87,7 @@ UPDATE_PAPER_SCHEMA = {
                 },
                 "content": {
                     "type": "string",
-                    "description": "New content in LATEX FORMAT. Use \\section{}, \\subsection{}, \\textbf{}, \\cite{}, etc. NOT Markdown. NEVER include \\end{document} or a References/Bibliography section - both are handled automatically.",
+                    "description": "New content in LATEX FORMAT. Use \\section{}, \\subsection{}, \\textbf{}, \\cite{}, etc. NOT Markdown. Cite with \\cite{KEY} where KEY is the 'cite_key' field exactly as returned by get_project_references, get_reference_details, add_to_library, or the search results; a guessed key cannot be linked and its citation will not resolve. NEVER include \\end{document} or a References/Bibliography section - both are handled automatically.",
                 },
                 "section_name": {
                     "type": "string",

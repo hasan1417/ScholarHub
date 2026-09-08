@@ -22,7 +22,12 @@ from app.services.discussion_ai.utils import (
     _CITE_PATTERN,
     AVAILABLE_TEMPLATES,
 )
-from app.services.citation_filter import make_bib_key
+from app.services.citation_filter import (
+    build_citation_lookup,
+    generate_citation_key,
+    project_reference_entry_times,
+    reference_citation_keys,
+)
 
 if TYPE_CHECKING:
     from app.models import Project
@@ -115,16 +120,16 @@ class LibraryToolsMixin:
             self.db.query(Reference)
             .join(ProjectReference, ProjectReference.reference_id == Reference.id)
             .filter(ProjectReference.project_id == project.id)
-            .limit(1000)
             .all()
         )
+        entry_times = project_reference_entry_times(self.db, project.id)
 
         # Convert project library refs to same format as search results
         library_papers = []
         for ref in project_refs:
             library_papers.append({
                 "title": ref.title,
-                "authors": ref.authors if isinstance(ref.authors, str) else ", ".join(ref.authors or []),
+                "authors": ref.authors,
                 "year": ref.year,
                 "doi": ref.doi,
                 "url": ref.url,
@@ -133,6 +138,8 @@ class LibraryToolsMixin:
                 "abstract": ref.abstract,
                 "is_open_access": ref.is_open_access,
                 "pdf_url": ref.pdf_url,
+                "created_at": getattr(ref, "created_at", None),
+                "scope_entered_at": entry_times.get(ref.id),
                 "_reference_id": str(ref.id),  # Track existing ref ID
             })
 
@@ -155,11 +162,7 @@ class LibraryToolsMixin:
             return {"linked": 0, "message": "No citations found in content"}
 
         # Create lookup by our generated keys for fast exact matching
-        paper_by_key = {}
-        used_keys: set = set()
-        for paper in all_papers:
-            key = self._generate_citation_key(paper, used_keys)
-            paper_by_key[key] = paper
+        paper_by_key = build_citation_lookup(library_papers, recent_search_results)
 
         # Match citation keys to papers
         linked_count = 0
@@ -438,46 +441,8 @@ class LibraryToolsMixin:
         return keywords
 
     def _generate_citation_key(self, paper: Dict, used_keys: Optional[set] = None) -> str:
-        """Generate a citation key using the frontend makeBibKey algorithm.
-
-        If *used_keys* is provided the method guarantees uniqueness: when the
-        base key already exists in the set a disambiguating letter suffix
-        (a, b, c, ...) is appended.  The final key is added to *used_keys*
-        before returning so that subsequent calls stay collision-free.
-        """
-        authors = paper.get("authors", "unknown")
-        if isinstance(authors, str):
-            authors = [a.strip() for a in authors.split(",") if a.strip()]
-
-        base_key = make_bib_key(
-            {
-                "authors": authors if isinstance(authors, list) else [],
-                "year": paper.get("year"),
-                "title": paper.get("title"),
-            }
-        )
-
-        # Disambiguate when tracking used keys
-        if used_keys is not None:
-            if base_key not in used_keys:
-                used_keys.add(base_key)
-                return base_key
-            # Append a, b, c, ... until we find a free slot
-            for suffix_ord in range(ord("a"), ord("z") + 1):
-                candidate = f"{base_key}{chr(suffix_ord)}"
-                if candidate not in used_keys:
-                    used_keys.add(candidate)
-                    return candidate
-            # Extremely unlikely: all 26 letters exhausted, fall back to numeric
-            n = 2
-            while True:
-                candidate = f"{base_key}{n}"
-                if candidate not in used_keys:
-                    used_keys.add(candidate)
-                    return candidate
-                n += 1
-
-        return base_key
+        """Use the shared collision-aware citation key allocator."""
+        return generate_citation_key(paper, used_keys)
 
     def _parse_citation_key(self, cite_key: str) -> Dict[str, str]:
         """Parse a citation key into semantic components (author, year, title_word)."""
@@ -624,34 +589,32 @@ class LibraryToolsMixin:
             self.db.query(Reference)
             .join(ProjectReference, ProjectReference.reference_id == Reference.id)
             .filter(ProjectReference.project_id == project.id)
-            .limit(1000)
             .all()
         )
+        entry_times = project_reference_entry_times(self.db, project.id)
 
         # Build list of all available papers
-        all_papers = []
-        for paper in recent_search_results:
-            all_papers.append(paper)
+        library_papers = []
         for ref in project_refs:
-            all_papers.append({
+            library_papers.append({
+                "_reference_id": ref.id,
+                "created_at": getattr(ref, "created_at", None),
+                "scope_entered_at": entry_times.get(ref.id),
                 "title": ref.title,
-                "authors": ref.authors if isinstance(ref.authors, str) else ", ".join(ref.authors or []),
+                "authors": ref.authors,
                 "year": ref.year,
                 "doi": ref.doi,
                 "url": ref.url,
                 "journal": ref.journal,
             })
 
+        all_papers = recent_search_results + library_papers
         if not all_papers:
             logger.warning("[Bibliography] No papers available for citation matching")
             return []
 
         # Also create lookup by our generated keys for exact matches
-        paper_by_key = {}
-        used_keys: set = set()
-        for paper in all_papers:
-            key = self._generate_citation_key(paper, used_keys)
-            paper_by_key[key] = paper
+        paper_by_key = build_citation_lookup(library_papers, recent_search_results)
 
         # Extract citation keys from content
         cite_matches = _CITE_PATTERN.findall(content)
@@ -1192,7 +1155,6 @@ class LibraryToolsMixin:
         added_papers = []
         failed_papers = []
         ingestion_results = []
-        used_keys: set = set()
 
         _emit_progress(ctx, "Adding papers to your library...")
 
@@ -1350,15 +1312,11 @@ class LibraryToolsMixin:
                         # Don't fail the add_to_library if embedding queue fails
                         logger.warning(f"[AddToLibrary] Failed to queue embedding job: {e}")
 
-                # Generate citation key for this paper
-                cite_key = self._generate_citation_key(paper, used_keys)
-
                 added_info = {
                     "index": idx,
                     "title": title,
                     "reference_id": str(existing_ref.id),
                     "has_pdf": bool(existing_ref.pdf_url),
-                    "cite_key": cite_key,  # Use this in \cite{} commands
                     "already_in_library": already_in_library,  # Was it already there?
                 }
 
@@ -1403,6 +1361,19 @@ class LibraryToolsMixin:
                 failed_papers.append({"index": idx, "title": title, "error": str(e)})
 
         _emit_progress(ctx, "Finalizing library entries...")
+
+        if added_papers:
+            library_references = (
+                self.db.query(Reference)
+                .join(ProjectReference, ProjectReference.reference_id == Reference.id)
+                .filter(ProjectReference.project_id == project.id)
+                .all()
+            )
+            citation_keys = {
+                str(ref_id): key for ref_id, key in reference_citation_keys(library_references, entered_at=project_reference_entry_times(self.db, project.id)).items()
+            }
+            for added in added_papers:
+                added["cite_key"] = citation_keys[added["reference_id"]]
 
         # Summary
         ingested_count = sum(1 for p in added_papers if p.get("ingestion_status") == "success")
@@ -1855,8 +1826,15 @@ class LibraryToolsMixin:
                 "message": "No references found to export. Make sure your library has papers added.",
             }
 
-        # Format citations
-        used_keys: set = set()
+        # Derive keys from the full library before selecting an export subset.
+        library_references = (
+            self.db.query(Reference)
+            .join(ProjectReference, ProjectReference.reference_id == Reference.id)
+            .filter(ProjectReference.project_id == project.id)
+            .all()
+        )
+        citation_keys = reference_citation_keys(library_references, entered_at=project_reference_entry_times(self.db, project.id))
+        used_keys = set(citation_keys.values())
         formatted_entries = []
 
         for ref in references:
@@ -1871,12 +1849,17 @@ class LibraryToolsMixin:
             doi = ref.doi or ""
             url = ref.url or ""
 
-            paper_dict = {
-                "title": title,
-                "authors": authors_str,
-                "year": ref.year,
-            }
-            cite_key = self._generate_citation_key(paper_dict, used_keys)
+            cite_key = citation_keys.get(ref.id)
+            if cite_key is None:
+                cite_key = generate_citation_key(
+                    {"title": ref.title, "authors": ref.authors, "year": ref.year},
+                    used_keys,
+                )
+                citation_keys[ref.id] = cite_key
+                logger.warning(
+                    "Reference %s missing from library citation key map; allocated fallback key",
+                    ref.id,
+                )
 
             if format == "bibtex":
                 # Build BibTeX entry

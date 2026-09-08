@@ -5,13 +5,14 @@ Uses OpenRouter API to support multiple AI models (GPT, Claude, Gemini, etc.)
 Inherits from ToolOrchestrator and only overrides the AI calling methods.
 
 Key difference from base ToolOrchestrator:
-- Streams ONLY the final response (hides intermediate "thinking" during tool calls)
+- Streams prose promptly and validates citation-bearing tails before emission
 - Shows status messages during tool execution
 """
 
 from __future__ import annotations
 
 import asyncio
+from copy import copy, deepcopy
 import json
 import logging
 import os
@@ -71,6 +72,28 @@ def _strip_internal_tags(text: str) -> str:
     return text.strip()
 
 
+class _StreamingCitationPrefix:
+    """Strip internal tags and emit prose until a citation needs final filtering."""
+
+    def __init__(self) -> None:
+        self.text = ""
+        self.buffering = False
+        self._tags = ThinkTagFilter()
+
+    def feed(self, text: str) -> str:
+        if self.buffering:
+            return ""
+        text = self._tags.feed(text)
+        opener = re.search(r"[\\]", text)
+        if opener:
+            self.buffering = True
+            text = text[:opener.start()]
+        if not self.text:
+            text = text.lstrip()
+        self.text += text
+        return text
+
+
 class ThinkTagFilter:
     """Streaming safety-net filter that strips reasoning and XML tool-call blocks.
 
@@ -82,20 +105,16 @@ class ThinkTagFilter:
 
     _OPEN_TAGS = tuple(f"<{t}>" for t in _STRIP_TAGS) + tuple(f"<{t} " for t in _STRIP_TAGS)
     _CLOSE_TAGS = tuple(f"</{t}>" for t in _STRIP_TAGS)
-    _MAX_OPEN_LEN = max(len(t) for t in _OPEN_TAGS)
     _MAX_CLOSE_LEN = max(len(t) for t in _CLOSE_TAGS)
+    _OPEN_RE = re.compile(r"<(?:" + "|".join(_STRIP_TAGS) + r")[\s>]")
 
     def __init__(self) -> None:
         self._inside_block = False
         self._buffer = ""
 
     def _find_open_tag(self, text: str) -> tuple[int, int]:
-        best_pos, best_len = -1, 0
-        for tag in self._OPEN_TAGS:
-            idx = text.find(tag)
-            if idx != -1 and (best_pos == -1 or idx < best_pos):
-                best_pos, best_len = idx, len(tag)
-        return best_pos, best_len
+        match = self._OPEN_RE.search(text)
+        return (match.start(), match.end() - match.start()) if match else (-1, 0)
 
     def _find_close_tag(self, text: str) -> tuple[int, int]:
         best_pos, best_len = -1, 0
@@ -122,8 +141,20 @@ class ThinkTagFilter:
                     self._inside_block = False
             else:
                 start_idx, start_len = self._find_open_tag(self._buffer)
+                close_idx, close_len = self._find_close_tag(self._buffer)
+                if close_idx >= 0 and (start_idx == -1 or close_idx < start_idx):
+                    output_parts.append(self._buffer[:close_idx])
+                    self._buffer = self._buffer[close_idx + close_len:]
+                    continue
                 if start_idx == -1:
-                    safe_end = len(self._buffer) - self._MAX_OPEN_LEN
+                    # Retain only a suffix that could begin an internal tag;
+                    # ordinary prose can be emitted without a fixed delay.
+                    possible_tag = self._buffer.rfind("<")
+                    safe_end = len(self._buffer)
+                    if possible_tag >= 0 and any(
+                        tag.startswith(self._buffer[possible_tag:]) for tag in self._OPEN_TAGS + self._CLOSE_TAGS
+                    ):
+                        safe_end = possible_tag
                     if safe_end > 0:
                         output_parts.append(self._buffer[:safe_end])
                         self._buffer = self._buffer[safe_end:]
@@ -624,6 +655,10 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             "max_tokens": self._get_model_output_token_cap(ctx),
         }
 
+        if not tools:
+            call_params.pop("tools")
+            call_params.pop("tool_choice")
+
         # Add reasoning params (always includes exclude or effort)
         reasoning_params = self._get_reasoning_params()
         if reasoning_params.get("extra_body"):
@@ -633,6 +668,8 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         last_error: Optional[Exception] = None
         for attempt in range(MAX_RETRIES):
             try:
+                messages = self._fit_provider_messages(messages, ctx, tools=call_params.get("tools", []))
+                call_params["messages"] = messages
                 response = self.openrouter_client.chat.completions.create(**call_params)
 
                 choice = response.choices[0]
@@ -671,6 +708,8 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     call_params.pop("tools", None)
                     call_params.pop("tool_choice", None)
                     try:
+                        messages = self._fit_provider_messages(messages, ctx, tools=call_params.get("tools", []))
+                        call_params["messages"] = messages
                         response = self.openrouter_client.chat.completions.create(**call_params)
                         raw = response.choices[0].message.content or ""
                         return {"ok": True, "content": _strip_internal_tags(raw), "tool_calls": []}
@@ -704,8 +743,9 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         """Call OpenRouter with tool definitions (async streaming) with retry on transient errors.
 
         Yields:
-        - {"type": "token", "content": str} for content tokens
-        - {"type": "tool_call_detected"} when first tool call is detected (stop streaming tokens)
+        - {"type": "token", "content": str} for prose before the first backslash
+        Citation-bearing tails stay buffered for final validation.
+        - {"type": "tool_call_detected"} when first tool call is detected
         - {"type": "result", "content": str, "tool_calls": list} at the end
         """
         if not self.async_openrouter_client:
@@ -732,6 +772,10 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             "max_tokens": self._get_model_output_token_cap(ctx),
         }
 
+        if not tools:
+            call_params.pop("tools")
+            call_params.pop("tool_choice")
+
         reasoning_params = self._get_reasoning_params()
         if reasoning_params.get("extra_body"):
             call_params["extra_body"] = reasoning_params["extra_body"]
@@ -740,6 +784,8 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         no_tools_fallback = False
         for attempt in range(MAX_RETRIES):
             try:
+                messages = self._fit_provider_messages(messages, ctx, tools=call_params.get("tools", []))
+                call_params["messages"] = messages
                 stream = await self.async_openrouter_client.chat.completions.create(**call_params)
                 break
             except Exception as e:
@@ -750,6 +796,8 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     call_params.pop("tool_choice", None)
                     no_tools_fallback = True
                     try:
+                        messages = self._fit_provider_messages(messages, ctx, tools=call_params.get("tools", []))
+                        call_params["messages"] = messages
                         stream = await self.async_openrouter_client.chat.completions.create(**call_params)
                         break
                     except Exception as inner_e:
@@ -789,9 +837,9 @@ class OpenRouterOrchestrator(ToolOrchestrator):
 
         try:
             content_chunks = []
+            prefix = _StreamingCitationPrefix()
             tool_calls_data = {}
             tool_call_signaled = False
-            think_filter = ThinkTagFilter()
 
             async for chunk in stream:
                 delta = chunk.choices[0].delta if chunk.choices else None
@@ -800,10 +848,9 @@ class OpenRouterOrchestrator(ToolOrchestrator):
 
                 if delta.content:
                     content_chunks.append(delta.content)
-                    if not tool_call_signaled:
-                        visible = think_filter.feed(delta.content)
-                        if visible:
-                            yield {"type": "token", "content": visible}
+                    safe_text = prefix.feed(delta.content)
+                    if safe_text and not tool_call_signaled:
+                        yield {"type": "token", "content": safe_text}
 
                 if delta.tool_calls:
                     if not tool_call_signaled:
@@ -822,12 +869,6 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                             if tc_chunk.function.arguments:
                                 tool_calls_data[idx]["arguments"] += tc_chunk.function.arguments
 
-            # Flush any remaining buffered content from the think filter
-            if not tool_call_signaled:
-                remaining = think_filter.flush()
-                if remaining:
-                    yield {"type": "token", "content": remaining}
-
             tool_calls = []
             for idx in sorted(tool_calls_data.keys()):
                 tc = tool_calls_data[idx]
@@ -838,7 +879,8 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 tool_calls.append({"id": tc["id"], "name": tc["name"], "arguments": args})
 
             # Strip any think tags from the accumulated content for the result
-            full_content = _strip_internal_tags("".join(content_chunks))
+            full_content = _THINK_TAG_RE.sub("", "".join(content_chunks))
+            full_content = _ORPHAN_CLOSE_RE.sub("", full_content).lstrip()
             yield {"type": "result", "ok": True, "content": full_content, "tool_calls": tool_calls}
 
         except Exception as e:
@@ -858,7 +900,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             return self._error_response("OpenRouter API not configured.")
 
         try:
-            is_paper_chat = ctx.get("paper_chat", False)
+            messages = self._fit_provider_messages(messages, ctx, tools=[])
             call_kwargs: Dict[str, Any] = dict(
                 model=self.model,
                 messages=messages,
@@ -905,15 +947,15 @@ class OpenRouterOrchestrator(ToolOrchestrator):
     async def _execute_lite_streaming(self, messages: List[Dict], ctx: Dict[str, Any]) -> AsyncGenerator[Dict[str, Any], None]:
         """Execute lite route with streaming: single LLM call, no tools."""
         t_start = time.monotonic()
-        ttfb_ms = 0
+        ttfb_ms: Optional[int] = None
         if not self.async_openrouter_client:
             yield {"type": "result", "data": self._error_response("OpenRouter API not configured.")}
             return
 
         content_chunks: List[str] = []
-        think_filter = ThinkTagFilter()
+        prefix = _StreamingCitationPrefix()
         try:
-            is_paper_chat = ctx.get("paper_chat", False)
+            messages = self._fit_provider_messages(messages, ctx, tools=[])
             lite_kwargs: Dict[str, Any] = dict(
                 model=self.model,
                 messages=messages,
@@ -925,14 +967,11 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 delta = chunk.choices[0].delta if chunk.choices else None
                 if delta and delta.content:
                     content_chunks.append(delta.content)
-                    visible = think_filter.feed(delta.content)
-                    if visible:
-                        if ttfb_ms == 0:
+                    safe_text = prefix.feed(delta.content)
+                    if safe_text:
+                        if ttfb_ms is None:
                             ttfb_ms = int((time.monotonic() - t_start) * 1000)
-                        yield {"type": "token", "content": visible}
-            remaining = think_filter.flush()
-            if remaining:
-                yield {"type": "token", "content": remaining}
+                        yield {"type": "token", "content": safe_text}
         except Exception as e:
             logger.error(f"Lite streaming error: {e}")
             yield {
@@ -945,14 +984,26 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             }
             return
 
-        final_message = _strip_internal_tags("".join(content_chunks))
+        content = _THINK_TAG_RE.sub("", "".join(content_chunks))
+        content = _ORPHAN_CLOSE_RE.sub("", content).lstrip()
+        tail = content[len(prefix.text):] if content.startswith(prefix.text) else content
+        final_message = prefix.text + tail
         if not final_message:
             yield {
                 "type": "result",
                 "data": self._error_response("Provider returned an empty response", status_code=502),
             }
             return
-        final_message, invalid_citations = self._apply_citation_filter_for_context(final_message, ctx)
+        tail, invalid_citations = self._apply_citation_filter_for_context(tail, ctx)
+        for invalid in invalid_citations:
+            invalid["span_start"] += len(prefix.text)
+            invalid["span_end"] += len(prefix.text)
+        final_message = prefix.text + tail
+
+        if tail:
+            if ttfb_ms is None:
+                ttfb_ms = int((time.monotonic() - t_start) * 1000)
+            yield {"type": "token", "content": tail}
 
         # Yield result IMMEDIATELY so the frontend can unblock the input.
         yield {
@@ -971,14 +1022,17 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             },
         }
 
-        # Post-result work
-        self._lite_memory_update(ctx)
+        # Post-result work uses the same session isolation as tool turns.
+        try:
+            await self._run_streaming_db_work(ctx, lite=True)
+        except Exception as mem_err:
+            logger.error(f"Failed to update lite AI memory: {mem_err}")
 
         prompt_tokens = count_messages_tokens(messages, self.model)
         total_ms = int((time.monotonic() - t_start) * 1000)
         logger.info(
             "[TurnMetrics] route=lite prompt_tokens=%d tools_count=0 ttfb_ms=%d total_ms=%d model=%s reason=%s",
-            prompt_tokens, ttfb_ms, total_ms, self.model, ctx.get("route_reason", ""),
+            prompt_tokens, ttfb_ms or 0, total_ms, self.model, ctx.get("route_reason", ""),
         )
 
     def _lite_memory_update(self, ctx: Dict[str, Any]) -> None:
@@ -999,6 +1053,75 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         except Exception as e:
             logger.debug(f"Lite memory update failed: {e}")
 
+    async def _run_streaming_db_work(
+        self,
+        ctx: Dict[str, Any],
+        *,
+        tool_calls: Optional[List[Dict[str, Any]]] = None,
+        final_message: Optional[str] = None,
+        tool_results: Optional[List[Dict[str, Any]]] = None,
+        policy_decision: Any = None,
+        lite: bool = False,
+    ) -> Any:
+        """Run blocking tools or memory AI with a session owned by the worker."""
+        from sqlalchemy import inspect
+
+        from app.database import SessionLocal
+        from app.models import Project, ProjectDiscussionChannel, User
+
+        models = {"project": Project, "channel": ProjectDiscussionChannel, "current_user": User}
+        entity_ids = {}
+        for key in models:
+            entity = ctx.get(key)
+            state = inspect(entity, raiseerr=False) if entity is not None else None
+            # Reading an expired ORM .id can issue a SELECT on the event loop.
+            entity_ids[key] = state.identity[0] if state is not None and state.identity else getattr(entity, "id", None)
+        worker_ctx = deepcopy({key: value for key, value in ctx.items() if key not in models})
+        # Copy before dispatch: neither the request session nor its ORM objects
+        # are handed to the worker. Provider clients can be reused across threads.
+        worker = copy(self)
+        worker.db = None
+
+        def run() -> tuple[Any, Dict[str, Any]]:
+            with SessionLocal() as worker_db:
+                worker.db = worker_db
+                for key, model in models.items():
+                    worker_ctx[key] = worker_db.get(model, entity_ids[key]) if entity_ids[key] else None
+                if tool_calls is not None:
+                    result = worker._execute_tool_calls(tool_calls, worker_ctx)
+                elif lite:
+                    result = worker._lite_memory_update(worker_ctx)
+                elif tool_results is not None:
+                    stage_transition_success = worker._enforce_finding_papers_stage_after_search(
+                        worker_ctx, tool_results,
+                    )
+                    worker._record_quality_metrics(
+                        worker_ctx, policy_decision, tool_results, False, stage_transition_success,
+                    )
+                    channel = worker_ctx.get("channel")
+                    if channel:
+                        memory = worker._get_ai_memory(channel)
+                        memory.setdefault("facts", {})["_last_tools_called"] = [item["name"] for item in tool_results]
+                        worker._save_ai_memory(channel, memory)
+                    result = None
+                else:
+                    result = worker.update_memory_after_exchange(
+                        worker_ctx["channel"],
+                        worker_ctx.get("user_message", ""),
+                        final_message,
+                        worker_ctx.get("conversation_history", []),
+                        entity_ids["current_user"],
+                    )
+                return result, {key: value for key, value in worker_ctx.items() if key not in models}
+
+        result, updates = await asyncio.to_thread(run)
+        ctx.update(updates)
+        # Tools and memory may have committed changes in their own sessions.
+        for key in models:
+            if ctx.get(key) is not None:
+                self.db.expire(ctx[key])
+        return result
+
     async def _execute_with_tools_streaming(
         self,
         messages: List[Dict],
@@ -1006,12 +1129,12 @@ class OpenRouterOrchestrator(ToolOrchestrator):
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Execute with tool calling and async streaming.
 
-        OVERRIDE: Only streams the FINAL response, not intermediate thinking.
+        Stream prose prefixes and retain citation-bearing tails for validation.
         Tool execution runs in threads via asyncio.to_thread since tools use sync DB.
         """
         self._reasoning_mode = ctx.get("reasoning_mode", False)
         t_start = time.monotonic()
-        ttfb_ms = 0
+        ttfb_ms: Optional[int] = None
         conversation_history = ctx.get("conversation_history")
         policy_decision = self._classify_and_build_policy(ctx, conversation_history)
 
@@ -1034,13 +1157,14 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         max_iterations = 8
         iteration = 0
         all_tool_results = []
-        final_content_chunks = []
         all_content_chunks = []  # Only the final round's text (what the user sees)
         search_tool_executed = False
         recovery_attempted = False
+        streamed_text = ""
 
         recent_results = self._get_recent_papers(ctx)
         logger.info(f"[OpenRouter Async Streaming] Starting with model: {self.model}, recent_search_results: {len(recent_results)} papers")
+        streamed_invalid_citations: List[Dict[str, Any]] = []
 
         while iteration < max_iterations:
             iteration += 1
@@ -1050,19 +1174,21 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             tool_calls = []
             iteration_content = []
             provider_error: Optional[Dict[str, Any]] = None
+            prefix = _StreamingCitationPrefix()
+            stream_prose = True
 
-            stream_directly = True
-            tokens_yielded = False
             async for event in self._call_ai_with_tools_streaming(messages, ctx):
                 if event["type"] == "token":
                     iteration_content.append(event["content"])
-                    if stream_directly:
-                        if ttfb_ms == 0:
-                            ttfb_ms = int((time.monotonic() - t_start) * 1000)
-                        yield {"type": "token", "content": event["content"]}
-                        tokens_yielded = True
+                    if stream_prose:
+                        safe_text = prefix.feed(event["content"])
+                        if safe_text:
+                            streamed_text += safe_text
+                            if ttfb_ms is None:
+                                ttfb_ms = int((time.monotonic() - t_start) * 1000)
+                            yield {"type": "token", "content": safe_text}
                 elif event["type"] == "tool_call_detected":
-                    stream_directly = False
+                    stream_prose = False
                     logger.info("[OpenRouter Async Streaming] Tool call detected")
                 elif event["type"] == "result":
                     if event.get("ok") is False:
@@ -1093,9 +1219,6 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     and _ACTION_SIGNAL.search(ctx.get("user_message", ""))
                 ):
                     recovery_attempted = True
-                    if tokens_yielded:
-                        yield {"type": "round_separator", "round": iteration}
-                        tokens_yielded = False
                     messages.append({
                         "role": "system",
                         "content": "You MUST use a tool to fulfill this request. Do not just describe what you would do — call the appropriate tool now.",
@@ -1106,42 +1229,34 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     logger.info("[ToolRecovery] No tool calls, retrying with nudge")
                     continue
 
-                # Final iteration — flush buffered tokens to the client now.
                 logger.info("[OpenRouter Async Streaming] Final response - no more tool calls")
-                if not stream_directly:
-                    for chunk in iteration_content:
-                        if ttfb_ms == 0:
-                            ttfb_ms = int((time.monotonic() - t_start) * 1000)
-                        yield {"type": "token", "content": chunk}
-                if iteration_content:
-                    final_content_chunks.extend(iteration_content)
-                    all_content_chunks.extend(iteration_content)
-                elif response_content:
-                    final_content_chunks.append(response_content)
-                    all_content_chunks.append(response_content)
-                    if not stream_directly:
-                        yield {"type": "token", "content": response_content}
+                all_content_chunks.append(response_content or "".join(iteration_content))
                 break
 
-            # Filter out duplicate mutating tool calls
+            # Filter out duplicate mutating tool calls.
             tool_calls = filter_duplicate_mutations(tool_calls, mutating_calls_seen)
-
+            tool_calls = self._limit_turn_tool_calls(tool_calls, ctx)
             if not tool_calls:
-                # All tool calls were duplicates — treat as final iteration
-                if not stream_directly:
-                    for chunk in iteration_content:
-                        if ttfb_ms == 0:
-                            ttfb_ms = int((time.monotonic() - t_start) * 1000)
-                        yield {"type": "token", "content": chunk}
-                if iteration_content:
-                    final_content_chunks.extend(iteration_content)
-                    all_content_chunks.extend(iteration_content)
+                all_content_chunks.append(response_content or "".join(iteration_content))
                 break
 
-            # If we already streamed partial tokens before tool_call_detected,
-            # emit a round separator so the frontend knows a new round is starting.
-            if tokens_yielded:
-                yield {"type": "round_separator", "round": iteration}
+            # Prose buffered after the first backslash in this round must not be
+            # dropped: filter it and emit it before the tool calls, so the stream
+            # and the persisted message both keep the full sentence. The inner
+            # generator only yields the pre-backslash tokens; the whole round,
+            # already tag-stripped, arrives in the result event's content.
+            round_text = response_content or ""
+            round_tail = round_text[len(prefix.text):] if round_text.startswith(prefix.text) else round_text
+            if round_tail.strip():
+                round_tail, round_invalid = self._apply_citation_filter_for_context(round_tail, ctx)
+                for invalid in round_invalid:
+                    invalid["span_start"] += len(streamed_text)
+                    invalid["span_end"] += len(streamed_text)
+                streamed_invalid_citations.extend(round_invalid)
+                streamed_text += round_tail
+                if ttfb_ms is None:
+                    ttfb_ms = int((time.monotonic() - t_start) * 1000)
+                yield {"type": "token", "content": round_tail}
 
             for tc in tool_calls:
                 tool_name = tc.get("name", "")
@@ -1154,7 +1269,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             progress_queue: stdlib_queue.Queue[str] = stdlib_queue.Queue()
             ctx["_progress_callback"] = lambda msg: progress_queue.put(msg)
             tool_task = asyncio.create_task(
-                asyncio.to_thread(self._execute_tool_calls, tool_calls, ctx)
+                self._run_streaming_db_work(ctx, tool_calls=tool_calls)
             )
             while not tool_task.done():
                 await asyncio.sleep(0.15)
@@ -1198,7 +1313,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 for tr in tool_results
             )
             search_has_problem = any(
-                (tr.get("result") or {}).get("status") in ("error", "blocked")
+                (tr.get("result") or {}).get("status") in ("error", "blocked", "partial")
                 for tr in tool_results
             )
             if search_only and search_tool_executed and not search_has_problem:
@@ -1226,7 +1341,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tool_call["id"],
-                    "content": json.dumps(result, default=str),
+                    "content": self._serialize_tool_result(result, ctx),
                 })
 
             messages.append({
@@ -1234,27 +1349,44 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 "content": "Continue your response naturally from where you left off. Do not repeat or rephrase what you already said before the tool call.",
             })
 
-        final_message = _strip_internal_tags("".join(all_content_chunks))
-        final_message = self._apply_response_budget(final_message, ctx, all_tool_results)
+        final_message = _THINK_TAG_RE.sub("", "".join(all_content_chunks))
+        final_message = _ORPHAN_CLOSE_RE.sub("", final_message).lstrip()
+        if not streamed_text:
+            final_message = self._apply_response_budget(final_message, ctx, all_tool_results)
         logger.debug(f"[OpenRouter Async] Complete. Tools called: {[t['name'] for t in all_tool_results]}")
 
         if not final_message.strip() and all_tool_results:
-            final_message = await asyncio.to_thread(self._generate_tool_summary_message, all_tool_results)
+            provider_worker = copy(self)
+            provider_worker.db = None
+            final_message = await asyncio.to_thread(provider_worker._generate_tool_summary_message, all_tool_results)
             logger.info(f"[OpenRouter Async] Generated summary for empty response: {final_message[:100]}...")
         if not final_message.strip():
+            provider_worker = copy(self)
+            provider_worker.db = None
             generated_fallback = await asyncio.to_thread(
-                self._generate_content_fallback,
-                ctx,
+                provider_worker._generate_content_fallback,
+                {"user_message": ctx.get("user_message", "")},
                 all_tool_results,
             )
             if generated_fallback and generated_fallback.strip():
                 final_message = generated_fallback.strip()
         if not final_message.strip():
             final_message = self._build_empty_response_fallback(ctx)
-        final_message, invalid_citations = self._apply_citation_filter_for_context(final_message, ctx)
+        tail = final_message[len(prefix.text):] if final_message.startswith(prefix.text) else final_message
+        tail, invalid_citations = self._apply_citation_filter_for_context(tail, ctx)
+        for invalid in invalid_citations:
+            invalid["span_start"] += len(streamed_text)
+            invalid["span_end"] += len(streamed_text)
+        invalid_citations = streamed_invalid_citations + invalid_citations
+        final_message = streamed_text + tail
 
         actions = self._extract_actions(final_message, all_tool_results)
         tools_called_this_turn = [t["name"] for t in all_tool_results] if all_tool_results else []
+
+        if tail:
+            if ttfb_ms is None:
+                ttfb_ms = int((time.monotonic() - t_start) * 1000)
+            yield {"type": "token", "content": tail}
 
         # Yield result IMMEDIATELY so the frontend can unblock the input.
         # Memory updates, metrics, and stage transitions happen AFTER.
@@ -1277,13 +1409,8 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         # --- Post-result work (user already has the response) ---
 
         try:
-            contradiction_warning = await asyncio.to_thread(
-                self.update_memory_after_exchange,
-                ctx["channel"],
-                ctx["user_message"],
-                final_message,
-                ctx.get("conversation_history", []),
-                getattr(ctx.get("current_user"), "id", None),
+            contradiction_warning = await self._run_streaming_db_work(
+                ctx, final_message=final_message,
             )
             if contradiction_warning:
                 logger.info(f"Contradiction detected: {contradiction_warning}")
@@ -1291,36 +1418,17 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             logger.error(f"Failed to update AI memory: {mem_err}")
 
         try:
-            stage_transition_success = await asyncio.to_thread(
-                self._enforce_finding_papers_stage_after_search,
-                ctx,
-                all_tool_results,
-            )
-            await asyncio.to_thread(
-                self._record_quality_metrics,
-                ctx,
-                policy_decision,
-                all_tool_results,
-                False,
-                stage_transition_success,
+            await self._run_streaming_db_work(
+                ctx, tool_results=all_tool_results, policy_decision=policy_decision,
             )
         except Exception as metrics_err:
             logger.error(f"Failed to record metrics: {metrics_err}")
-
-        try:
-            channel = ctx.get("channel")
-            if channel:
-                memory = self._get_ai_memory(channel)
-                memory.setdefault("facts", {})["_last_tools_called"] = tools_called_this_turn
-                self._save_ai_memory(channel, memory)
-        except Exception as exc:
-            logger.debug("Failed to persist _last_tools_called: %s", exc)
 
         prompt_tokens = count_messages_tokens(messages[:1], self.model)
         total_ms = int((time.monotonic() - t_start) * 1000)
         logger.info(
             "[TurnMetrics] route=full prompt_tokens=%d tools_count=%d ttfb_ms=%d total_ms=%d model=%s",
-            prompt_tokens, len(all_tool_results), ttfb_ms, total_ms, self.model,
+            prompt_tokens, len(all_tool_results), ttfb_ms or 0, total_ms, self.model,
         )
 
     def _generate_tool_summary_message(self, tool_results: List[Dict]) -> str:
@@ -1390,7 +1498,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         try:
             response = self.openrouter_client.chat.completions.create(
                 model=self.model,
-                messages=[
+                messages=self._fit_provider_messages([
                     {
                         "role": "system",
                         "content": (
@@ -1399,7 +1507,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                         ),
                     },
                     {"role": "user", "content": user_message},
-                ],
+                ], ctx, tools=[]),
                 max_tokens=min(self._get_model_output_token_cap(ctx), 280),
             )
             text = _strip_internal_tags(response.choices[0].message.content or "")

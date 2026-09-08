@@ -19,7 +19,9 @@ SEARCH_PAPERS_SCHEMA = {
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Maximum number of papers to return.",
+                    "description": "Maximum number of papers to return, within the remaining turn budget.",
+                    "minimum": 1,
+                    "maximum": 100,
                     "default": 5,
                 },
                 "open_access_only": {
@@ -37,6 +39,7 @@ SEARCH_PAPERS_SCHEMA = {
                 },
             },
             "required": ["query"],
+            "additionalProperties": False,
         },
     },
 }
@@ -70,12 +73,15 @@ BATCH_SEARCH_PAPERS_SCHEMA = {
                 "topics": {
                     "type": "array",
                     "description": "List of topics to search for. Each query should be specific and high-signal.",
+                    "minItems": 1,
+                    "maxItems": 5,
                     "items": {
                         "type": "object",
+                        "additionalProperties": False,
                         "properties": {
                             "topic": {"type": "string", "description": "Display name for the topic"},
                             "query": {"type": "string", "description": "Specific academic query for this topic. Avoid keyword stuffing and raw year lists unless timeframe is explicitly requested."},
-                            "limit": {"type": "integer", "description": "Max papers per topic", "default": 5},
+                            "max_results": {"type": "integer", "description": "Maximum papers for this topic, subject to the remaining turn budget.", "default": 5, "minimum": 1, "maximum": 5},
                         },
                         "required": ["topic", "query"],
                     },

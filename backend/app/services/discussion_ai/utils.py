@@ -39,6 +39,9 @@ def filter_duplicate_mutations(
         tool_name = tc.get("name", "")
         if tool_name in MUTATING_TOOLS:
             args = tc.get("arguments") or {}
+            if not isinstance(args, dict):
+                filtered.append(tc)
+                continue  # Dispatch reports the schema validation error.
             signature = (tool_name, *sorted((k, str(v)) for k, v in args.items()))
             if signature in already_called:
                 logger.warning("[GuardRail] Blocked duplicate mutating tool call: %s", tool_name)
@@ -84,12 +87,9 @@ _CONTROL_CHAR_RE = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]')
 
 
 def sanitize_for_context(text: str, max_length: int = 500) -> str:
-    """Sanitize untrusted text before embedding into AI system context.
+    """Normalize display text and length; this is not an injection defense.
 
-    Prevents prompt injection by:
-    1. Stripping control characters that could fake section boundaries
-    2. Truncating to a safe length
-    3. Collapsing excessive newlines that could push instructions out of view
+    Callers must still place retrieved content below the system trust boundary.
     """
     if not text:
         return text

@@ -13,6 +13,12 @@ import json
 import logging
 from typing import Any, Awaitable, Callable, Dict, List, Optional, TYPE_CHECKING, TypeVar
 
+from app.services.citation_filter import (
+    build_citation_lookup,
+    citation_identity,
+    project_reference_entry_times,
+    reference_citation_keys,
+)
 from app.services.discussion_ai.utils import _emit_progress
 
 if TYPE_CHECKING:
@@ -94,6 +100,46 @@ class SearchToolsMixin:
         - self._generate_citation_key(paper) -> str  (from LibraryToolsMixin)
     """
 
+    def _project_library_references(self, project: "Project") -> List[Any]:
+        from app.models import ProjectReference, Reference
+
+        return (
+            self.db.query(Reference)
+            .join(ProjectReference, ProjectReference.reference_id == Reference.id)
+            .filter(ProjectReference.project_id == project.id)
+            .all()
+        )
+
+    def _library_citation_keys(self, project: "Project") -> Dict[Any, str]:
+        """Reference id -> the key the citation filter accepts for it."""
+        return reference_citation_keys(
+            self._project_library_references(project),
+            entered_at=project_reference_entry_times(self.db, project.id),
+        )
+
+    def _annotate_search_result_keys(self, project: "Project", papers: List[Dict[str, Any]]) -> None:
+        """Serve the key a cited result will be linked under, so the model can cite it verbatim.
+
+        Allocates exactly as _link_cited_references does: library keys first, in
+        scope-entry order, then the search results extending that scope.
+        """
+        entry_times = project_reference_entry_times(self.db, project.id)
+        library_papers = [
+            {
+                "_reference_id": ref.id, "title": ref.title,
+                "authors": ref.authors, "year": ref.year,
+                "created_at": getattr(ref, "created_at", None),
+                "scope_entered_at": entry_times.get(ref.id),
+            }
+            for ref in self._project_library_references(project)
+        ]
+        key_by_identity = {
+            citation_identity(paper): key
+            for key, paper in build_citation_lookup(library_papers, papers).items()
+        }
+        for paper in papers:
+            paper["cite_key"] = key_by_identity.get(citation_identity(paper))
+
     def _tool_get_recent_search_results(self, ctx: Dict[str, Any]) -> Dict:
         """Get papers from the most recent search."""
         recent = self._get_recent_papers(ctx)
@@ -112,6 +158,7 @@ class SearchToolsMixin:
         for i, p in enumerate(recent):
             paper_info = {
                 "index": i,
+                "cite_key": p.get("cite_key"),
                 "title": p.get("title", "Untitled"),
                 "authors": p.get("authors", "Unknown"),
                 "year": p.get("year"),
@@ -171,7 +218,8 @@ class SearchToolsMixin:
         self,
         ctx: Dict[str, Any],
         topic_filter: Optional[str] = None,
-        limit: Optional[int] = None,
+        limit: int = 10,
+        offset: int = 0,
     ) -> Dict:
         """Get references from project library."""
         from app.models import ProjectReference, Reference
@@ -198,19 +246,19 @@ class SearchToolsMixin:
         # Get total count BEFORE applying limit (so AI knows actual library size)
         total_count = query.count()
 
-        if limit:
-            references = query.limit(limit).all()
-        else:
-            references = query.all()
+        limit = max(1, min(limit, 20))
+        references = query.order_by(Reference.id).offset(offset).limit(limit).all()
 
         # Count references with ingested PDFs (from returned results)
         ingested_count = sum(1 for ref in references if ref.status in ("ingested", "analyzed"))
         has_pdf_count = sum(1 for ref in references if ref.pdf_url or ref.is_open_access)
 
+        citation_keys = self._library_citation_keys(project)
         papers_list = []
         for ref in references:
             paper_info = {
                 "id": str(ref.id),
+                "cite_key": citation_keys.get(ref.id),
                 "title": ref.title,
                 "authors": ref.authors if isinstance(ref.authors, str) else ", ".join(ref.authors or []),
                 "year": ref.year,
@@ -266,6 +314,9 @@ class SearchToolsMixin:
             "ingested_pdf_count": ingested_count,
             "has_pdf_available_count": has_pdf_count,
             "papers": papers_list,
+            "offset": offset,
+            "next_offset": offset + len(references) if offset + len(references) < total_count else None,
+            "truncated": offset + len(references) < total_count,
         }
 
     def _tool_get_reference_details(self, ctx: Dict[str, Any], reference_id: str) -> Dict:
@@ -289,6 +340,7 @@ class SearchToolsMixin:
         # Build detailed response
         result = {
             "id": str(ref.id),
+            "cite_key": self._library_citation_keys(project).get(ref.id),
             "title": ref.title,
             "authors": ref.authors if isinstance(ref.authors, str) else ", ".join(ref.authors or []),
             "year": ref.year,
@@ -617,6 +669,8 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 
             _emit_progress(ctx, f"Found {len(papers)} new papers, preparing results...")
 
+            if project is not None:
+                self._annotate_search_result_keys(project, papers)
             # Persist to Redis (cross-turn) AND update ctx (within-turn)
             self._set_recent_papers(ctx, papers, search_id=search_id)
 
@@ -674,19 +728,32 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 "papers": [],
             }
 
-    def _tool_get_project_papers(self, ctx: Dict[str, Any], include_content: bool = False) -> Dict:
+    def _tool_get_project_papers(
+        self,
+        ctx: Dict[str, Any],
+        include_content: bool = False,
+        limit: int = 5,
+        offset: int = 0,
+    ) -> Dict:
         """Get user's draft papers in the project."""
         from app.models import ResearchPaper
 
         project = ctx["project"]
 
-        papers = self.db.query(ResearchPaper).filter(
+        query = self.db.query(ResearchPaper).filter(
             ResearchPaper.project_id == project.id
-        ).limit(200).all()
+        )
+        total_count = query.count()
+        limit = max(1, min(limit, 5 if include_content else 20))
+        papers = query.order_by(ResearchPaper.id).offset(offset).limit(limit).all()
 
         result = {
             "count": len(papers),
-            "papers": []
+            "papers": [],
+            "total_count": total_count,
+            "offset": offset,
+            "next_offset": offset + len(papers) if offset + len(papers) < total_count else None,
+            "truncated": offset + len(papers) < total_count,
         }
 
         for paper in papers:
@@ -708,7 +775,10 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 if content:
                     # Convert LaTeX to readable markdown for chat display
                     display_content = self._latex_to_markdown(content)
-                    paper_info["content"] = display_content  # No truncation - show full content
+                    paper_info["content"] = display_content[:12000]
+                    if len(display_content) > 12000:
+                        paper_info["content_truncated"] = True
+                        paper_info["content"] += "\n[Content truncated at 12000 characters.]"
 
             result["papers"].append(paper_info)
 
@@ -764,11 +834,13 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             ProjectReference.added_via_channel_id == channel.id
         ).all()
 
+        citation_keys = self._library_citation_keys(project)
         papers_list = []
         for ref in channel_papers:
             ft_available = ref.status in ("ingested", "analyzed")
             papers_list.append({
                 "reference_id": str(ref.id),
+                "cite_key": citation_keys.get(ref.id),
                 "title": ref.title or "Untitled",
                 "year": ref.year,
                 "doi": ref.doi,
@@ -840,7 +912,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 "topics": [],
             }
 
-    def _tool_batch_search_papers(self, ctx: Dict[str, Any], topics: List, **kwargs) -> Dict:
+    def _tool_batch_search_papers(self, ctx: Dict[str, Any], topics: List[Dict[str, Any]], **kwargs: Any) -> Dict:
         """Search for papers on multiple topics at once (server-side execution)."""
         import asyncio
         from uuid import uuid4
@@ -888,7 +960,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 
                 topic_name = t.get("topic") or t.get('"topic"') or "Unknown"
                 query = t.get("query") or t.get('"query"') or str(topic_name)
-                max_results = t.get("limit", None) or t.get("max_results", 5)
+                max_results = t.get("max_results", 5)
 
                 topic_name = str(topic_name).strip('"').strip("'")
                 query = str(query).strip('"').strip("'")
@@ -903,7 +975,9 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                     max_results = 5
 
                 # Cap per-topic results at 5
-                max_results = min(max_results, 5)
+                max_results = max(0, min(max_results, 5))
+                if max_results == 0:
+                    continue
 
                 formatted_topics.append({
                     "topic": topic_name,
@@ -969,7 +1043,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
             finally:
                 await discovery_service.close()
 
-        async def _run_all_searches():
+        async def _run_all_searches() -> List[Dict[str, Any]]:
             return await asyncio.gather(*[
                 _search_topic(t) for t in formatted_topics
             ])
@@ -982,7 +1056,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         seen_keys: set = set()
         all_papers: list = []
         topic_summaries: list = []
-        total_max = 25  # Overall cap
+        total_max = sum(topic["max_results"] for topic in formatted_topics)
 
         for topic_result in topic_search_results:
             topic_name = topic_result["topic"]
@@ -1080,6 +1154,8 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 
         _emit_progress(ctx, f"Found {len(all_papers)} papers, preparing results...")
 
+        if project is not None:
+            self._annotate_search_result_keys(project, all_papers)
         # Cache results in Redis
         search_id = str(uuid4())
         ctx["last_search_id"] = search_id
@@ -1466,6 +1542,9 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         # Persist to Redis (cross-turn) AND update ctx (within-turn)
         search_id = str(uuid4())
         ctx["last_search_id"] = search_id
+        project = ctx.get("project")
+        if project is not None:
+            self._annotate_search_result_keys(project, papers_data)
         self._set_recent_papers(ctx, papers_data, search_id=search_id)
 
         relation_desc = {
@@ -1614,6 +1693,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 
         # Format results
         papers = []
+        citation_keys = {str(ref_id): key for ref_id, key in self._library_citation_keys(project).items()}
         for row in rows:
             # Handle both tuple and row object access
             if hasattr(row, "_mapping"):
@@ -1646,6 +1726,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
 
             paper = {
                 "reference_id": str(r.get("reference_id", "")),
+                "cite_key": citation_keys.get(str(r.get("reference_id", ""))),
                 "project_reference_id": str(r.get("project_reference_id", "")),
                 "title": r.get("title", ""),
                 "authors": authors_str,

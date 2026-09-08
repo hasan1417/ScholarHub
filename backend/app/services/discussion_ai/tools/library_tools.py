@@ -31,7 +31,16 @@ GET_PROJECT_REFERENCES_SCHEMA = {
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Maximum number of references to return. Omit or set high to get all references.",
+                    "description": "Maximum references per page (default 10, at most 20). Use next_offset to retrieve additional pages when truncated is true.",
+                    "default": 10,
+                    "minimum": 1,
+                    "maximum": 20,
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Number of references to skip for pagination.",
+                    "default": 0,
+                    "minimum": 0,
                 },
             },
         },
