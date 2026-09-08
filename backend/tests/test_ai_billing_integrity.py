@@ -73,9 +73,29 @@ def test_feature_limit_accounts_for_pending_credit_cost() -> None:
         ) == (False, 46, 50)
 
 
-def test_direct_openai_model_ids_use_the_same_credit_policy() -> None:
-    assert get_model_credit_cost("gpt-5-mini") == 5
-    assert get_model_credit_cost("text-embedding-3-small") == 1
+@pytest.mark.parametrize(
+    ("model_id", "expected_cost"),
+    [
+        ("gpt-5-mini", 1),
+        ("openai/gpt-5-mini", 1),
+        ("openai/gpt-5", 5),
+        ("gpt-5", 5),
+        ("anthropic/claude-opus-4.1", 5),
+        ("gpt-5-nano", 1),
+        ("openai/gpt-5-nano", 1),
+        ("openai/gpt-5-lite", 1),
+        ("gpt-5-mini-2025-08-07", 1),
+        ("openai/gpt-5-mini:free", 1),
+        ("openai/o3-mini", 1),
+        ("google/gemini-2.5-pro-lite", 1),
+        ("openai/gpt-5.2-20251211", 5),
+        ("text-embedding-3-small", 1),
+    ],
+)
+def test_direct_openai_model_ids_use_the_same_credit_policy(
+    model_id: str, expected_cost: int,
+) -> None:
+    assert get_model_credit_cost(model_id) == expected_cost
 
 
 def test_increment_usage_uses_atomic_update() -> None:
@@ -195,6 +215,7 @@ def test_json_provider_failure_is_persisted_failed_and_not_billed() -> None:
             return_value={"api_key": "test-key", "source": "user"},
         ),
         patch.object(assistant_module, "OpenRouterOrchestrator", return_value=orchestrator),
+        patch.object(assistant_module, "SessionLocal", return_value=MagicMock()) as session_factory,
         patch.object(assistant_module, "_persist_assistant_exchange") as persist,
         patch.object(SubscriptionService, "check_feature_limit", return_value=(True, 0, 50)) as check,
         patch.object(SubscriptionService, "increment_usage") as increment,
@@ -214,6 +235,7 @@ def test_json_provider_failure_is_persisted_failed_and_not_billed() -> None:
 
     assert exc_info.value.status_code == 503
     assert persist.call_args.kwargs["status"] == "failed"
+    session_factory.return_value.close.assert_called_once()
     increment.assert_not_called()
     check.assert_called_once_with(db, user.id, "discussion_ai_calls", amount=5)
 
@@ -239,6 +261,7 @@ def test_json_answer_starting_with_error_is_completed_and_billed() -> None:
             return_value={"api_key": "test-key", "source": "user"},
         ),
         patch.object(assistant_module, "OpenRouterOrchestrator", return_value=orchestrator),
+        patch.object(assistant_module, "SessionLocal", return_value=MagicMock()) as session_factory,
         patch.object(assistant_module, "_persist_assistant_exchange") as persist,
         patch.object(SubscriptionService, "check_feature_limit", return_value=(True, 0, 50)),
         patch.object(SubscriptionService, "increment_usage") as increment,
@@ -256,6 +279,7 @@ def test_json_answer_starting_with_error_is_completed_and_billed() -> None:
         )
 
     assert response.message.startswith("Error:")
+    session_factory.return_value.close.assert_called_once()
     assert persist.call_args.kwargs["status"] == "completed"
     increment.assert_called_once_with(
         db,

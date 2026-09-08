@@ -43,6 +43,7 @@ _PREMIUM_MODEL_PREFIXES = (
     "google/gemini-2.5-pro",
     "google/gemini-3-pro",
 )
+_SMALL_MODEL_VARIANTS = ("mini", "nano", "lite")
 
 STANDARD_CREDIT_COST = 1
 PREMIUM_CREDIT_COST = 5
@@ -60,6 +61,9 @@ def get_model_credit_cost(model_id: str) -> int:
     model_lower = model_id.strip().lower()
     if "/" not in model_lower and model_lower.startswith(("gpt-", "o1", "o3")):
         model_lower = f"openai/{model_lower}"
+    model_parts = model_lower.split(":", 1)[0].split("-")
+    if any(variant in model_parts for variant in _SMALL_MODEL_VARIANTS):
+        return STANDARD_CREDIT_COST
     for prefix in _PREMIUM_MODEL_PREFIXES:
         if model_lower.startswith(prefix):
             return PREMIUM_CREDIT_COST

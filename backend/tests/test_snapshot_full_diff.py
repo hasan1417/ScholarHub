@@ -3,11 +3,13 @@ import importlib.util
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 import sys
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
 
-from app.models import DocumentSnapshot
+from app.models import DocumentSnapshot, ResearchPaper
+from app.schemas.snapshot import SnapshotUpdate
 
 
 _MISSING_MODULE = object()
@@ -109,7 +111,10 @@ def test_get_snapshot_full_diff_returns_snapshot_diff_response(
     )
     db = _FakeSession([snapshot1, snapshot2])
 
-    monkeypatch.setattr(snapshots, "require_paper_access", lambda db, paper_id, user: None)
+    monkeypatch.setattr(
+        snapshots, "require_paper_access",
+        lambda db, paper_id, user: SimpleNamespace(id=paper_uuid),
+    )
 
     response = snapshots.get_snapshot_full_diff(
         paper_id=paper_id,
@@ -131,3 +136,89 @@ def test_get_snapshot_full_diff_returns_snapshot_diff_response(
     assert response.stats.additions == 2
     assert response.stats.deletions == 1
     assert response.stats.unchanged == 2
+
+
+@pytest.mark.parametrize("url_format", ["uuid", "short", "slug"])
+@pytest.mark.parametrize(
+    "route",
+    [
+        "list_snapshots", "get_snapshot", "update_snapshot_label", "delete_snapshot",
+        "get_snapshot_diff", "get_snapshot_full_diff", "restore_snapshot",
+    ],
+)
+def test_snapshot_routes_use_resolved_paper_id(
+    monkeypatch: pytest.MonkeyPatch, route: str, url_format: str,
+) -> None:
+    user = SimpleNamespace(id=uuid4())
+    paper = ResearchPaper(
+        id=uuid4(), owner_id=user.id, short_id="abcd1234",
+        content_json={"latex_source": "current"},
+    )
+    paper_id = {
+        "uuid": str(paper.id), "short": paper.short_id, "slug": "test-paper-abcd1234",
+    }[url_format]
+    snapshot = DocumentSnapshot(
+        id=uuid4(), paper_id=paper.id, yjs_state=b"", materialized_text="saved",
+        materialized_files={"section.tex": "section"}, snapshot_type="manual",
+        sequence_number=1, created_by=user.id, created_at=datetime.now(timezone.utc),
+        text_length=5,
+    )
+    db = MagicMock()
+    paper_query = MagicMock()
+    paper_query.filter.return_value.first.return_value = paper
+    snapshot_query = MagicMock()
+    paper_filters: list[object] = []
+
+    def filter_snapshots(*criteria: object) -> MagicMock:
+        for criterion in criteria:
+            if criterion.left.name == "paper_id":
+                assert criterion.right.value == paper.id
+                paper_filters.append(criterion)
+        return snapshot_query
+
+    snapshot_query.filter.side_effect = filter_snapshots
+    snapshot_query.first.return_value = snapshot
+    snapshot_query.count.return_value = 1
+    snapshot_query.order_by.return_value.offset.return_value.limit.return_value.all.return_value = [snapshot]
+
+    def query(model: type) -> MagicMock:
+        if model is ResearchPaper:
+            return paper_query
+        assert model is DocumentSnapshot
+        return snapshot_query
+
+    db.query.side_effect = query
+    create_restore = MagicMock(return_value=snapshot)
+    monkeypatch.setattr(snapshots, "_create_snapshot_with_retry", create_restore)
+    kwargs = {"paper_id": paper_id, "db": db, "current_user": user}
+    if route == "list_snapshots":
+        kwargs.update(skip=0, limit=50, snapshot_type=None)
+    elif route == "get_snapshot_diff":
+        kwargs.update(snapshot_id1=snapshot.id, snapshot_id2=snapshot.id)
+    elif route == "get_snapshot_full_diff":
+        kwargs.update(from_id=snapshot.id, to_id=snapshot.id)
+    else:
+        kwargs["snapshot_id"] = snapshot.id
+    if route == "update_snapshot_label":
+        kwargs["data"] = SnapshotUpdate(label="Renamed")
+
+    response = getattr(snapshots, route)(**kwargs)
+
+    expected_queries = 2 if route in {"get_snapshot_diff", "get_snapshot_full_diff"} else 1
+    assert len(paper_filters) == expected_queries
+    if route == "list_snapshots":
+        assert response.total == 1
+        assert response.snapshots[0].paper_id == paper.id
+    elif route == "delete_snapshot":
+        db.delete.assert_called_once_with(snapshot)
+    elif route == "restore_snapshot":
+        assert create_restore.call_args.kwargs["paper_id"] == paper.id
+        assert paper.content_json["latex_source"] == "saved"
+        assert paper.latex_files == snapshot.materialized_files
+    elif route == "update_snapshot_label":
+        assert response.label == "Renamed"
+    elif route == "get_snapshot":
+        assert response.materialized_text == "saved"
+    else:
+        assert response.from_snapshot.paper_id == paper.id
+        assert response.to_snapshot.paper_id == paper.id

@@ -71,6 +71,13 @@ def create_branch(
     ).first()
     if existing_branch:
         raise HTTPException(status_code=400, detail="Branch name already exists")
+
+    if branch.parent_branch_id is not None:
+        parent_branch = db.query(Branch).filter(Branch.id == branch.parent_branch_id).first()
+        if parent_branch is None:
+            raise HTTPException(status_code=404, detail="Parent branch not found")
+        if parent_branch.paper_id != paper.id:
+            raise HTTPException(status_code=400, detail="Parent branch belongs to a different paper")
     
     # Create the branch
     db_branch = Branch(

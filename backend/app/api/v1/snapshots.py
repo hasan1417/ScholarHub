@@ -386,9 +386,9 @@ def list_snapshots(
     current_user: User = Depends(get_current_user),
 ):
     """List all snapshots for a paper, newest first."""
-    require_paper_access(db, paper_id, current_user)
+    paper = require_paper_access(db, paper_id, current_user)
 
-    query = db.query(DocumentSnapshot).filter(DocumentSnapshot.paper_id == paper_id)
+    query = db.query(DocumentSnapshot).filter(DocumentSnapshot.paper_id == paper.id)
 
     if snapshot_type:
         query = query.filter(DocumentSnapshot.snapshot_type == snapshot_type)
@@ -412,11 +412,11 @@ def get_snapshot(
     current_user: User = Depends(get_current_user),
 ):
     """Get a specific snapshot with its content."""
-    require_paper_access(db, paper_id, current_user)
+    paper = require_paper_access(db, paper_id, current_user)
 
     snapshot = db.query(DocumentSnapshot).filter(
         DocumentSnapshot.id == snapshot_id,
-        DocumentSnapshot.paper_id == paper_id,
+        DocumentSnapshot.paper_id == paper.id,
     ).first()
 
     if not snapshot:
@@ -434,11 +434,11 @@ def update_snapshot_label(
     current_user: User = Depends(get_current_user),
 ):
     """Update a snapshot's label."""
-    require_paper_editor(db, paper_id, current_user)
+    paper = require_paper_editor(db, paper_id, current_user)
 
     snapshot = db.query(DocumentSnapshot).filter(
         DocumentSnapshot.id == snapshot_id,
-        DocumentSnapshot.paper_id == paper_id,
+        DocumentSnapshot.paper_id == paper.id,
     ).first()
 
     if not snapshot:
@@ -461,11 +461,11 @@ def delete_snapshot(
     current_user: User = Depends(get_current_user),
 ):
     """Delete a snapshot."""
-    require_paper_editor(db, paper_id, current_user)
+    paper = require_paper_editor(db, paper_id, current_user)
 
     snapshot = db.query(DocumentSnapshot).filter(
         DocumentSnapshot.id == snapshot_id,
-        DocumentSnapshot.paper_id == paper_id,
+        DocumentSnapshot.paper_id == paper.id,
     ).first()
 
     if not snapshot:
@@ -489,16 +489,16 @@ def get_snapshot_diff(
     current_user: User = Depends(get_current_user),
 ):
     """Compute diff between two snapshots."""
-    require_paper_access(db, paper_id, current_user)
+    paper = require_paper_access(db, paper_id, current_user)
 
     snapshot1 = db.query(DocumentSnapshot).filter(
         DocumentSnapshot.id == snapshot_id1,
-        DocumentSnapshot.paper_id == paper_id,
+        DocumentSnapshot.paper_id == paper.id,
     ).first()
 
     snapshot2 = db.query(DocumentSnapshot).filter(
         DocumentSnapshot.id == snapshot_id2,
-        DocumentSnapshot.paper_id == paper_id,
+        DocumentSnapshot.paper_id == paper.id,
     ).first()
 
     if not snapshot1 or not snapshot2:
@@ -530,16 +530,16 @@ def get_snapshot_full_diff(
     current_user: User = Depends(get_current_user),
 ):
     """Compute a full-document diff between two snapshots."""
-    require_paper_access(db, paper_id, current_user)
+    paper = require_paper_access(db, paper_id, current_user)
 
     snapshot1 = db.query(DocumentSnapshot).filter(
         DocumentSnapshot.id == from_id,
-        DocumentSnapshot.paper_id == paper_id,
+        DocumentSnapshot.paper_id == paper.id,
     ).first()
 
     snapshot2 = db.query(DocumentSnapshot).filter(
         DocumentSnapshot.id == to_id,
-        DocumentSnapshot.paper_id == paper_id,
+        DocumentSnapshot.paper_id == paper.id,
     ).first()
 
     if not snapshot1 or not snapshot2:
@@ -578,7 +578,7 @@ def restore_snapshot(
 
     snapshot = db.query(DocumentSnapshot).filter(
         DocumentSnapshot.id == snapshot_id,
-        DocumentSnapshot.paper_id == paper_id,
+        DocumentSnapshot.paper_id == paper.id,
     ).first()
 
     if not snapshot:
