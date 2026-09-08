@@ -655,9 +655,22 @@ If asked to perform write actions, explain that editor/admin access is required.
         messages.append({"role": "user", "content": message})
         return messages
 
-    def _error_response(self, error_msg: str = "") -> Dict[str, Any]:
-        """Build a standard error response."""
+    def _error_response(
+        self,
+        error_msg: str = "",
+        *,
+        retryable: bool = True,
+        status_code: int = 503,
+    ) -> Dict[str, Any]:
+        """Build a typed failure response that callers cannot mistake for an answer."""
         return {
+            "ok": False,
+            "error": {
+                "code": "provider_unavailable",
+                "message": "The AI provider is temporarily unavailable. Please try again.",
+                "retryable": retryable,
+                "status_code": status_code,
+            },
             "message": "I'm sorry, I encountered an error while processing your request. Please try again.",
             "actions": [],
             "citations": [],
@@ -714,6 +727,12 @@ If asked to perform write actions, explain that editor/admin access is required.
         if any((tr.get("result") or {}).get("status") in ("error", "blocked") for tr in search_results):
             return None
 
+        statuses = [(tr.get("result") or {}).get("status") for tr in search_results]
+        if all(status == "empty" for status in statuses):
+            return "No matching papers were found. Try broadening the query or filters."
+        if any(status == "partial" for status in statuses):
+            return "Found matching papers, but some academic sources were unavailable."
+
         # Past-tense, action-oriented copy so the message body doesn't read
         # like a loading status (the search has already finished by the time
         # this text renders).
@@ -729,6 +748,10 @@ If asked to perform write actions, explain that editor/admin access is required.
                     return "Search failed due to a temporary issue. Please retry."
                 if result.get("status") == "blocked":
                     return result.get("message") or "Search was blocked by the current conversation policy."
+                if result.get("status") == "empty":
+                    return "No matching papers were found. Try broadening the query or filters."
+                if result.get("status") == "partial":
+                    return "Search completed with partial coverage because some academic sources were unavailable."
                 return "Found matching papers — open the Discoveries panel to review and add any to your library."
 
         tools_called = [tr.get("name", "tool") for tr in tool_results]
@@ -812,6 +835,13 @@ If asked to perform write actions, explain that editor/admin access is required.
                 logger.info(f"Tool orchestrator iteration {iteration}")
 
                 response = self._call_ai_with_tools(messages, ctx)
+                if response.get("ok") is False:
+                    provider_error = response.get("error") or {}
+                    return self._error_response(
+                        provider_error.get("message", "Provider request failed"),
+                        retryable=provider_error.get("retryable", True),
+                        status_code=provider_error.get("status_code", 503),
+                    )
                 tool_calls = response.get("tool_calls", [])
 
                 if not tool_calls:
@@ -925,6 +955,7 @@ If asked to perform write actions, explain that editor/admin access is required.
             )
 
             return {
+                "ok": True,
                 "message": final_message,
                 "actions": actions,
                 "citations": [],
@@ -1708,7 +1739,7 @@ If asked to perform write actions, explain that editor/admin access is required.
             if tool_name not in ("search_papers", "batch_search_papers"):
                 continue
             result = tr.get("result")
-            if isinstance(result, dict) and result.get("status") == "success":
+            if isinstance(result, dict) and result.get("status") in ("success", "partial"):
                 search_succeeded = True
                 break
 

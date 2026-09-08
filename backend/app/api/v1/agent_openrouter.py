@@ -171,7 +171,7 @@ async def agent_chat_stream_or(
     # Check editor AI credit limit
     credit_cost = get_model_credit_cost(model)
     allowed, current, limit = SubscriptionService.check_feature_limit(
-        db, current_user.id, "editor_ai_calls"
+        db, current_user.id, "editor_ai_calls", amount=credit_cost
     )
     if not allowed:
         raise HTTPException(

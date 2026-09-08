@@ -13,6 +13,7 @@ from typing import Tuple, Dict, Any, Optional
 from uuid import UUID
 import logging
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.models.subscription import SubscriptionTier, UserSubscription, UsageTracking
@@ -46,10 +47,19 @@ _PREMIUM_MODEL_PREFIXES = (
 STANDARD_CREDIT_COST = 1
 PREMIUM_CREDIT_COST = 5
 
+_USAGE_COLUMNS = {
+    "discussion_ai_calls": UsageTracking.discussion_ai_calls,
+    "editor_ai_calls": UsageTracking.editor_ai_calls,
+    "paper_discovery_searches": UsageTracking.paper_discovery_searches,
+    "tokens_consumed": UsageTracking.tokens_consumed,
+}
+
 
 def get_model_credit_cost(model_id: str) -> int:
     """Return credit cost for a model. Premium models cost 5, standard cost 1."""
-    model_lower = model_id.lower()
+    model_lower = model_id.strip().lower()
+    if "/" not in model_lower and model_lower.startswith(("gpt-", "o1", "o3")):
+        model_lower = f"openai/{model_lower}"
     for prefix in _PREMIUM_MODEL_PREFIXES:
         if model_lower.startswith(prefix):
             return PREMIUM_CREDIT_COST
@@ -137,7 +147,7 @@ class SubscriptionService:
 
     @staticmethod
     def check_feature_limit(
-        db: Session, user_id: UUID, feature: str
+        db: Session, user_id: UUID, feature: str, amount: int = 1
     ) -> Tuple[bool, int, int]:
         """
         Check if a user is within their limit for a monthly-tracked feature.
@@ -146,11 +156,17 @@ class SubscriptionService:
             db: Database session
             user_id: User's UUID
             feature: Feature name (e.g., 'discussion_ai_calls', 'paper_discovery_searches')
+            amount: Credits required for the pending action
 
         Returns:
             Tuple of (allowed: bool, current_usage: int, limit: int)
             If limit is -1, it means unlimited and allowed is always True.
         """
+        if feature not in _USAGE_COLUMNS:
+            raise ValueError(f"Unknown usage feature: {feature}")
+        if amount < 0:
+            raise ValueError("Usage amount cannot be negative")
+
         limits = SubscriptionService.get_user_limits(db, user_id)
         usage = SubscriptionService.get_or_create_usage(db, user_id)
 
@@ -161,7 +177,7 @@ class SubscriptionService:
         if limit == -1:
             return (True, current, -1)
 
-        allowed = current < limit
+        allowed = current + amount <= limit
         return (allowed, current, limit)
 
     @staticmethod
@@ -193,14 +209,29 @@ class SubscriptionService:
         Returns:
             Updated UsageTracking record
         """
-        usage = SubscriptionService.get_or_create_usage(db, user_id)
+        column = _USAGE_COLUMNS.get(feature)
+        if column is None:
+            raise ValueError(f"Unknown usage feature: {feature}")
+        if amount <= 0:
+            raise ValueError("Usage increment amount must be positive")
 
-        current_value = getattr(usage, feature, 0)
-        setattr(usage, feature, current_value + amount)
+        usage = SubscriptionService.get_or_create_usage(db, user_id)
+        previous_value = getattr(usage, feature)
+        db.execute(
+            update(UsageTracking)
+            .where(UsageTracking.id == usage.id)
+            .values({column: column + amount})
+        )
         db.commit()
         db.refresh(usage)
 
-        logger.debug(f"Incremented {feature} for user {user_id}: {current_value} -> {current_value + amount}")
+        logger.debug(
+            "Incremented %s for user %s: %s -> %s",
+            feature,
+            user_id,
+            previous_value,
+            getattr(usage, feature),
+        )
         return usage
 
     @staticmethod

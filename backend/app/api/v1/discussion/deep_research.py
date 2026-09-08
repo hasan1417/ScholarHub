@@ -472,7 +472,7 @@ async def run_deep_research(
     deep_research_model = payload.model
     credit_cost = get_model_credit_cost(deep_research_model)
     allowed, current_usage, limit = SubscriptionService.check_feature_limit(
-        db, current_user.id, "discussion_ai_calls"
+        db, current_user.id, "discussion_ai_calls", amount=credit_cost
     )
     if not allowed:
         raise HTTPException(

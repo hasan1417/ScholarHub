@@ -250,7 +250,7 @@ class AIClient:
                     yield self._strip_markdown_inline(part)
         except Exception as e:
             logger.error(f"Error in _stream_chat: {str(e)}")
-            yield f"[error streaming response: {str(e)}]"
+            raise
 
     @staticmethod
     def _strip_markdown_inline(text: str) -> str:

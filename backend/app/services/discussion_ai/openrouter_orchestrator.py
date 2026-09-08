@@ -576,6 +576,25 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         return False
 
     @staticmethod
+    def _provider_failure_result(
+        *,
+        retryable: bool,
+        status_code: int,
+    ) -> Dict[str, Any]:
+        """Return an explicit provider failure for the orchestration layer."""
+        return {
+            "ok": False,
+            "error": {
+                "code": "provider_unavailable",
+                "message": "The AI provider is temporarily unavailable. Please try again.",
+                "retryable": retryable,
+                "status_code": status_code,
+            },
+            "content": "",
+            "tool_calls": [],
+        }
+
+    @staticmethod
     def _is_no_tools_error(error: Exception) -> bool:
         """Check if the error is a 'model doesn't support tools' error from OpenRouter."""
         if isinstance(error, APIStatusError) and error.status_code == 404:
@@ -586,10 +605,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
     def _call_ai_with_tools(self, messages: List[Dict], ctx: Dict[str, Any]) -> Dict[str, Any]:
         """Call OpenRouter with tool definitions (non-streaming) with retry on transient errors."""
         if not self.openrouter_client:
-            return {
-                "content": "OpenRouter API not configured. Please check your OPENROUTER_API_KEY.",
-                "tool_calls": []
-            }
+            return self._provider_failure_result(retryable=False, status_code=502)
 
         reasoning_info = f" (reasoning: {self._reasoning_mode})" if self._reasoning_mode else ""
         logger.info(f"Calling OpenRouter with model: {self.model}{reasoning_info}")
@@ -623,6 +639,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 message = choice.message
 
                 result = {
+                    "ok": True,
                     "content": _strip_internal_tags(message.content or ""),
                     "tool_calls": [],
                 }
@@ -656,14 +673,17 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     try:
                         response = self.openrouter_client.chat.completions.create(**call_params)
                         raw = response.choices[0].message.content or ""
-                        return {"content": _strip_internal_tags(raw), "tool_calls": []}
+                        return {"ok": True, "content": _strip_internal_tags(raw), "tool_calls": []}
                     except Exception as inner_e:
                         logger.error(f"No-tools fallback also failed: {inner_e}")
-                        return {"content": f"Error: {str(inner_e)}", "tool_calls": []}
+                        return self._provider_failure_result(
+                            retryable=self._is_retryable_error(inner_e),
+                            status_code=503 if self._is_retryable_error(inner_e) else 502,
+                        )
 
                 if not self._is_retryable_error(e):
                     logger.error(f"Non-retryable error calling OpenRouter: {e}")
-                    return {"content": f"Error: {str(e)}", "tool_calls": []}
+                    return self._provider_failure_result(retryable=False, status_code=502)
 
                 if attempt < MAX_RETRIES - 1:
                     backoff = INITIAL_BACKOFF_SECONDS * (2 ** attempt)  # 1s, 2s, 4s
@@ -678,8 +698,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     )
 
         # All retries exhausted
-        error_msg = f"{self.model} is temporarily unavailable. Please try again or switch models."
-        return {"content": error_msg, "tool_calls": []}
+        return self._provider_failure_result(retryable=True, status_code=503)
 
     async def _call_ai_with_tools_streaming(self, messages: List[Dict], ctx: Dict[str, Any]) -> AsyncGenerator[Dict[str, Any], None]:
         """Call OpenRouter with tool definitions (async streaming) with retry on transient errors.
@@ -690,7 +709,10 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         - {"type": "result", "content": str, "tool_calls": list} at the end
         """
         if not self.async_openrouter_client:
-            yield {"type": "result", "content": "OpenRouter API not configured.", "tool_calls": []}
+            yield {
+                "type": "result",
+                **self._provider_failure_result(retryable=False, status_code=502),
+            }
             return
 
         reasoning_info = f" (reasoning: {self._reasoning_mode})" if self._reasoning_mode else ""
@@ -732,12 +754,21 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                         break
                     except Exception as inner_e:
                         logger.error(f"No-tools streaming fallback also failed: {inner_e}")
-                        yield {"type": "result", "content": f"Error: {str(inner_e)}", "tool_calls": []}
+                        yield {
+                            "type": "result",
+                            **self._provider_failure_result(
+                                retryable=self._is_retryable_error(inner_e),
+                                status_code=503 if self._is_retryable_error(inner_e) else 502,
+                            ),
+                        }
                         return
 
                 if not self._is_retryable_error(e):
                     logger.error(f"Non-retryable error starting async OpenRouter stream: {e}")
-                    yield {"type": "result", "content": f"Error: {str(e)}", "tool_calls": []}
+                    yield {
+                        "type": "result",
+                        **self._provider_failure_result(retryable=False, status_code=502),
+                    }
                     return
                 if attempt < MAX_RETRIES - 1:
                     backoff = INITIAL_BACKOFF_SECONDS * (2 ** attempt)
@@ -750,8 +781,10 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     logger.error(f"Model {self.model} async stream failed after {MAX_RETRIES} attempts. Last error: {e}")
 
         if stream is None:
-            error_msg = f"{self.model} is temporarily unavailable. Please try again or switch models."
-            yield {"type": "result", "content": error_msg, "tool_calls": []}
+            yield {
+                "type": "result",
+                **self._provider_failure_result(retryable=True, status_code=503),
+            }
             return
 
         try:
@@ -806,11 +839,17 @@ class OpenRouterOrchestrator(ToolOrchestrator):
 
             # Strip any think tags from the accumulated content for the result
             full_content = _strip_internal_tags("".join(content_chunks))
-            yield {"type": "result", "content": full_content, "tool_calls": tool_calls}
+            yield {"type": "result", "ok": True, "content": full_content, "tool_calls": tool_calls}
 
         except Exception as e:
             logger.exception(f"Error processing async OpenRouter stream with model {self.model}")
-            yield {"type": "result", "content": f"Error: {str(e)}", "tool_calls": []}
+            yield {
+                "type": "result",
+                **self._provider_failure_result(
+                    retryable=self._is_retryable_error(e),
+                    status_code=503 if self._is_retryable_error(e) else 502,
+                ),
+            }
 
     def _execute_lite(self, messages: List[Dict], ctx: Dict[str, Any]) -> Dict[str, Any]:
         """Execute lite route: single LLM call, no tools, minimal overhead."""
@@ -830,10 +869,14 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             final_message = _strip_internal_tags(raw)
         except Exception as e:
             logger.error(f"Lite execution error: {e}")
-            final_message = ""
+            return self._error_response(
+                str(e),
+                retryable=self._is_retryable_error(e),
+                status_code=503 if self._is_retryable_error(e) else 502,
+            )
 
         if not final_message:
-            final_message = self._build_lite_fallback(ctx)
+            return self._error_response("Provider returned an empty response", status_code=502)
         final_message, invalid_citations = self._apply_citation_filter_for_context(final_message, ctx)
 
         # Lightweight memory update (regex only, skip LLM fact extraction)
@@ -847,6 +890,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         )
 
         return {
+            "ok": True,
             "message": final_message,
             "actions": [],
             "citations": [],
@@ -891,17 +935,30 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 yield {"type": "token", "content": remaining}
         except Exception as e:
             logger.error(f"Lite streaming error: {e}")
+            yield {
+                "type": "result",
+                "data": self._error_response(
+                    str(e),
+                    retryable=self._is_retryable_error(e),
+                    status_code=503 if self._is_retryable_error(e) else 502,
+                ),
+            }
+            return
 
         final_message = _strip_internal_tags("".join(content_chunks))
         if not final_message:
-            final_message = self._build_lite_fallback(ctx)
-            yield {"type": "token", "content": final_message}
+            yield {
+                "type": "result",
+                "data": self._error_response("Provider returned an empty response", status_code=502),
+            }
+            return
         final_message, invalid_citations = self._apply_citation_filter_for_context(final_message, ctx)
 
         # Yield result IMMEDIATELY so the frontend can unblock the input.
         yield {
             "type": "result",
             "data": {
+                "ok": True,
                 "message": final_message,
                 "actions": [],
                 "citations": [],
@@ -923,15 +980,6 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             "[TurnMetrics] route=lite prompt_tokens=%d tools_count=0 ttfb_ms=%d total_ms=%d model=%s reason=%s",
             prompt_tokens, ttfb_ms, total_ms, self.model, ctx.get("route_reason", ""),
         )
-
-    @staticmethod
-    def _build_lite_fallback(ctx: Dict[str, Any]) -> str:
-        """Friendly fallback for lite route when the LLM call fails (e.g. rate limit)."""
-        reason = ctx.get("route_reason", "")
-        project_title = getattr(ctx.get("project"), "title", "your project")
-        if reason in ("greeting_or_acknowledgment", "standalone_confirmation", "empty_message"):
-            return f"Hello! I'm here to help with {project_title}. What would you like to work on?"
-        return f"Got it! Let me know how I can help with {project_title}."
 
     def _lite_memory_update(self, ctx: Dict[str, Any]) -> None:
         """Lightweight memory update for lite route: regex-only, no LLM fact extraction."""
@@ -1001,6 +1049,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
             response_content = ""
             tool_calls = []
             iteration_content = []
+            provider_error: Optional[Dict[str, Any]] = None
 
             stream_directly = True
             tokens_yielded = False
@@ -1016,8 +1065,22 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                     stream_directly = False
                     logger.info("[OpenRouter Async Streaming] Tool call detected")
                 elif event["type"] == "result":
+                    if event.get("ok") is False:
+                        provider_error = event.get("error") or {}
+                        continue
                     response_content = event["content"]
                     tool_calls = event.get("tool_calls", [])
+
+            if provider_error is not None:
+                yield {
+                    "type": "result",
+                    "data": self._error_response(
+                        provider_error.get("message", "Provider request failed"),
+                        retryable=provider_error.get("retryable", True),
+                        status_code=provider_error.get("status_code", 503),
+                    ),
+                }
+                return
 
             logger.debug(f"[OpenRouter Async Streaming] Got {len(tool_calls)} tool calls: {[tc.get('name') for tc in tool_calls]}")
 
@@ -1198,6 +1261,7 @@ class OpenRouterOrchestrator(ToolOrchestrator):
         yield {
             "type": "result",
             "data": {
+                "ok": True,
                 "message": final_message,
                 "actions": actions,
                 "citations": [],
@@ -1277,7 +1341,15 @@ class OpenRouterOrchestrator(ToolOrchestrator):
                 payload = action.get("payload", {})
                 papers_found = len(payload.get("papers", []))
                 query = payload.get("query", "")
-                if papers_found > 0:
+                if result.get("status") == "error":
+                    messages.append("Search failed because academic sources were unavailable. Please retry.")
+                elif result.get("status") == "empty":
+                    messages.append(f"No papers matched '{query}'.")
+                elif result.get("status") == "partial":
+                    messages.append(
+                        f"Found {papers_found} papers for '{query}', but some academic sources were unavailable."
+                    )
+                elif papers_found > 0:
                     messages.append(f"Found {papers_found} papers for '{query}'.")
 
             elif tool_name == "get_project_references":

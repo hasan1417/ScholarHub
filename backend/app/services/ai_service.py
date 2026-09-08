@@ -66,7 +66,7 @@ class AIService(AIClient, WritingToolsMixin, ReferenceChatMixin):
 
         except Exception as e:
             logger.error(f"Error generating RAG response: {str(e)}")
-            return f"Error generating response: {str(e)}"
+            raise
 
     def chat_with_documents(self, db: Session, user_id: str, query: str) -> Dict[str, Any]:
         try:
@@ -85,6 +85,8 @@ class AIService(AIClient, WritingToolsMixin, ReferenceChatMixin):
                 if chat_id is None:
                     chat_id = f"no-docs-{int(time.time())}"
                 return {
+                    "ok": True,
+                    "provider_used": False,
                     "response": response,
                     "sources": [],
                     "sources_data": [],
@@ -99,6 +101,8 @@ class AIService(AIClient, WritingToolsMixin, ReferenceChatMixin):
                 chat_id = "temp-" + str(int(time.time()))
 
             result = {
+                "ok": True,
+                "provider_used": True,
                 "response": response,
                 "sources": documents,
                 "sources_data": documents,
@@ -110,7 +114,15 @@ class AIService(AIClient, WritingToolsMixin, ReferenceChatMixin):
         except Exception as e:
             logger.error(f"Error in chat_with_documents: {str(e)}")
             return {
-                "response": f"An error occurred while processing your request: {str(e)}",
+                "ok": False,
+                "provider_used": False,
+                "error": {
+                    "code": "provider_unavailable",
+                    "message": "The AI provider is temporarily unavailable. Please try again.",
+                    "retryable": True,
+                    "status_code": 503,
+                },
+                "response": "The AI provider is temporarily unavailable. Please try again.",
                 "sources": [],
                 "sources_data": [],
                 "chat_id": f"error-{int(time.time())}"

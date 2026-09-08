@@ -190,8 +190,10 @@ class TestNonStreamingRetry:
 
         result = orchestrator._call_ai_with_tools([], {})
 
-        assert "temporarily unavailable" in result["content"]
-        assert "try again or switch models" in result["content"]
+        assert result["ok"] is False
+        assert result["content"] == ""
+        assert result["error"]["retryable"] is True
+        assert result["error"]["status_code"] == 503
         assert orchestrator.openrouter_client.chat.completions.create.call_count == MAX_RETRIES
         assert mock_sleep.call_count == MAX_RETRIES - 1
 
@@ -207,7 +209,10 @@ class TestNonStreamingRetry:
 
         result = orchestrator._call_ai_with_tools([], {})
 
-        assert "Error:" in result["content"]
+        assert result["ok"] is False
+        assert result["content"] == ""
+        assert result["error"]["retryable"] is False
+        assert result["error"]["status_code"] == 502
         assert orchestrator.openrouter_client.chat.completions.create.call_count == 1
 
     def test_no_retry_on_bad_request(self, orchestrator):
@@ -222,7 +227,10 @@ class TestNonStreamingRetry:
 
         result = orchestrator._call_ai_with_tools([], {})
 
-        assert "Error:" in result["content"]
+        assert result["ok"] is False
+        assert result["content"] == ""
+        assert result["error"]["retryable"] is False
+        assert result["error"]["status_code"] == 502
         assert orchestrator.openrouter_client.chat.completions.create.call_count == 1
 
     @patch('time.sleep')
@@ -378,7 +386,10 @@ class TestStreamingRetry:
 
         result = events[-1]
         assert result["type"] == "result"
-        assert "temporarily unavailable" in result["content"]
+        assert result["ok"] is False
+        assert result["content"] == ""
+        assert result["error"]["retryable"] is True
+        assert result["error"]["status_code"] == 503
 
     def test_streaming_no_retry_on_auth_error(self, orchestrator):
         """Should fail immediately on auth error, no retry."""
@@ -401,7 +412,10 @@ class TestStreamingRetry:
 
         result = events[-1]
         assert result["type"] == "result"
-        assert "Error:" in result["content"]
+        assert result["ok"] is False
+        assert result["content"] == ""
+        assert result["error"]["retryable"] is False
+        assert result["error"]["status_code"] == 502
         assert call_count == 1
 
 class TestNoClientConfigured:
@@ -422,7 +436,9 @@ class TestNoClientConfigured:
 
             result = orch._call_ai_with_tools([], {})
 
-            assert "not configured" in result["content"]
+            assert result["ok"] is False
+            assert result["content"] == ""
+            assert result["error"]["status_code"] == 502
             assert result["tool_calls"] == []
 
     def test_streaming_returns_error_message(self):
@@ -444,4 +460,6 @@ class TestNoClientConfigured:
 
             assert len(events) == 1
             assert events[0]["type"] == "result"
-            assert "not configured" in events[0]["content"]
+            assert events[0]["ok"] is False
+            assert events[0]["content"] == ""
+            assert events[0]["error"]["status_code"] == 502

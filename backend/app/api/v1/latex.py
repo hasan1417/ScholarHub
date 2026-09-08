@@ -1786,7 +1786,7 @@ async def fix_latex_errors(
 
     credit_cost = get_model_credit_cost(model)
     allowed, current, limit = SubscriptionService.check_feature_limit(
-        db, current_user.id, "editor_ai_calls"
+        db, current_user.id, "editor_ai_calls", amount=credit_cost
     )
     if not allowed:
         raise HTTPException(

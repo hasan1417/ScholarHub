@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from typing import List, Dict, Any, Optional
-from app.database import get_db
+from typing import List, Dict, Any, Iterator, Optional
+from app.database import SessionLocal, get_db
 from app.api.deps import get_current_user
 from app.models.user import User
 from app.models.document import Document
@@ -25,6 +25,7 @@ from app.services.citation_filter import (
     build_allowed_citation_keys,
     normalize_filter_mode,
 )
+from app.services.subscription_service import SubscriptionService, get_model_credit_cost
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,81 @@ class ResearchContextResponse(BaseModel):
 router = APIRouter()
 ai_service = AIService()
 document_processor = DocumentProcessingService()
+
+EDITOR_AI_FEATURE = "editor_ai_calls"
+
+
+def _admit_editor_ai_usage(
+    db: Session,
+    current_user: User,
+    model: str,
+    *,
+    units: int = 1,
+) -> int:
+    """Validate that the pending provider work fits in the user's credit limit."""
+    credit_cost = get_model_credit_cost(model) * units
+    allowed, current, limit = SubscriptionService.check_feature_limit(
+        db,
+        current_user.id,
+        EDITOR_AI_FEATURE,
+        amount=credit_cost,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "error": "limit_exceeded",
+                "feature": EDITOR_AI_FEATURE,
+                "current": current,
+                "limit": limit,
+                "message": (
+                    f"This request costs {credit_cost} editor AI credit"
+                    f"{'s' if credit_cost != 1 else ''}, but you have used "
+                    f"{current}/{limit} credits this month."
+                ),
+            },
+        )
+    return credit_cost
+
+
+def _increment_editor_ai_usage(db: Session, user_id: Any, credit_cost: int) -> None:
+    """Record credits after provider work completed successfully."""
+    try:
+        SubscriptionService.increment_usage(
+            db,
+            user_id,
+            EDITOR_AI_FEATURE,
+            amount=credit_cost,
+        )
+    except Exception as exc:
+        logger.error("Failed to increment editor AI usage for user %s: %s", user_id, exc)
+
+
+def _increment_editor_ai_usage_in_new_session(user_id: Any, credit_cost: int) -> None:
+    """Record streaming usage without retaining the request-scoped session."""
+    usage_db = SessionLocal()
+    try:
+        _increment_editor_ai_usage(usage_db, user_id, credit_cost)
+    finally:
+        usage_db.close()
+
+
+def _raise_for_provider_failure(result: Dict[str, Any]) -> None:
+    """Turn an internal typed provider failure into a retryable API error."""
+    if result.get("ok") is not False:
+        return
+    error = result.get("error") or {}
+    raise HTTPException(
+        status_code=int(error.get("status_code", status.HTTP_503_SERVICE_UNAVAILABLE)),
+        detail={
+            "error": error.get("code", "provider_unavailable"),
+            "message": error.get(
+                "message",
+                "The AI provider is temporarily unavailable. Please try again.",
+            ),
+            "retryable": error.get("retryable", True),
+        },
+    )
 
 
 def _filter_ai_response_text(
@@ -149,10 +225,13 @@ async def chat_with_documents(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="No documents processed for AI. Please upload and process some documents first."
             )
-        
+
+        credit_cost = _admit_editor_ai_usage(db, current_user, ai_service.chat_model)
+
         # Perform chat with documents
         logger.info(f"Calling AI service for user {current_user.id}")
         result = ai_service.chat_with_documents(db, str(current_user.id), query.query)
+        _raise_for_provider_failure(result)
         
         logger.info(f"AI service returned result: {result}")
         logger.info(f"Result type: {type(result)}")
@@ -179,7 +258,10 @@ async def chat_with_documents(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="AI service result missing chat_id"
             )
-        
+
+        if result.get("provider_used", True):
+            _increment_editor_ai_usage(db, current_user.id, credit_cost)
+
         return ChatResponse(
             response=result['response'],
             sources=result.get('sources', []),
@@ -213,8 +295,10 @@ async def retrieve_relevant_chunks(
             Document.paper_id == paper_id
         ).all()
         if use_vectors and rows:
+            credit_cost = _admit_editor_ai_usage(db, current_user, "text-embedding-3-small")
             client = OpenAI(api_key=api_key)
             qemb = client.embeddings.create(model="text-embedding-3-small", input=query).data[0].embedding
+            _increment_editor_ai_usage(db, current_user.id, credit_cost)
             def cos(a, b):
                 # a,b are lists
                 import numpy as _np
@@ -264,6 +348,8 @@ async def retrieve_relevant_chunks(
                     items.append({ 'text': r.abstract, 'reference_id': str(r.id), 'score': score })
         items = sorted(items, key=lambda x: x['score'], reverse=True)[:max(1, min(k, 20))]
         return { 'query': query, 'results': items, 'method': 'keyword' }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"retrieve_relevant_chunks failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -278,8 +364,15 @@ async def embed_paper(
 ):
     """Compute and store embeddings for all chunks in a paper's documents."""
     try:
+        credit_cost = None
+        if os.getenv("OPENAI_API_KEY"):
+            credit_cost = _admit_editor_ai_usage(db, current_user, model)
         count = document_processor.embed_paper_chunks(db, paper_id, model=model)
+        if credit_cost is not None and count > 0:
+            _increment_editor_ai_usage(db, current_user.id, credit_cost)
         return { 'paper_id': paper_id, 'embedded_chunks': count, 'model': model }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Embedding for paper {paper_id} failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -314,11 +407,26 @@ async def process_document_for_ai(
                 message="Document already processed for AI",
                 document_id=document_id
             )
-        
+
+        credit_cost = None
+        if os.getenv("OPENAI_API_KEY"):
+            credit_cost = _admit_editor_ai_usage(
+                db,
+                current_user,
+                document_processor.ai_service.embedding_model,
+            )
+
         # Process the document
         success = document_processor.process_document_for_ai(db, document)
         
         if success:
+            if credit_cost is not None:
+                embedded_chunks = db.query(DocumentChunk).filter(
+                    DocumentChunk.document_id == document.id,
+                    DocumentChunk.embedding.isnot(None),
+                ).count()
+                if embedded_chunks > 0:
+                    _increment_editor_ai_usage(db, current_user.id, credit_cost)
             return DocumentProcessingResponse(
                 success=True,
                 message="Document successfully processed for AI",
@@ -509,7 +617,9 @@ async def generate_text(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="AI service is not ready. Please try again later."
             )
-        
+
+        credit_cost = _admit_editor_ai_usage(db, current_user, ai_service.writing_model)
+
         # Generate text using AI service
         result = ai_service.generate_text(
             text=request.text,
@@ -524,7 +634,9 @@ async def generate_text(
             project_id=request.project_id,
             paper_id=request.paper_id,
         )
-        
+
+        _increment_editor_ai_usage(db, current_user.id, credit_cost)
+
         return TextGenerationResponse(
             generated_text=generated_text,
             original_text=request.text,
@@ -534,6 +646,8 @@ async def generate_text(
             invalid_citations=invalid_citations,
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error in text generation: {str(e)}")
         raise HTTPException(
@@ -558,24 +672,37 @@ async def generate_text_stream(
                 detail="AI service is not ready. Please try again later."
             )
 
-        def streamer():
+        credit_cost = _admit_editor_ai_usage(db, current_user, ai_service.writing_model)
+
+        def streamer() -> Iterator[str]:
             chunks: List[str] = []
-            for chunk in ai_service.stream_generate_text(
-                text=request.text,
-                instruction=request.instruction,
-                context=request.context,
-                max_length=request.max_length or 500
-            ):
-                chunks.append(chunk)
-                yield chunk
-            filtered_text, invalid_citations = _filter_ai_response_text(
-                db,
-                "".join(chunks),
-                current_user,
-                project_id=request.project_id,
-                paper_id=request.paper_id,
-            )
-            yield _citation_validation_sse(invalid_citations, filtered_text=filtered_text)
+            try:
+                for chunk in ai_service.stream_generate_text(
+                    text=request.text,
+                    instruction=request.instruction,
+                    context=request.context,
+                    max_length=request.max_length or 500
+                ):
+                    chunks.append(chunk)
+                    yield chunk
+                filtered_text, invalid_citations = _filter_ai_response_text(
+                    db,
+                    "".join(chunks),
+                    current_user,
+                    project_id=request.project_id,
+                    paper_id=request.paper_id,
+                )
+                yield _citation_validation_sse(invalid_citations, filtered_text=filtered_text)
+                _increment_editor_ai_usage_in_new_session(current_user.id, credit_cost)
+            except GeneratorExit:
+                raise
+            except Exception as exc:
+                logger.error("Text generation stream failed for user %s: %s", current_user.id, exc)
+                yield "data: " + json.dumps({
+                    "type": "error",
+                    "message": "The AI provider is temporarily unavailable. Please try again.",
+                    "retryable": True,
+                }) + "\n\n"
 
         return StreamingResponse(streamer(), media_type="text/plain")
     except HTTPException:
@@ -606,7 +733,9 @@ async def check_grammar_and_style(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="AI service is not ready. Please try again later."
             )
-        
+
+        credit_cost = _admit_editor_ai_usage(db, current_user, ai_service.writing_model)
+
         # Perform grammar and style check
         result = ai_service.check_grammar_and_style(
             text=request.text,
@@ -614,7 +743,9 @@ async def check_grammar_and_style(
             check_style=request.check_style,
             check_clarity=request.check_clarity
         )
-        
+
+        _increment_editor_ai_usage(db, current_user.id, credit_cost)
+
         return GrammarCheckResponse(
             corrected_text=result['corrected_text'],
             original_text=request.text,
@@ -623,6 +754,8 @@ async def check_grammar_and_style(
             processing_time=result.get('processing_time', 0.0)
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error in grammar check: {str(e)}")
         raise HTTPException(
@@ -649,7 +782,9 @@ async def enhance_with_research_context(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="AI service is not ready. Please try again later."
             )
-        
+
+        credit_cost = _admit_editor_ai_usage(db, current_user, ai_service.writing_model)
+
         # Verify user has access to the specified papers
         for paper_id in request.paper_ids:
             # Check if paper exists and user has access
@@ -663,7 +798,9 @@ async def enhance_with_research_context(
             query_type=request.query_type,
             user_id=str(current_user.id)
         )
-        
+
+        _increment_editor_ai_usage(db, current_user.id, credit_cost)
+
         return ResearchContextResponse(
             enhanced_text=result['enhanced_text'],
             original_text=request.text,
@@ -672,6 +809,8 @@ async def enhance_with_research_context(
             processing_time=result.get('processing_time', 0.0)
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error in research context enhancement: {str(e)}")
         raise HTTPException(
@@ -839,6 +978,11 @@ async def chat_with_references(
                     detail=detail_msg,
                 )
 
+        provider_expected = not ai_service._is_greeting(query.query)
+        credit_cost = None
+        if provider_expected:
+            credit_cost = _admit_editor_ai_usage(db, current_user, ai_service.chat_model)
+
         # Perform chat with references
         logger.info(f"Calling AI service for reference chat - user {current_user.id}")
         result = ai_service.chat_with_references(
@@ -848,7 +992,8 @@ async def chat_with_references(
             query.paper_id,
             document_excerpt=query.document_excerpt
         )
-        
+        _raise_for_provider_failure(result)
+
         logger.info(f"AI service returned result: {result}")
         
         # Validate result format
@@ -875,6 +1020,9 @@ async def chat_with_references(
             project_id=query.project_id,
             paper_id=query.paper_id,
         )
+
+        if credit_cost is not None and result.get("provider_used", True):
+            _increment_editor_ai_usage(db, current_user.id, credit_cost)
 
         return ReferenceChatResponse(
             response=filtered_response,
@@ -1003,26 +1151,43 @@ async def chat_with_references_stream(
         )
         # Let downstream handle empty chunks when doc excerpt is provided
 
-        def streamer():
+        provider_expected = bool(chunks or query.document_excerpt or ai_service._is_simple_query(query.query))
+        credit_cost = None
+        if provider_expected:
+            credit_cost = _admit_editor_ai_usage(db, current_user, ai_service.chat_model)
+
+        def streamer() -> Iterator[str]:
             response_chunks: List[str] = []
-            for chunk in ai_service.stream_reference_rag_response(
-                query.query,
-                chunks,
-                document_excerpt=query.document_excerpt,
-                paper_id=query.paper_id,
-                user_id=str(current_user.id),
-                db=db,
-            ):
-                response_chunks.append(chunk)
-                yield chunk
-            filtered_text, invalid_citations = _filter_ai_response_text(
-                db,
-                "".join(response_chunks),
-                current_user,
-                project_id=query.project_id,
-                paper_id=query.paper_id,
-            )
-            yield _citation_validation_sse(invalid_citations, filtered_text=filtered_text)
+            try:
+                for chunk in ai_service.stream_reference_rag_response(
+                    query.query,
+                    chunks,
+                    document_excerpt=query.document_excerpt,
+                    paper_id=query.paper_id,
+                    user_id=str(current_user.id),
+                    db=db,
+                ):
+                    response_chunks.append(chunk)
+                    yield chunk
+                filtered_text, invalid_citations = _filter_ai_response_text(
+                    db,
+                    "".join(response_chunks),
+                    current_user,
+                    project_id=query.project_id,
+                    paper_id=query.paper_id,
+                )
+                yield _citation_validation_sse(invalid_citations, filtered_text=filtered_text)
+                if credit_cost is not None:
+                    _increment_editor_ai_usage_in_new_session(current_user.id, credit_cost)
+            except GeneratorExit:
+                raise
+            except Exception as exc:
+                logger.error("Reference chat stream failed for user %s: %s", current_user.id, exc)
+                yield "data: " + json.dumps({
+                    "type": "error",
+                    "message": "The AI provider is temporarily unavailable. Please try again.",
+                    "retryable": True,
+                }) + "\n\n"
 
         return StreamingResponse(streamer(), media_type="text/plain")
 
@@ -1107,15 +1272,27 @@ async def ingest_paper_references(
                 "skipped": len(references)
             }
 
+        provider_unit_cost = None
+        if os.getenv("OPENAI_API_KEY"):
+            total_credit_cost = _admit_editor_ai_usage(
+                db,
+                current_user,
+                "gpt-5-mini",
+                units=len(refs_to_process),
+            )
+            provider_unit_cost = total_credit_cost // len(refs_to_process)
+
         # Process references using existing system
         processed = 0
         failed = 0
+        successful_provider_calls = 0
         
         from app.api.v1.research_papers import analyze_reference_task
         
         for ref in refs_to_process:
             try:
-                analyze_reference_task(str(ref.id))
+                if analyze_reference_task(str(ref.id)):
+                    successful_provider_calls += 1
                 processed += 1
             except Exception as e:
                 logger.error(f"Failed to process reference {ref.id}: {str(e)}")
@@ -1129,6 +1306,13 @@ async def ingest_paper_references(
             "failed": failed,
             "skipped": len(references) - len(refs_to_process)
         }
+
+        if provider_unit_cost is not None and successful_provider_calls > 0:
+            _increment_editor_ai_usage(
+                db,
+                current_user.id,
+                provider_unit_cost * successful_provider_calls,
+            )
         
         return result
         
@@ -1165,10 +1349,14 @@ async def ingest_single_reference(
                 detail="Reference not found"
             )
 
+        credit_cost = None
+        if os.getenv("OPENAI_API_KEY"):
+            credit_cost = _admit_editor_ai_usage(db, current_user, "gpt-5-mini")
+
         # Use existing analyze_reference_task
         try:
             from app.api.v1.research_papers import analyze_reference_task
-            analyze_reference_task(reference_id)
+            provider_call_succeeded = analyze_reference_task(reference_id)
             
             # Refresh reference to get updated status
             db.refresh(reference)
@@ -1179,6 +1367,8 @@ async def ingest_single_reference(
                 "status": reference.status,
                 "reference_id": reference_id
             }
+            if credit_cost is not None and provider_call_succeeded:
+                _increment_editor_ai_usage(db, current_user.id, credit_cost)
         except Exception as e:
             result = {
                 "success": False,
@@ -1460,6 +1650,8 @@ async def ai_text_tools(
                 detail=f"Invalid action: {request.action}"
             )
 
+        credit_cost = _admit_editor_ai_usage(db, current_user, model)
+
         # Create OpenRouter client with timeout
         client = OpenAI(
             api_key=api_key,
@@ -1501,6 +1693,8 @@ async def ai_text_tools(
             project_id=request.project_id,
             paper_id=request.paper_id,
         )
+
+        _increment_editor_ai_usage(db, current_user.id, credit_cost)
 
         return TextToolsResponse(result=result, invalid_citations=invalid_citations)
 
