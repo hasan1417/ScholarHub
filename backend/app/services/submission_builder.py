@@ -10,8 +10,10 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.models.paper_reference import PaperReference
 from app.models.reference import Reference
-from app.services.citation_filter import generate_citation_key, reference_citation_keys
+from app.models.research_paper import ResearchPaper
+from app.services.citation_filter import generate_citation_key, scope_citation_keys
 
 logger = logging.getLogger(__name__)
 
@@ -317,16 +319,29 @@ def _to_bibtex_entry(ref: Reference, seen_keys: Set[str], cite_key: str | None =
 
 
 def _generate_bibtex(db: Session, user_id: UUID, paper_id: str) -> str:
-    refs = db.query(Reference).filter(
-        Reference.owner_id == user_id,
-        Reference.paper_id == paper_id,
-    ).all()
+    """BibTeX for everything the paper cites, keyed exactly as the editor and the filter key it.
+
+    Access to the paper is the caller's responsibility (the LaTeX routes check
+    it), so the references are not filtered by owner: a co-author's compile
+    must carry the whole bibliography.
+    """
+    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
+    if paper is None:
+        return "% No references found."
+    linked = (
+        db.query(Reference)
+        .join(PaperReference, PaperReference.reference_id == Reference.id)
+        .filter(PaperReference.paper_id == paper.id)
+        .all()
+    )
+    direct = db.query(Reference).filter(Reference.paper_id == paper.id).all()
+    refs = list({ref.id: ref for ref in [*linked, *direct]}.values())
     entries: list[str] = []
     seen_keys: Set[str] = set()
-    citation_keys = reference_citation_keys(refs)
+    citation_keys = scope_citation_keys(db, project_id=paper.project_id, paper_id=paper.id, owner_id=user_id)
     for r in refs:
         try:
-            entries.append(_to_bibtex_entry(r, seen_keys, citation_keys[r.id]))
+            entries.append(_to_bibtex_entry(r, seen_keys, citation_keys.get(r.id)))
         except Exception as e:
             logger.warning("Failed to generate BibTeX entry for reference %s: %s", r.id, e)
     return "\n\n".join(entries) if entries else "% No references found."

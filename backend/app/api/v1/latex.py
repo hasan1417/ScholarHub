@@ -32,7 +32,7 @@ from app.services.submission_builder import (
     _generate_bibtex,
     VENUE_CONFIGS,
 )
-from app.models.paper_member import PaperMember
+from app.api._paper_access import require_paper_access, require_paper_editor
 from app.api.utils.project_access import ensure_project_member, get_project_or_404
 from app.api.utils.openrouter_access import resolve_openrouter_key_for_user, resolve_openrouter_key_for_project
 from openai import AsyncOpenAI
@@ -531,6 +531,11 @@ async def _run_latexmk(
 
 @router.post("/latex/compile")
 async def compile_latex(request: CompileRequest, current_user: User = Depends(get_current_user), save_version: bool = Query(False), db: Session = Depends(get_db)):
+    if request.paper_id:
+        if save_version:
+            require_paper_editor(db, request.paper_id, current_user)
+        else:
+            require_paper_access(db, request.paper_id, current_user)
     if not request.latex_source or len(request.latex_source.strip()) < 5:
         if not request.paper_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="latex_source is empty")
@@ -718,6 +723,7 @@ async def export_docx(request: ExportDocxRequest, current_user: User = Depends(g
             uuid.UUID(request.paper_id)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid paper_id")
+        require_paper_access(db, request.paper_id, current_user)
     # Validate / fallback source
     if not request.latex_source or len(request.latex_source.strip()) < 5:
         if not request.paper_id:
@@ -818,6 +824,7 @@ async def export_source_zip(request: ExportSourceZipRequest, current_user: User 
             uuid.UUID(request.paper_id)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid paper_id")
+        require_paper_access(db, request.paper_id, current_user)
     # Validate / fallback source
     if not request.latex_source or len(request.latex_source.strip()) < 5:
         if not request.paper_id:
@@ -901,6 +908,11 @@ async def get_artifact(content_hash: str, filename: str, current_user: User = De
 
 @router.post("/latex/compile/stream")
 async def compile_latex_stream(request: CompileRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db), save_version: bool = Query(False)):
+    if request.paper_id:
+        if save_version:
+            require_paper_editor(db, request.paper_id, current_user)
+        else:
+            require_paper_access(db, request.paper_id, current_user)
     if not request.latex_source or len(request.latex_source.strip()) < 5:
         if not request.paper_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="latex_source is empty")
@@ -1665,20 +1677,7 @@ async def build_submission(
             uuid.UUID(request.paper_id)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid paper_id")
-        # Verify the user owns or has access to this paper
-        paper = db.query(ResearchPaper).filter(ResearchPaper.id == request.paper_id).first()
-        if not paper:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found")
-        is_owner = str(paper.owner_id) == str(current_user.id)
-        is_member = db.query(PaperMember).filter(
-            PaperMember.paper_id == paper.id,
-            PaperMember.user_id == current_user.id,
-        ).first() is not None
-        if not is_owner and not is_member:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You do not have access to this paper.",
-            )
+        require_paper_access(db, request.paper_id, current_user)
 
     try:
         zip_bytes = build_submission_package(
@@ -1753,6 +1752,8 @@ async def fix_latex_errors(
     """Stream AI-proposed fixes for LaTeX compilation errors."""
     # Resolve OpenRouter API key (project-level if project_id provided)
     project = None
+    if request.paper_id:
+        require_paper_access(db, request.paper_id, current_user)
     if request.project_id:
         project = get_project_or_404(db, request.project_id)
         ensure_project_member(db, project, current_user)
