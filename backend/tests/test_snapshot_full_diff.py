@@ -10,19 +10,30 @@ import pytest
 from app.models import DocumentSnapshot
 
 
+_MISSING_MODULE = object()
+
+
 def _load_snapshots_module() -> ModuleType:
     module_path = Path(__file__).resolve().parents[1] / "app" / "api" / "v1" / "snapshots.py"
     deps_module = ModuleType("app.api.deps")
     deps_module.get_db = lambda: None
     deps_module.get_current_user = lambda: None
-    sys.modules["app.api.deps"] = deps_module
+    module_name = "app.api.deps"
+    previous_module = sys.modules.get(module_name, _MISSING_MODULE)
 
-    spec = importlib.util.spec_from_file_location("snapshot_api_under_test", module_path)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    try:
+        sys.modules[module_name] = deps_module
+        spec = importlib.util.spec_from_file_location("snapshot_api_under_test", module_path)
+        assert spec is not None
+        assert spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        if previous_module is _MISSING_MODULE:
+            sys.modules.pop(module_name, None)
+        else:
+            sys.modules[module_name] = previous_module
 
 
 snapshots = _load_snapshots_module()
