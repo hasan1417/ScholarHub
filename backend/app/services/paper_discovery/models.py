@@ -22,6 +22,8 @@ class PaperSource(Enum):
     SCIENCEDIRECT = "sciencedirect"
     CORE = "core"
     EUROPE_PMC = "europe_pmc"
+    IEEE_XPLORE = "ieee_xplore"
+    SPRINGER_NATURE = "springer_nature"
 
 
 def _normalize_doi(doi: Optional[str]) -> Optional[str]:

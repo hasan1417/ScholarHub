@@ -38,6 +38,13 @@ from app.schemas.project_discussion import (
 
 router = APIRouter()
 
+# Sources searched by the discussion assistant; IEEE Xplore and Springer Nature
+# are skipped automatically when their API keys are not configured.
+DEFAULT_SEARCH_SOURCES = [
+    "arxiv", "semantic_scholar", "openalex", "crossref", "pubmed", "europe_pmc",
+    "ieee_xplore", "springer_nature",
+]
+
 logger = logging.getLogger(__name__)
 
 
@@ -365,7 +372,7 @@ async def search_references(
     from app.services.paper_discovery_service import PaperDiscoveryService
 
     # Default sources for discussion AI search (fast, reliable sources)
-    sources = request.sources or ["arxiv", "semantic_scholar", "openalex", "crossref", "pubmed", "europe_pmc"]
+    sources = request.sources or DEFAULT_SEARCH_SOURCES
     max_results = min(request.max_results, 20)  # Cap at 20 results
 
     # Create discovery service and search
@@ -452,7 +459,7 @@ async def batch_search_references(
 
     # Limit to 5 topics max per request
     queries = request.queries[:5]
-    sources = ["arxiv", "semantic_scholar", "openalex", "crossref", "pubmed", "europe_pmc"]
+    sources = DEFAULT_SEARCH_SOURCES
 
     results: List[TopicResult] = []
     total_found = 0

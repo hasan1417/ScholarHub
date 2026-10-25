@@ -26,10 +26,30 @@ from app.services.paper_discovery.interfaces import (
     SourceSearchError,
 )
 from app.services.paper_discovery.models import DiscoveredPaper, PaperSource, _normalize_title
-from app.services.paper_discovery.query import QueryIntent, extract_core_terms, understand_query
+from app.services.paper_discovery.query import QueryIntent, count_term_hits, extract_core_terms, understand_query
 
 logger = logging.getLogger(__name__)
 _logged_disabled_sources: Set[str] = set()
+# Strong references to fire-and-forget tasks so they are not garbage-collected mid-flight
+_background_tasks: Set["asyncio.Task[Any]"] = set()
+
+
+def _fill_abstracts_from_cache(papers: List[DiscoveredPaper]) -> None:
+    """Fill missing abstracts from the persistent abstract cache (database only)."""
+    from app.database import SessionLocal
+    from app.services.paper_discovery.abstract_cache import fill_from_cache
+
+    try:
+        db = SessionLocal()
+        try:
+            filled = fill_from_cache(db, papers)
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.debug("Abstract cache lookup before ranking failed: %s", exc)
+        return
+    if filled:
+        logger.info("[Search] Filled %d abstracts from cache before ranking", filled)
 
 
 # ============= Concrete Implementations =============
@@ -40,11 +60,13 @@ from app.services.paper_discovery.searchers import (
     CrossrefSearcher,
     EuropePmcSearcher,
     GoogleScholarSearcher,
+    IeeeXploreSearcher,
     OpenAlexSearcher,
     PubMedSearcher,
     RateLimitError,
     ScienceDirectSearcher,
     SemanticScholarSearcher,
+    SpringerNatureSearcher,
 )
 
 from app.services.paper_discovery.enrichers import (
@@ -103,6 +125,14 @@ def _build_default_searchers(
         searchers.append(CoreSearcher(session, config, api_key=core_api_key))
     else:
         disabled_sources.append("core")
+    if settings.IEEE_XPLORE_API_KEY:
+        searchers.append(IeeeXploreSearcher(session, config, api_key=settings.IEEE_XPLORE_API_KEY))
+    else:
+        disabled_sources.append("ieee_xplore")
+    if settings.SPRINGER_NATURE_API_KEY:
+        searchers.append(SpringerNatureSearcher(session, config, api_key=settings.SPRINGER_NATURE_API_KEY))
+    else:
+        disabled_sources.append("springer_nature")
     newly_disabled = set(disabled_sources) - _logged_disabled_sources
     if newly_disabled:
         logger.info("Optional paper sources disabled (no API key): %s", ", ".join(sorted(newly_disabled)))
@@ -159,8 +189,15 @@ class SearchOrchestrator:
         query_intent: Optional[QueryIntent] = None,
         query_intent_task: Optional[asyncio.Task[QueryIntent]] = None,
         progress_callback: Optional[Callable[..., Any]] = None,
+        profile_texts: Optional[List[str]] = None,
+        exclude_paper: Optional[Callable[[DiscoveredPaper], bool]] = None,
     ) -> DiscoveryResult:
-        """Orchestrate paper discovery and return results with per-source stats."""
+        """Orchestrate paper discovery and return results with per-source stats.
+
+        `profile_texts` describe the project the results are for (see SemanticRanker).
+        `exclude_paper` drops papers the caller already has before ranking, so the
+        result slots go to new papers.
+        """
         search_start_time = time.time()
         logger.info(f"[Search] START query='{query}' | max_results={max_results} | sources={sources} | fast_mode={fast_mode} | core_terms={core_terms or 'none'}")
 
@@ -198,6 +235,8 @@ class SearchOrchestrator:
                 'sciencedirect': 6,
                 'core': 7,
                 'europe_pmc': 8,
+                'ieee_xplore': 9,
+                'springer_nature': 10,
             }
             active_searchers = sorted(
                 active_searchers,
@@ -287,9 +326,11 @@ class SearchOrchestrator:
                 except Exception as exc:
                     logger.debug("Query understanding failed: %s", exc)
             else:
-                query_intent_task.cancel()
-                await asyncio.gather(query_intent_task, return_exceptions=True)
-                logger.info("[QueryIntent] Skipped because it missed the 2s discovery deadline")
+                # Let it finish in the background: understand_query caches its
+                # result, so the next search for this query can use it.
+                _background_tasks.add(query_intent_task)
+                query_intent_task.add_done_callback(_background_tasks.discard)
+                logger.info("[QueryIntent] Missed the 2s discovery deadline; finishing in background")
 
         # Collect raw results first; deduplicate at the end as a single pass so
         # cross-source duplicates (arXiv preprint + published record) collapse
@@ -394,6 +435,12 @@ class SearchOrchestrator:
                 raw_count, len(all_papers), collapsed,
             )
 
+        if exclude_paper is not None:
+            before = len(all_papers)
+            all_papers = [p for p in all_papers if not exclude_paper(p)]
+            if len(all_papers) < before:
+                logger.info("[Search] Excluded %d papers the caller already has", before - len(all_papers))
+
         # Phase 2: Deterministic hard filters (provider-agnostic safety net).
         # This prevents recency/OA leaks when any upstream source ignores filters.
         filtered_papers, removed_by_year, removed_by_oa = self._apply_hard_filters(
@@ -411,12 +458,16 @@ class SearchOrchestrator:
                 len(all_papers),
             )
 
-        # Phase 3: Rank and cap before per-paper enrichment. Crossref and
+        # Phase 3: Rank, then cap before per-paper enrichment. Crossref and
         # Unpaywall expose per-DOI endpoints, so bounding this list is what keeps
         # their request count proportional to the requested result count rather
         # than the entire source fan-out.
         await _notify({"type": "phase", "phase": "ranking", "message": "AI-ranking papers by relevance..."})
-        # (pass core_terms for boost + semantic context from query understanding)
+        # Several sources return no abstract (ScienceDirect never, Google Scholar a
+        # snippet, Crossref often none). Scoring on the title alone would push those
+        # papers under the relevance floor, so fill what the cache already knows first.
+        _fill_abstracts_from_cache(filtered_papers)
+
         # Use interpreted_query as the ranking query when available — it disambiguates
         # vague queries (e.g. "Arabic check processing" → "Arabic bank cheque recognition")
         ranking_query = query
@@ -424,53 +475,61 @@ class SearchOrchestrator:
             "target_text": target_text,
             "target_keywords": target_keywords,
             "core_terms": core_terms or set(),
+            "profile_texts": profile_texts,
         }
         if query_intent and query_intent.interpreted_query and query_intent.interpreted_query != query:
             ranking_query = query_intent.interpreted_query
             rank_kwargs["semantic_context"] = query_intent.interpreted_query
-        ranked_papers = await self.ranker.rank(
-            filtered_papers,
-            ranking_query,
-            **rank_kwargs,
-        )
+        ranked_papers = await self.ranker.rank(filtered_papers, ranking_query, **rank_kwargs)
 
-        # Phase 3.1: Concept overlap gate — penalize papers matching too few query concepts
+        # Phase 3.1: Fetch missing abstracts for a shortlist and re-score it, so
+        # the floor below judges those papers on their abstract, not just a title.
+        shortlist = ranked_papers[:max(max_results * 2, max_results + 10)]
+        cache_enrichers = [e for e in self.enrichers if isinstance(e, CacheAbstractEnricher)]
+        missing_before = sum(1 for p in shortlist if not p.abstract)
+        if cache_enrichers and missing_before:
+            await _notify({"type": "phase", "phase": "enriching", "message": "Fetching missing abstracts..."})
+            for enricher in cache_enrichers:
+                await enricher.enrich(shortlist)
+            if sum(1 for p in shortlist if not p.abstract) < missing_before:
+                shortlist = await self.ranker.rank(shortlist, ranking_query, **rank_kwargs)
+        ranked_papers = shortlist
+
+        # Phase 3.2: Concept overlap gate — penalize papers matching too few query concepts
         if core_terms and len(core_terms) >= 3:
             for paper in ranked_papers:
                 text = f"{paper.title} {paper.abstract or ''}".lower()
-                hits = sum(1 for t in core_terms if t in text)
-                ratio = hits / len(core_terms)
+                ratio = count_term_hits(core_terms, text) / len(core_terms)
                 if ratio < 0.3:
                     paper.relevance_score *= max(0.1, ratio)
             ranked_papers.sort(key=lambda p: p.relevance_score, reverse=True)
 
-        # Phase 3.2: Relevance floor — remove papers scored below threshold
+        # Phase 3.3: Relevance floor — remove papers scored below threshold
         MIN_RELEVANCE = 0.25
-        pre_floor_count = len(ranked_papers)
-        ranked_papers = [p for p in ranked_papers if p.relevance_score >= MIN_RELEVANCE]
-        if len(ranked_papers) < pre_floor_count:
+        candidates = ranked_papers
+        ranked_papers = [p for p in candidates if p.relevance_score >= MIN_RELEVANCE]
+        if len(ranked_papers) < len(candidates):
             logger.info(
                 "[Search] Relevance floor removed %d/%d papers below %.2f",
-                pre_floor_count - len(ranked_papers), pre_floor_count, MIN_RELEVANCE,
+                len(candidates) - len(ranked_papers), len(candidates), MIN_RELEVANCE,
             )
         # Restore five results only when at least five candidates were ranked.
-        if len(ranked_papers) < 5 and pre_floor_count >= 5:
-            ranked_papers = sorted(
-                filtered_papers,
-                key=lambda p: p.relevance_score,
-                reverse=True,
-            )[:5]
+        if len(ranked_papers) < 5 and len(candidates) >= 5:
+            ranked_papers = candidates[:5]
 
         # Phase 3.5: Source-diversity reranking
         # Prevent any single source from dominating the final results
         ranked_papers = self._apply_source_diversity(ranked_papers, max_results)[:max_results]
 
         # Phase 4: Enrichment — split by dependency and operate only on the
-        # final selected papers.
+        # final selected papers. The cache enricher already ran on the shortlist.
         await _notify({"type": "phase", "phase": "enriching", "message": "Enriching paper metadata..."})
         abstract_fallback_types = (CacheAbstractEnricher, LandingAbstractEnricher, PdfAbstractEnricher)
         primary_enrichers = [e for e in self.enrichers if not isinstance(e, abstract_fallback_types)]
-        fallback_enrichers = [e for e in self.enrichers if isinstance(e, abstract_fallback_types)]
+        fallback_enrichers = [
+            e for e in self.enrichers
+            if isinstance(e, (LandingAbstractEnricher, PdfAbstractEnricher))
+        ]
         if primary_enrichers:
             await asyncio.gather(
                 *[e.enrich(ranked_papers) for e in primary_enrichers],
@@ -604,8 +663,9 @@ class SearchOrchestrator:
     ) -> List[DiscoveredPaper]:
         """Prevent any single source from dominating the top results.
 
-        Caps each source at 40% of max_results. Papers bumped out are appended
-        at the end so total count is preserved.
+        Caps each source at 40% of max_results. A paper bumped out by the cap
+        still goes ahead of any paper scoring under 80% of its score, so the cap
+        trades near-ties for variety but never buries a much better match.
         """
         if len(papers) <= 1:
             return papers
@@ -623,8 +683,11 @@ class SearchOrchestrator:
             else:
                 deferred.append(paper)
 
-        # Fill remaining slots with deferred papers
-        return result + deferred
+        for paper in deferred:
+            cutoff = 0.8 * paper.relevance_score
+            pos = next((k for k, p in enumerate(result) if p.relevance_score < cutoff), len(result))
+            result.insert(pos, paper)
+        return result
 
 
 # ============= Main Service Factory =============
@@ -840,6 +903,8 @@ class PaperDiscoveryService:
         year_to: Optional[int] = None,
         open_access_only: bool = False,
         progress_callback: Optional[Callable[..., Any]] = None,
+        profile_texts: Optional[List[str]] = None,
+        exclude_paper: Optional[Callable[[DiscoveredPaper], bool]] = None,
     ) -> DiscoveryResult:
         """Run the complete discovery pipeline within the configured deadline."""
         try:
@@ -856,6 +921,8 @@ class PaperDiscoveryService:
                     year_to=year_to,
                     open_access_only=open_access_only,
                     progress_callback=progress_callback,
+                    profile_texts=profile_texts,
+                    exclude_paper=exclude_paper,
                 ),
                 timeout=self.config.total_timeout,
             )
@@ -880,6 +947,8 @@ class PaperDiscoveryService:
         year_to: Optional[int] = None,
         open_access_only: bool = False,
         progress_callback: Optional[Callable[..., Any]] = None,
+        profile_texts: Optional[List[str]] = None,
+        exclude_paper: Optional[Callable[[DiscoveredPaper], bool]] = None,
     ) -> DiscoveryResult:
         """Main discovery method with clean orchestration"""
 
@@ -926,6 +995,8 @@ class PaperDiscoveryService:
                 open_access_only=open_access_only,
                 query_intent_task=intent_task,
                 progress_callback=progress_callback,
+                profile_texts=profile_texts,
+                exclude_paper=exclude_paper,
             )
             papers = result.papers
             if fast_mode:
@@ -934,11 +1005,10 @@ class PaperDiscoveryService:
                 pdf_start = time.time()
                 await self._augment_pdf_links(papers, fast_mode=fast_mode)
                 logger.info("[PDF] Augmentation took %.1fs for %d papers", time.time() - pdf_start, len(papers))
-            for paper in papers:
-                if getattr(paper, 'pdf_url', None):
-                    paper.is_open_access = True
-                else:
-                    paper.is_open_access = False
+                # PDF links were verified above, so open access now means "has a usable PDF".
+                # Fast mode skips verification and keeps the sources' own open-access flags.
+                for paper in papers:
+                    paper.is_open_access = bool(getattr(paper, 'pdf_url', None))
             timings['discovery'] = time.time() - phase_start
 
             timings['total'] = time.time() - start_time
@@ -962,7 +1032,7 @@ class PaperDiscoveryService:
                 for p in papers:
                     title_lower = (p.title or '').lower()
                     abstract_lower = (p.abstract or '').lower()
-                    if any(term in title_lower or term in abstract_lower for term in core_terms):
+                    if count_term_hits(core_terms, f"{title_lower} {abstract_lower}"):
                         core_term_hits += 1
                 core_term_pct = (core_term_hits / len(papers)) * 100
             else:

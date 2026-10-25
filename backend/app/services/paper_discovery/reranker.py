@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import os
 from dataclasses import dataclass
 from typing import List, Dict, Any, TYPE_CHECKING
 
@@ -62,7 +63,9 @@ class CrossEncoderReranker:
     # - "cross-encoder/ms-marco-MiniLM-L-6-v2" (fast, good quality)
     # - "BAAI/bge-reranker-base" (better quality, slower)
     # - "BAAI/bge-reranker-large" (best quality, slowest)
-    CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    # ms-marco is trained on web search questions; BAAI/bge-reranker-base judges
+    # scientific relevance better but is ~3x larger, so it is opt-in.
+    CROSS_ENCODER_MODEL = os.getenv("CROSS_ENCODER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
 
     def __init__(self, embedding_service: "EmbeddingService"):
         """

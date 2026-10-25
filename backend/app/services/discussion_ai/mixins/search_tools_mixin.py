@@ -552,7 +552,10 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                     library_titles.add(title.lower().strip())
 
         try:
-            sources = ["arxiv", "semantic_scholar", "openalex", "crossref", "pubmed", "europe_pmc"]
+            sources = [
+                "arxiv", "semantic_scholar", "openalex", "crossref", "pubmed", "europe_pmc",
+                "ieee_xplore", "springer_nature",
+            ]
             max_results = effective_limit
 
             # Request more to account for filtering (open access + library duplicates)
@@ -570,6 +573,8 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                 "europe_pmc": "Europe PMC",
                 "sciencedirect": "ScienceDirect",
                 "core": "CORE",
+                "ieee_xplore": "IEEE Xplore",
+                "springer_nature": "Springer Nature",
             }
 
             def _source_progress(event):

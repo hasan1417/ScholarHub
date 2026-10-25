@@ -98,17 +98,19 @@ _AUTO_QUERY_SYSTEM = (
 )
 
 
-def _build_auto_query_context(project: Project, db: Session) -> str:
-    """Gather project context for auto-query generation. Returns a text block."""
-    parts: List[str] = []
-    parts.append(f"Project title: {project.title}")
+def _project_description(project: Project) -> List[str]:
+    parts: List[str] = [f"Project title: {project.title}"]
     if project.idea:
         parts.append(f"Research idea: {project.idea}")
     if project.scope:
         parts.append(f"Scope: {project.scope}")
     if project.keywords:
         parts.append(f"Keywords: {', '.join(project.keywords[:10])}")
+    return parts
 
+
+def _project_title_lists(project: Project, db: Session) -> Dict[str, List[str]]:
+    """Titles of the project's library references, papers being written, and promoted discoveries."""
     ref_titles = (
         db.query(Reference.title)
         .join(ProjectReference, ProjectReference.reference_id == Reference.id)
@@ -116,21 +118,7 @@ def _build_auto_query_context(project: Project, db: Session) -> str:
         .order_by(ProjectReference.created_at.desc())
         .all()
     )
-    if ref_titles:
-        titles = [r[0] for r in ref_titles if r[0]]
-        if titles:
-            parts.append(f"Library references ({len(titles)}): {'; '.join(titles)}")
-
-    paper_titles = (
-        db.query(ResearchPaper.title)
-        .filter(ResearchPaper.project_id == project.id)
-        .all()
-    )
-    if paper_titles:
-        titles = [r[0] for r in paper_titles if r[0]]
-        if titles:
-            parts.append(f"Papers being written: {'; '.join(titles)}")
-
+    paper_titles = db.query(ResearchPaper.title).filter(ResearchPaper.project_id == project.id).all()
     # Recently promoted discovery results signal what the user found valuable
     promoted_titles = (
         db.query(ProjectDiscoveryResultModel.title)
@@ -141,12 +129,39 @@ def _build_auto_query_context(project: Project, db: Session) -> str:
         .order_by(ProjectDiscoveryResultModel.created_at.desc())
         .all()
     )
-    if promoted_titles:
-        titles = [r[0] for r in promoted_titles if r[0]]
-        if titles:
-            parts.append(f"Previously promoted discoveries: {'; '.join(titles)}")
+    return {
+        "references": [r[0] for r in ref_titles if r[0]],
+        "papers": [r[0] for r in paper_titles if r[0]],
+        "promoted": [r[0] for r in promoted_titles if r[0]],
+    }
 
+
+def _build_auto_query_context(project: Project, db: Session) -> str:
+    """Gather project context for auto-query generation. Returns a text block."""
+    parts = _project_description(project)
+    titles = _project_title_lists(project, db)
+    if titles["references"]:
+        parts.append(f"Library references ({len(titles['references'])}): {'; '.join(titles['references'])}")
+    if titles["papers"]:
+        parts.append(f"Papers being written: {'; '.join(titles['papers'])}")
+    if titles["promoted"]:
+        parts.append(f"Previously promoted discoveries: {'; '.join(titles['promoted'])}")
     return "\n".join(parts)
+
+
+_MAX_PROFILE_TITLES = 40
+
+
+def build_project_profile(project: Project, db: Session) -> List[str]:
+    """Texts describing the project, used to score how similar a paper is to it.
+
+    The description comes first; each library, draft and promoted title is its
+    own entry, so the ranker can average them instead of truncating one long text.
+    """
+    titles = _project_title_lists(project, db)
+    entries = ["\n".join(_project_description(project))]
+    entries.extend((titles["references"] + titles["papers"] + titles["promoted"])[:_MAX_PROFILE_TITLES])
+    return entries
 
 
 _MAX_RECENT_QUERIES = 12
@@ -279,7 +294,10 @@ async def generate_auto_query(project: Project, db: Session) -> str:
 class ProjectDiscoveryManager:
     """Discover related papers for a project and enqueue them as suggestions."""
 
-    DEFAULT_SOURCES = ['semantic_scholar', 'google_scholar', 'arxiv', 'crossref', 'openalex', 'pubmed', 'sciencedirect', 'core', 'europe_pmc']
+    DEFAULT_SOURCES = [
+        'semantic_scholar', 'google_scholar', 'arxiv', 'crossref', 'openalex', 'pubmed',
+        'sciencedirect', 'core', 'europe_pmc', 'ieee_xplore', 'springer_nature',
+    ]
 
     def __init__(self, db: Session):
         self.db = db
@@ -295,6 +313,8 @@ class ProjectDiscoveryManager:
         fast_mode: bool = False,
         progress_callback: Optional[Callable[..., Any]] = None,
         is_manual: bool = False,
+        profile_texts: Optional[List[str]] = None,
+        exclude_paper: Optional[Callable[[DiscoveredPaper], bool]] = None,
     ) -> DiscoveryResult:
         """Execute the async discovery search across upstream providers."""
         async with PaperDiscoveryService(is_manual=is_manual) as service:
@@ -305,6 +325,8 @@ class ProjectDiscoveryManager:
                 target_keywords=target_keywords,
                 fast_mode=fast_mode,
                 progress_callback=progress_callback,
+                profile_texts=profile_texts,
+                exclude_paper=exclude_paper,
             )
 
     def _run_async(self, coro):
@@ -564,92 +586,32 @@ class ProjectDiscoveryManager:
         )
 
         try:
-            fast_mode = False  # Always augment PDFs so RAG chat has content
-            max_fetch_cap = max(5, min(100, max_results * 4))
-            aggregated_results: List[DiscoveredPaper] = []
-            service_fingerprints: Set[str] = set()
-            last_source_stats: Optional[List[SourceStats]] = None
-
-            fetch_cap = max_results
-            max_attempts = 2 if fast_mode else 3
-            novel_estimate = 0
-            attempts = 0
-
             if not sources:
                 logger.info(
                     "No eligible discovery sources for project %s after source filtering",
                     project.id,
                 )
-
-            while attempts < max_attempts and novel_estimate < max_results:
-                if not sources:
-                    break
+                discovered: List[DiscoveredPaper] = []
+            else:
+                # Papers the project already has are dropped before ranking, so a
+                # single run fills max_results with new papers.
                 discovery_result: DiscoveryResult = await self._discover_async(
                     query=query,
                     sources=sources,
                     target_keywords=keywords,
-                    max_results=fetch_cap,
-                    fast_mode=fast_mode,
+                    max_results=max_results,
+                    fast_mode=False,  # Always augment PDFs so RAG chat has content
                     progress_callback=progress_callback,
                     is_manual=run_type == ProjectDiscoveryRunType.MANUAL,
+                    profile_texts=build_project_profile(project, self.db),
+                    exclude_paper=lambda p: self._fingerprint_for_paper(p) in existing_fingerprints,
                 )
-
-                discovered_batch = discovery_result.papers
-                last_source_stats = discovery_result.source_stats
-
                 if discovery_result.status == "error":
-                    if aggregated_results:
-                        logger.warning(
-                            "Discovery retry failed after earlier sources returned results: %s",
-                            discovery_result.error,
-                        )
-                        break
-                    raise RuntimeError(
-                        discovery_result.error or "All paper discovery sources failed"
-                    )
+                    raise RuntimeError(discovery_result.error or "All paper discovery sources failed")
+                outcome.source_stats = discovery_result.source_stats
+                discovered = discovery_result.papers
 
-                if not discovered_batch:
-                    break
-
-                batch_added = 0
-                for paper in discovered_batch:
-                    fingerprint = self._fingerprint_for_paper(paper)
-                    if fingerprint in service_fingerprints:
-                        continue
-                    service_fingerprints.add(fingerprint)
-                    aggregated_results.append(paper)
-                    batch_added += 1
-                    if fingerprint not in existing_fingerprints:
-                        novel_estimate += 1
-
-                if novel_estimate >= max_results or batch_added == 0 or len(discovered_batch) < fetch_cap:
-                    break
-
-                attempts += 1
-                if fetch_cap >= max_fetch_cap:
-                    break
-                fetch_cap = min(fetch_cap + max(max_results, 5), max_fetch_cap)
-
-            logger.info(
-                "Discovery query complete: query='%s', novel=%d",
-                query, novel_estimate,
-            )
-
-            # Store source stats in outcome
-            outcome.source_stats = last_source_stats
-
-            # Respect max_results for newly suggested papers while retaining existing matches for status updates
-            filtered_results: List[DiscoveredPaper] = []
-            novel_kept = 0
-            for paper in aggregated_results:
-                fingerprint = self._fingerprint_for_paper(paper)
-                if fingerprint not in existing_fingerprints:
-                    if novel_kept >= max_results:
-                        continue
-                    novel_kept += 1
-                filtered_results.append(paper)
-
-            discovered = filtered_results
+            logger.info("Discovery query complete: query='%s', novel=%d", query, len(discovered))
             # Apply relevance threshold filter (default 0.1 to remove confirmed-irrelevant noise)
             effective_threshold = relevance_threshold if relevance_threshold is not None else 0.1
             if effective_threshold > 0:

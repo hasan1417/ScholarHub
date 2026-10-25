@@ -63,6 +63,8 @@ export function DiscoveredPaperCard({
       pubmed: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
       core: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
       europe_pmc: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300',
+      ieee_xplore: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300',
+      springer_nature: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
     }
     return colors[source.toLowerCase()] || 'bg-gray-100 text-gray-700 dark:bg-slate-800 dark:text-slate-300'
   }

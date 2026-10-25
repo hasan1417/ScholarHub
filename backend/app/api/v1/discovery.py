@@ -20,6 +20,7 @@ from app.api.deps import get_current_user
 from app.models.user import User
 from app.models.research_paper import ResearchPaper
 from app.services.paper_discovery_service import PaperDiscoveryService, DiscoveredPaper
+from app.services.paper_discovery.models import PaperSource
 from app.services.literature_review_service import LiteratureReviewService, LiteratureReview
 from app.services.subscription_service import SubscriptionService
 
@@ -296,7 +297,7 @@ async def discover_papers(
         logger.info(f"Paper discovery request from user {current_user.id}: '{request.query}'")
         
         # Validate sources
-        valid_sources = ['arxiv', 'semantic_scholar', 'google_scholar', 'crossref', 'pubmed', 'openalex', 'sciencedirect']
+        valid_sources = [source.value for source in PaperSource]
         if request.sources:
             invalid_sources = set(request.sources) - set(valid_sources)
             if invalid_sources:

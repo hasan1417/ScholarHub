@@ -415,6 +415,24 @@ def _should_retry(entry: CachedAbstract, now: Optional[datetime] = None) -> bool
     return current_time >= fetched_at + retry_delay
 
 
+def fill_from_cache(db: Session, papers: List[DiscoveredPaper]) -> int:
+    """Fill missing abstracts from the cache table only (no network); return how many were filled."""
+    by_doi: Dict[str, List[DiscoveredPaper]] = {}
+    for p in papers:
+        nd = _normalize_doi(p.doi)
+        if nd and (not p.abstract or len(p.abstract) < MIN_ABSTRACT_LEN):
+            by_doi.setdefault(nd, []).append(p)
+    if not by_doi:
+        return 0
+    filled = 0
+    for nd, entry in bulk_lookup(db, list(by_doi.keys())).items():
+        if entry.abstract and len(entry.abstract) >= MIN_ABSTRACT_LEN:
+            for paper in by_doi[nd]:
+                paper.abstract = entry.abstract
+                filled += 1
+    return filled
+
+
 async def fetch_missing(
     session: aiohttp.ClientSession,
     db: Session,

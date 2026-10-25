@@ -464,8 +464,10 @@ async def test_optional_sources_are_registered_only_when_configured(
     monkeypatch.setattr(discovery_module, "_logged_disabled_sources", set())
     if configured:
         monkeypatch.setenv("CORE_API_KEY", "test-key")
-    caplog.set_level("INFO", logger=discovery_module.__name__)
     key = "test-key" if configured else None
+    monkeypatch.setattr(discovery_module.settings, "IEEE_XPLORE_API_KEY", key)
+    monkeypatch.setattr(discovery_module.settings, "SPRINGER_NATURE_API_KEY", key)
+    caplog.set_level("INFO", logger=discovery_module.__name__)
     for _ in range(2):
         searchers = discovery_module._build_default_searchers(
             MagicMock(), DiscoveryConfig(), sciencedirect_api_key=key,
@@ -474,6 +476,8 @@ async def test_optional_sources_are_registered_only_when_configured(
     names = {searcher.get_source_name() for searcher in searchers}
     assert ("sciencedirect" in names) is configured
     assert ("core" in names) is configured
+    assert ("ieee_xplore" in names) is configured
+    assert ("springer_nature" in names) is configured
     assert ("google_scholar" in names) is (configured and is_manual)
     assert {"arxiv", "semantic_scholar", "crossref", "pubmed", "openalex", "europe_pmc"} <= names
     disabled_logs = [record for record in caplog.records if "Optional paper sources disabled" in record.message]

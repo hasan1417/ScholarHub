@@ -79,6 +79,10 @@ class Settings(BaseSettings):
     # ScienceDirect / Elsevier API (optional)
     SCIENCEDIRECT_API_KEY: Optional[str] = None
 
+    # Publisher search APIs for databases KFUPM subscribes to (optional, free keys)
+    IEEE_XPLORE_API_KEY: Optional[str] = None  # developer.ieee.org
+    SPRINGER_NATURE_API_KEY: Optional[str] = None  # dev.springernature.com
+
     # Mistral OCR (optional, fallback for low-quality PDF extractions)
     MISTRAL_API_KEY: Optional[str] = None
 

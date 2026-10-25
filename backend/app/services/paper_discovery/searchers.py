@@ -1293,8 +1293,10 @@ class OpenAlexSearcher(SearcherBase):
                 'search': query.strip()[:400],  # Search parameter works for OpenAlex
                 'per-page': min(int(max_results or 20), 25),  # Limit results
                 'select': 'id,display_name,authorships,publication_year,abstract_inverted_index,doi,primary_location,open_access,best_oa_location,cited_by_count',
-                'mailto': 'g202403940@kfupm.edu.sa',  # Polite pool: 10x higher rate limits
             }
+            mailto = os.getenv('OPENALEX_MAILTO') or os.getenv('UNPAYWALL_EMAIL') or os.getenv('NCBI_EMAIL')
+            if mailto:
+                params['mailto'] = mailto  # Polite pool: 10x higher rate limits
             filters = []
             if year_from is not None:
                 filters.append(f"from_publication_date:{year_from}-01-01")
@@ -1677,3 +1679,213 @@ class EuropePmcSearcher(SearcherBase):
                 continue
 
         return papers
+
+
+def _year_in_range(year: Optional[int]) -> Optional[int]:
+    if year and 1600 <= year <= datetime.utcnow().year + 1:
+        return year
+    return None
+
+
+class IeeeXploreSearcher(SearcherBase):
+    """IEEE Xplore Metadata Search API (free key from developer.ieee.org).
+
+    IEEE is among the databases KFUPM subscribes to; results carry DOIs, so the
+    user's library link opens the full text through their institution.
+    """
+
+    BASE_URL = "https://ieeexploreapi.ieee.org/api/v1/search/articles"
+
+    def __init__(self, session: aiohttp.ClientSession, config: DiscoveryConfig, api_key: str):
+        super().__init__(session, config)
+        self.api_key = api_key
+
+    def get_source_name(self) -> str:
+        return PaperSource.IEEE_XPLORE.value
+
+    async def search(
+        self,
+        query: str,
+        max_results: int,
+        *,
+        year_from: int | None = None,
+        year_to: int | None = None,
+        open_access_only: bool = False,
+    ) -> List[DiscoveredPaper]:
+        if not query or not query.strip():
+            return []
+        params: Dict[str, Any] = {
+            "apikey": self.api_key,
+            "querytext": query.strip()[:400],
+            "max_records": max(1, min(int(max_results or 20), 25)),
+            "format": "json",
+            "sort_field": "relevance",
+        }
+        if year_from is not None:
+            params["start_year"] = year_from
+        if year_to is not None:
+            params["end_year"] = year_to
+        if open_access_only:
+            params["open_access"] = "True"
+
+        try:
+            async with self.session.get(self.BASE_URL, params=params, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+                if resp.status == 429:
+                    raise RateLimitError("IEEE Xplore API rate limited")
+                if resp.status in (401, 403):
+                    # Daily quota exhausted or key not yet active
+                    raise RateLimitError(f"IEEE Xplore API rejected the key (HTTP {resp.status})")
+                if resp.status != 200:
+                    raise SourceSearchError(f"IEEE Xplore returned HTTP {resp.status}")
+                data = await resp.json(content_type=None)
+        except asyncio.TimeoutError:
+            raise SourceSearchError("IEEE Xplore request timed out")
+        except SourceSearchError:
+            raise
+        except Exception as exc:
+            raise SourceSearchError(f"IEEE Xplore request failed: {exc}") from exc
+
+        papers: List[DiscoveredPaper] = []
+        for item in (data or {}).get("articles") or []:
+            if not isinstance(item, dict):
+                continue
+            title = (item.get("title") or "").strip()
+            if not title:
+                continue
+            authors_block = item.get("authors") or {}
+            authors = [
+                a["full_name"].strip()
+                for a in (authors_block.get("authors") or [] if isinstance(authors_block, dict) else [])
+                if isinstance(a, dict) and a.get("full_name")
+            ]
+            try:
+                year = _year_in_range(int(item.get("publication_year")))
+            except (TypeError, ValueError):
+                year = None
+            is_oa = str(item.get("access_type") or "").upper() == "OPEN_ACCESS"
+            url = item.get("html_url") or item.get("abstract_url")
+            papers.append(
+                DiscoveredPaper(
+                    title=title,
+                    authors=authors,
+                    abstract=(item.get("abstract") or "").strip(),
+                    year=year,
+                    doi=(item.get("doi") or "").strip() or None,
+                    url=url,
+                    source=self.get_source_name(),
+                    citations_count=item.get("citing_paper_count"),
+                    journal=(item.get("publication_title") or "").strip() or None,
+                    is_open_access=is_oa,
+                    pdf_url=item.get("pdf_url") if is_oa else None,
+                )
+            )
+        return papers
+
+
+class SpringerNatureSearcher(SearcherBase):
+    """Springer Nature Meta API (free key from dev.springernature.com).
+
+    Covers SpringerLink and Nature journals, both available through KFUPM.
+    """
+
+    BASE_URL = "https://api.springernature.com/meta/v2/json"
+
+    def __init__(self, session: aiohttp.ClientSession, config: DiscoveryConfig, api_key: str):
+        super().__init__(session, config)
+        self.api_key = api_key
+
+    def get_source_name(self) -> str:
+        return PaperSource.SPRINGER_NATURE.value
+
+    async def search(
+        self,
+        query: str,
+        max_results: int,
+        *,
+        year_from: int | None = None,
+        year_to: int | None = None,
+        open_access_only: bool = False,
+    ) -> List[DiscoveredPaper]:
+        if not query or not query.strip():
+            return []
+        q = query.strip()[:400]
+        if year_from is not None:
+            q += f" onlinedatefrom:{year_from}-01-01"
+        if year_to is not None:
+            q += f" onlinedateto:{year_to}-12-31"
+        if open_access_only:
+            q += " openaccess:true"
+        params = {"q": q, "p": max(1, min(int(max_results or 20), 25)), "api_key": self.api_key}
+
+        try:
+            async with self.session.get(self.BASE_URL, params=params, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+                if resp.status == 429:
+                    raise RateLimitError("Springer Nature API rate limited")
+                if resp.status in (401, 403):
+                    raise RateLimitError(f"Springer Nature API rejected the key (HTTP {resp.status})")
+                if resp.status != 200:
+                    raise SourceSearchError(f"Springer Nature returned HTTP {resp.status}")
+                data = await resp.json(content_type=None)
+        except asyncio.TimeoutError:
+            raise SourceSearchError("Springer Nature request timed out")
+        except SourceSearchError:
+            raise
+        except Exception as exc:
+            raise SourceSearchError(f"Springer Nature request failed: {exc}") from exc
+
+        papers: List[DiscoveredPaper] = []
+        for item in (data or {}).get("records") or []:
+            if not isinstance(item, dict):
+                continue
+            title = (item.get("title") or "").strip()
+            if not title:
+                continue
+            authors = []
+            for creator in item.get("creators") or []:
+                name = creator.get("creator") if isinstance(creator, dict) else None
+                if name:
+                    # "Last, First" -> "First Last"
+                    last, _, first = name.partition(",")
+                    authors.append(f"{first.strip()} {last.strip()}".strip())
+            year = None
+            date = str(item.get("publicationDate") or item.get("onlineDate") or "")
+            if date[:4].isdigit():
+                year = _year_in_range(int(date[:4]))
+            doi = (item.get("doi") or "").strip() or None
+            url = next(
+                (u.get("value") for u in item.get("url") or [] if isinstance(u, dict) and u.get("format") in ("html", "")),
+                None,
+            ) or (f"https://doi.org/{doi}" if doi else None)
+            is_oa = str(item.get("openaccess") or "").lower() == "true"
+            pdf_url = next(
+                (u.get("value") for u in item.get("url") or [] if isinstance(u, dict) and u.get("format") == "pdf"),
+                None,
+            )
+            papers.append(
+                DiscoveredPaper(
+                    title=title,
+                    authors=authors,
+                    abstract=self._abstract_text(item.get("abstract")),
+                    year=year,
+                    doi=doi,
+                    url=url,
+                    source=self.get_source_name(),
+                    journal=(item.get("publicationName") or "").strip() or None,
+                    is_open_access=is_oa,
+                    pdf_url=pdf_url if is_oa else None,
+                )
+            )
+        return papers
+
+    @staticmethod
+    def _abstract_text(raw: Any) -> str:
+        """The API returns the abstract as a string or as {"h1": ..., "p": [...]}."""
+        if isinstance(raw, str):
+            return raw.strip()
+        if isinstance(raw, dict):
+            paragraphs = raw.get("p")
+            if isinstance(paragraphs, list):
+                return " ".join(str(x).strip() for x in paragraphs if x).strip()
+            if isinstance(paragraphs, str):
+                return paragraphs.strip()
+        return ""

@@ -41,6 +41,8 @@ const AVAILABLE_SOURCES: Array<{ label: string; value: string; metered?: boolean
   { label: 'ScienceDirect', value: 'sciencedirect' },
   { label: 'CORE', value: 'core' },
   { label: 'Europe PMC', value: 'europe_pmc' },
+  { label: 'IEEE Xplore', value: 'ieee_xplore' },
+  { label: 'Springer Nature', value: 'springer_nature' },
   { label: 'Google Scholar', value: 'google_scholar', metered: true, manualOnly: true },
 ]
 

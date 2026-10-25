@@ -4,7 +4,7 @@ Without this, the FIRST user-triggered paper search in a process pays the
 full cold-start cost:
 
     - all-MiniLM-L6-v2 bi-encoder ~1-2s
-    - ms-marco-MiniLM-L-6-v2 cross-encoder ~10-15s
+    - cross-encoder (CROSS_ENCODER_MODEL, default ms-marco-MiniLM-L-6-v2) ~10-15s
 
 Both models are already module-level cached after first load, so we just
 need to trigger that first load ourselves, off the request path.
