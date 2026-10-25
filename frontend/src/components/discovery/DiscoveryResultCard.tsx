@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Check, ChevronDown, ChevronUp, ExternalLink, FileText, Loader2, Lock, Unlock, X } from 'lucide-react'
 import { ProjectDiscoveryResultItem } from '../../types'
+import { LibraryAccessLink } from '../common/LibraryAccessLink'
 
 interface DiscoveryResultCardProps {
   item: ProjectDiscoveryResultItem
@@ -172,6 +173,8 @@ export const DiscoveryResultCard = ({
                 DOI
               </a>
             )}
+
+            {!item.is_open_access && <LibraryAccessLink doi={item.doi} url={item.source_url} />}
 
             {item.published_year && (
               <span>{item.published_year}</span>

@@ -40,6 +40,9 @@ class User(Base):
     zotero_api_key = Column(String(255), nullable=True)  # encrypted
     zotero_user_id = Column(String(50), nullable=True)
 
+    # Institutional library proxy prefix, e.g. https://login.<uni>.idm.oclc.org/login?url=
+    library_proxy_prefix = Column(String(500), nullable=True)
+
     # Relationships
     owned_projects = relationship("Project", back_populates="owner", cascade="all, delete-orphan")
     owned_papers = relationship("ResearchPaper", back_populates="owner", cascade="all, delete-orphan")

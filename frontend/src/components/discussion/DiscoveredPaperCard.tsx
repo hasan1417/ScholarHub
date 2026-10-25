@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { Check, Loader2, Plus, ExternalLink, Unlock, AlertTriangle, Upload, FileText, X } from 'lucide-react'
+import { LibraryAccessLink } from '../common/LibraryAccessLink'
 
 export interface DiscoveredPaper {
   id: string
@@ -267,6 +268,14 @@ export function DiscoveredPaperCard({
                 Link
                 <ExternalLink className="h-2 w-2 sm:h-2.5 sm:w-2.5" />
               </a>
+            )}
+            {!paper.is_open_access && (
+              <LibraryAccessLink
+                doi={paper.doi}
+                url={paper.url}
+                className="inline-flex items-center gap-0.5 text-2xs text-emerald-700 dark:text-emerald-400 hover:underline"
+                iconClassName="h-2 w-2 sm:h-2.5 sm:w-2.5"
+              />
             )}
           </div>
         </div>

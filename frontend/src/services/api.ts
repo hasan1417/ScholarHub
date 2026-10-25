@@ -469,6 +469,12 @@ export const usersAPI = {
     api.put<{ message: string; configured: boolean }>('/me/api-keys/openrouter', { api_key: apiKey }),
   setZoteroKey: (apiKey: string | null, userId: string | null) =>
     api.put<{ message: string; configured: boolean }>('/me/api-keys/zotero', { api_key: apiKey, user_id: userId }),
+  setLibraryAccess: (proxyPrefix: string | null) =>
+    api.put<{ proxy_prefix: string | null }>('/me/library-access', { proxy_prefix: proxyPrefix }),
+  getLibraryLink: (params: { doi?: string | null; url?: string | null }) =>
+    api.get<{ url: string }>('/me/library-link', {
+      params: { doi: params.doi || undefined, url: params.url || undefined },
+    }),
 }
 
 // Projects API endpoints

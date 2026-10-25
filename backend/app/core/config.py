@@ -99,11 +99,6 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     ENVIRONMENT: str = "development"
     
-    # Alternative access (for demonstration only - disable in production)
-    ENABLE_ALTERNATIVE_ACCESS: bool = False
-
-    PAPER_ACCESS_TIMEOUT: int = 30  # seconds
-
     # Project-first flighting
     PROJECTS_API_ENABLED: bool = False
     PROJECT_FIRST_NAV_ENABLED: bool = False

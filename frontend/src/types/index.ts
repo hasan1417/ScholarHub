@@ -8,6 +8,7 @@ export interface User {
   is_active: boolean
   is_verified: boolean
   auth_provider?: string  // "local" or "google"
+  library_proxy_prefix?: string | null  // only present on the signed-in user
   created_at: string
   updated_at: string
 }

@@ -28,6 +28,7 @@ import { ProjectReferenceSuggestion } from '../../types'
 import { useAuth } from '../../contexts/AuthContext'
 import AddProjectReferenceModal from '../../components/projects/AddProjectReferenceModal'
 import ConfirmationModal from '../../components/common/ConfirmationModal'
+import { LibraryAccessLink } from '../../components/common/LibraryAccessLink'
 import ZoteroImportModal from '../../components/references/ZoteroImportModal'
 import CitationGraph from '../../components/references/CitationGraph'
 import { PaperChatDrawer } from '../../components/discussion/PaperChatDrawer'
@@ -722,6 +723,13 @@ const ProjectReferences = () => {
                             <ExternalLink className="h-3 w-3" />
                             Source
                           </a>
+                        )}
+                        {!ref?.is_open_access && (
+                          <LibraryAccessLink
+                            doi={ref?.doi}
+                            url={ref?.url}
+                            className="inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
+                          />
                         )}
                         {/* Cross-feature navigation */}
                         <button
