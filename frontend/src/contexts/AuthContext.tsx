@@ -1,19 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react'
 import { authAPI, setupTokenRefreshTimer, subscriptionAPI } from '../services/api'
-import type { SubscriptionState } from '../types'
-
-interface User {
-  id: string
-  email: string
-  first_name?: string
-  last_name?: string
-  avatar_url?: string
-  is_active: boolean
-  is_verified: boolean
-  auth_provider?: string  // "local" or "google"
-  created_at: string
-  updated_at: string
-}
+import type { SubscriptionState, User } from '../types'
 
 interface RegisterResponse {
   id: string

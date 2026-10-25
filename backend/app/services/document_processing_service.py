@@ -18,7 +18,7 @@ from openai import OpenAI
 
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
-from app.services.ai_service import AIService
+from app.services.ai_service import ai_service
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -65,8 +65,8 @@ class DocumentProcessingService:
     - Smart chunking that preserves tables
     """
 
-    def __init__(self):
-        self.ai_service = AIService()
+    def __init__(self) -> None:
+        self.ai_service = ai_service
         self.chunk_size = 2000
         self.chunk_overlap = 300
 

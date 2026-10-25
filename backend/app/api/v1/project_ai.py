@@ -19,12 +19,11 @@ from app.models import (
     ResearchPaper,
     User,
 )
-from app.services.ai_service import AIService
+from app.services.ai_service import ai_service as _ai_service
 from app.services.project_ai_service import ProjectAIOrchestrator
 
 
 router = APIRouter()
-_ai_service = AIService()
 _ai_orchestrator = ProjectAIOrchestrator(_ai_service)
 
 

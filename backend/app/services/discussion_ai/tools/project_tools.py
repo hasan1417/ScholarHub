@@ -81,6 +81,7 @@ TOOL_SPECS: List[ToolSpec] = [
         name="get_project_info",
         schema=GET_PROJECT_INFO_SCHEMA,
         handler=_handle_get_project_info,
+        mutating=False,
     ),
     ToolSpec(
         name="update_project_info",

@@ -221,7 +221,7 @@ class WritingToolsMixin:
             )
         except Exception as e:
             logger.error(f"Error streaming text generation: {str(e)}")
-            yield f"[error streaming response: {str(e)}]"
+            raise
 
     def _parse_grammar_response(self, response_text: str, original_text: str) -> Dict[str, Any]:
         import re

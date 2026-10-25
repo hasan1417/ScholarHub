@@ -7,7 +7,8 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import List, Set
+from functools import lru_cache
+from typing import Iterable, List, Pattern, Set
 
 from app.services.paper_discovery.cache import LRUCache
 
@@ -70,6 +71,23 @@ def extract_core_terms(query: str) -> Set[str]:
 
     logger.debug(f"[CoreTerms] query='{query}' → terms={core_terms}")
     return core_terms
+
+
+@lru_cache(maxsize=1024)
+def _term_pattern(term: str) -> Pattern[str]:
+    # Whole words only, so "art" does not match "state-of-the-art"; a plural
+    # suffix still counts ("network" matches "networks").
+    return re.compile(r"(?<![a-z0-9])" + re.escape(term) + r"(?:s|es)?(?![a-z0-9])")
+
+
+def contains_term(text: str, term: str) -> bool:
+    """True if `term` occurs in lowercase `text` as a whole word or phrase."""
+    return bool(_term_pattern(term).search(text))
+
+
+def count_term_hits(terms: Iterable[str], text: str) -> int:
+    """Number of `terms` that occur in lowercase `text` as whole words."""
+    return sum(1 for t in terms if contains_term(text, t))
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +177,8 @@ async def understand_query(query: str) -> QueryIntent:
                         ],
                         max_completion_tokens=512,
                         temperature=0.0,
+                        # The orchestrator waits only ~2s for this, so skip deliberate reasoning
+                        extra_body={"reasoning": {"effort": "minimal"}},
                     ),
                     timeout=20.0,
                 )

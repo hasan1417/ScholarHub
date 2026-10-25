@@ -75,6 +75,7 @@ TOOL_SPECS: List[ToolSpec] = [
         name="get_created_artifacts",
         schema=GET_CREATED_ARTIFACTS_SCHEMA,
         handler=_handle_get_created_artifacts,
+        mutating=False,
     ),
 ]
 

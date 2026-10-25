@@ -10,7 +10,12 @@ class AIChatSession(Base):
     __tablename__ = "ai_chat_sessions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     query = Column(Text, nullable=False)
     response = Column(Text, nullable=False)
     sources = Column(JSON, nullable=True)  # document chunks used for response

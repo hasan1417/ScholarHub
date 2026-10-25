@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, FrozenSet, List
 
 from .permissions import can_use_tool, filter_tools_for_role, get_permission_error
 
@@ -16,6 +16,10 @@ class ToolSpec:
     name: str
     schema: Dict[str, Any]
     handler: ToolHandler
+    # Whether a call has side effects (writes rows, channel memory, or runs
+    # costly ingestion). Defaults to the safe answer so a new tool cannot
+    # escape duplicate-call protection by omission.
+    mutating: bool = True
 
 
 class ToolRegistry:
@@ -28,6 +32,14 @@ class ToolRegistry:
             raise ValueError(f"Tool already registered: {spec.name}")
         self._tools[spec.name] = spec
         self._order.append(spec.name)
+
+    @property
+    def mutating_names(self) -> FrozenSet[str]:
+        return frozenset(name for name in self._order if self._tools[name].mutating)
+
+    @property
+    def read_only_names(self) -> FrozenSet[str]:
+        return frozenset(name for name in self._order if not self._tools[name].mutating)
 
     def get_schema_list(self) -> List[Dict[str, Any]]:
         """Get all tool schemas (unfiltered)."""

@@ -16,7 +16,7 @@ import aiohttp
 from bs4 import BeautifulSoup
 
 from app.services.paper_discovery.config import DiscoveryConfig
-from app.services.paper_discovery.interfaces import PaperSearcher
+from app.services.paper_discovery.interfaces import PaperSearcher, SourceSearchError
 from app.services.paper_discovery.models import DiscoveredPaper, PaperSource
 from app.services.paper_discovery.query_builder import (
     build_arxiv_query,
@@ -29,7 +29,7 @@ from app.services.paper_discovery.query_builder import (
 logger = logging.getLogger(__name__)
 
 
-class RateLimitError(Exception):
+class RateLimitError(SourceSearchError):
     """Raised when an API returns a rate limit response (429)."""
     pass
 
@@ -63,16 +63,20 @@ class ArxivSearcher(SearcherBase):
             url = f"https://export.arxiv.org/api/query?{urlencode(params)}"
             
             async with self.session.get(url) as response:
+                if response.status == 429:
+                    raise RateLimitError("ArXiv API rate limited")
                 if response.status != 200:
                     logger.error(f"ArXiv API error: {response.status}")
-                    return []
+                    raise SourceSearchError(f"ArXiv returned HTTP {response.status}")
                 
                 content = await response.text()
                 return self._parse_response(content)
                 
+        except SourceSearchError:
+            raise
         except Exception as e:
             logger.error(f"Error searching ArXiv: {e}")
-            return []
+            raise SourceSearchError(f"ArXiv request failed: {e}") from e
     
     def _parse_response(self, xml_content: str) -> List[DiscoveredPaper]:
         """Parse ArXiv XML response"""
@@ -214,16 +218,18 @@ class SemanticScholarSearcher(SearcherBase):
                     raise RateLimitError("Semantic Scholar API quota exhausted (403)")
                 elif response.status != 200:
                     logger.error(f"Semantic Scholar error: {response.status}")
-                    raise RuntimeError(f"Semantic Scholar returned HTTP {response.status}")
+                    raise SourceSearchError(f"Semantic Scholar returned HTTP {response.status}")
 
                 data = await response.json()
                 return await self._parse_response(data)
 
         except RateLimitError:
             raise  # Re-raise rate limit errors to be handled by orchestrator
+        except SourceSearchError:
+            raise
         except Exception as e:
             logger.error(f"Error searching Semantic Scholar: {e}")
-            return []
+            raise SourceSearchError(f"Semantic Scholar request failed: {e}") from e
     
     async def _parse_response(self, data: Dict[str, Any]) -> List[DiscoveredPaper]:
         """Parse Semantic Scholar JSON response"""
@@ -444,7 +450,7 @@ class GoogleScholarSearcher(SearcherBase):
     ) -> List[DiscoveredPaper]:
         if not self.api_key:
             logger.warning("Google Scholar requested but SERPAPI_KEY is not configured; skipping search")
-            return []
+            raise SourceSearchError("Google Scholar API key is not configured")
 
         # Weekly SerpAPI quota kill-switch — refuse to burn budget until the
         # configured renewal date passes. We raise RateLimitError so the
@@ -496,12 +502,12 @@ class GoogleScholarSearcher(SearcherBase):
                 if response.status != 200:
                     text = await response.text()
                     logger.error("Google Scholar error: %s - %s", response.status, text[:200])
-                    return []
+                    raise SourceSearchError(f"Google Scholar returned HTTP {response.status}")
 
                 data = await response.json()
                 if data.get("error"):
                     logger.error("Google Scholar API error: %s", data.get("error"))
-                    return []
+                    raise SourceSearchError(f"Google Scholar API error: {data.get('error')}")
                 papers = self._parse_response(data)
                 if open_access_only:
                     return [paper for paper in papers if paper.pdf_url]
@@ -509,9 +515,11 @@ class GoogleScholarSearcher(SearcherBase):
 
         except RateLimitError:
             raise
+        except SourceSearchError:
+            raise
         except Exception as exc:
             logger.error("Error searching Google Scholar: %s", exc)
-            return []
+            raise SourceSearchError(f"Google Scholar request failed: {exc}") from exc
 
     def _parse_response(self, data: Dict[str, Any]) -> List[DiscoveredPaper]:
         papers: List[DiscoveredPaper] = []
@@ -673,6 +681,7 @@ class CrossrefSearcher(SearcherBase):
             attempts = 3
             backoff_seconds = [0.0, 0.75, 1.5]
             timeout = aiohttp.ClientTimeout(total=60)
+            last_error: Optional[SourceSearchError] = None
 
             for attempt in range(attempts):
                 if attempt:
@@ -689,23 +698,33 @@ class CrossrefSearcher(SearcherBase):
                         if resp.status in (429, 500, 502, 503, 504):
                             text = await resp.text()
                             logger.warning("Crossref transient error %s on attempt %s: %s", resp.status, attempt+1, text[:200])
+                            if resp.status == 429:
+                                last_error = RateLimitError("Crossref API rate limited")
+                            else:
+                                last_error = SourceSearchError(f"Crossref returned HTTP {resp.status}")
                             continue
                         # For other statuses, don't retry
                         text = await resp.text()
                         logger.error("Crossref API error: %s - %s", resp.status, text[:200])
-                        return []
+                        raise SourceSearchError(f"Crossref returned HTTP {resp.status}")
                 except asyncio.TimeoutError:
                     logger.warning("Crossref request timed out on attempt %s", attempt+1)
+                    last_error = SourceSearchError("Crossref request timed out")
                     continue
+                except SourceSearchError:
+                    raise
                 except Exception as exc:
                     logger.warning("Crossref request failed on attempt %s: %s", attempt+1, exc)
+                    last_error = SourceSearchError(f"Crossref request failed: {exc}")
                     continue
 
             logger.error("Crossref failed after %s attempts", attempts)
-            return []
+            raise last_error or SourceSearchError("Crossref failed after retries")
+        except SourceSearchError:
+            raise
         except Exception as exc:
             logger.error("Error searching Crossref: %s", exc)
-            return []
+            raise SourceSearchError(f"Crossref request failed: {exc}") from exc
 
     async def _parse_response(self, data: Dict[str, Any]) -> List[DiscoveredPaper]:
         items = ((data or {}).get('message') or {}).get('items', [])
@@ -980,9 +999,11 @@ class PubMedSearcher(SearcherBase):
                 )
 
             return papers
+        except SourceSearchError:
+            raise
         except Exception as exc:
             logger.error("Error searching PubMed: %s", exc)
-            return []
+            raise SourceSearchError(f"PubMed request failed: {exc}") from exc
 
     async def _esearch(self, query: str, max_results: int) -> List[str]:
         # Use optimized query builder for PubMed syntax
@@ -1003,9 +1024,11 @@ class PubMedSearcher(SearcherBase):
             params=params,
             timeout=timeout,
         ) as resp:
+            if resp.status == 429:
+                raise RateLimitError("PubMed API rate limited")
             if resp.status != 200:
                 logger.warning("PubMed esearch returned status %s", resp.status)
-                return []
+                raise SourceSearchError(f"PubMed esearch returned HTTP {resp.status}")
             data = await resp.json(content_type=None)
             id_list = ((data or {}).get('esearchresult') or {}).get('idlist') or []
             return [pmid for pmid in id_list if pmid]
@@ -1026,9 +1049,11 @@ class PubMedSearcher(SearcherBase):
             params=params,
             timeout=timeout,
         ) as resp:
+            if resp.status == 429:
+                raise RateLimitError("PubMed API rate limited")
             if resp.status != 200:
                 logger.warning("PubMed esummary returned status %s", resp.status)
-                return {}
+                raise SourceSearchError(f"PubMed esummary returned HTTP {resp.status}")
             data = await resp.json(content_type=None)
             result = (data or {}).get('result') or {}
             summaries: Dict[str, Dict[str, Any]] = {}
@@ -1148,7 +1173,7 @@ class ScienceDirectSearcher(SearcherBase):
 
         if not self.api_key:
             logger.warning("ScienceDirectSearcher disabled: missing API key")
-            return []
+            raise SourceSearchError("ScienceDirect API key is not configured")
         if not query or not query.strip():
             logger.warning("ScienceDirectSearcher received empty query")
             return []
@@ -1172,17 +1197,21 @@ class ScienceDirectSearcher(SearcherBase):
 
         try:
             async with self.session.put(self.BASE_URL, json=payload, headers=headers, timeout=timeout) as resp:
+                if resp.status == 429:
+                    raise RateLimitError("ScienceDirect API rate limited")
                 if resp.status != 200:
                     text = await resp.text()
                     logger.warning("ScienceDirect API status %s: %s", resp.status, text[:200])
-                    return []
+                    raise SourceSearchError(f"ScienceDirect returned HTTP {resp.status}")
                 data = await resp.json(content_type=None)
         except asyncio.TimeoutError:
             logger.warning("ScienceDirect request timed out")
-            return []
+            raise SourceSearchError("ScienceDirect request timed out")
+        except SourceSearchError:
+            raise
         except Exception as exc:
             logger.error("ScienceDirect request failed: %s", exc)
-            return []
+            raise SourceSearchError(f"ScienceDirect request failed: {exc}") from exc
 
         entries = (data or {}).get('results') or []
         if not isinstance(entries, list):
@@ -1264,8 +1293,10 @@ class OpenAlexSearcher(SearcherBase):
                 'search': query.strip()[:400],  # Search parameter works for OpenAlex
                 'per-page': min(int(max_results or 20), 25),  # Limit results
                 'select': 'id,display_name,authorships,publication_year,abstract_inverted_index,doi,primary_location,open_access,best_oa_location,cited_by_count',
-                'mailto': 'g202403940@kfupm.edu.sa',  # Polite pool: 10x higher rate limits
             }
+            mailto = os.getenv('OPENALEX_MAILTO') or os.getenv('UNPAYWALL_EMAIL') or os.getenv('NCBI_EMAIL')
+            if mailto:
+                params['mailto'] = mailto  # Polite pool: 10x higher rate limits
             filters = []
             if year_from is not None:
                 filters.append(f"from_publication_date:{year_from}-01-01")
@@ -1284,6 +1315,7 @@ class OpenAlexSearcher(SearcherBase):
             attempts = 3
             backoff_seconds = [0.0, 1.0, 2.0]
             timeout = aiohttp.ClientTimeout(total=30)  # 30 second timeout for OpenAlex
+            last_error: Optional[SourceSearchError] = None
 
             for attempt in range(attempts):
                 if attempt:
@@ -1298,23 +1330,33 @@ class OpenAlexSearcher(SearcherBase):
                         elif resp.status in (429, 500, 502, 503, 504):
                             text = await resp.text()
                             logger.warning("OpenAlex transient error %s on attempt %s: %s", resp.status, attempt+1, text[:200])
+                            if resp.status == 429:
+                                last_error = RateLimitError("OpenAlex API rate limited")
+                            else:
+                                last_error = SourceSearchError(f"OpenAlex returned HTTP {resp.status}")
                             continue
                         else:
                             text = await resp.text()
                             logger.error("OpenAlex API error: %s - %s", resp.status, text[:200])
-                            return []
+                            raise SourceSearchError(f"OpenAlex returned HTTP {resp.status}")
                 except asyncio.TimeoutError:
                     logger.warning("OpenAlex request timed out on attempt %s", attempt+1)
+                    last_error = SourceSearchError("OpenAlex request timed out")
                     continue
+                except SourceSearchError:
+                    raise
                 except Exception as exc:
                     logger.warning("OpenAlex request failed on attempt %s: %s", attempt+1, exc)
+                    last_error = SourceSearchError(f"OpenAlex request failed: {exc}")
                     continue
 
             logger.error("OpenAlex failed after %s attempts", attempts)
-            return []
+            raise last_error or SourceSearchError("OpenAlex failed after retries")
+        except SourceSearchError:
+            raise
         except Exception as exc:
             logger.error("Error searching OpenAlex: %s", exc)
-            return []
+            raise SourceSearchError(f"OpenAlex request failed: {exc}") from exc
 
     def _parse_response(self, items: List[Dict[str, Any]]) -> List[DiscoveredPaper]:
         papers: List[DiscoveredPaper] = []
@@ -1434,7 +1476,7 @@ class CoreSearcher(SearcherBase):
     async def search(self, query: str, max_results: int) -> List[DiscoveredPaper]:
         if not self.api_key:
             logger.warning("CORE API key not configured, skipping CORE search")
-            return []
+            raise SourceSearchError("CORE API key is not configured")
 
         try:
             headers = {
@@ -1455,11 +1497,11 @@ class CoreSearcher(SearcherBase):
                     raise RateLimitError("CORE API rate limited")
                 elif response.status == 401:
                     logger.error("CORE API authentication failed - check API key")
-                    return []
+                    raise SourceSearchError("CORE API authentication failed")
                 elif response.status != 200:
                     text = await response.text()
                     logger.error(f"CORE API error: {response.status} - {text[:200]}")
-                    return []
+                    raise SourceSearchError(f"CORE returned HTTP {response.status}")
 
                 data = await response.json()
                 logger.info(f"CORE: Got {len(data.get('results', []))} results")
@@ -1467,9 +1509,11 @@ class CoreSearcher(SearcherBase):
 
         except RateLimitError:
             raise
+        except SourceSearchError:
+            raise
         except Exception as e:
             logger.error(f"Error searching CORE: {e}")
-            return []
+            raise SourceSearchError(f"CORE request failed: {e}") from e
 
     def _parse_response(self, data: Dict[str, Any]) -> List[DiscoveredPaper]:
         """Parse CORE API response."""
@@ -1554,16 +1598,18 @@ class EuropePmcSearcher(SearcherBase):
                     raise RateLimitError("Europe PMC API rate limited")
                 elif response.status != 200:
                     logger.error(f"Europe PMC API error: {response.status}")
-                    return []
+                    raise SourceSearchError(f"Europe PMC returned HTTP {response.status}")
 
                 data = await response.json()
                 return self._parse_response(data)
 
         except RateLimitError:
             raise
+        except SourceSearchError:
+            raise
         except Exception as e:
             logger.error(f"Error searching Europe PMC: {e}")
-            return []
+            raise SourceSearchError(f"Europe PMC request failed: {e}") from e
 
     def _parse_response(self, data: Dict[str, Any]) -> List[DiscoveredPaper]:
         """Parse Europe PMC API response."""
@@ -1633,3 +1679,213 @@ class EuropePmcSearcher(SearcherBase):
                 continue
 
         return papers
+
+
+def _year_in_range(year: Optional[int]) -> Optional[int]:
+    if year and 1600 <= year <= datetime.utcnow().year + 1:
+        return year
+    return None
+
+
+class IeeeXploreSearcher(SearcherBase):
+    """IEEE Xplore Metadata Search API (free key from developer.ieee.org).
+
+    IEEE is among the databases KFUPM subscribes to; results carry DOIs, so the
+    user's library link opens the full text through their institution.
+    """
+
+    BASE_URL = "https://ieeexploreapi.ieee.org/api/v1/search/articles"
+
+    def __init__(self, session: aiohttp.ClientSession, config: DiscoveryConfig, api_key: str):
+        super().__init__(session, config)
+        self.api_key = api_key
+
+    def get_source_name(self) -> str:
+        return PaperSource.IEEE_XPLORE.value
+
+    async def search(
+        self,
+        query: str,
+        max_results: int,
+        *,
+        year_from: int | None = None,
+        year_to: int | None = None,
+        open_access_only: bool = False,
+    ) -> List[DiscoveredPaper]:
+        if not query or not query.strip():
+            return []
+        params: Dict[str, Any] = {
+            "apikey": self.api_key,
+            "querytext": query.strip()[:400],
+            "max_records": max(1, min(int(max_results or 20), 25)),
+            "format": "json",
+            "sort_field": "relevance",
+        }
+        if year_from is not None:
+            params["start_year"] = year_from
+        if year_to is not None:
+            params["end_year"] = year_to
+        if open_access_only:
+            params["open_access"] = "True"
+
+        try:
+            async with self.session.get(self.BASE_URL, params=params, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+                if resp.status == 429:
+                    raise RateLimitError("IEEE Xplore API rate limited")
+                if resp.status in (401, 403):
+                    # Daily quota exhausted or key not yet active
+                    raise RateLimitError(f"IEEE Xplore API rejected the key (HTTP {resp.status})")
+                if resp.status != 200:
+                    raise SourceSearchError(f"IEEE Xplore returned HTTP {resp.status}")
+                data = await resp.json(content_type=None)
+        except asyncio.TimeoutError:
+            raise SourceSearchError("IEEE Xplore request timed out")
+        except SourceSearchError:
+            raise
+        except Exception as exc:
+            raise SourceSearchError(f"IEEE Xplore request failed: {exc}") from exc
+
+        papers: List[DiscoveredPaper] = []
+        for item in (data or {}).get("articles") or []:
+            if not isinstance(item, dict):
+                continue
+            title = (item.get("title") or "").strip()
+            if not title:
+                continue
+            authors_block = item.get("authors") or {}
+            authors = [
+                a["full_name"].strip()
+                for a in (authors_block.get("authors") or [] if isinstance(authors_block, dict) else [])
+                if isinstance(a, dict) and a.get("full_name")
+            ]
+            try:
+                year = _year_in_range(int(item.get("publication_year")))
+            except (TypeError, ValueError):
+                year = None
+            is_oa = str(item.get("access_type") or "").upper() == "OPEN_ACCESS"
+            url = item.get("html_url") or item.get("abstract_url")
+            papers.append(
+                DiscoveredPaper(
+                    title=title,
+                    authors=authors,
+                    abstract=(item.get("abstract") or "").strip(),
+                    year=year,
+                    doi=(item.get("doi") or "").strip() or None,
+                    url=url,
+                    source=self.get_source_name(),
+                    citations_count=item.get("citing_paper_count"),
+                    journal=(item.get("publication_title") or "").strip() or None,
+                    is_open_access=is_oa,
+                    pdf_url=item.get("pdf_url") if is_oa else None,
+                )
+            )
+        return papers
+
+
+class SpringerNatureSearcher(SearcherBase):
+    """Springer Nature Meta API (free key from dev.springernature.com).
+
+    Covers SpringerLink and Nature journals, both available through KFUPM.
+    """
+
+    BASE_URL = "https://api.springernature.com/meta/v2/json"
+
+    def __init__(self, session: aiohttp.ClientSession, config: DiscoveryConfig, api_key: str):
+        super().__init__(session, config)
+        self.api_key = api_key
+
+    def get_source_name(self) -> str:
+        return PaperSource.SPRINGER_NATURE.value
+
+    async def search(
+        self,
+        query: str,
+        max_results: int,
+        *,
+        year_from: int | None = None,
+        year_to: int | None = None,
+        open_access_only: bool = False,
+    ) -> List[DiscoveredPaper]:
+        if not query or not query.strip():
+            return []
+        q = query.strip()[:400]
+        if year_from is not None:
+            q += f" onlinedatefrom:{year_from}-01-01"
+        if year_to is not None:
+            q += f" onlinedateto:{year_to}-12-31"
+        if open_access_only:
+            q += " openaccess:true"
+        params = {"q": q, "p": max(1, min(int(max_results or 20), 25)), "api_key": self.api_key}
+
+        try:
+            async with self.session.get(self.BASE_URL, params=params, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+                if resp.status == 429:
+                    raise RateLimitError("Springer Nature API rate limited")
+                if resp.status in (401, 403):
+                    raise RateLimitError(f"Springer Nature API rejected the key (HTTP {resp.status})")
+                if resp.status != 200:
+                    raise SourceSearchError(f"Springer Nature returned HTTP {resp.status}")
+                data = await resp.json(content_type=None)
+        except asyncio.TimeoutError:
+            raise SourceSearchError("Springer Nature request timed out")
+        except SourceSearchError:
+            raise
+        except Exception as exc:
+            raise SourceSearchError(f"Springer Nature request failed: {exc}") from exc
+
+        papers: List[DiscoveredPaper] = []
+        for item in (data or {}).get("records") or []:
+            if not isinstance(item, dict):
+                continue
+            title = (item.get("title") or "").strip()
+            if not title:
+                continue
+            authors = []
+            for creator in item.get("creators") or []:
+                name = creator.get("creator") if isinstance(creator, dict) else None
+                if name:
+                    # "Last, First" -> "First Last"
+                    last, _, first = name.partition(",")
+                    authors.append(f"{first.strip()} {last.strip()}".strip())
+            year = None
+            date = str(item.get("publicationDate") or item.get("onlineDate") or "")
+            if date[:4].isdigit():
+                year = _year_in_range(int(date[:4]))
+            doi = (item.get("doi") or "").strip() or None
+            url = next(
+                (u.get("value") for u in item.get("url") or [] if isinstance(u, dict) and u.get("format") in ("html", "")),
+                None,
+            ) or (f"https://doi.org/{doi}" if doi else None)
+            is_oa = str(item.get("openaccess") or "").lower() == "true"
+            pdf_url = next(
+                (u.get("value") for u in item.get("url") or [] if isinstance(u, dict) and u.get("format") == "pdf"),
+                None,
+            )
+            papers.append(
+                DiscoveredPaper(
+                    title=title,
+                    authors=authors,
+                    abstract=self._abstract_text(item.get("abstract")),
+                    year=year,
+                    doi=doi,
+                    url=url,
+                    source=self.get_source_name(),
+                    journal=(item.get("publicationName") or "").strip() or None,
+                    is_open_access=is_oa,
+                    pdf_url=pdf_url if is_oa else None,
+                )
+            )
+        return papers
+
+    @staticmethod
+    def _abstract_text(raw: Any) -> str:
+        """The API returns the abstract as a string or as {"h1": ..., "p": [...]}."""
+        if isinstance(raw, str):
+            return raw.strip()
+        if isinstance(raw, dict):
+            paragraphs = raw.get("p")
+            if isinstance(paragraphs, list):
+                return " ".join(str(x).strip() for x in paragraphs if x).strip()
+            if isinstance(paragraphs, str):
+                return paragraphs.strip()
+        return ""

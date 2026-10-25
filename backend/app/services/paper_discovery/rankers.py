@@ -15,6 +15,7 @@ import aiohttp
 from app.services.paper_discovery.config import DiscoveryConfig
 from app.services.paper_discovery.interfaces import PaperRanker
 from app.services.paper_discovery.models import DiscoveredPaper
+from app.services.paper_discovery.query import _STOPWORDS, count_term_hits
 
 logger = logging.getLogger(__name__)
 
@@ -103,10 +104,10 @@ class LexicalRanker(PaperRanker):
 class SimpleRanker(PaperRanker):
     """Enhanced scoring: relevance + citations + recency, plus core term boosts.
 
-    Scoring formula (Phase 2.1):
-    - 50% relevance (title/query overlap + core term boosts)
-    - 30% citations (log-scaled, recency-adjusted)
-    - 20% recency (papers from last 5 years get bonus)
+    Scoring formula (absolute, comparable across searches):
+    - 70% relevance (title/query overlap + core term boosts)
+    - 15% citations (log-scaled, recency-adjusted)
+    - 15% recency (papers from last 5 years get bonus)
     """
 
     def __init__(self, config: DiscoveryConfig):
@@ -130,7 +131,7 @@ class SimpleRanker(PaperRanker):
             import re
             text = (text or '').lower()
             text = re.sub(r'[^a-z0-9\s]', ' ', text)
-            return set(w for w in text.split() if len(w) > 2)
+            return set(w for w in text.split() if len(w) > 2 and w not in _STOPWORDS)
 
         query_tokens = tokenize(target_text or query)
         weights = self.config.ranking_weights
@@ -163,15 +164,15 @@ class SimpleRanker(PaperRanker):
                 abstract_text = (paper.abstract or '').lower()
                 n_terms = len(core_terms)
 
-                title_hits = sum(1 for t in core_terms if t in title_text)
-                abstract_hits = sum(1 for t in core_terms if t in abstract_text)
+                title_hits = count_term_hits(core_terms, title_text)
+                abstract_hits = count_term_hits(core_terms, abstract_text)
 
                 if title_hits > 0:
                     core_boost += weights.get('core_term_title_boost', 0.20) * (title_hits / n_terms)
                 if abstract_hits > 0:
                     core_boost += weights.get('core_term_abstract_boost', 0.10) * (abstract_hits / n_terms)
 
-            relevance_scores.append(max(0.0, relevance + core_boost))
+            relevance_scores.append(min(1.0, max(0.0, relevance + core_boost)))
 
             # --- Citation score (log-scaled, recency-adjusted) ---
             citations = paper.citations_count or 0
@@ -201,30 +202,19 @@ class SimpleRanker(PaperRanker):
                 recency = 0.3  # Unknown year gets neutral score
             recency_scores.append(max(0.0, recency))
 
-        # Normalize each component to 0-1 range
-        def normalize_scores(scores: List[float]) -> List[float]:
-            if not scores:
-                return []
-            max_s = max(scores, default=0.0)
-            min_s = min(scores, default=0.0)
-            span = max_s - min_s
-            if span <= 0:
-                return [1.0 if max_s > 0 else 0.0] * len(scores)
-            return [(s - min_s) / span for s in scores]
-
-        norm_relevance = normalize_scores(relevance_scores)
-        norm_citations = normalize_scores(citation_scores)
-        norm_recency = normalize_scores(recency_scores)
-
-        # Combine with weights: 55% relevance, 15% citations, 30% recency
+        # Every component is already on an absolute 0-1 scale. Rescaling within
+        # the batch would make scores incomparable across searches (the best
+        # paper of a weak batch would get full marks), and project discovery
+        # compares stored scores across runs.
+        # Combine with weights: 70% relevance, 15% citations, 15% recency.
         # Citation weight kept low because many sources (arXiv, OpenAlex, PubMed)
         # don't reliably provide citation counts, which would bias toward
         # sources like Semantic Scholar that do.
         for i, paper in enumerate(papers):
             combined = (
-                0.55 * norm_relevance[i] +
-                0.15 * norm_citations[i] +
-                0.30 * norm_recency[i]
+                0.70 * relevance_scores[i] +
+                0.15 * citation_scores[i] +
+                0.15 * recency_scores[i]
             )
             paper.relevance_score = float(min(1.0, max(0.0, combined)))
 
@@ -510,6 +500,11 @@ class SemanticRanker(PaperRanker):
     - 30% bi-encoder similarity (embedding cosine similarity)
     - 40% cross-encoder relevance (precise query-document scoring)
 
+    With `profile_texts` (project discovery), similarity to the project itself
+    takes a share: 20% lexical, 20% bi-encoder, 30% cross-encoder, 30% profile.
+    The profile is the centroid of the project description and library titles,
+    so suggestions resemble the project rather than one generated query.
+
     This provides the best ranking quality by combining:
     1. Fast lexical matching for exact term overlap
     2. Semantic understanding for conceptual similarity
@@ -579,6 +574,7 @@ class SemanticRanker(PaperRanker):
 
         # Try semantic reranking
         try:
+            profile_scores = await self._profile_similarity(papers, paper_dicts, kwargs.get("profile_texts"))
             reranker = self._get_reranker()
             # Score ALL papers with cross-encoder. The bi-encoder stage uses titles +
             # short abstracts for embedding similarity, which is unreliable for papers
@@ -610,11 +606,19 @@ class SemanticRanker(PaperRanker):
                     bi_score = result.bi_encoder_score
                     cross_score_normalized = 1.0 / (1.0 + (2.71828 ** -result.cross_encoder_score))
 
-                    final_score = (
-                        0.30 * lexical +
-                        0.30 * bi_score +
-                        0.40 * cross_score_normalized
-                    )
+                    if profile_scores is not None:
+                        final_score = (
+                            0.20 * lexical +
+                            0.20 * bi_score +
+                            0.30 * cross_score_normalized +
+                            0.30 * profile_scores.get(paper_id, 0.0)
+                        )
+                    else:
+                        final_score = (
+                            0.30 * lexical +
+                            0.30 * bi_score +
+                            0.40 * cross_score_normalized
+                        )
 
                     original_paper.relevance_score = float(min(1.0, max(0.0, final_score)))
                     result_papers.append(original_paper)
@@ -642,6 +646,30 @@ class SemanticRanker(PaperRanker):
             logger.warning(f"[SemanticRanker] Semantic ranking failed, using lexical only: {e}")
             # Fall back to lexical-only ranking
             return sorted(papers, key=lambda p: lexical_scores.get(p.get_unique_key(), 0), reverse=True)
+
+    async def _profile_similarity(
+        self,
+        papers: List[DiscoveredPaper],
+        paper_dicts: List[dict],
+        profile_texts: Optional[List[str]],
+    ) -> Optional[dict]:
+        """Cosine similarity of each paper to the centroid of the profile texts, keyed like paper_dicts."""
+        texts = [t.strip() for t in (profile_texts or []) if t and t.strip()]
+        if not texts:
+            return None
+        import numpy as np
+
+        service = self._get_embedding_service()
+        profile_vectors = np.array(await service.embed_batch(texts))
+        centroid = profile_vectors.mean(axis=0)
+        paper_embeddings = await service.embed_papers(paper_dicts, title_key="title", abstract_key="abstract")
+        scores = {}
+        for p, d in zip(papers, paper_dicts):
+            # embed_papers keys by doi, then id (same rule the reranker uses)
+            embedding = paper_embeddings.get(str(d.get("doi") or d.get("id")))
+            similarity = service.cosine_similarity(centroid.tolist(), embedding) if embedding else 0.0
+            scores[p.get_unique_key()] = max(0.0, float(similarity))
+        return scores
 
 
 # ============= Orchestrator Service =============

@@ -104,7 +104,8 @@ class EmbeddingJob(Base):
     project_id = Column(
         UUID(as_uuid=True),
         ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=True
+        nullable=True,
+        index=True,
     )
 
     # Status tracking

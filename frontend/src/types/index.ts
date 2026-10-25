@@ -8,6 +8,7 @@ export interface User {
   is_active: boolean
   is_verified: boolean
   auth_provider?: string  // "local" or "google"
+  library_proxy_prefix?: string | null  // only present on the signed-in user
   created_at: string
   updated_at: string
 }
@@ -103,6 +104,7 @@ export interface ProjectReferenceSuggestion {
   decided_by?: string | null
   reference?: {
     id?: string | null
+    citation_key?: string | null
     title?: string
     authors?: string[] | null
     year?: number | null
@@ -163,6 +165,7 @@ export interface PaperReferenceAttachment {
   project_reference_id?: string | null
   project_reference_status?: 'pending' | 'approved' | 'rejected' | null
   reference_id: string
+  citation_key?: string | null
   title?: string | null
   authors?: string[] | null
   year?: number | null
@@ -841,6 +844,7 @@ export interface DiscussionAssistantRequest {
   scope?: Array<'transcripts' | 'papers' | 'references'>
   recent_search_results?: RecentSearchResultItem[]
   recent_search_id?: string
+  idempotency_key?: string
 }
 
 export type DiscussionAssistantOrigin = 'resource' | 'message'

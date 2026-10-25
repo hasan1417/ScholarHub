@@ -1,7 +1,7 @@
 import logging
 import re
 import time
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Iterator, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -32,6 +32,8 @@ class ReferenceChatMixin:
                 friendly = "Hi there! Ask me about this paper's references and I'll help summarize or answer questions."
                 chat_id = f"greet-{int(time.time())}"
                 return {
+                    "ok": True,
+                    "provider_used": False,
                     "response": friendly,
                     "sources": [],
                     "sources_data": [],
@@ -57,6 +59,8 @@ class ReferenceChatMixin:
                     chat_id = f"no-refs-{int(time.time())}"
 
                 return {
+                    "ok": True,
+                    "provider_used": False,
                     "response": response,
                     "sources": [],
                     "sources_data": [],
@@ -80,6 +84,8 @@ class ReferenceChatMixin:
                 response = "I don't have your draft text available to answer this question. Please provide the draft content."
                 chat_id = self._store_reference_chat_session(db, user_id, query, response, [], paper_id) or f"no-draft-{int(time.time())}"
                 return {
+                    "ok": True,
+                    "provider_used": False,
                     "response": response,
                     "sources": [],
                     "sources_data": [],
@@ -90,6 +96,8 @@ class ReferenceChatMixin:
                 response = "I don't have draft text or references available to answer this yet."
                 chat_id = self._store_reference_chat_session(db, user_id, query, response, [], paper_id) or f"no-context-{int(time.time())}"
                 return {
+                    "ok": True,
+                    "provider_used": False,
                     "response": response,
                     "sources": [],
                     "sources_data": [],
@@ -125,6 +133,8 @@ class ReferenceChatMixin:
                 chat_id = f"ref-chat-{int(time.time())}"
 
             return {
+                "ok": True,
+                "provider_used": True,
                 "response": response,
                 "sources": [s["title"] for s in sources],
                 "sources_data": sources,
@@ -134,7 +144,15 @@ class ReferenceChatMixin:
         except Exception as e:
             logger.error(f"Error in reference chat: {str(e)}")
             return {
-                "response": f"Error processing your request: {str(e)}",
+                "ok": False,
+                "provider_used": False,
+                "error": {
+                    "code": "provider_unavailable",
+                    "message": "The AI provider is temporarily unavailable. Please try again.",
+                    "retryable": True,
+                    "status_code": 503,
+                },
+                "response": "The AI provider is temporarily unavailable. Please try again.",
                 "sources": [],
                 "sources_data": [],
                 "chat_id": f"error-{int(time.time())}"
@@ -425,17 +443,17 @@ class ReferenceChatMixin:
 
         except Exception as e:
             logger.error(f"Error generating reference RAG response: {str(e)}")
-            return f"Error generating response: {str(e)}"
+            raise
 
-    def stream_reference_rag_response(self, query: str, chunks: List[Dict[str, Any]], document_excerpt: Optional[str] = None, paper_id: Optional[str] = None, user_id: Optional[str] = None, db: Optional[Session] = None):
+    def stream_reference_rag_response(self, query: str, chunks: List[Dict[str, Any]], document_excerpt: Optional[str] = None, paper_id: Optional[str] = None, user_id: Optional[str] = None, db: Optional[Session] = None, reference_summary: Optional[List[str]] = None) -> Iterator[str]:
         if not self.openai_client:
             yield "AI service not available. Please try again later."
             return
 
         try:
-            ref_summary_lines: List[str] = []
+            ref_summary_lines: List[str] = reference_summary or []
             ref_sources: List[Dict[str, Any]] = []
-            if paper_id and db is not None:
+            if reference_summary is None and paper_id and db is not None:
                 ref_summary_lines, ref_sources = summarize_paper_references(db, paper_id)
 
             route = self._pick_resources(query, bool(document_excerpt), bool(chunks) or bool(ref_summary_lines))
@@ -494,7 +512,7 @@ class ReferenceChatMixin:
             )
         except Exception as e:
             logger.error(f"Error streaming reference response: {str(e)}")
-            yield f"[error streaming response: {str(e)}]"
+            raise
 
     def _build_reference_prompt(self, query: str, chunks: List[Dict[str, Any]], document_excerpt: Optional[str] = None, doc_requested: bool = False, reference_summary: Optional[List[str]] = None) -> Tuple[str, Dict[str, Any]]:
         references_used: Dict[str, Any] = {}

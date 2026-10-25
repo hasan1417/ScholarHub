@@ -229,7 +229,9 @@ class TestSlidingWindow:
 
     def test_build_messages_with_small_history(self):
         """Test message building with history smaller than window."""
-        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+        from app.services.discussion_ai.tool_orchestrator import (
+            REFERENCE_END, REFERENCE_NOTICE, REFERENCE_START, ToolOrchestrator,
+        )
 
         db = MockDB()
         ai_service = MockAIService()
@@ -249,7 +251,14 @@ class TestSlidingWindow:
         )
 
         # Should include all 5 history messages
-        user_messages = [m for m in messages if m["role"] == "user"]
+        reference_messages = [
+            m for m in messages
+            if m["content"].removeprefix(REFERENCE_NOTICE).startswith(REFERENCE_START)
+        ]
+        assert len(reference_messages) == 1
+        assert reference_messages[0]["role"] == "user"
+        assert reference_messages[0]["content"].endswith(REFERENCE_END)
+        user_messages = [m for m in messages if m["role"] == "user" and m not in reference_messages]
         # 5 from history + 1 current = 6 user messages
         assert len(user_messages) == 6
 
@@ -257,7 +266,9 @@ class TestSlidingWindow:
 
     def test_build_messages_with_large_history(self):
         """Test message building with history larger than window."""
-        from app.services.discussion_ai.tool_orchestrator import ToolOrchestrator
+        from app.services.discussion_ai.tool_orchestrator import (
+            REFERENCE_END, REFERENCE_NOTICE, REFERENCE_START, ToolOrchestrator,
+        )
 
         db = MockDB()
         ai_service = MockAIService()
@@ -277,12 +288,19 @@ class TestSlidingWindow:
         )
 
         # Should only include last 20 from history + 1 current
-        user_messages = [m for m in messages if m["role"] == "user"]
+        reference_messages = [
+            m for m in messages
+            if m["content"].removeprefix(REFERENCE_NOTICE).startswith(REFERENCE_START)
+        ]
+        assert len(reference_messages) == 1
+        assert reference_messages[0]["role"] == "user"
+        assert reference_messages[0]["content"].endswith(REFERENCE_END)
+        user_messages = [m for m in messages if m["role"] == "user" and m not in reference_messages]
         assert len(user_messages) == 21  # 20 from window + 1 current
 
         # Verify it's the LAST 20, not first 20
         # The last message in history is "Message 29"
-        history_in_messages = [m["content"] for m in messages if m["role"] == "user" and m["content"] != "Current message"]
+        history_in_messages = [m["content"] for m in user_messages if m["content"] != "Current message"]
         assert "Message 29" in history_in_messages
         assert "Message 0" not in history_in_messages  # First messages should be excluded
 

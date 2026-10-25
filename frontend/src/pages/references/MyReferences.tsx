@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { referencesAPI, researchPapersAPI, usersAPI } from '../../services/api'
 import { Link } from 'react-router-dom'
 import ZoteroImportModal from '../../components/references/ZoteroImportModal'
+import { LibraryAccessLink } from '../../components/common/LibraryAccessLink'
 import { useToast } from '../../hooks/useToast'
 
 interface RefItem {
@@ -195,6 +196,7 @@ const MyReferences: React.FC = () => {
                     <div className="text-xs text-gray-500 flex gap-3 mt-1 items-center">
                       {ref.year && <span>{ref.year}</span>}
                       {ref.doi && <a className="text-indigo-600" href={`https://doi.org/${ref.doi}`} target="_blank" rel="noreferrer">DOI</a>}
+                      {!ref.is_open_access && <LibraryAccessLink doi={ref.doi} url={ref.url} />}
                       {ref.pdf_url && (
                         ref.pdf_url!.startsWith('/api/') ? (
                           <button className="text-indigo-600 underline" onClick={async () => {

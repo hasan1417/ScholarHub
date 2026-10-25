@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import { usersAPI, subscriptionAPI } from '../../services/api'
+import { LIBRARY_PRESETS } from '../../components/common/LibraryAccessLink'
 import {
   User,
   Mail,
@@ -58,6 +59,9 @@ const EditProfile = () => {
   const [zoteroMaskedKey, setZoteroMaskedKey] = useState<string | null>(null)
   const [savingZotero, setSavingZotero] = useState(false)
   const [zoteroSaved, setZoteroSaved] = useState(false)
+  const [libraryPrefix, setLibraryPrefix] = useState('')
+  const [savingLibrary, setSavingLibrary] = useState(false)
+  const [librarySaved, setLibrarySaved] = useState(false)
 
   // Fetch subscription tier
   useEffect(() => {
@@ -91,6 +95,10 @@ const EditProfile = () => {
       })
     }
   }, [user])
+
+  useEffect(() => {
+    setLibraryPrefix(user?.library_proxy_prefix || '')
+  }, [user?.library_proxy_prefix])
 
   // Password strength calculation
   const passwordStrength = useMemo(() => {
@@ -232,6 +240,23 @@ const EditProfile = () => {
       setTimeout(() => setError(''), 3000)
     } finally {
       setSavingApiKey(false)
+    }
+  }
+
+  const handleSaveLibraryAccess = async (prefix: string | null) => {
+    setSavingLibrary(true)
+    setLibrarySaved(false)
+    try {
+      const res = await usersAPI.setLibraryAccess(prefix)
+      updateUser({ library_proxy_prefix: res.data.proxy_prefix })
+      setLibraryPrefix(res.data.proxy_prefix || '')
+      setLibrarySaved(true)
+      setTimeout(() => setLibrarySaved(false), 2000)
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || 'Failed to save library access')
+      setTimeout(() => setError(''), 3000)
+    } finally {
+      setSavingLibrary(false)
     }
   }
 
@@ -859,6 +884,73 @@ const EditProfile = () => {
                     >
                       {savingZotero ? <Loader2 className="h-3 w-3 animate-spin" /> : zoteroSaved ? <Check className="h-3 w-3" /> : null}
                       {savingZotero ? 'Validating...' : zoteroSaved ? 'Saved' : 'Save'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="h-px bg-gray-100 dark:bg-slate-700" />
+
+              {/* Library access */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Library access</label>
+                  {user?.library_proxy_prefix && (
+                    <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                      <CheckCircle className="h-3 w-3" />
+                      Connected
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500 dark:text-slate-400 mb-2">
+                  Open paywalled papers through your university's subscription. You sign in on your library's page; ScholarHub never sees your password.
+                </p>
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {LIBRARY_PRESETS.map((preset) => (
+                    <button
+                      key={preset.name}
+                      type="button"
+                      onClick={() => setLibraryPrefix(preset.prefix)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                        libraryPrefix === preset.prefix
+                          ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300'
+                          : 'border-gray-300 text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {preset.name}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="url"
+                  value={libraryPrefix}
+                  onChange={(e) => setLibraryPrefix(e.target.value)}
+                  placeholder="https://login.<university>.idm.oclc.org/login?url="
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                />
+                <div className="mt-2 flex items-center justify-between">
+                  <span className="text-xs text-gray-500 dark:text-slate-400">
+                    EZproxy or OpenAthens prefix, ending in <code>url=</code>
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {user?.library_proxy_prefix && (
+                      <button
+                        type="button"
+                        onClick={() => handleSaveLibraryAccess(null)}
+                        disabled={savingLibrary}
+                        className="inline-flex items-center gap-1 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white font-medium py-1.5 px-3 rounded-xl text-xs transition-colors"
+                      >
+                        Remove
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleSaveLibraryAccess(libraryPrefix.trim() || null)}
+                      disabled={savingLibrary || !libraryPrefix.trim() || libraryPrefix.trim() === user?.library_proxy_prefix}
+                      className="inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-medium py-1.5 px-3 rounded-xl text-xs transition-colors"
+                    >
+                      {savingLibrary ? <Loader2 className="h-3 w-3 animate-spin" /> : librarySaved ? <Check className="h-3 w-3" /> : null}
+                      {savingLibrary ? 'Saving...' : librarySaved ? 'Saved' : 'Save'}
                     </button>
                   </div>
                 </div>

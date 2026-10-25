@@ -23,8 +23,13 @@ class ResearchPaper(Base):
     objectives = Column(JSONB, nullable=True, default=list)
     
     # Ownership and collaboration
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
-    owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    project_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
     is_public = Column(Boolean, default=False)
     
     # Metadata

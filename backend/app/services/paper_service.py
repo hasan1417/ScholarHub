@@ -18,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.research_paper import ResearchPaper
+from app.models.branch import Branch, Commit
 from app.models.paper_member import PaperMember, PaperRole
 from app.models.document_snapshot import DocumentSnapshot
 from app.models.user import User
@@ -121,6 +122,47 @@ def add_snapshot_with_retry(
     raise RuntimeError("Snapshot creation failed without a captured error")
 
 
+def _bootstrap_main_branch(db: Session, paper: ResearchPaper, creator_id: UUID) -> None:
+    """Create the initial main branch and commit for a newly created paper."""
+    paper_id = paper.id
+    try:
+        existing_branch = db.query(Branch).filter(
+            Branch.paper_id == paper_id,
+            Branch.name == "main",
+        ).first()
+        if existing_branch:
+            return
+
+        main_branch = Branch(
+            name="main",
+            paper_id=paper_id,
+            author_id=creator_id,
+            is_main=True,
+            last_commit_message="Initial commit",
+        )
+        db.add(main_branch)
+        db.flush()
+
+        initial_commit = Commit(
+            branch_id=main_branch.id,
+            message="Initial commit",
+            content="",
+            content_json=paper.content_json,
+            author_id=creator_id,
+            changes=[{
+                "type": "insert",
+                "section": "Initial Content",
+                "newContent": "Document created",
+                "position": 0,
+            }],
+        )
+        db.add(initial_commit)
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to bootstrap main branch for paper %s", paper_id)
+
+
 def create_paper(
     db: Session,
     *,
@@ -201,6 +243,8 @@ def create_paper(
     db.add(paper)
     db.commit()
     db.refresh(paper)
+
+    _bootstrap_main_branch(db, paper, owner_id)
 
     # Add owner as paper member with OWNER role
     owner_member = PaperMember(

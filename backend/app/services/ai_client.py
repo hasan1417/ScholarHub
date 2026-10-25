@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class AIClient:
-    def __init__(self):
+    def __init__(self) -> None:
         self.openai_client = None
         self.initialization_status = "initializing"
         self.initialization_progress = 0
@@ -30,10 +30,9 @@ class AIClient:
                 logger.info("AI Service initialized without API key")
                 return
 
-            logger.info(f"API Key loaded: {api_key[:20]}...")
+            logger.info("OpenAI API key loaded")
 
-            self.openai_client = openai.OpenAI(api_key=api_key)
-            self._test_openai_connection()
+            self.openai_client = openai.OpenAI(api_key=api_key, timeout=120.0, max_retries=1)
 
             self.initialization_status = "ready"
             self.initialization_progress = 100
@@ -44,16 +43,6 @@ class AIClient:
             self.initialization_status = "error"
             self.initialization_message = f"Failed to initialize OpenAI API: {str(e)}"
             logger.error(f"Failed to initialize OpenAI API: {str(e)}")
-
-    def _test_openai_connection(self):
-        try:
-            self.create_response(
-                messages=[{"role": "user", "content": "Hello"}],
-                max_output_tokens=32,
-            )
-            logger.info("OpenAI API connection test successful")
-        except Exception as e:
-            raise Exception(f"OpenAI API connection test failed: {str(e)}")
 
     def _require_client(self):
         if not self.openai_client:
@@ -250,7 +239,7 @@ class AIClient:
                     yield self._strip_markdown_inline(part)
         except Exception as e:
             logger.error(f"Error in _stream_chat: {str(e)}")
-            yield f"[error streaming response: {str(e)}]"
+            raise
 
     @staticmethod
     def _strip_markdown_inline(text: str) -> str:

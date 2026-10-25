@@ -35,7 +35,7 @@ from app.services.project_reference_service import ProjectReferenceSuggestionSer
 from app.services.project_discovery_service import ProjectDiscoveryManager
 from app.services.activity_feed import record_project_activity, preview_text
 from app.services.embedding_worker import queue_library_paper_embedding_sync
-from app.services.citation_filter import make_bib_key
+from app.services.citation_filter import make_bib_key, scope_citation_keys
 from app.utils.doi import normalize_doi
 from pydantic import BaseModel, Field
 
@@ -603,7 +603,7 @@ def _sync_reference_analysis_state(ref: Reference) -> bool:
     return changed
 
 
-def _serialize_project_reference(pr: ProjectReference) -> ProjectReferenceResponse:
+def _serialize_project_reference(pr: ProjectReference, citation_key: Optional[str] = None) -> ProjectReferenceResponse:
     ref = pr.reference
     document = ref.document if ref else None
 
@@ -642,6 +642,7 @@ def _serialize_project_reference(pr: ProjectReference) -> ProjectReferenceRespon
         updated_at=pr.updated_at.isoformat() if pr.updated_at else None,
         reference={
             "id": str(ref.id) if ref else None,
+            "citation_key": citation_key,
             "title": ref.title if ref else None,
             "authors": ref.authors if ref else None,
             "year": ref.year if ref else None,
@@ -725,16 +726,8 @@ async def suggest_citations(
         logger.error("Citation suggestion vector query failed: %s", e)
         return {"suggestions": []}
 
-    # Disambiguate citation keys across results
-    class _RefProxy:
-        def __init__(self, rid, authors, year, title):
-            self.id = rid
-            self.authors = authors
-            self.year = year
-            self.title = title
-
-    proxies = [_RefProxy(row.reference_id, row.authors or [], row.year, row.title) for row in rows]
-    key_map = _disambiguate_cite_keys(proxies)
+    # Assign keys in the full project scope before selecting search suggestions.
+    key_map = scope_citation_keys(db, project_id=project.id)
 
     suggestions = []
     for row in rows:
@@ -778,9 +771,10 @@ def list_reference_suggestions(
     if dirty:
         db.commit()
 
+    keys = scope_citation_keys(db, project_id=project.id)
     return {
         "project_id": str(project.id),
-        "suggestions": [_serialize_project_reference(item) for item in suggestions],
+        "suggestions": [_serialize_project_reference(item, keys.get(item.reference_id)) for item in suggestions],
     }
 
 
@@ -809,9 +803,10 @@ def list_project_references(
     if dirty:
         db.commit()
 
+    keys = scope_citation_keys(db, project_id=project.id)
     return {
         "project_id": str(project.id),
-        "references": [_serialize_project_reference(item) for item in references],
+        "references": [_serialize_project_reference(item, keys.get(item.reference_id)) for item in references],
     }
 
 
@@ -1331,27 +1326,6 @@ def _generate_cite_key(authors: list[str] | None, year: int | None, title: str |
     return make_bib_key({"authors": authors or [], "year": year, "title": title})
 
 
-def _disambiguate_cite_keys(refs: list) -> dict:
-    """Generate unique cite keys for a list of references, appending a/b/c on collision."""
-    keys: dict = {}  # ref -> key
-    used: dict = {}  # base_key -> count
-    for ref in refs:
-        authors = ref.authors or []
-        base = _generate_cite_key(authors, ref.year, getattr(ref, "title", None))
-        count = used.get(base, 0)
-        used[base] = count + 1
-        if count == 0:
-            keys[ref.id] = base
-        else:
-            suffix = chr(ord("a") + count)
-            keys[ref.id] = f"{base}{suffix}"
-    # Go back and add 'a' suffix to the first occurrence if there were collisions
-    for ref in refs:
-        authors = ref.authors or []
-        base = _generate_cite_key(authors, ref.year, getattr(ref, "title", None))
-        if used[base] > 1 and keys[ref.id] == base:
-            keys[ref.id] = f"{base}a"
-    return keys
 
 
 def _reference_to_bibtex(ref: Reference, cite_key: str | None = None, entry_type: str = "article") -> str:
@@ -1515,7 +1489,7 @@ def export_bibtex(
     )
 
     all_refs = [pr.reference for pr in project_refs if pr.reference]
-    key_map = _disambiguate_cite_keys(all_refs)
+    key_map = scope_citation_keys(db, project_id=project.id)
 
     bib_entries: list[str] = []
     for ref in all_refs:
@@ -1592,6 +1566,8 @@ def list_references_for_paper(
         .all()
     )
 
+    keys = scope_citation_keys(db, project_id=project.id, paper_id=paper.id)
+
     def _serialize(link: PaperReference, project_ref: Optional[ProjectReference], reference: Reference):
         document = reference.document if reference else None
         document_id = str(document.id) if document else None
@@ -1610,6 +1586,7 @@ def list_references_for_paper(
             "project_reference_id": str(project_ref.id) if project_ref else None,
             "project_reference_status": project_ref.status.value if project_ref else None,
             "reference_id": str(reference.id),
+            "citation_key": keys.get(reference.id),
             "title": reference.title,
             "authors": reference.authors,
             "year": reference.year,

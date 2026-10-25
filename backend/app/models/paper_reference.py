@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, DateTime, ForeignKey, Index, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -12,6 +12,7 @@ class PaperReference(Base):
     __tablename__ = "paper_references"
     __table_args__ = (
         UniqueConstraint("paper_id", "reference_id", name="uq_paper_reference"),
+        Index("ix_paper_references_reference", "reference_id"),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

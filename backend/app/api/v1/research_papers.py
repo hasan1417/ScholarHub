@@ -19,6 +19,7 @@ from app.core.config import settings
 from app.schemas.paper_member import PaperMemberCreate, PaperMemberResponse
 from app.schemas.paper_version import PaperVersionCreate, PaperVersionResponse, PaperVersionList, ContentUpdateRequest
 from app.schemas.reference import ReferenceCreate, ReferenceResponse, ReferenceList
+from app.services.citation_filter import scope_citation_keys
 from sqlalchemy import func
 import re
 from app.models.reference import Reference
@@ -131,6 +132,7 @@ def _paper_title_exists(
 def _duplicate_title_error(project_id: Optional[UUID]) -> HTTPException:
     scope = "this project" if project_id else "your workspace"
     return HTTPException(status_code=409, detail=f"A paper with this title already exists in {scope}.")
+
 
 @router.post("/", response_model=ResearchPaperResponse, status_code=status.HTTP_201_CREATED)
 async def create_research_paper(
@@ -771,7 +773,12 @@ async def list_references(
         if not member:
             raise HTTPException(status_code=403, detail="Access denied")
     refs = db.query(Reference).filter(Reference.paper_id == paper.id).order_by(Reference.created_at.desc()).all()
-    return ReferenceList(references=refs, total=len(refs))
+    keys = scope_citation_keys(db, project_id=paper.project_id, paper_id=paper.id, owner_id=current_user.id)
+    items = [
+        ReferenceResponse.model_validate(ref).model_copy(update={"citation_key": keys.get(ref.id)})
+        for ref in refs
+    ]
+    return ReferenceList(references=items, total=len(items))
 
 @router.delete("/{paper_id}/references/{reference_id}")
 async def delete_reference(
@@ -797,13 +804,14 @@ async def delete_reference(
     return {"message": "Reference deleted"}
 
 
-def analyze_reference_task(reference_id: str):
+def analyze_reference_task(reference_id: str) -> bool:
     """Background analysis: ingest OA PDF if available; generate a simple profile."""
     db = SessionLocal()
+    provider_call_succeeded = False
     try:
         ref = db.query(Reference).filter(Reference.id == reference_id).first()
         if not ref:
-            return
+            return False
         # Fetch parent paper to assign ownership for ingested documents
         paper = db.query(ResearchPaper).filter(ResearchPaper.id == ref.paper_id).first()
         # Step 1: Ingest OA PDF if pdf_url present and not yet ingested
@@ -851,6 +859,7 @@ Respond ONLY with valid JSON, no markdown or explanation."""
                     max_tokens=800,
                     temperature=0.3
                 )
+                provider_call_succeeded = True
                 content = resp.choices[0].message.content or ''
                 # Strip markdown code blocks if present
                 import json as _json
@@ -880,8 +889,10 @@ Respond ONLY with valid JSON, no markdown or explanation."""
         # Step 4: finalize
         ref.status = 'analyzed'
         db.commit()
+        return provider_call_succeeded
     except Exception:
         logger.error(f"analyze_reference_task error: {traceback.format_exc()}")
+        return False
     finally:
         db.close()
 

@@ -241,6 +241,8 @@ export function useAssistantChat({
 
       const body = JSON.stringify({
         question,
+        // One key per message: a retried delivery cannot run the tools twice.
+        idempotency_key: id,
         reasoning,
         scope,
         conversation_history: conversationHistory,
@@ -357,6 +359,8 @@ export function useAssistantChat({
       }
 
       let gotFinalResult = false
+
+      let duplicateDelivery = false
       while (true) {
         if (gotFinalResult) break  // Check BEFORE blocking on read
         const { done, value } = await reader.read()
@@ -452,6 +456,11 @@ export function useAssistantChat({
               finalResult = event.payload
               gotFinalResult = true
               break
+            } else if (event.type === 'duplicate') {
+              // The first delivery of this message is still being answered; leave its entry alone.
+              duplicateDelivery = true
+              clearIdleTimer()
+              break
             } else if (event.type === 'error') {
               clearIdleTimer()
               throw new Error(event.message || 'Stream error')
@@ -475,6 +484,10 @@ export function useAssistantChat({
         displayTimer = null
       }
       clearIdleTimer()
+      if (duplicateDelivery) {
+        setAiBusy(false)
+        return { id, result: null }
+      }
       // Flush final display AND mark as complete immediately
       // This unblocks the input without waiting for onSuccess
       const flushed = accumulatedContent ? stripActionsBlock(accumulatedContent) : ''

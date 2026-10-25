@@ -36,6 +36,10 @@ class UserResponse(UserInDB):
     """Response schema for user data"""
     pass
 
+class CurrentUserResponse(UserResponse):
+    """The signed-in user's own data, including private settings"""
+    library_proxy_prefix: Optional[str] = None
+
 class UserLogin(BaseModel):
     email: EmailStr
     password: str

@@ -1,58 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
-from typing import Optional
-from uuid import UUID
 
 from app.api.deps import get_db, get_current_user
-from app.models import SectionLock, ResearchPaper, User
+from app.api._paper_access import require_paper_access, require_paper_editor
+from app.models import PaperMember, PaperRole, SectionLock, User
 
 router = APIRouter()
-
-
-def _is_valid_uuid(val: str) -> bool:
-    """Check if a string is a valid UUID."""
-    try:
-        UUID(str(val))
-        return True
-    except (ValueError, AttributeError):
-        return False
-
-
-def _parse_short_id(url_id: str) -> Optional[str]:
-    """Extract short_id from a URL identifier (slug-shortid or just shortid)."""
-    if not url_id or _is_valid_uuid(url_id):
-        return None
-    if len(url_id) == 8 and url_id.isalnum():
-        return url_id
-    last_hyphen = url_id.rfind('-')
-    if last_hyphen > 0:
-        potential_short_id = url_id[last_hyphen + 1:]
-        if len(potential_short_id) == 8 and potential_short_id.isalnum():
-            return potential_short_id
-    return None
-
-
-def _get_paper_or_404(db: Session, paper_id: str) -> ResearchPaper:
-    """Get paper by UUID or slug-shortid format."""
-    paper = None
-    if _is_valid_uuid(paper_id):
-        try:
-            paper = db.query(ResearchPaper).filter(ResearchPaper.id == UUID(paper_id)).first()
-        except (ValueError, AttributeError):
-            pass
-    if not paper:
-        short_id = _parse_short_id(paper_id)
-        if short_id:
-            paper = db.query(ResearchPaper).filter(ResearchPaper.short_id == short_id).first()
-    if not paper:
-        raise HTTPException(status_code=404, detail='Paper not found')
-    return paper
+MAX_LOCK_DURATION_SEC = 3600
 
 
 @router.get('/section-locks/paper/{paper_id}')
 async def list_section_locks(paper_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    paper = _get_paper_or_404(db, paper_id)
+    paper = require_paper_access(db, paper_id, current_user)
     now = datetime.now(timezone.utc)
     locks = db.query(SectionLock).filter(SectionLock.paper_id == paper.id, SectionLock.expires_at > now).all()
     return [
@@ -70,10 +30,17 @@ async def list_section_locks(paper_id: str, db: Session = Depends(get_db), curre
 async def lock_section(payload: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     paper_id = payload.get('paper_id')
     section_key = (payload.get('section_key') or '').strip()
-    duration_sec = int(payload.get('duration_sec') or 300)
     if not paper_id or not section_key:
         raise HTTPException(status_code=400, detail='paper_id and section_key are required')
-    paper = _get_paper_or_404(db, str(paper_id))
+    duration_value = payload.get('duration_sec')
+    try:
+        duration_sec = int(duration_value) if duration_value is not None else 300
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail='duration_sec must be a positive integer')
+    if duration_sec <= 0:
+        raise HTTPException(status_code=400, detail='duration_sec must be a positive integer')
+    duration_sec = min(duration_sec, MAX_LOCK_DURATION_SEC)
+    paper = require_paper_editor(db, str(paper_id), current_user)
     now = datetime.now(timezone.utc)
     # Check existing lock
     existing = db.query(SectionLock).filter(SectionLock.paper_id == paper.id, SectionLock.section_key == section_key, SectionLock.expires_at > now).first()
@@ -96,13 +63,19 @@ async def unlock_section(payload: dict, db: Session = Depends(get_db), current_u
     section_key = (payload.get('section_key') or '').strip()
     if not paper_id or not section_key:
         raise HTTPException(status_code=400, detail='paper_id and section_key are required')
-    paper = _get_paper_or_404(db, str(paper_id))
+    paper = require_paper_editor(db, str(paper_id), current_user)
     lock = db.query(SectionLock).filter(SectionLock.paper_id == paper.id, SectionLock.section_key == section_key).first()
     if not lock:
         return { 'ok': True }
-    if lock.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail='Not lock owner')
+    if lock.user_id != current_user.id and paper.owner_id != current_user.id:
+        admin_member = db.query(PaperMember).filter(
+            PaperMember.paper_id == paper.id,
+            PaperMember.user_id == current_user.id,
+            PaperMember.status == 'accepted',
+            PaperMember.role.in_([PaperRole.OWNER, PaperRole.ADMIN]),
+        ).first()
+        if not admin_member:
+            raise HTTPException(status_code=403, detail='Not lock owner')
     db.delete(lock)
     db.commit()
     return { 'ok': True }
-

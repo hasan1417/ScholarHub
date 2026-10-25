@@ -9,10 +9,17 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.api.deps import get_current_user
 from app.models.user import User as UserModel
-from app.schemas.user import UserUpdate, UserResponse
+from app.schemas.user import UserUpdate, UserResponse, CurrentUserResponse
 from app.core.security import get_password_hash, verify_password
 from app.core.encryption import decrypt_openrouter_key, encrypt_openrouter_key, mask_openrouter_key, encrypt_api_key, decrypt_api_key, mask_api_key
 from app.services.subscription_service import SubscriptionService
+from app.services.library_access import (
+    InvalidProxyPrefix,
+    build_proxied_url,
+    normalize_doi,
+    normalize_proxy_prefix,
+    resolve_doi,
+)
 from typing import List
 from pydantic import BaseModel
 
@@ -28,12 +35,12 @@ class PasswordChangeRequest(BaseModel):
     current_password: str
     new_password: str
 
-@router.get("/me", response_model=UserResponse)
+@router.get("/me", response_model=CurrentUserResponse)
 async def get_current_user_info(current_user: UserModel = Depends(get_current_user)):
     """Get current user information"""
     return current_user
 
-@router.put("/me", response_model=UserResponse)
+@router.put("/me", response_model=CurrentUserResponse)
 async def update_current_user(
     user_update: UserUpdate,
     current_user: UserModel = Depends(get_current_user),
@@ -78,7 +85,7 @@ async def change_password(
 
     return {"message": "Password changed successfully"}
 
-@router.post("/me/avatar", response_model=UserResponse)
+@router.post("/me/avatar", response_model=CurrentUserResponse)
 async def upload_avatar(
     file: UploadFile = File(...),
     current_user: UserModel = Depends(get_current_user),
@@ -124,7 +131,7 @@ async def upload_avatar(
 
     return current_user
 
-@router.delete("/me/avatar", response_model=UserResponse)
+@router.delete("/me/avatar", response_model=CurrentUserResponse)
 async def delete_avatar(
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -369,3 +376,54 @@ async def set_zotero_key(
         "message": "Zotero credentials updated successfully.",
         "configured": bool(current_user.zotero_api_key and current_user.zotero_user_id),
     }
+
+
+# ========== Institutional Library Access ==========
+
+class LibraryAccessRequest(BaseModel):
+    proxy_prefix: str | None = None
+
+
+@router.put("/me/library-access")
+async def set_library_access(
+    request: LibraryAccessRequest,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Set or clear the user's library proxy prefix (EZproxy or OpenAthens)."""
+    if request.proxy_prefix and request.proxy_prefix.strip():
+        try:
+            current_user.library_proxy_prefix = normalize_proxy_prefix(request.proxy_prefix)
+        except InvalidProxyPrefix as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    else:
+        current_user.library_proxy_prefix = None
+
+    db.commit()
+    return {"proxy_prefix": current_user.library_proxy_prefix}
+
+
+@router.get("/me/library-link")
+async def get_library_link(
+    doi: str | None = Query(None, max_length=300),
+    url: str | None = Query(None, max_length=2000),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Return the link that opens a paper through the user's library proxy.
+
+    The browser opens it, so the user's own library login applies; without a
+    configured proxy the link goes to the publisher directly.
+    """
+    if url and not url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="url must be http(s)")
+
+    if doi:
+        doi = normalize_doi(doi)
+        target = await resolve_doi(doi) or url or f"https://doi.org/{doi}"
+    else:
+        target = url
+    if not target:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Provide doi or url")
+
+    prefix = current_user.library_proxy_prefix
+    return {"url": build_proxied_url(prefix, target) if prefix else target}

@@ -150,7 +150,8 @@ class CacheAbstractEnricher(PaperEnricher):
     Reads from the `paper_abstracts` table for DOIs with empty abstracts, and
     fetches missing ones from free APIs (Elsevier / CORE / Semantic Scholar)
     in parallel. Results are written back to the cache so subsequent searches
-    never repeat the fetch. Unavailable DOIs are marked so we don't retry.
+    avoid unnecessary repeat fetches. Transient failures are retried on the
+    persistent cache's bounded backoff schedule.
 
     Runs early in the fallback phase because a cache hit is O(1) and
     eliminates the need for slower scrapes.

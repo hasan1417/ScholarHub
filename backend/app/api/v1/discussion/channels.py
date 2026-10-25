@@ -35,6 +35,7 @@ from app.models import (
     User,
 )
 from app.schemas.project_discussion import (
+    ChannelScopeConfig,
     DiscussionChannelCreate,
     DiscussionChannelResourceCreate,
     DiscussionChannelResourceResponse,
@@ -57,6 +58,74 @@ from app.api.v1.discussion_helpers import (
 router = APIRouter()
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_channel_scope(
+    db: Session,
+    project_id: UUID,
+    scope: ChannelScopeConfig,
+) -> None:
+    """Ensure every channel scope resource belongs to the current project."""
+    paper_ids = scope.paper_ids or []
+    if paper_ids:
+        valid_paper_ids = {
+            row[0]
+            for row in db.query(ResearchPaper.id).filter(
+                ResearchPaper.project_id == project_id,
+                ResearchPaper.id.in_(paper_ids),
+            ).all()
+        }
+        invalid_paper_id = next(
+            (paper_id for paper_id in paper_ids if paper_id not in valid_paper_ids),
+            None,
+        )
+        if invalid_paper_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid ID in paper_ids scope: {invalid_paper_id}",
+            )
+
+    reference_ids = scope.reference_ids or []
+    if reference_ids:
+        valid_reference_ids = {
+            row[0]
+            for row in db.query(ProjectReference.reference_id).filter(
+                ProjectReference.project_id == project_id,
+                ProjectReference.reference_id.in_(reference_ids),
+            ).all()
+        }
+        invalid_reference_id = next(
+            (
+                reference_id
+                for reference_id in reference_ids
+                if reference_id not in valid_reference_ids
+            ),
+            None,
+        )
+        if invalid_reference_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid ID in reference_ids scope: {invalid_reference_id}",
+            )
+
+    meeting_ids = scope.meeting_ids or []
+    if meeting_ids:
+        valid_meeting_ids = {
+            row[0]
+            for row in db.query(Meeting.id).filter(
+                Meeting.project_id == project_id,
+                Meeting.id.in_(meeting_ids),
+            ).all()
+        }
+        invalid_meeting_id = next(
+            (meeting_id for meeting_id in meeting_ids if meeting_id not in valid_meeting_ids),
+            None,
+        )
+        if invalid_meeting_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid ID in meeting_ids scope: {invalid_meeting_id}",
+            )
 
 
 @router.websocket("/projects/{project_id}/discussion/channels/{channel_id}/ws")
@@ -221,6 +290,9 @@ def create_discussion_channel(
     project = get_project_or_404(db, project_id)
     ensure_project_member(db, project, current_user, roles=[ProjectRole.ADMIN, ProjectRole.EDITOR])
 
+    if payload.scope is not None:
+        _validate_channel_scope(db, project.id, payload.scope)
+
     # Check for duplicate channel name
     channel_name = payload.name.strip()
     existing_channel = (
@@ -277,6 +349,9 @@ def update_discussion_channel(
     project = get_project_or_404(db, project_id)
     ensure_project_member(db, project, current_user, roles=[ProjectRole.ADMIN, ProjectRole.EDITOR])
     channel = _get_channel_or_404(db, project, channel_id)
+
+    if payload.scope is not None:
+        _validate_channel_scope(db, project.id, payload.scope)
 
     if payload.name:
         new_name = payload.name.strip()

@@ -17,8 +17,8 @@ class PaperMember(Base):
     __tablename__ = "paper_members"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    paper_id = Column(UUID(as_uuid=True), ForeignKey("research_papers.id"), nullable=False)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    paper_id = Column(UUID(as_uuid=True), ForeignKey("research_papers.id"), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
     role = Column(Enum(PaperRole), default=PaperRole.VIEWER, nullable=False)
     status = Column(String(20), default="invited")  # invited, accepted, declined
     invited_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)

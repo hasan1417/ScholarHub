@@ -6,7 +6,9 @@ This module collapses those into one record per work, always preferring the
 published version while preserving useful bits from the others (notably the
 arXiv free PDF URL).
 
-Matching rules (a paper is the same work if ANY key matches):
+Matching rules (a paper is the same work if ANY key matches, unless the two
+records carry different published DOIs — distinct works can share a title
+such as "Introduction", and "Part I" / "Part II" titles are near-identical):
   - Normalized DOI (treating "https://doi.org/X" and "X" identically,
     and stripping double-prefixed garbage seen in some OpenAlex responses)
   - arXiv ID (version-stripped)
@@ -204,6 +206,24 @@ def dedupe_papers(papers: List[DiscoveredPaper]) -> Tuple[List[DiscoveredPaper],
     n = len(papers)
     uf = _UnionFind()
 
+    # Published (non-arXiv) DOIs carried by each union-find root. Two groups
+    # holding different published DOIs are different works and never merge.
+    root_dois: Dict[int, set] = {}
+    for i, p in enumerate(papers):
+        nd = _normalize_doi(p.doi)
+        root_dois[i] = {nd} if nd and not _is_arxiv_doi(nd) else set()
+
+    def union_if_compatible(a: int, b: int) -> bool:
+        ra, rb = uf.find(a), uf.find(b)
+        if ra == rb:
+            return True
+        da, db = root_dois.get(ra, set()), root_dois.get(rb, set())
+        if da and db and da.isdisjoint(db):
+            return False
+        uf.union(a, b)
+        root_dois[uf.find(a)] = da | db
+        return True
+
     # Build an index from every match key to the paper indices that carry it.
     # Then union all indices that share a key.
     key_to_indices: Dict[str, List[int]] = {}
@@ -211,11 +231,15 @@ def dedupe_papers(papers: List[DiscoveredPaper]) -> Tuple[List[DiscoveredPaper],
         for key in p.match_keys():
             key_to_indices.setdefault(key, []).append(i)
 
-    for indices in key_to_indices.values():
+    # DOI and arXiv keys first, so title-based keys see each group's DOIs.
+    def key_order(item: Tuple[str, List[int]]) -> int:
+        return 0 if item[0].startswith(("doi:", "arxiv:")) else 1
+
+    for key, indices in sorted(key_to_indices.items(), key=key_order):
         if len(indices) > 1:
             first = indices[0]
             for j in indices[1:]:
-                uf.union(first, j)
+                union_if_compatible(first, j)
 
     # Fuzzy fallback — catches "same work, different venue" where titles have
     # been rephrased (e.g. preprint vs published) or doubled with a subtitle.
@@ -239,8 +263,7 @@ def dedupe_papers(papers: List[DiscoveredPaper]) -> Tuple[List[DiscoveredPaper],
             yj = papers[j].year
             if yi and yj and abs(yi - yj) > 1:
                 continue
-            if _fuzzy_title_similarity(ti, tj) >= _FUZZY_THRESHOLD:
-                uf.union(i, j)
+            if _fuzzy_title_similarity(ti, tj) >= _FUZZY_THRESHOLD and union_if_compatible(i, j):
                 logger.debug(
                     "dedup fuzzy-title union: '%s' == '%s'",
                     (papers[i].title or "")[:60], (papers[j].title or "")[:60],

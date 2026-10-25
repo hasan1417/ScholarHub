@@ -5,7 +5,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
@@ -16,6 +16,8 @@ from app.api.deps import get_current_user, get_current_verified_user
 from app.api.utils.project_access import ensure_project_member, get_project_or_404
 from app.database import SessionLocal, get_db
 from app.models import (
+    Project,
+    ProjectDiscussionChannel,
     ProjectDiscussionAssistantExchange,
     User,
 )
@@ -26,13 +28,13 @@ from app.schemas.project_discussion import (
     OpenRouterModelInfo,
     OpenRouterModelListResponse,
 )
-from app.services.ai_service import AIService
+from app.services.ai_service import ai_service as _discussion_ai_core
 from app.services.discussion_ai.openrouter_orchestrator import (
     OpenRouterOrchestrator,
     get_available_models_with_meta,
 )
 from app.api.utils.openrouter_access import resolve_openrouter_key_for_project
-from app.api.utils.request_dedup import check_and_set_request
+from app.api.utils.request_dedup import check_and_set_request, clear_request, update_request_status
 from app.services.subscription_service import SubscriptionService
 from app.api.v1.discussion_helpers import (
     build_ai_response as _build_ai_response,
@@ -47,7 +49,31 @@ router = APIRouter()
 
 logger = logging.getLogger(__name__)
 
-_discussion_ai_core = AIService()
+
+def _handle_message_in_new_session(
+    project_id: UUID,
+    channel_id: UUID,
+    user_id: UUID,
+    model: str,
+    api_key: str,
+    question: str,
+    **kwargs: Any,
+) -> Dict[str, Any]:
+    """Run synchronous AI and DB work entirely within its worker session."""
+    worker_db = SessionLocal()
+    try:
+        orchestrator = OpenRouterOrchestrator(
+            _discussion_ai_core, worker_db, model=model, user_api_key=api_key,
+        )
+        return orchestrator.handle_message(
+            worker_db.get(Project, project_id),
+            worker_db.get(ProjectDiscussionChannel, channel_id),
+            question,
+            current_user=worker_db.get(User, user_id),
+            **kwargs,
+        )
+    finally:
+        worker_db.close()
 
 
 @router.get("/projects/{project_id}/discussion/models")
@@ -90,6 +116,45 @@ def list_openrouter_models(
     return models
 
 
+def _find_own_exchange(
+    db: Session, channel_id: UUID, author_id: UUID, existing_exchange_id: str,
+) -> Optional[ProjectDiscussionAssistantExchange]:
+    """The exchange a duplicate key points at, only if it is this author's in this channel."""
+    try:
+        exchange_uuid = UUID(existing_exchange_id)
+    except ValueError:
+        return None
+    return (
+        db.query(ProjectDiscussionAssistantExchange)
+        .filter(
+            ProjectDiscussionAssistantExchange.id == exchange_uuid,
+            ProjectDiscussionAssistantExchange.channel_id == channel_id,
+            ProjectDiscussionAssistantExchange.author_id == author_id,
+        )
+        .one_or_none()
+    )
+
+
+def _duplicate_exchange_response(
+    db: Session, channel_id: UUID, author_id: UUID, existing_exchange_id: str,
+) -> Optional[DiscussionAssistantResponse]:
+    """Answer a retry with the original result; None when the original failed and the
+    retry should run; 409 while the original is still in progress."""
+    exchange = _find_own_exchange(db, channel_id, author_id, existing_exchange_id)
+    if exchange is not None and exchange.status == "completed":
+        return DiscussionAssistantResponse.model_validate(exchange.response)
+    if exchange is not None and exchange.status == "failed":
+        return None
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "error": "duplicate_request",
+            "message": "This request is already being processed.",
+            "exchange_id": existing_exchange_id,
+        },
+    )
+
+
 @router.post(
     "/projects/{project_id}/discussion/channels/{channel_id}/assistant",
     response_model=DiscussionAssistantResponse,
@@ -102,7 +167,7 @@ async def invoke_discussion_assistant(
     stream: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_verified_user),
-):
+) -> Union[DiscussionAssistantResponse, StreamingResponse]:
     """
     Invoke the AI assistant using OpenRouter.
 
@@ -162,7 +227,7 @@ async def invoke_discussion_assistant(
     from app.services.subscription_service import get_model_credit_cost
     credit_cost = get_model_credit_cost(model)
     allowed, current_usage, limit = SubscriptionService.check_feature_limit(
-        db, current_user.id, "discussion_ai_calls"
+        db, current_user.id, "discussion_ai_calls", amount=credit_cost
     )
     if not allowed:
         raise HTTPException(
@@ -242,14 +307,6 @@ async def invoke_discussion_assistant(
     if last_exchange and last_exchange.conversation_state:
         previous_state_dict = last_exchange.conversation_state
 
-    # Create OpenRouter orchestrator with the determined API key
-    orchestrator = OpenRouterOrchestrator(
-        _discussion_ai_core,
-        db,
-        model=model,
-        user_api_key=api_key_to_use,
-    )
-
     # Convert conversation history if provided
     conversation_history = None
     if payload.conversation_history:
@@ -258,21 +315,32 @@ async def invoke_discussion_assistant(
             for h in payload.conversation_history
         ]
 
+    dedup_key = f"{current_user.id}:{payload.idempotency_key}" if payload.idempotency_key else ""
+
     # Use streaming if requested
     if stream:
+        orchestrator = OpenRouterOrchestrator(
+            _discussion_ai_core, db, model=model, user_api_key=api_key_to_use,
+        )
         exchange_id = str(uuid4())
         exchange_created_at = datetime.utcnow().isoformat() + "Z"
 
         # Check for duplicate request using idempotency key
-        if payload.idempotency_key:
-            is_new, existing_exchange_id = check_and_set_request(
-                payload.idempotency_key,
-                exchange_id,
-            )
+        if dedup_key:
+            is_new, existing_exchange_id = check_and_set_request(dedup_key, exchange_id)
+            existing = None
             if not is_new and existing_exchange_id:
+                existing = _find_own_exchange(db, channel.id, current_user.id, existing_exchange_id)
+            if existing is not None and existing.status == "failed":
+                update_request_status(dedup_key, exchange_id)  # the earlier attempt produced nothing
+            elif not is_new and existing_exchange_id:
                 logger.info(f"Duplicate request detected, returning existing exchange: {existing_exchange_id}")
+                if existing is not None and existing.status == "completed":
+                    duplicate_event = json.dumps({"type": "result", "payload": existing.response})
+                else:
+                    duplicate_event = json.dumps({"type": "duplicate", "exchange_id": existing_exchange_id})
                 async def duplicate_response():
-                    yield f"data: {json.dumps({'type': 'duplicate', 'exchange_id': existing_exchange_id})}\n\n"
+                    yield f"data: {duplicate_event}\n\n"
                 return StreamingResponse(
                     duplicate_response(),
                     media_type="text/event-stream",
@@ -332,6 +400,38 @@ async def invoke_discussion_assistant(
             """Async generator that streams SSE events from the orchestrator."""
             try:
                 final_result = None
+
+                async def _persist_stream_failure(error: Dict[str, Any]) -> None:
+                    await asyncio.to_thread(clear_request, dedup_key)
+                    error_message = error.get("message") or "The AI provider is temporarily unavailable. Please try again."
+                    failed_response = DiscussionAssistantResponse(
+                        message=error_message,
+                        citations=[],
+                        reasoning_used=False,
+                        model=selected_model,
+                        usage=None,
+                        suggested_actions=[],
+                    )
+                    await asyncio.to_thread(
+                        _persist_assistant_exchange,
+                        proj_id,
+                        chan_id,
+                        user_id,
+                        exchange_id,
+                        question_text,
+                        failed_response.model_dump(mode="json"),
+                        exchange_created_at,
+                        {},
+                        "failed",
+                        error_message,
+                    )
+                    await _broadcast_discussion_event(
+                        proj_id,
+                        chan_id,
+                        "assistant_failed",
+                        {"exchange_id": exchange_id, "error": error_message},
+                    )
+
                 async for event in orchestrator.handle_message_streaming(
                     project,
                     channel,
@@ -376,7 +476,18 @@ async def invoke_discussion_assistant(
                     elif event.get("type") == "round_separator":
                         yield "data: " + json.dumps({"type": "round_separator", "round": event.get("round", 0)}) + "\n\n"
                     elif event.get("type") == "result":
-                        final_result = event.get("data", {})
+                        result_data = event.get("data", {})
+                        if result_data.get("ok") is False:
+                            error = result_data.get("error") or {}
+                            await _persist_stream_failure(error)
+                            yield "data: " + json.dumps({
+                                "type": "error",
+                                "error": error.get("code", "provider_unavailable"),
+                                "message": error.get("message", "The AI provider is temporarily unavailable. Please try again."),
+                                "retryable": error.get("retryable", True),
+                            }) + "\n\n"
+                            return
+                        final_result = result_data
                         response_model = _build_ai_response(final_result, selected_model)
                         citation_validation = final_result.get("citation_validation") or {}
                         if citation_validation:
@@ -401,17 +512,29 @@ async def invoke_discussion_assistant(
                             logger.error(f"Failed to persist completed exchange {exchange_id}: {e}")
                         yield "data: " + json.dumps({"type": "result", "payload": response_model.model_dump(mode="json")}) + "\n\n"
                     elif event.get("type") == "error":
-                        yield "data: " + json.dumps({"type": "error", "message": event.get("message", "Error")}) + "\n\n"
+                        error = {
+                            "code": event.get("error", "provider_unavailable"),
+                            "message": event.get("message", "The AI provider is temporarily unavailable. Please try again."),
+                            "retryable": event.get("retryable", True),
+                        }
+                        await _persist_stream_failure(error)
+                        yield "data: " + json.dumps({
+                            "type": "error",
+                            "error": error["code"],
+                            "message": error["message"],
+                            "retryable": error["retryable"],
+                        }) + "\n\n"
+                        return
 
                 # Fire-and-forget: persist + broadcast in background so the stream closes immediately
                 if final_result:
                     _final = final_result
 
-                    async def _post_stream_work():
+                    async def _post_stream_work() -> None:
                         # Persist already done before yield — just broadcast + usage here
+                        resp = _build_ai_response(_final, selected_model)
+                        pdict = resp.model_dump(mode="json")
                         try:
-                            resp = _build_ai_response(_final, selected_model)
-                            pdict = resp.model_dump(mode="json")
                             await _broadcast_discussion_event(
                                 proj_id, chan_id, "assistant_reply",
                                 {"exchange": {
@@ -423,14 +546,31 @@ async def invoke_discussion_assistant(
                                     "status": "completed",
                                 }},
                             )
-                            await asyncio.to_thread(SubscriptionService.increment_usage, db, user_id, "discussion_ai_calls", credit_cost)
                         except Exception as e:
-                            logger.error(f"Post-stream work failed for exchange {exchange_id}: {e}")
+                            logger.error(f"Post-stream broadcast failed for exchange {exchange_id}: {e}")
+
+                        try:
+                            def _increment_stream_usage() -> None:
+                                usage_db = SessionLocal()
+                                try:
+                                    SubscriptionService.increment_usage(
+                                        usage_db,
+                                        user_id,
+                                        "discussion_ai_calls",
+                                        credit_cost,
+                                    )
+                                finally:
+                                    usage_db.close()
+
+                            await asyncio.to_thread(_increment_stream_usage)
+                        except Exception as e:
+                            logger.error(f"Post-stream usage update failed for exchange {exchange_id}: {e}")
 
                     asyncio.create_task(_post_stream_work())
 
             except GeneratorExit:
                 logger.info(f"Client disconnected during streaming for exchange {exchange_id}")
+                clear_request(dedup_key)
                 # Mark exchange as failed so it doesn't stay stuck in "processing" forever.
                 # _persist_assistant_exchange is sync (uses its own SessionLocal), so no await needed.
                 try:
@@ -446,6 +586,7 @@ async def invoke_discussion_assistant(
                     logger.warning(f"Failed to mark exchange {exchange_id} as failed after client disconnect")
             except Exception as exc:
                 logger.exception("Streaming error", exc_info=exc)
+                await asyncio.to_thread(clear_request, dedup_key)
                 await asyncio.to_thread(
                     _persist_assistant_exchange,
                     proj_id, chan_id, user_id, exchange_id,
@@ -458,7 +599,12 @@ async def invoke_discussion_assistant(
                     proj_id, chan_id, "assistant_failed",
                     {"exchange_id": exchange_id, "error": "Processing failed"},
                 )
-                yield "data: " + json.dumps({"type": "error", "message": "Processing failed"}) + "\n\n"
+                yield "data: " + json.dumps({
+                    "type": "error",
+                    "error": "processing_failed",
+                    "message": "Processing failed",
+                    "retryable": True,
+                }) + "\n\n"
 
         return StreamingResponse(
             stream_sse(),
@@ -467,23 +613,68 @@ async def invoke_discussion_assistant(
         )
 
     # Non-streaming mode
-    result = orchestrator.handle_message(
-        project,
-        channel,
-        payload.question,
-        recent_search_results=search_results_list,
-        recent_search_id=payload.recent_search_id,
-        previous_state_dict=previous_state_dict,
-        conversation_history=conversation_history,
-        reasoning_mode=payload.reasoning or False,
-        current_user=current_user,
-    )
+    exchange_id = str(uuid4())
+    exchange_created_at = datetime.utcnow().isoformat() + "Z"
+    if dedup_key:
+        is_new, existing_exchange_id = check_and_set_request(dedup_key, exchange_id)
+        if not is_new and existing_exchange_id:
+            logger.info(f"Duplicate request detected, existing exchange: {existing_exchange_id}")
+            answer = _duplicate_exchange_response(db, channel.id, current_user.id, existing_exchange_id)
+            if answer is not None:
+                return answer
+            update_request_status(dedup_key, exchange_id)
+
+    try:
+        result = await asyncio.to_thread(
+            _handle_message_in_new_session,
+            project.id,
+            channel.id,
+            current_user.id,
+            model,
+            api_key_to_use,
+            payload.question,
+            recent_search_results=search_results_list,
+            recent_search_id=payload.recent_search_id,
+            previous_state_dict=previous_state_dict,
+            conversation_history=conversation_history,
+            reasoning_mode=payload.reasoning or False,
+        )
+    except Exception:
+        # Nothing was produced, so the client's retry must be processed, not deduplicated.
+        clear_request(dedup_key)
+        raise
 
     response = _build_ai_response(result, model)
 
     # Persist exchange
-    exchange_id = str(uuid4())
-    exchange_created_at = datetime.utcnow().isoformat() + "Z"
+    if result.get("ok") is False:
+        clear_request(dedup_key)
+        provider_error = result.get("error") or {}
+        error_message = provider_error.get(
+            "message",
+            "The AI provider is temporarily unavailable. Please try again.",
+        )
+        _persist_assistant_exchange(
+            project.id,
+            channel.id,
+            current_user.id,
+            exchange_id,
+            payload.question,
+            response.model_dump(mode="json"),
+            exchange_created_at,
+            result.get("conversation_state", {}),
+            status="failed",
+            status_message=error_message,
+        )
+        raise HTTPException(
+            status_code=int(provider_error.get("status_code", status.HTTP_503_SERVICE_UNAVAILABLE)),
+            detail={
+                "error": provider_error.get("code", "provider_unavailable"),
+                "message": error_message,
+                "retryable": provider_error.get("retryable", True),
+            },
+        )
+
     _persist_assistant_exchange(
         project.id,
         channel.id,

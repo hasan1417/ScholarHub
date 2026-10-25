@@ -10,9 +10,19 @@ class Reference(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     # Optional link to a paper; a reference can exist in user's library without attachment
-    paper_id = Column(UUID(as_uuid=True), ForeignKey("research_papers.id", ondelete="CASCADE"), nullable=True)
+    paper_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("research_papers.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     # Owner of this reference (user library)
-    owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    owner_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
 
     title = Column(String(500), nullable=False)
     authors = Column(ARRAY(String))
@@ -28,7 +38,7 @@ class Reference(Base):
     pdf_url = Column(String(1000))
 
     status = Column(String(50), default="pending")  # pending, ingested, analyzed
-    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True)
+    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True, index=True)
 
     # Analysis fields
     summary = Column(Text)

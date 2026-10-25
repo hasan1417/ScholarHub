@@ -5,6 +5,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Boolean,
+    Index,
     UniqueConstraint,
     CheckConstraint,
     Enum,
@@ -116,6 +117,10 @@ class ProjectDiscussionChannelResource(Base):
             ")",
             name="ck_discussion_channel_resource_target",
         ),
+        Index("ix_project_discussion_channel_resources_channel", "channel_id"),
+        Index("ix_project_discussion_channel_resources_paper_id", "paper_id"),
+        Index("ix_project_discussion_channel_resources_reference_id", "reference_id"),
+        Index("ix_project_discussion_channel_resources_meeting_id", "meeting_id"),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -159,6 +164,7 @@ class ProjectDiscussionMessageAttachment(Base):
             "meeting_id IS NOT NULL OR url IS NOT NULL",
             name="ck_discussion_message_attachment_has_target",
         ),
+        Index("ix_project_discussion_message_attachments_message", "message_id"),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -194,6 +200,10 @@ class ProjectDiscussionTaskStatus(str, enum.Enum):
 
 class ProjectDiscussionTask(Base):
     __tablename__ = "project_discussion_tasks"
+    __table_args__ = (
+        Index("ix_project_discussion_tasks_project", "project_id"),
+        Index("ix_project_discussion_tasks_channel", "channel_id"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
@@ -226,6 +236,7 @@ class AIArtifactChannelLink(Base):
     __tablename__ = "ai_artifact_channel_links"
     __table_args__ = (
         UniqueConstraint("artifact_id", "channel_id", name="uq_ai_artifact_channel"),
+        Index("ix_ai_artifact_channel_links_channel", "channel_id"),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -247,6 +258,16 @@ class AIArtifactChannelLink(Base):
 
 class ProjectDiscussionMessage(Base):
     __tablename__ = "project_discussion_messages"
+    __table_args__ = (
+        Index("ix_project_discussion_messages_project_id", "project_id"),
+        Index(
+            "ix_project_discussion_messages_channel_created",
+            "channel_id",
+            "created_at",
+        ),
+        Index("ix_project_discussion_messages_user_id", "user_id"),
+        Index("ix_project_discussion_messages_parent_id", "parent_id"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
@@ -293,6 +314,15 @@ class ExchangeStatus(str, enum.Enum):
 
 class ProjectDiscussionAssistantExchange(Base):
     __tablename__ = "project_discussion_assistant_exchanges"
+    __table_args__ = (
+        Index("ix_project_discussion_assistant_exchanges_project_id", "project_id"),
+        Index(
+            "ix_discussion_assistant_channel_created",
+            "channel_id",
+            "created_at",
+        ),
+        Index("ix_discussion_assistant_author", "author_id"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
@@ -325,7 +355,12 @@ class DiscussionArtifact(Base):
     __tablename__ = "discussion_artifacts"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    channel_id = Column(UUID(as_uuid=True), ForeignKey("project_discussion_channels.id", ondelete="CASCADE"), nullable=False)
+    channel_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("project_discussion_channels.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     title = Column(String(500), nullable=False)
     filename = Column(String(500), nullable=False)
     format = Column(

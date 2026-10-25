@@ -19,7 +19,9 @@ SEARCH_PAPERS_SCHEMA = {
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Maximum number of papers to return.",
+                    "description": "Maximum number of papers to return, within the remaining turn budget.",
+                    "minimum": 1,
+                    "maximum": 100,
                     "default": 5,
                 },
                 "open_access_only": {
@@ -37,6 +39,7 @@ SEARCH_PAPERS_SCHEMA = {
                 },
             },
             "required": ["query"],
+            "additionalProperties": False,
         },
     },
 }
@@ -70,12 +73,15 @@ BATCH_SEARCH_PAPERS_SCHEMA = {
                 "topics": {
                     "type": "array",
                     "description": "List of topics to search for. Each query should be specific and high-signal.",
+                    "minItems": 1,
+                    "maxItems": 5,
                     "items": {
                         "type": "object",
+                        "additionalProperties": False,
                         "properties": {
                             "topic": {"type": "string", "description": "Display name for the topic"},
                             "query": {"type": "string", "description": "Specific academic query for this topic. Avoid keyword stuffing and raw year lists unless timeframe is explicitly requested."},
-                            "limit": {"type": "integer", "description": "Max papers per topic", "default": 5},
+                            "max_results": {"type": "integer", "description": "Maximum papers for this topic, subject to the remaining turn budget.", "default": 5, "minimum": 1, "maximum": 5},
                         },
                         "required": ["topic", "query"],
                     },
@@ -173,26 +179,31 @@ TOOL_SPECS: List[ToolSpec] = [
         name="search_papers",
         schema=SEARCH_PAPERS_SCHEMA,
         handler=_handle_search_papers,
+        mutating=False,
     ),
     ToolSpec(
         name="discover_topics",
         schema=DISCOVER_TOPICS_SCHEMA,
         handler=_handle_discover_topics,
+        mutating=False,
     ),
     ToolSpec(
         name="batch_search_papers",
         schema=BATCH_SEARCH_PAPERS_SCHEMA,
         handler=_handle_batch_search_papers,
+        mutating=False,
     ),
     ToolSpec(
         name="get_related_papers",
         schema=GET_RELATED_PAPERS_SCHEMA,
         handler=_handle_get_related_papers,
+        mutating=False,
     ),
     ToolSpec(
         name="semantic_search_library",
         schema=SEMANTIC_SEARCH_LIBRARY_SCHEMA,
         handler=_handle_semantic_search_library,
+        mutating=False,
     ),
 ]
 

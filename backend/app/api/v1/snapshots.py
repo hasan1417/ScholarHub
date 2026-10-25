@@ -23,8 +23,9 @@ from sqlalchemy.orm import Session
 import httpx
 
 from app.api.deps import get_db, get_current_user
+from app.api._paper_access import require_paper_access, require_paper_editor
 from app.core.config import settings
-from app.models import DocumentSnapshot, ResearchPaper, User, PaperMember
+from app.models import DocumentSnapshot, ResearchPaper, User
 from app.schemas.collab import CollabStateResponse
 
 from app.schemas.snapshot import (
@@ -54,24 +55,6 @@ def _resolve_collab_secret(provided: str | None) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid collaboration secret",
         )
-
-
-def _check_paper_access(db: Session, paper_id: UUID | str, user: User) -> ResearchPaper:
-    """Check if user has access to the paper."""
-    paper = db.query(ResearchPaper).filter(ResearchPaper.id == paper_id).first()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Paper not found")
-
-    # Check if user is owner or member
-    if paper.owner_id != user.id:
-        membership = db.query(PaperMember).filter(
-            PaperMember.paper_id == paper_id,
-            PaperMember.user_id == user.id
-        ).first()
-        if not membership:
-            raise HTTPException(status_code=403, detail="Not authorized to access this paper")
-
-    return paper
 
 
 def _get_next_sequence_number(db: Session, paper_id: UUID) -> int:
@@ -363,7 +346,7 @@ def create_manual_snapshot(
     current_user: User = Depends(get_current_user),
 ):
     """Create a manual snapshot of the current document state."""
-    paper = _check_paper_access(db, paper_id, current_user)
+    paper = require_paper_editor(db, paper_id, current_user)
 
     live_state = _fetch_live_collab_state(paper_id)
     materialized_files = paper.latex_files if isinstance(paper.latex_files, dict) else None
@@ -403,9 +386,9 @@ def list_snapshots(
     current_user: User = Depends(get_current_user),
 ):
     """List all snapshots for a paper, newest first."""
-    _check_paper_access(db, paper_id, current_user)
+    paper = require_paper_access(db, paper_id, current_user)
 
-    query = db.query(DocumentSnapshot).filter(DocumentSnapshot.paper_id == paper_id)
+    query = db.query(DocumentSnapshot).filter(DocumentSnapshot.paper_id == paper.id)
 
     if snapshot_type:
         query = query.filter(DocumentSnapshot.snapshot_type == snapshot_type)
@@ -429,11 +412,11 @@ def get_snapshot(
     current_user: User = Depends(get_current_user),
 ):
     """Get a specific snapshot with its content."""
-    _check_paper_access(db, paper_id, current_user)
+    paper = require_paper_access(db, paper_id, current_user)
 
     snapshot = db.query(DocumentSnapshot).filter(
         DocumentSnapshot.id == snapshot_id,
-        DocumentSnapshot.paper_id == paper_id,
+        DocumentSnapshot.paper_id == paper.id,
     ).first()
 
     if not snapshot:
@@ -451,11 +434,11 @@ def update_snapshot_label(
     current_user: User = Depends(get_current_user),
 ):
     """Update a snapshot's label."""
-    _check_paper_access(db, paper_id, current_user)
+    paper = require_paper_editor(db, paper_id, current_user)
 
     snapshot = db.query(DocumentSnapshot).filter(
         DocumentSnapshot.id == snapshot_id,
-        DocumentSnapshot.paper_id == paper_id,
+        DocumentSnapshot.paper_id == paper.id,
     ).first()
 
     if not snapshot:
@@ -478,11 +461,11 @@ def delete_snapshot(
     current_user: User = Depends(get_current_user),
 ):
     """Delete a snapshot."""
-    _check_paper_access(db, paper_id, current_user)
+    paper = require_paper_editor(db, paper_id, current_user)
 
     snapshot = db.query(DocumentSnapshot).filter(
         DocumentSnapshot.id == snapshot_id,
-        DocumentSnapshot.paper_id == paper_id,
+        DocumentSnapshot.paper_id == paper.id,
     ).first()
 
     if not snapshot:
@@ -506,16 +489,16 @@ def get_snapshot_diff(
     current_user: User = Depends(get_current_user),
 ):
     """Compute diff between two snapshots."""
-    _check_paper_access(db, paper_id, current_user)
+    paper = require_paper_access(db, paper_id, current_user)
 
     snapshot1 = db.query(DocumentSnapshot).filter(
         DocumentSnapshot.id == snapshot_id1,
-        DocumentSnapshot.paper_id == paper_id,
+        DocumentSnapshot.paper_id == paper.id,
     ).first()
 
     snapshot2 = db.query(DocumentSnapshot).filter(
         DocumentSnapshot.id == snapshot_id2,
-        DocumentSnapshot.paper_id == paper_id,
+        DocumentSnapshot.paper_id == paper.id,
     ).first()
 
     if not snapshot1 or not snapshot2:
@@ -547,16 +530,16 @@ def get_snapshot_full_diff(
     current_user: User = Depends(get_current_user),
 ):
     """Compute a full-document diff between two snapshots."""
-    _check_paper_access(db, paper_id, current_user)
+    paper = require_paper_access(db, paper_id, current_user)
 
     snapshot1 = db.query(DocumentSnapshot).filter(
         DocumentSnapshot.id == from_id,
-        DocumentSnapshot.paper_id == paper_id,
+        DocumentSnapshot.paper_id == paper.id,
     ).first()
 
     snapshot2 = db.query(DocumentSnapshot).filter(
         DocumentSnapshot.id == to_id,
-        DocumentSnapshot.paper_id == paper_id,
+        DocumentSnapshot.paper_id == paper.id,
     ).first()
 
     if not snapshot1 or not snapshot2:
@@ -591,11 +574,11 @@ def restore_snapshot(
     This creates a new 'restore' snapshot and updates the paper content.
     The frontend is responsible for updating the Yjs document.
     """
-    paper = _check_paper_access(db, paper_id, current_user)
+    paper = require_paper_editor(db, paper_id, current_user)
 
     snapshot = db.query(DocumentSnapshot).filter(
         DocumentSnapshot.id == snapshot_id,
-        DocumentSnapshot.paper_id == paper_id,
+        DocumentSnapshot.paper_id == paper.id,
     ).first()
 
     if not snapshot:

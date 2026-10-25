@@ -49,8 +49,8 @@ class Document(Base):
     doi = Column(String(255))
     
     # Relationships
-    owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    paper_id = Column(UUID(as_uuid=True), ForeignKey("research_papers.id"))  # Optional: can exist without being part of a paper
+    owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    paper_id = Column(UUID(as_uuid=True), ForeignKey("research_papers.id"), index=True)  # Optional: can exist without being part of a paper
     
     # AI Processing
     is_processed_for_ai = Column(Boolean, default=False)

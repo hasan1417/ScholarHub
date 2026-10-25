@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Check, ChevronDown, ChevronUp, ExternalLink, FileText, Loader2, Lock, Unlock, X } from 'lucide-react'
 import { ProjectDiscoveryResultItem } from '../../types'
+import { LibraryAccessLink } from '../common/LibraryAccessLink'
 
 interface DiscoveryResultCardProps {
   item: ProjectDiscoveryResultItem
@@ -56,6 +57,8 @@ const SourceBadge = ({ source, url, doi }: { source: string; url?: string | null
     pubmed: 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
     core: 'bg-cyan-50 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
     europe_pmc: 'bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300',
+    ieee_xplore: 'bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300',
+    springer_nature: 'bg-orange-50 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
   }
 
   const color = sourceColors[source.toLowerCase()] || 'bg-gray-100 text-gray-700 dark:bg-slate-700 dark:text-slate-300'
@@ -172,6 +175,8 @@ export const DiscoveryResultCard = ({
                 DOI
               </a>
             )}
+
+            {!item.is_open_access && <LibraryAccessLink doi={item.doi} url={item.source_url} />}
 
             {item.published_year && (
               <span>{item.published_year}</span>

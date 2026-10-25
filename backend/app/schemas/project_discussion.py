@@ -6,6 +6,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator, field_validator
 
+from app.core.discussion_ai_limits import (
+    CONVERSATION_HISTORY_ITEM_MAX_CHARS,
+    CONVERSATION_HISTORY_MAX_ITEMS,
+)
 
 
 class DiscussionMessageCreate(BaseModel):
@@ -246,8 +250,8 @@ class RecentSearchResultItem(BaseModel):
 
 class ConversationHistoryItem(BaseModel):
     """A message in the conversation history."""
-    role: str  # "user" or "assistant"
-    content: str
+    role: Literal["user", "assistant"]
+    content: str = Field(..., max_length=CONVERSATION_HISTORY_ITEM_MAX_CHARS)
 
 
 class DiscussionAssistantRequest(BaseModel):
@@ -256,7 +260,10 @@ class DiscussionAssistantRequest(BaseModel):
     scope: Optional[List[str]] = None
     recent_search_results: Optional[List[RecentSearchResultItem]] = None  # Papers from last search
     recent_search_id: Optional[str] = None  # Search session ID for recent_search_results
-    conversation_history: Optional[List[ConversationHistoryItem]] = None  # Previous messages for context
+    conversation_history: Optional[List[ConversationHistoryItem]] = Field(
+        default=None,
+        max_length=CONVERSATION_HISTORY_MAX_ITEMS,
+    )  # Previous messages for context
     idempotency_key: Optional[str] = None  # Client-generated key to prevent duplicate requests
 
     @field_validator("scope")

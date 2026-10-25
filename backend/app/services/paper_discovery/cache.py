@@ -40,7 +40,7 @@ class LRUCache:
                     oldest = next(iter(self._cache))
                     del self._cache[oldest]
                     del self._timestamps[oldest]
-                self._cache[key] = value
+            self._cache[key] = value
             self._timestamps[key] = time.time()
 
     async def clear(self) -> None:
